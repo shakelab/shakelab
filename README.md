@@ -1,2 +1,2 @@
 # QuakeLab
-C++ training code
+Example code for seismology courses
