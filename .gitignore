@@ -3,5 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Package building
+build
+dist
+*.egg-info
+*.whl
+
 # Mac stuff
 .DS_Store
