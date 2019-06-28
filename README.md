@@ -1,4 +1,4 @@
-<img alt="OQ-SRTK - The Seismic Site Response Toolkit of OpenQuake" class="right" style="width: 60%" src="https://raw.githubusercontent.com/klunk386/OQ-SiteResponseToolkit/master/logo/OQ-Logo.png" />
+<img alt="QuakeLab - Tools for Engineering Seismology" class="right" style="width: 60%" src="https://raw.githubusercontent.com/klunk386/QuakeLab/master/logo/quakelab.png" />
 
 [![AGPLv3](https://www.gnu.org/graphics/agplv3-88x31.png)](https://www.gnu.org/licenses/agpl.html)
 
@@ -12,7 +12,7 @@ Current features:
 
 ### Dependencies
 
-OQ-SRTK requires the following dependencies:
+QuakeLab requires the following dependencies:
 
   * [NumPy/Scipy](http://www.scipy.org/)
   * [Matplotlib](http://matplotlib.org/)
