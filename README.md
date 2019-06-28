@@ -1,6 +1,9 @@
 <img alt="QuakeLab - Tools for Engineering Seismology" class="right" style="width: 60%" src="https://raw.githubusercontent.com/klunk386/QuakeLab/master/logo/quakelab.png" />
+
 [![AGPLv3](https://www.gnu.org/graphics/agplv3-88x31.png)](https://www.gnu.org/licenses/agpl.html)
+
 ---
+
 # QuakeLab
 
 QuakeLab is an opensource project with the goal of providing a set of free and opensource tools for seismologists dealing with most common enngineering problems
