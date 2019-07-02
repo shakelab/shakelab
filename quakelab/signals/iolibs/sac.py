@@ -34,7 +34,7 @@ from os.path import isfile
 
 class Sac(object):
 
-    def __init__(self, file=[], byte_order=[]):
+    def __init__(self, file=[], byte_order='le'):
         """
         Base class for sac file I/O
 
@@ -62,11 +62,9 @@ class Sac(object):
         # Variable initialisation
         self.head = {}
         self.data = [[],[]]
-        self.byte = 'le'
 
-        if byte_order:
-            # Set byte order
-            self.byte = byte_order
+        # Set byte order
+        self.byte = byte_order
 
         if file:
             # Import SAC file
@@ -79,7 +77,7 @@ class Sac(object):
 
     #--------------------------------------------------------------------------
 
-    def read(self, file, byte_order=[]):
+    def read(self, file, byte_order='le'):
         """
         Read SAC file from disk
 
@@ -88,9 +86,8 @@ class Sac(object):
             s.read('MyFile.sac', byte_order='be')
         """
 
-        if byte_order:
-            # Set byte order
-            self.byte = byte_order
+        # Set byte order
+        self.byte = byte_order
 
         # Open input SAC file
         with open(file, 'rb') as fid:
@@ -112,7 +109,7 @@ class Sac(object):
             return
 
         # Warn user if model file does not exist
-        print 'Error: File not found'
+        print('Error: File not found')
 
     #--------------------------------------------------------------------------
 
@@ -154,7 +151,7 @@ class Sac(object):
             return
 
         # Warn user if model file does not exist
-        print 'Error: File not found'
+        print('Error: File not found')
 
     #--------------------------------------------------------------------------
 
@@ -171,7 +168,7 @@ class Sac(object):
             data = self.head[H[0]]
 
             if data != H[3]:
-                print '{0:>12} = {1}'.format(H[0], data)
+                print('{0:>12} = {1}'.format(H[0], data))
 
 
 # =============================================================================
