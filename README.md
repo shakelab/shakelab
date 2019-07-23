@@ -9,18 +9,21 @@ QuakeLab is an opensource project with the goal of providing a set of free and o
 ### Installation
 
 QuakeLab can be installed using pip directly from the GitHub repository:
+
 ```console
 sudo -H python3.6 -m pip install git+https://github.com/klunk386/QuakeLab.git
 ```
-
 To update an existing installation:
 
+```console
 sudo -H python3.6 -m pip install --upgrade git+https://github.com/klunk386/QuakeLab.git
+```
 
 If you are a developer, you can simply install the locally cloned GIT repository using:
 
+```console
 sudo -H python3.6 -m pip install --upgrade --editable QuakeLab
-
+```
 
 ### Dependencies
 
