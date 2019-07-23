@@ -1,4 +1,4 @@
-# =============================================================================
+# ============================================================================
 #
 # Copyright (C) 2019 Valerio Poggi.
 # This file is part of QuakeLab.
@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
-# =============================================================================
+# ============================================================================
 """
 Module for basic waveform analysis
 """
@@ -35,4 +35,7 @@ class Recording(object):
                      'channels' : 1,
                      'units' : ''}
         self.data = {0 : None}
+
+
+
 

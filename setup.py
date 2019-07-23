@@ -22,9 +22,9 @@ setuptools.setup(
     ],
     install_requires=[
         'setuptools',
-        'numpy >=1.14, <1.17',
-        'scipy >=1.0.1, <1.4',
-        'shapely >=1.3, <1.7',
-        'matplotlib >=1.5, <3.2'
+        'numpy',
+        'scipy',
+        'shapely',
+        'matplotlib'
     ]
 )

@@ -6,12 +6,29 @@
 
 QuakeLab is an opensource project with the goal of providing a set of free and opensource tools for seismologists dealing with most common enngineering problems
 
+### Installation
+
+QuakeLab can be installed using pip directly from the GitHub repository:
+```console
+sudo -H python3.6 -m pip install git+https://github.com/klunk386/QuakeLab.git
+```
+
+To update an existing installation:
+
+sudo -H python3.6 -m pip install --upgrade git+https://github.com/klunk386/QuakeLab.git
+
+If you are a developer, you can simply install the locally cloned GIT repository using:
+
+sudo -H python3.6 -m pip install --upgrade --editable QuakeLab
+
+
 ### Dependencies
 
 QuakeLab requires the following dependencies:
 
   * [NumPy/Scipy](http://www.scipy.org/)
   * [Matplotlib](http://matplotlib.org/)
+  * [Shapely](https://pypi.org/project/Shapely/)
 
 ### License
 

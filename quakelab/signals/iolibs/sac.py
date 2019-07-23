@@ -30,8 +30,6 @@ from struct import pack, unpack
 from os.path import isfile
 
 
-# =============================================================================
-
 class Sac(object):
 
     def __init__(self, file=[], byte_order='le'):
