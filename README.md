@@ -1,7 +1,7 @@
 <img alt="QuakeLab - Tools for Engineering Seismology" class="right" style="width: 60%" src="https://raw.githubusercontent.com/klunk386/QuakeLab/master/logo/quakelab.png" />
 
 [![AGPLv3](https://www.gnu.org/graphics/agplv3-88x31.png)](https://www.gnu.org/licenses/agpl.html)
-[![Supported Python versions](https://img.shields.io/pypi/pyversions/openquake.engine.svg)](https://pypi.python.org/pypi/openquake.engine)
+[![Supported Python versions](https://img.shields.io/pypi/pyversions/quakelab.svg)](https://pypi.python.org/pypi/openquake.engine)
 
 # QuakeLab
 
