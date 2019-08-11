@@ -1,14 +1,14 @@
 # ============================================================================
 #
 # Copyright (C) 2019 Valerio Poggi.
-# This file is part of QuakeLab.
+# This file is part of ShakeLab.
 #
-# QuakeLab is free software: you can redistribute it and/or modify it
+# ShakeLab is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
 # by the Free Software Foundation, either version 3 of the License,
 # or (at your option) any later version.
 #
-# QuakeLab is distributed in the hope that it will be useful,
+# ShakeLab is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
@@ -21,32 +21,37 @@
 
 """
 
-from quakelab.signals.iolib import sac
-from quakelab.signals.waveform import Recording
+from shakelab.signals.iolibs import sac
+from shakelab.signals.waveform import Recording
 
 
-def import_recording (files, use_path=None, file_type='sac', **kwargs):
+def import_recording (file, use_path=None, file_type='sac', byte_order='le',
+                      **kwargs):
     """
     """
 
     # Initialise an empty trace
-    r = recording()
+    rec = Recording()
 
     # Import recording from file
     if file_type is 'sac':
 
-        s = sac.Sac()
-        s.Read(FileIn, byte_order='be')
+        if isinstance(file, list):
+            files = file
+        else:
+            files = [file]
 
-        key_map = {'dt': 'DELTA'}
-        r.data[0] = s.data[0]
+        for f in files:
+            s = sac.Sac()
+            s.read(f, byte_order=byte_order)
+
+            rec.dt = s.head['DELTA']
+            rec.channel.append(s.data[0])
 
     if file_type is 'ascii':
         print('ascii')
 
-
-
-    return r
+    return rec
 
 def export_recording(file, use_path=None, file_type='sac', **kwargs):
     print('export')

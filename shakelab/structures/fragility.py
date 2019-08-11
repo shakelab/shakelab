@@ -1,14 +1,14 @@
 # ============================================================================
 #
 # Copyright (C) 2019 Valerio Poggi.
-# This file is part of QuakeLab.
+# This file is part of ShakeLab.
 #
-# QuakeLab is free software: you can redistribute it and/or modify it
+# ShakeLab is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published
 # by the Free Software Foundation, either version 3 of the License,
 # or (at your option) any later version.
 #
-# QuakeLab is distributed in the hope that it will be useful,
+# ShakeLab is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
@@ -24,10 +24,12 @@ import json as _json
 import numpy as _np
 import scipy.stats as _stat
 import scipy.interpolate as _ipol
-import matplotlib.pyplot as plt
+import csv as _csv
 
+import matplotlib.pyplot as plt
 from abc import ABCMeta, abstractmethod
 import xml.etree.cElementTree as xet
+
 
 GMI_DEFAULT = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
@@ -237,6 +239,140 @@ class FragilityCollection(object):
                 fc.add_model(fm.to_discrete(gmi))
         return fc
 
+# ----------------------------------------------------------------------------
+
+class TaxonomyTree(object):
+    """
+    """
+    def __init__(self, json_file=None):
+        self.tree = []
+        if json_file is not None:
+            self.import_from_json(json_file)
+
+    def import_from_json(self, json_file):
+        with open(json_file) as jf:
+            data = _json.load(jf)
+            for fmt in data['taxonomy_list']:
+                self.tree.append(fmt)
+
+# ----------------------------------------------------------------------------
+
+class TaxonomyItem(object):
+    """
+    """
+    def __init__(self, id=None, number_of_buildings=None):
+        self.id = id
+        self.number_of_buildings = number_of_buildings
+        self.occupants = {'day' : None,
+                          'transit' : None,
+                          'night' : None}
+        self.cost = {'structural' : None,
+                     'nonstructural' : None,
+                     'content' : None,
+                     'bi' : None}
+
+class LocationItem(object):
+    """
+    """
+    def __init__(self, id=None, code=None,
+                       latitude=None, longitude=None, area=None):
+        self.id = id
+        self.code = code
+        self.latitude = latitude
+        self.longitude = longitude
+        self.area = area
+        self.taxonomy = []
+
+class Exposure(object):
+    """
+    """
+    def __init__(self, json_file=None):
+        self.location = []
+        if json_file is not None:
+            self.import_from_json(json_file)
+
+    def add_from_dict(self, exp):
+        """
+        """
+        li = LocationItem(exp['id'],
+                          exp['code'],
+                          float(exp['latitude']),
+                          float(exp['longitude']),
+                          float(exp['area']))
+
+        for tax in exp['taxonomy']:
+
+            ti = TaxonomyItem()
+            ti.id = tax['id']
+            ti.number_of_buildings = float(tax['number_of_buildings'])
+
+            for key, value in tax['occupants'].items():
+                ti.occupants[key] = float(value)
+            for key, value in tax['cost'].items():
+                ti.cost[key] = float(value)
+
+            li.taxonomy.append(ti)
+
+        self.location.append(li)
+
+    def import_from_json(self, json_file):
+
+        with open(json_file) as jf:
+            data = _json.load(jf)
+            for exp in data['exposure']:
+                self.add_from_dict(exp)
+
+    def export_to_xml(self, taxonomy_tree, xml_file):
+        """
+        WARNING: this is specific to our case study (Friuly Region)
+        and will be made more general in the future
+        """
+
+        nrml = xet.Element('nrml', {
+                    'xmlns' : 'http://openquake.org/xmlns/nrml/0.5',
+                    'xmlns:gml' : 'http://www.opengis.net/gml'})
+
+        em = xet.SubElement(nrml, 'exposureModel', {
+                    'id' : 'buildings',
+                    'category' : 'buildings',
+                    'taxonomySource' : 'GEM taxonomy'})
+
+        xet.SubElement(em, 'description').text = 'Buildings'
+
+        con = xet.SubElement(em, 'conversions')
+        ctp = xet.SubElement(con, 'costTypes')
+
+        for name in ['structura', 'nonstructural',
+                     'contents', 'business_interruption']:
+            xet.SubElement(ctp, 'costType', {
+                        'name' : name,
+                        'unit' : 'EUR',
+                        'type' : 'per_asset'})
+        xet.SubElement(con, 'area', {'type': 'per_asset', 'unit' : 'SQM'})
+        xet.SubElement(em, 'tagNames').text = 'Municipality Section'
+
+        ass = xet.SubElement(em, 'Assets')
+        for li in self.location:
+            for tax in li.taxonomy:
+                ast = xet.SubElement(ass, 'asset', {
+                            'id' : li.id,
+                            'name' : li.code,
+                            'area' : str(li.area),
+                            'number' : str(tax.number_of_buildings),
+                            'taxonomy' : tax.id})
+                xet.SubElement(ast, 'location', {
+                            'lon' : str(li.longitude),
+                            'lat' : str(li.latitude)})
+                occ = xet.SubElement(ast, 'occupances')
+                cst = xet.SubElement(ast, 'costs')
+
+        indent(nrml)
+
+        tree = xet.ElementTree(nrml)
+        tree.write(xml_file, encoding='utf-8', xml_declaration=True)
+
+# ----------------------------------------------------------------------------
+
 def indent(elem, level=0):
     """
     Code from Fredrik Lundh to create pretty indented xml files
@@ -256,18 +392,4 @@ def indent(elem, level=0):
         if level and (not elem.tail or not elem.tail.strip()):
             elem.tail = i
 
-
-class TaxonomyTree(object):
-    """
-    """
-    def __init__(self, json_file=None):
-        self.tree = []
-        if json_file is not None:
-            self.import_from_json(json_file)
-
-    def import_from_json(self, json_file):
-        with open(json_file) as jf:
-            data = _json.load(jf)
-            for fmt in data['taxonomy_list']:
-                self.tree.append(fmt)
 
