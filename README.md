@@ -1,5 +1,6 @@
 <img alt="ShakeLab - Tools for Engineering Seismology" class="right" style="width: 60%" src="https://raw.githubusercontent.com/klunk386/shakelab/master/logo/shakelab.png" />
 
+
 [![AGPLv3](https://www.gnu.org/graphics/agplv3-88x31.png)](https://www.gnu.org/licenses/agpl.html)
 [![Supported Python versions](https://img.shields.io/pypi/pyversions/shakelab.svg)](https://pypi.python.org/pypi/shakelab)
 
