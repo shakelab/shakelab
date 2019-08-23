@@ -176,7 +176,7 @@ class FragilityCollection(object):
             for fmd in data['fragility_collection']:
                 self.add_from_dict(fmd)
 
-    def export_to_xml(self, xml_file):
+    def export_to_xml(self, xml_file, ndl=0.1):
 
         nrml = xet.Element('nrml', {
                     'xmlns' : 'http://openquake.org/xmlns/nrml/0.5',
@@ -199,7 +199,7 @@ class FragilityCollection(object):
 
                 im = xet.SubElement(ff, 'imls', {
                             'imt' : '{0}'.format(m.gmt),
-                            'noDamageLimit' : '{0}'.format(m.bounds[0]),
+                            'noDamageLimit' : '{0}'.format(ndl),
                             'minIML' : '{0}'.format(m.bounds[0]),
                             'maxIML' : '{0}'.format(m.bounds[1])})
 
@@ -218,7 +218,7 @@ class FragilityCollection(object):
 
                 im = xet.SubElement(ff, 'imls', {
                             'imt' : '{0}'.format(m.gmt),
-                            'noDamageLimit' : '{0}'.format(m.bounds[0])})
+                            'noDamageLimit' : '{0}'.format(ndl])})
                 im.text = ' '.join(str(n) for n in m.gmi)
 
                 for dsl in m.damage_state.keys():
