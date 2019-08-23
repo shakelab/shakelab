@@ -218,7 +218,7 @@ class FragilityCollection(object):
 
                 im = xet.SubElement(ff, 'imls', {
                             'imt' : '{0}'.format(m.gmt),
-                            'noDamageLimit' : '{0}'.format(ndl])})
+                            'noDamageLimit' : '{0}'.format(ndl)})
                 im.text = ' '.join(str(n) for n in m.gmi)
 
                 for dsl in m.damage_state.keys():
