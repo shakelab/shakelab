@@ -21,12 +21,21 @@
 An simple Python library for MiniSeeed file manipulation
 """
 
+from struct import pack, unpack
+
 
 class MiniSeed(object):
 
-    def __init__(self, file=[]):
+    def __init__(self, file=[], byte_order='le'):
         """
         """
+
+        # Variable initialisation
+        self.head = {}
+        self.data = []
+
+        # Set byte order
+        self.byte = byte_order
 
         if file:
             # Import miniSEED file
@@ -41,30 +50,64 @@ class MiniSeed(object):
 
         with open(file, 'rb') as fid:
 
-            rec = read_record(fid, offset)
+            rec = self.read_record(fid, 0)
+
+    def read_record(self, fid, offset):
+        """
+        """
+        # Record sequence number
+        print(_fread(fid, 6, 's', self.byte))
+
+        # Data header/quality indicator
+        print(_fread(fid, 1, 's', self.byte))
+
+        # Reserved
+        print(_fread(fid, 1, 's', self.byte))
+
+        return []
+
+    def read_header(self, fid):
+        """
+        """
+        a=1
+
+    def read_blockette(self, fid):
+        """
+        """
+        a=1
+
+    def read_data(self, fid):
+        """
+        """
+        a=1
 
 
 # =============================================================================
+# INTERNAL: bytewise read
 
-def read_record(fid, offset):
-    """
-    """
-    return []
+def _fread(fid, bnum, bkey, bord):
 
-def read_header(fid):
-    """
-    """
-    a=1
+    hex = fid.read(bnum)
 
-def read_blockette(fid):
-    """
-    """
-    a=1
+    if bkey == 's': bkey = str(bnum) + bkey
+    if bord == 'be': bkey = '>' + bkey
+    if bord == 'le': bkey = '<' + bkey
 
-def read_data():
-    """
-    """
-    a=1
+    data = unpack(bkey, hex)[0]
+
+    return data
 
 
+# =============================================================================
+# INTERNAL: bytewise write
+
+def _fwrite(fid, data, bnum, bkey, bord):
+
+    if bkey == 's': bkey = str(bnum) + bkey
+    if bord == 'be': bkey = '>' + bkey
+    if bord == 'le': bkey = '<' + bkey
+
+    hex = pack(bkey, data)
+
+    fid.write(hex)
 

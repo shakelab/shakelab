@@ -188,11 +188,11 @@ class FragilityCollection(object):
                     'lossCategory' : 'structural'})
  
         xet.SubElement(fm, 'description').text = 'Fragility model'
-        xet.SubElement(fm, 'limitStates').text = ''
+        xet.SubElement(fm, 'limitStates').text = 'D1 D2 D3 D4 D5'
 
         for m in self.model:
             if isinstance(m, FragilityModelParametric):
-                ff = xet.SubElement(nrml, 'fragilityFunction', {
+                ff = xet.SubElement(fm, 'fragilityFunction', {
                             'id' : '{0}'.format(m.id),
                             'format' : 'continuous',
                             'shape' : 'lognormal'})
@@ -212,7 +212,7 @@ class FragilityCollection(object):
                                 'stddev' : '{0}'.format(stdv)})
 
             if isinstance(m, FragilityModelDiscrete):
-                ff = xet.SubElement(nrml, 'fragilityFunction', {
+                ff = xet.SubElement(fm, 'fragilityFunction', {
                             'id' : '{0}'.format(m.id),
                             'format' : 'discrete'})
 
