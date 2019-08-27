@@ -12,12 +12,12 @@ ShakeLab is an opensource project with the goal of providing a set of free and o
 ShakeLab can be installed directly from the GitHub repository using pip:
 
 ```console
-sudo -H python3 -m pip install git+https://github.com/klunk386/shakelab.git
+sudo -H python3 -m pip install git+https://github.com/shakelab/shakelab.git
 ```
 To upgrade an existing installation:
 
 ```console
-sudo -H python3 -m pip install --upgrade git+https://github.com/klunk386/shakelab.git
+sudo -H python3 -m pip install --upgrade git+https://github.com/shakelab/shakelab.git
 ```
 
 If you are a developer, you can simply install the cloned GIT repository with:
