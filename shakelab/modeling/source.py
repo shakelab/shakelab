@@ -22,6 +22,10 @@
 
 import numpy as _np
 
+AVERAGE_RADIATION = 0.55
+SURFACE_AMPLIFICATION = 2.
+HORIZONTAL_PARTITION = 0.7071
+
 def source_spectrum(m0, omega, omega_corner, order=2., rho=2800.,
                               beta=3200., gamma=2, n=1):
     """
@@ -55,6 +59,12 @@ def source_spectrum(m0, omega, omega_corner, order=2., rho=2800.,
     spectrum = plateau/(1.+(omega/omega_corner)**(n*gamma))**(1./n)
 
     return spectrum
+
+
+def corner_frequency(m0, stress_drop, beta):
+    """
+    """
+    return 0.4906*beta*(stress_drop/m0)**(1./3.)
 
 
 def magnitude_to_moment(mw):
