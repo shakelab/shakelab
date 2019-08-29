@@ -3,9 +3,9 @@
 [![AGPLv3](https://www.gnu.org/graphics/agplv3-88x31.png)](https://www.gnu.org/licenses/agpl.html)
 [![Supported Python versions](https://img.shields.io/pypi/pyversions/shakelab.svg)](https://pypi.python.org/pypi/shakelab)
 
-# ShakeLab (WORK IN PROGRESS)
-
 ShakeLab is an opensource project with the goal of providing a set of free and opensource tools for seismologists dealing with most common engineering problems.
+
+Warning: This is still **WORK IN PROGRESS!**
 
 ### Installation
 
