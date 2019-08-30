@@ -25,47 +25,59 @@ from scipy.constants import g
 
 from shakelab.modeling.gmpe.base import GMPE
 
-class Atkinson2015(GMPE):
+class BragatoSlejko2005(GMPE):
     """
     Reference pubblication:
-        Atkinson, G. A. (2015) Ground-Motion Prediction Equation for
-        Small-to-Moderate Events at Short Hypocentral Distances,
-        with Application to Induced-Seismicity Hazards.
-        Bulletin of the Seismological Society of America. 105(2)
+        Bragato P.L. and Slejko D. (2005).
+        Empirical Ground-Motion Attenuation Relations for the
+        Eastern Alps in the Magnitude Range 2.5–6.3.
+        Bulletin of the Seismological Society of America.
+        Vol. 95, No. 1, pp. 252–276,
+
+    Distance: epicentral
     """
 
-    COEFF_FILE = 'atkinson_2015.json'
+    COEFF_FILE = 'bragato_slejko_2005.json'
+    COEFF_KEY = 'epicentral'
 
-    REFERENCE_VELOCITY = 760.
-    DISTANCE_METRIC = 'hypocentral'
-    MAGNITUDE_TYPE = 'Mw'
+    REFERENCE_VELOCITY = 800.
+    DISTANCE_METRIC = 'epicentral'
+    MAGNITUDE_TYPE = 'ML'
 
     def __init__(self):
-        super().__init__(self.COEFF_FILE)
+        super().__init__(self.COEFF_FILE, label=self.COEFF_KEY)
 
     def ground_motion(self, imt, mag, dist):
 
         # Extract coefficients for the given intensity measure type
         C = self.get_coefficients(imt)
 
+        # Distance term
+        r = _np.sqrt(dist**2 + C['h']**2)
+
         # Compute mean
-        heff = _np.max([1., 10.**(-1.72+0.43*mag)])
-        mean = C['c0'] + C['c1']*mag + C['c2']*(mag**2.)
-        mean += C['c3']*_np.log10(_np.sqrt(dist**2. + heff**2.))
+        mean = C['a'] + (C['b'] + C['c']*mag)*mag
+        mean += (C['d'] + C['e']*mag**3)*_np.log10(r)
 
         # Compute standard deviation
-        stdv = C['phi']
+        stdv = C['s']
 
         # Convert to natural log
         mean *= _np.log(10.)
         stdv *= _np.log(10.)
 
-        if not imt == 'PGV':
-            # Convert from cm/s2 to g
-            mean -= _np.log(100.*g)
-        else:
+        if imt == 'PGV':
             # Convert from cm/s to m/s
             mean -= _np.log(100.)
 
         return (mean, stdv)
+
+
+class BragatoSlejko2005JB(BragatoSlejko2005):
+    """
+    """
+
+    DISTANCE_METRIC = 'joyner-boore'
+    COEFF_KEY = 'joyner-boore'
+
 
