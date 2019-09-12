@@ -115,7 +115,7 @@ def normal_to_lognormal(mean, stdv):
     teta = mean / _np.sqrt(1 + (stdv / mean) ** 2)
     return beta, teta
 
-def plot_fragility_model(fm, gmi):
+def plot_fragility_model(fm, gmi, file=None):
     """
     """
     plt.figure(figsize=(6, 4), dpi=150)
@@ -132,13 +132,28 @@ def plot_fragility_model(fm, gmi):
     plt.grid('on')
     plt.show(block=False)
 
+    if file is not None:
+        plt.savefig(file, dpi=150)
+
 class FragilityCollection(object):
     """
     """
     def __init__(self, json_file=None):
+        self.__counter = 0
         self.model = []
         if json_file is not None:
             self.import_from_json(json_file)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            model = self.model[self.__counter]
+        except IndexError:
+            raise StopIteration
+        self.__counter += 1
+        return model
 
     def add_model(self, fragility_model):
         self.model.append(fragility_model)
