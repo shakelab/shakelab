@@ -23,6 +23,41 @@ An simple Python library for MiniSeeed file manipulation
 
 from struct import pack, unpack
 
+class ByteStream(object):
+    """
+    """
+
+    def __init__(self, byte_order='le'):
+
+        self.data = []
+        self.offset = 0
+        self.byte_order = byte_order
+
+    def read(self, fid, byte_num):
+        """
+        """
+        self.data = fid.read(byte_num)
+        self.offset = 0
+
+        if self.data:
+            return True
+        else:
+            return False
+
+    def get(self, byte_key, byte_num=1):
+        """
+        """
+        byte_pack = self.data[self.offset:self.offset + byte_num]
+        self.offset += byte_num
+
+        if byte_key == 's':
+            byte_key = str(byte_num) + byte_key
+
+        byte_map = {'be' : '>', 'le' : '<'}
+        byte_key = byte_map[self.byte_order] + byte_key
+
+        return unpack(byte_key, byte_pack)[0]
+
 
 class MiniSeed(object):
 
@@ -31,58 +66,135 @@ class MiniSeed(object):
         """
 
         # Variable initialisation
-        self.head = {}
-        self.block = {}
+        self.header = {}
+        self.blockette = {}
         self.data = []
 
-
         # Set byte order
-        self.byte = byte_order
-
-        self.offset = 0.
+        self.byte_order = byte_order
 
         if file is not None:
             # Import miniSEED file
             self.read(file)
 
-    #--------------------------------------------------------------------------
-
     def read(self, file):
         """
         """
 
+        import sys
+
         with open(file, 'rb') as fid:
 
-            rec = self._read_record(fid)
+            while True:
+                # Reading the fixed header (48 bytes)
+                byte_stream = ByteStream(self.byte_order)
 
-    def _read_record(self, fid):
+                if not byte_stream.read(fid, 48):
+                    break
+                self._read_header(byte_stream)
+
+                # Reading the blockettes
+                data_offset = self.header['OFFSET_TO_BEGINNING_OF_DATA']
+                byte_stream.read(fid, data_offset - 48)
+                self._read_blockette(byte_stream)
+
+                # Reading data
+                data_len = self.blockette[1000]['DATA_RECORD_LENGTH']
+                byte_stream.read(fid, 2**data_len - data_offset)
+
+                self._read_data(byte_stream)
+
+                print(self.header)
+                print(self.blockette)
+                #print(self.data)
+
+                import matplotlib.pyplot as plt
+                plt.plot(self.data)
+
+                #sys.exit()
+
+    def _read_header(self, byte_stream):
         """
+        Importing header structure
         """
 
-        # Importing header structure
-        for H in _HdrStruc:
-            self.head[H[0]] = _fread(fid, H[1], H[2], self.byte)
+        head_struc = [('SEQUENCE_NUMBER', 's', 6),
+                      ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
+                      ('RESERVED_BYTE', 's', 1),
+                      ('STATION_CODE', 's', 5),
+                      ('LOCATION_IDENTIFIER', 's', 2),
+                      ('CHANNEL_IDENTIFIER', 's', 3),
+                      ('NETWORK_CODE', 's', 2),
+                      ('YEAR', 'H', 2),
+                      ('DAY', 'H', 2),
+                      ('HOURS', 'B', 1),
+                      ('MINUTES', 'B', 1),
+                      ('SECONDS', 'B', 1),
+                      ('UNUSED', 'B', 1),
+                      ('MSECONDS', 'H', 2),
+                      ('NUMBER_OF_SAMPLES', 'H', 2),
+                      ('SAMPLE_RATE_FACTOR', 'h', 2),
+                      ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
+                      ('ACTIVITY_FLAGS', 'B', 1),
+                      ('IO_FLAGS', 'B', 1),
+                      ('DATA_QUALITY_FLAGS', 'B', 1),
+                      ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
+                      ('TIME_CORRECTION', 'l', 4),
+                      ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
+                      ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
 
-        # Importing blockettes
-        for nb in range(self.head['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
-            block_type = _fread(fid, 2, 'H', self.byte)
-            offset = _fread(fid, 2, 'H', self.byte)
+        self.header = {}
+        for hs in head_struc:
+            self.header[hs[0]] = byte_stream.get(hs[1], hs[2])
 
-            self.block[block_type] = {}
-            for B in BlkDict[block_type]:
-                self.block[block_type][B[0]] = _fread(fid, B[1], B[2], self.byte)
+    def _read_blockette(self, byte_stream):
+        """
+        Importing blockettes
+        """
 
-        # Preallocate data array
-        self.data = [None] * self.head['NUMBER_OF_SAMPLES']
+        block_struc =  {1000 : [('ENCODING_FORMAT', 'B', 1),
+                                ('WORD_ORDER', 'B', 1),
+                                ('DATA_RECORD_LENGTH', 'B', 1),
+                                ('RESERVED', 'B', 1)],
+                        1001 : [('TIMING_QUALITY', 'B', 1),
+                                ('MICRO_SEC', 'B', 1),
+                                ('RESERVED', 'B', 1),
+                                ('FRAME_COUNT', 'B', 1)]}
 
-        # Importing data
-        ef = self.block[1000]['ENCODING_FORMAT']
+        for nb in range(self.header['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
 
-        if ef in [0, 1, 3, 4, 5]:
-            for s in range(self.head['NUMBER_OF_SAMPLES']):
-                self.data[s] = _fread(fid, T[ef][0], T[ef][1], self.byte)
+            # Blockette code
+            block_type = byte_stream.get('H', 2)
 
-        if ef is 10:
+            # Offset to the beginning of the next blockette
+            offset_next = byte_stream.get('H', 2)
+
+            blockette = {}
+            for bs in block_struc[block_type]:
+                blockette[bs[0]] = byte_stream.get(bs[1], bs[2])
+                self.blockette[block_type] = blockette
+
+    def _read_data(self, byte_stream):
+        """
+        Importing data
+        """
+
+        data_struc = {0 : ('s', 1),
+                      1 : ('h', 2),
+                      3 : ('i', 4),
+                      4 : ('f', 4)}
+
+        nos = self.header['NUMBER_OF_SAMPLES']
+        enc = self.blockette[1000]['ENCODING_FORMAT']
+
+        data = [None] * nos
+
+        if enc in [0, 1, 3, 4, 5]:
+            for ds in range(nos):
+                data[ds] = byte_stream.get(data_struc[enc][0],
+                                           data_struc[enc][1])
+
+        if enc is 10:
 
             # for s in range(self.head['NUMBER_OF_SAMPLES']):
             #     self.data[s] = _fread(fid, 4, 'I', self.byte)
@@ -121,85 +233,30 @@ class MiniSeed(object):
         #c0 = [_nibble(self.data[0], n) for n in range(16)]
         #print([bin(c) for c in c0])
 
-        print(self.head)
-        print(self.block)
-        print(self.data)
-        print(fid.tell())
+        self.data += data
 
 # =============================================================================
-# INTERNAL: Extract 2bits nibble from integer
+# INTERNAL: binary operations
 
 def _nibble(value, position):
+    """
+    Extract 2bits nibble from integer
+    """
 
     return (value >> 2*position) & 3
 
-# =============================================================================
-# INTERNAL: bytewise read
+def _splitI16(value, order):
+    """
+    NOTE: 3 corresponds to the mask "int('00001111', 2)"
+    """
 
-def _fread(fid, bnum, bkey, bord):
+    if order is 1:
+        return [((value >> 4*i) & 15) for i in [0, 1, 2, 3]]
 
-    hex = fid.read(bnum)
+    if order is 2:
+        return [((value >> 8*i) & 255) for i in [0, 1]]
 
-    if bkey == 's': bkey = str(bnum) + bkey
-    if bord == 'be': bkey = '>' + bkey
-    if bord == 'le': bkey = '<' + bkey
-
-    data = unpack(bkey, hex)[0]
-
-    return data
+    if order is 3:
+        return [value]
 
 
-# =============================================================================
-# INTERNAL: bytewise write
-
-def _fwrite(fid, data, bnum, bkey, bord):
-
-    if bkey == 's': bkey = str(bnum) + bkey
-    if bord == 'be': bkey = '>' + bkey
-    if bord == 'le': bkey = '<' + bkey
-
-    hex = pack(bkey, data)
-
-    fid.write(hex)
-
-# =============================================================================
-# INTERNAL: Header Structure
-
-_HdrStruc = [('SEQUENCE_NUMBER', 6, 's'),
-             ('DATA_HEADER_QUALITY_INDICATOR', 1, 's'),
-             ('RESERVED_BYTE', 1, 's'),
-             ('STATION_CODE', 5, 's'),
-             ('LOCATION_IDENTIFIER', 2, 's'),
-             ('CHANNEL_IDENTIFIER', 3, 's'),
-             ('NETWORK_CODE', 2, 's'),
-             ('YEAR', 2, 'H'),
-             ('DAY', 2, 'H'),
-             ('HOURS', 1, 'B'),
-             ('MINUTES', 1, 'B'),
-             ('SECONDS', 1, 'B'),
-             ('UNUSED', 1, 'B'),
-             ('MSECONDS', 2, 'H'),
-             ('NUMBER_OF_SAMPLES', 2, 'H'),
-             ('SAMPLE_RATE_FACTOR', 2, 'h'),
-             ('SAMPLE_RATE_MULTIPLIER', 2, 'h'),
-             ('ACTIVITY_FLAGS', 1, 'B'),
-             ('IO_FLAGS', 1, 'B'),
-             ('DATA_QUALITY_FLAGS', 1, 'B'),
-             ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 1, 'B'),
-             ('TIME_CORRECTION', 4, 'l'),
-             ('OFFSET_TO_BEGINNING_OF_DATA', 2, 'H'),
-             ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 2, 'H')]
-
-BlkDict =  {1000 : [('ENCODING_FORMAT', 1, 'B'),
-                    ('WORD_ORDER', 1, 'B'),
-                    ('DATA_RECORD_LENGTH', 1, 'B'),
-                    ('RESERVED', 1, 'B')],
-            1001 : [('TIMING_QUALITY', 1, 'B'),
-                    ('MICRO_SEC', 1, 'B'),
-                    ('RESERVED', 1, 'B'),
-                    ('FRAME_COUNT', 1, 'B')]}
-
-T = {0 : (1, 's'),
-     1 : (1, 'h'),
-     3 : (4, 'i'),
-     4 : (4, 'f')}
