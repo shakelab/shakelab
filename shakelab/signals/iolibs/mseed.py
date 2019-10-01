@@ -22,41 +22,8 @@ An simple Python library for MiniSeeed file manipulation
 """
 
 from struct import pack, unpack
-
-class ByteStream(object):
-    """
-    """
-
-    def __init__(self, byte_order='le'):
-
-        self.data = []
-        self.offset = 0
-        self.byte_order = byte_order
-
-    def read(self, fid, byte_num):
-        """
-        """
-        self.data = fid.read(byte_num)
-        self.offset = 0
-
-        if self.data:
-            return True
-        else:
-            return False
-
-    def get(self, byte_key, byte_num=1):
-        """
-        """
-        byte_pack = self.data[self.offset:self.offset + byte_num]
-        self.offset += byte_num
-
-        if byte_key == 's':
-            byte_key = str(byte_num) + byte_key
-
-        byte_map = {'be' : '>', 'le' : '<'}
-        byte_key = byte_map[self.byte_order] + byte_key
-
-        return unpack(byte_key, byte_pack)[0]
+import sys
+import matplotlib.pyplot as plt
 
 
 class MiniSeed(object):
@@ -81,8 +48,6 @@ class MiniSeed(object):
         """
         """
 
-        import sys
-
         with open(file, 'rb') as fid:
 
             while True:
@@ -104,14 +69,14 @@ class MiniSeed(object):
 
                 self._read_data(byte_stream)
 
-                print(self.header)
-                print(self.blockette)
-                #print(self.data)
+                #print(self.header)
+                #print(self.blockette)
 
-                import matplotlib.pyplot as plt
-                plt.plot(self.data)
+            #print(self.data)
+            plt.plot(self.data, '-')
+            plt.show(block=False)
 
-                #sys.exit()
+            #sys.exit()
 
     def _read_header(self, byte_stream):
         """
@@ -190,73 +155,114 @@ class MiniSeed(object):
         data = [None] * nos
 
         if enc in [0, 1, 3, 4, 5]:
+
             for ds in range(nos):
                 data[ds] = byte_stream.get(data_struc[enc][0],
                                            data_struc[enc][1])
 
         if enc is 10:
 
-            # for s in range(self.head['NUMBER_OF_SAMPLES']):
-            #     self.data[s] = _fread(fid, 4, 'I', self.byte)
+            cnt = 0
 
-            frame = [None] * 16
-            for w in range(16):
-                frame[w] = _fread(fid, 4, 'I', self.byte)
+            for fn in range(byte_stream.len()//64):
 
-            cn = [_nibble(frame[0], n) for n in range(16)]
-            x0 = frame[1]
-            xn = frame[2]
+                word = [None] * 16
+                for wn in range(16):
+                    word[wn] = byte_stream.get('i', 4)
 
-            for i in range(16):
-                if cn[i] is 0:
-                    print('no difference')
-                if cn[i] is 1:
-                    print('1byte difference')
-                if cn[i] is 2:
-                    print('2byte difference')
-                if cn[i] is 3:
-                    print('4byte difference')
+                if fn is 0:
+                    x0 = word[1]
+                    xn = word[2]
 
-            """
-            frame_number = self.head['NUMBER_OF_SAMPLES'] // 16
-            reminder = self.head['NUMBER_OF_SAMPLES'] % 16
+                cn = [_nibble(word[0], 15-n) for n in range(16)]
 
-            for f in range(frame_number):
-                frame = [None] * 16
-                for w in range(16):
-                    frame[w] = _fread(fid, 4, 'I', self.byte)
-                if f is 0:
-                    x0 = frame[1]
-                    xn = frame[2]
-            """
+                for i in range(16):
+                    if cn[i] in [1, 2, 3]:
+                        sample = _splitI32(word[i], cn[i])
+                        for s in sample:
+                            x0 += s
+                            data[cnt] = x0
+                            cnt += 1
 
-        #c0 = [_nibble(self.data[0], n) for n in range(16)]
-        #print([bin(c) for c in c0])
-
-        self.data += data
+            #print(x0)
+            #print(xn)
+        self.data += data[:nos]
 
 # =============================================================================
 # INTERNAL: binary operations
 
+class ByteStream(object):
+    """
+    """
+
+    def __init__(self, byte_order='le'):
+
+        self.data = []
+        self.offset = 0
+        self.byte_order = byte_order
+
+    def read(self, fid, byte_num):
+        """
+        """
+        self.data = fid.read(byte_num)
+        self.offset = 0
+
+        if self.data:
+            return True
+        else:
+            return False
+
+    def get(self, byte_key, byte_num=1):
+        """
+        """
+        byte_pack = self.data[self.offset:self.offset + byte_num]
+        self.offset += byte_num
+
+        if byte_key == 's':
+            byte_key = str(byte_num) + byte_key
+
+        byte_map = {'be' : '>', 'le' : '<'}
+        byte_key = byte_map[self.byte_order] + byte_key
+
+        return unpack(byte_key, byte_pack)[0]
+
+    def len(self):
+        """
+        """
+        return len(self.data)
+
+
 def _nibble(value, position):
     """
     Extract 2bits nibble from integer
+    NOTE: 3 corresponds to the mask int('00000011', 2)
     """
 
     return (value >> 2*position) & 3
 
-def _splitI16(value, order):
+
+def _splitI32(value, order):
     """
-    NOTE: 3 corresponds to the mask "int('00001111', 2)"
+    Split a long-word (32 bits) into 2 or 4 integers of
+    respectively 16 and 8 bits.
     """
 
     if order is 1:
-        return [((value >> 4*i) & 15) for i in [0, 1, 2, 3]]
+        out = [None] * 4
+        for i in [0, 1, 2, 3]:
+            s = (value >> 8*i) & 255
+            out[i] = s if s < 2**7 else s - 2**8
 
     if order is 2:
-        return [((value >> 8*i) & 255) for i in [0, 1]]
+        out = [None] * 2
+        for i in [0, 1]:
+            s = (value >> 16*i) & 65535
+            out[i] = s if s < 2**15 else s - 2**16
 
     if order is 3:
-        return [value]
+        out = [value]
+
+    return out
+
 
 
