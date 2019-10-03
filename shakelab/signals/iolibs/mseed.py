@@ -36,12 +36,13 @@ class MiniSeed(object):
         self.header = {}
         self.blockette = {}
         self.data = []
+        self._isfirst = True
 
         # Set byte order
         self.byte_order = byte_order
 
+        # Import miniSEED file
         if file is not None:
-            # Import miniSEED file
             self.read(file)
 
     def read(self, file):
@@ -154,7 +155,7 @@ class MiniSeed(object):
 
         data = [None] * nos
 
-        if enc in [0, 1, 3, 4, 5]:
+        if enc in [0, 1, 3, 4]:
 
             for ds in range(nos):
                 data[ds] = byte_stream.get(data_struc[enc][0],
@@ -163,7 +164,6 @@ class MiniSeed(object):
         if enc is 10:
 
             cnt = 0
-
             for fn in range(byte_stream.len()//64):
 
                 word = [None] * 16
@@ -171,21 +171,27 @@ class MiniSeed(object):
                     word[wn] = byte_stream.get('i', 4)
 
                 if fn is 0:
-                    x0 = word[1]
-                    xn = word[2]
+                    first = word[1]
+                    last = word[2]
+
+                    if self._isfirst:
+                        current = first
+                        self._isfirst = False
+                    else:
+                        current = self.data[-1]
 
                 cn = [_nibble(word[0], 15-n) for n in range(16)]
 
                 for i in range(16):
                     if cn[i] in [1, 2, 3]:
-                        sample = _splitI32(word[i], cn[i])
-                        for s in sample:
-                            x0 += s
-                            data[cnt] = x0
+                        for sample in _splitI32(word[i], cn[i]):
+                            current += sample
+                            data[cnt] = current
                             cnt += 1
 
-            #print(x0)
-            #print(xn)
+            if current != last:
+                raise ValueError('Sample mismatch in record')
+
         self.data += data[:nos]
 
 # =============================================================================
@@ -251,13 +257,13 @@ def _splitI32(value, order):
         out = [None] * 4
         for i in [0, 1, 2, 3]:
             s = (value >> 8*i) & 255
-            out[i] = s if s < 2**7 else s - 2**8
+            out[3-i] = s if s < 2**7 else s - 2**8
 
     if order is 2:
         out = [None] * 2
         for i in [0, 1]:
             s = (value >> 16*i) & 65535
-            out[i] = s if s < 2**15 else s - 2**16
+            out[1-i] = s if s < 2**15 else s - 2**16
 
     if order is 3:
         out = [value]
