@@ -27,16 +27,14 @@ import matplotlib.pyplot as plt
 
 
 class MiniSeed(object):
+    """
+    Non-continuous recordings are not (yet) supported
+    """
 
     def __init__(self, file=None, byte_order='le'):
-        """
-        """
 
-        # Variable initialisation
-        self.header = {}
-        self.blockette = {}
-        self.data = []
-        self._isfirst = True
+        # Record list initialisation
+        self.record = []
 
         # Set byte order
         self.byte_order = byte_order
@@ -51,148 +49,174 @@ class MiniSeed(object):
 
         with open(file, 'rb') as fid:
 
+            # Setting last sample from previous record
+            # (used in STEIN compression)
+            _last = None
+
             while True:
                 # Reading the fixed header (48 bytes)
                 byte_stream = ByteStream(self.byte_order)
 
                 if not byte_stream.read(fid, 48):
                     break
-                self._read_header(byte_stream)
+
+                # Initialise new record
+                record = Record(_last)
+
+                # Reading header information
+                _read_header(record, byte_stream)
 
                 # Reading the blockettes
-                data_offset = self.header['OFFSET_TO_BEGINNING_OF_DATA']
+                data_offset = record.header['OFFSET_TO_BEGINNING_OF_DATA']
                 byte_stream.read(fid, data_offset - 48)
-                self._read_blockette(byte_stream)
+                _read_blockette(record, byte_stream)
 
                 # Reading data
-                data_len = self.blockette[1000]['DATA_RECORD_LENGTH']
+                data_len = record.blockette[1000]['DATA_RECORD_LENGTH']
                 byte_stream.read(fid, 2**data_len - data_offset)
+                _read_data(record, byte_stream)
 
-                self._read_data(byte_stream)
+                _last = record.data[-1]
+                self.record.append(record)
 
-                #print(self.header)
-                #print(self.blockette)
+                #print(record.header)
+                #print(record.blockette)
 
-            #print(self.data)
-            plt.plot(self.data, '-')
+            data = []
+            for r in self.record:
+                data += r.data
+            plt.plot(data, '-')
             plt.show(block=False)
-
             #sys.exit()
 
-    def _read_header(self, byte_stream):
-        """
-        Importing header structure
-        """
 
-        head_struc = [('SEQUENCE_NUMBER', 's', 6),
-                      ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
-                      ('RESERVED_BYTE', 's', 1),
-                      ('STATION_CODE', 's', 5),
-                      ('LOCATION_IDENTIFIER', 's', 2),
-                      ('CHANNEL_IDENTIFIER', 's', 3),
-                      ('NETWORK_CODE', 's', 2),
-                      ('YEAR', 'H', 2),
-                      ('DAY', 'H', 2),
-                      ('HOURS', 'B', 1),
-                      ('MINUTES', 'B', 1),
-                      ('SECONDS', 'B', 1),
-                      ('UNUSED', 'B', 1),
-                      ('MSECONDS', 'H', 2),
-                      ('NUMBER_OF_SAMPLES', 'H', 2),
-                      ('SAMPLE_RATE_FACTOR', 'h', 2),
-                      ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
-                      ('ACTIVITY_FLAGS', 'B', 1),
-                      ('IO_FLAGS', 'B', 1),
-                      ('DATA_QUALITY_FLAGS', 'B', 1),
-                      ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
-                      ('TIME_CORRECTION', 'l', 4),
-                      ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
-                      ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
-
+class Record(object):
+    """
+    """
+    def __init__(self, first=None):
+    
         self.header = {}
-        for hs in head_struc:
-            self.header[hs[0]] = byte_stream.get(hs[1], hs[2])
+        self.blockette = {}
+        self.data = []
+        self.first = first
 
-    def _read_blockette(self, byte_stream):
-        """
-        Importing blockettes
-        """
 
-        block_struc =  {1000 : [('ENCODING_FORMAT', 'B', 1),
-                                ('WORD_ORDER', 'B', 1),
-                                ('DATA_RECORD_LENGTH', 'B', 1),
-                                ('RESERVED', 'B', 1)],
-                        1001 : [('TIMING_QUALITY', 'B', 1),
-                                ('MICRO_SEC', 'B', 1),
-                                ('RESERVED', 'B', 1),
-                                ('FRAME_COUNT', 'B', 1)]}
+def _read_header(record, byte_stream):
+    """
+    Importing header structure
+    """
 
-        for nb in range(self.header['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
+    head_struc = [('SEQUENCE_NUMBER', 's', 6),
+                  ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
+                  ('RESERVED_BYTE', 's', 1),
+                  ('STATION_CODE', 's', 5),
+                  ('LOCATION_IDENTIFIER', 's', 2),
+                  ('CHANNEL_IDENTIFIER', 's', 3),
+                  ('NETWORK_CODE', 's', 2),
+                  ('YEAR', 'H', 2),
+                  ('DAY', 'H', 2),
+                  ('HOURS', 'B', 1),
+                  ('MINUTES', 'B', 1),
+                  ('SECONDS', 'B', 1),
+                  ('UNUSED', 'B', 1),
+                  ('MSECONDS', 'H', 2),
+                  ('NUMBER_OF_SAMPLES', 'H', 2),
+                  ('SAMPLE_RATE_FACTOR', 'h', 2),
+                  ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
+                  ('ACTIVITY_FLAGS', 'B', 1),
+                  ('IO_FLAGS', 'B', 1),
+                  ('DATA_QUALITY_FLAGS', 'B', 1),
+                  ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
+                  ('TIME_CORRECTION', 'l', 4),
+                  ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
+                  ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
 
-            # Blockette code
-            block_type = byte_stream.get('H', 2)
+    record.header = {}
+    for hs in head_struc:
+        record.header[hs[0]] = byte_stream.get(hs[1], hs[2])
 
+def _read_blockette(record, byte_stream):
+    """
+    Importing blockettes
+    """
+
+    block_struc =  {1000 : [('ENCODING_FORMAT', 'B', 1),
+                            ('WORD_ORDER', 'B', 1),
+                            ('DATA_RECORD_LENGTH', 'B', 1),
+                            ('RESERVED', 'B', 1)],
+                    1001 : [('TIMING_QUALITY', 'B', 1),
+                            ('MICRO_SEC', 'B', 1),
+                            ('RESERVED', 'B', 1),
+                            ('FRAME_COUNT', 'B', 1)]}
+
+    for nb in range(record.header['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
+
+        # Blockette code
+        block_type = byte_stream.get('H', 2)
+
+        if block_type in block_struc:
             # Offset to the beginning of the next blockette
-            offset_next = byte_stream.get('H', 2)
+            blockette = {'OFFSET_NEXT' : byte_stream.get('H', 2)}
 
-            blockette = {}
+            # Loop through blockette specific keys
             for bs in block_struc[block_type]:
                 blockette[bs[0]] = byte_stream.get(bs[1], bs[2])
-                self.blockette[block_type] = blockette
+                record.blockette[block_type] = blockette
+        else:
+            print('Blockette type {0} not supported'.format(block_type))
 
-    def _read_data(self, byte_stream):
-        """
-        Importing data
-        """
+def _read_data(record, byte_stream):
+    """
+    Importing data
+    """
 
-        data_struc = {0 : ('s', 1),
-                      1 : ('h', 2),
-                      3 : ('i', 4),
-                      4 : ('f', 4)}
+    data_struc = {0 : ('s', 1),
+                  1 : ('h', 2),
+                  3 : ('i', 4),
+                  4 : ('f', 4)}
 
-        nos = self.header['NUMBER_OF_SAMPLES']
-        enc = self.blockette[1000]['ENCODING_FORMAT']
+    nos = record.header['NUMBER_OF_SAMPLES']
+    enc = record.blockette[1000]['ENCODING_FORMAT']
 
-        data = [None] * nos
+    data = [None] * nos
 
-        if enc in [0, 1, 3, 4]:
+    if enc in [0, 1, 3, 4]:
 
-            for ds in range(nos):
-                data[ds] = byte_stream.get(data_struc[enc][0],
-                                           data_struc[enc][1])
+        for ds in range(nos):
+            data[ds] = byte_stream.get(data_struc[enc][0],
+                                       data_struc[enc][1])
 
-        if enc is 10:
+    if enc is 10:
 
-            cnt = 0
-            for fn in range(byte_stream.len()//64):
+        cnt = 0
+        for fn in range(byte_stream.len()//64):
 
-                word = [None] * 16
-                for wn in range(16):
-                    word[wn] = byte_stream.get('i', 4)
+            word = [None] * 16
+            for wn in range(16):
+                word[wn] = byte_stream.get('i', 4)
 
-                if fn is 0:
-                    first = word[1]
-                    last = word[2]
+            if fn is 0:
+                first = word[1]
+                last = word[2]
+                if record.first is None:
+                    current = first
+                else:
+                    current = record.first
 
-                    if self._isfirst:
-                        current = first
-                        self._isfirst = False
-                    else:
-                        current = self.data[-1]
+            cn = [_nibble(word[0], 15-n) for n in range(16)]
 
-                cn = [_nibble(word[0], 15-n) for n in range(16)]
+            for i in range(16):
+                if cn[i] in [1, 2, 3]:
+                    for sample in _splitI32(word[i], cn[i]):
+                        current += sample
+                        data[cnt] = current
+                        cnt += 1
 
-                for i in range(16):
-                    if cn[i] in [1, 2, 3]:
-                        for sample in _splitI32(word[i], cn[i]):
-                            current += sample
-                            data[cnt] = current
-                            cnt += 1
+        if current != last:
+            raise ValueError('Sample mismatch in record')
 
-            if current != last:
-                raise ValueError('Sample mismatch in record')
+    record.data = data[:nos]
 
-        self.data += data[:nos]
 
 # =============================================================================
 # INTERNAL: binary operations
