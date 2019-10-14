@@ -49,19 +49,22 @@ class MiniSeed(object):
 
         with open(file, 'rb') as fid:
 
-            # Setting last sample from previous record
+            # Last sample from previous record
             # (used in STEIN compression)
-            _last = None
+            last_sample = None
 
+            # Loop over records
             while True:
-                # Reading the fixed header (48 bytes)
+
+                # Initialise stream object
                 byte_stream = ByteStream(self.byte_order)
 
+                # Reading the fixed header (48 bytes)
                 if not byte_stream.read(fid, 48):
                     break
 
                 # Initialise new record
-                record = Record(_last)
+                record = Record(last_sample)
 
                 # Reading header information
                 _read_header(record, byte_stream)
@@ -76,7 +79,7 @@ class MiniSeed(object):
                 byte_stream.read(fid, 2**data_len - data_offset)
                 _read_data(record, byte_stream)
 
-                _last = record.data[-1]
+                last_sample = record.data[-1]
                 self.record.append(record)
 
                 #print(record.header)
@@ -89,6 +92,8 @@ class MiniSeed(object):
             plt.show(block=False)
             #sys.exit()
 
+# =============================================================================
+# Record related methods
 
 class Record(object):
     """
@@ -186,7 +191,7 @@ def _read_data(record, byte_stream):
             data[ds] = byte_stream.get(data_struc[enc][0],
                                        data_struc[enc][1])
 
-    if enc is 10:
+    if enc in [10, 11]:
 
         cnt = 0
         for fn in range(byte_stream.len()//64):
@@ -203,12 +208,12 @@ def _read_data(record, byte_stream):
                 else:
                     current = record.first
 
-            cn = [_nibble(word[0], 15-n) for n in range(16)]
+            cn = [_binmask(word[0], 2, 15-n) for n in range(16)]
 
             for i in range(16):
                 if cn[i] in [1, 2, 3]:
-                    for sample in _splitI32(word[i], cn[i]):
-                        current += sample
+                    for diff in _w32split(word[i], cn[i], enc):
+                        current += diff
                         data[cnt] = current
                         cnt += 1
 
@@ -262,35 +267,61 @@ class ByteStream(object):
         return len(self.data)
 
 
-def _nibble(value, position):
+def _binmask(word, bits, position):
     """
-    Extract 2bits nibble from integer
-    NOTE: 3 corresponds to the mask int('00000011', 2)
+    Extract N-bits nibble from long word
     """
+    return (word >> bits * position) & (2**(bits) - 1)
 
-    return (value >> 2*position) & 3
-
-
-def _splitI32(value, order):
+def _getdiff(word, bits, dnum):
     """
-    Split a long-word (32 bits) into 2 or 4 integers of
-    respectively 16 and 8 bits.
+    """
+    out = [None] * dnum
+    for i in range(dnum):
+        s = _binmask(word, bits, i)
+        out[(dnum-1)-i] = s if s < 2**(bits-1) else s - 2**(bits)
+    return out
+
+def _w32split(word, order, scheme):
+    """
+    Split a long-word (32 bits) into integers of different
+    lenght in bits (depending on STEIM1 or STEIM2 scheme)
     """
 
     if order is 1:
-        out = [None] * 4
-        for i in [0, 1, 2, 3]:
-            s = (value >> 8*i) & 255
-            out[3-i] = s if s < 2**7 else s - 2**8
+        out = _getdiff(word, 8, 4)
 
-    if order is 2:
-        out = [None] * 2
-        for i in [0, 1]:
-            s = (value >> 16*i) & 65535
-            out[1-i] = s if s < 2**15 else s - 2**16
+    # STEIM 1
+    if scheme is 10:
+        if order is 2:
+            out = _getdiff(word, 16, 2)
 
-    if order is 3:
-        out = [value]
+        if order is 3:
+            out = [word]
+
+    # STEIM 2
+    if scheme is 11:
+        dnib = _binmask(word, 2, 15)
+
+        if order is 2:
+            if dnib is 1:
+                out = _getdiff(word, 30, 1)
+
+            if dnib is 2:
+                out = _getdiff(word, 15, 2)
+
+            if dnib is 3:
+                out = _getdiff(word, 10, 3)
+
+        if order is 3:
+            if dnib is 0:
+                out = _getdiff(word, 6, 5)
+
+            if dnib is 1:
+                out = _getdiff(word, 5, 6)
+
+            if dnib is 2:
+                out = _getdiff(word, 4, 7)
 
     return out
 
