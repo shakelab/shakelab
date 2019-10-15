@@ -67,17 +67,17 @@ class MiniSeed(object):
                 record = Record(last_sample)
 
                 # Reading header information
-                _read_header(record, byte_stream)
+                record.read_header(byte_stream)
 
                 # Reading the blockettes
                 data_offset = record.header['OFFSET_TO_BEGINNING_OF_DATA']
                 byte_stream.read(fid, data_offset - 48)
-                _read_blockette(record, byte_stream)
+                record.read_blockette(byte_stream)
 
                 # Reading data
                 data_len = record.blockette[1000]['DATA_RECORD_LENGTH']
                 byte_stream.read(fid, 2**data_len - data_offset)
-                _read_data(record, byte_stream)
+                record.read_data(byte_stream)
 
                 last_sample = record.data[-1]
                 self.record.append(record)
@@ -106,121 +106,121 @@ class Record(object):
         self.first = first
 
 
-def _read_header(record, byte_stream):
-    """
-    Importing header structure
-    """
+    def read_header(self, byte_stream):
+        """
+        Importing header structure
+        """
 
-    head_struc = [('SEQUENCE_NUMBER', 's', 6),
-                  ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
-                  ('RESERVED_BYTE', 's', 1),
-                  ('STATION_CODE', 's', 5),
-                  ('LOCATION_IDENTIFIER', 's', 2),
-                  ('CHANNEL_IDENTIFIER', 's', 3),
-                  ('NETWORK_CODE', 's', 2),
-                  ('YEAR', 'H', 2),
-                  ('DAY', 'H', 2),
-                  ('HOURS', 'B', 1),
-                  ('MINUTES', 'B', 1),
-                  ('SECONDS', 'B', 1),
-                  ('UNUSED', 'B', 1),
-                  ('MSECONDS', 'H', 2),
-                  ('NUMBER_OF_SAMPLES', 'H', 2),
-                  ('SAMPLE_RATE_FACTOR', 'h', 2),
-                  ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
-                  ('ACTIVITY_FLAGS', 'B', 1),
-                  ('IO_FLAGS', 'B', 1),
-                  ('DATA_QUALITY_FLAGS', 'B', 1),
-                  ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
-                  ('TIME_CORRECTION', 'l', 4),
-                  ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
-                  ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
+        head_struc = [('SEQUENCE_NUMBER', 's', 6),
+                      ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
+                      ('RESERVED_BYTE', 's', 1),
+                      ('STATION_CODE', 's', 5),
+                      ('LOCATION_IDENTIFIER', 's', 2),
+                      ('CHANNEL_IDENTIFIER', 's', 3),
+                      ('NETWORK_CODE', 's', 2),
+                      ('YEAR', 'H', 2),
+                      ('DAY', 'H', 2),
+                      ('HOURS', 'B', 1),
+                      ('MINUTES', 'B', 1),
+                      ('SECONDS', 'B', 1),
+                      ('UNUSED', 'B', 1),
+                      ('MSECONDS', 'H', 2),
+                      ('NUMBER_OF_SAMPLES', 'H', 2),
+                      ('SAMPLE_RATE_FACTOR', 'h', 2),
+                      ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
+                      ('ACTIVITY_FLAGS', 'B', 1),
+                      ('IO_FLAGS', 'B', 1),
+                      ('DATA_QUALITY_FLAGS', 'B', 1),
+                      ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
+                      ('TIME_CORRECTION', 'l', 4),
+                      ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
+                      ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
 
-    record.header = {}
-    for hs in head_struc:
-        record.header[hs[0]] = byte_stream.get(hs[1], hs[2])
+        self.header = {}
+        for hs in head_struc:
+            self.header[hs[0]] = byte_stream.get(hs[1], hs[2])
 
-def _read_blockette(record, byte_stream):
-    """
-    Importing blockettes
-    """
+    def read_blockette(self, byte_stream):
+        """
+        Importing blockettes
+        """
 
-    block_struc =  {1000 : [('ENCODING_FORMAT', 'B', 1),
-                            ('WORD_ORDER', 'B', 1),
-                            ('DATA_RECORD_LENGTH', 'B', 1),
-                            ('RESERVED', 'B', 1)],
-                    1001 : [('TIMING_QUALITY', 'B', 1),
-                            ('MICRO_SEC', 'B', 1),
-                            ('RESERVED', 'B', 1),
-                            ('FRAME_COUNT', 'B', 1)]}
+        block_struc =  {1000 : [('ENCODING_FORMAT', 'B', 1),
+                                ('WORD_ORDER', 'B', 1),
+                                ('DATA_RECORD_LENGTH', 'B', 1),
+                                ('RESERVED', 'B', 1)],
+                        1001 : [('TIMING_QUALITY', 'B', 1),
+                                ('MICRO_SEC', 'B', 1),
+                                ('RESERVED', 'B', 1),
+                                ('FRAME_COUNT', 'B', 1)]}
 
-    for nb in range(record.header['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
+        for nb in range(self.header['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
 
-        # Blockette code
-        block_type = byte_stream.get('H', 2)
+            # Blockette code
+            block_type = byte_stream.get('H', 2)
 
-        if block_type in block_struc:
-            # Offset to the beginning of the next blockette
-            blockette = {'OFFSET_NEXT' : byte_stream.get('H', 2)}
+            if block_type in block_struc:
+                # Offset to the beginning of the next blockette
+                blockette = {'OFFSET_NEXT' : byte_stream.get('H', 2)}
 
-            # Loop through blockette specific keys
-            for bs in block_struc[block_type]:
-                blockette[bs[0]] = byte_stream.get(bs[1], bs[2])
-                record.blockette[block_type] = blockette
-        else:
-            print('Blockette type {0} not supported'.format(block_type))
+                # Loop through blockette specific keys
+                for bs in block_struc[block_type]:
+                    blockette[bs[0]] = byte_stream.get(bs[1], bs[2])
+                    self.blockette[block_type] = blockette
+            else:
+                print('Blockette type {0} not supported'.format(block_type))
 
-def _read_data(record, byte_stream):
-    """
-    Importing data
-    """
+    def read_data(self, byte_stream):
+        """
+        Importing data
+        """
 
-    data_struc = {0 : ('s', 1),
-                  1 : ('h', 2),
-                  3 : ('i', 4),
-                  4 : ('f', 4)}
+        data_struc = {0 : ('s', 1),
+                      1 : ('h', 2),
+                      3 : ('i', 4),
+                      4 : ('f', 4)}
 
-    nos = record.header['NUMBER_OF_SAMPLES']
-    enc = record.blockette[1000]['ENCODING_FORMAT']
+        nos = self.header['NUMBER_OF_SAMPLES']
+        enc = self.blockette[1000]['ENCODING_FORMAT']
 
-    data = [None] * nos
+        data = [None] * nos
 
-    if enc in [0, 1, 3, 4]:
+        if enc in [0, 1, 3, 4]:
 
-        for ds in range(nos):
-            data[ds] = byte_stream.get(data_struc[enc][0],
-                                       data_struc[enc][1])
+            for ds in range(nos):
+                data[ds] = byte_stream.get(data_struc[enc][0],
+                                           data_struc[enc][1])
 
-    if enc in [10, 11]:
+        if enc in [10, 11]:
 
-        cnt = 0
-        for fn in range(byte_stream.len()//64):
+            cnt = 0
+            for fn in range(byte_stream.len()//64):
 
-            word = [None] * 16
-            for wn in range(16):
-                word[wn] = byte_stream.get('i', 4)
+                word = [None] * 16
+                for wn in range(16):
+                    word[wn] = byte_stream.get('i', 4)
 
-            if fn is 0:
-                first = word[1]
-                last = word[2]
-                if record.first is None:
-                    current = first
-                else:
-                    current = record.first
+                if fn is 0:
+                    first = word[1]
+                    last = word[2]
+                    if self.first is None:
+                        current = first
+                    else:
+                        current = self.first
 
-            cn = [_binmask(word[0], 2, 15-n) for n in range(16)]
+                cn = [_binmask(word[0], 2, 15-n) for n in range(16)]
 
-            for i in range(16):
-                if cn[i] in [1, 2, 3]:
-                    for diff in _w32split(word[i], cn[i], enc):
-                        current += diff
-                        data[cnt] = current
-                        cnt += 1
+                for i in range(16):
+                    if cn[i] in [1, 2, 3]:
+                        for diff in _w32split(word[i], cn[i], enc):
+                            current += diff
+                            data[cnt] = current
+                            cnt += 1
 
-        if current != last:
-            raise ValueError('Sample mismatch in record')
+            if current != last:
+                raise ValueError('Sample mismatch in record')
 
-    record.data = data[:nos]
+        self.data = data[:nos]
 
 
 # =============================================================================
@@ -269,7 +269,7 @@ class ByteStream(object):
 
 def _binmask(word, bits, position):
     """
-    Extract N-bits nibble from long word
+    Extract N-bits nibble from long word and convert it to integer
     """
     return (word >> bits * position) & (2**(bits) - 1)
 
@@ -321,6 +321,7 @@ def _w32split(word, order, scheme):
                 out = _getdiff(word, 5, 6)
 
             if dnib is 2:
+                # TO CHECK!
                 out = _getdiff(word, 4, 7)
 
     return out
