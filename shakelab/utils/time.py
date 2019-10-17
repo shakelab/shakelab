@@ -182,7 +182,7 @@ def day_to_month(year, day):
                 day -= MDAYS[m - 1]
             break
 
-    return month
+    return (month, day)
 
 def sec_to_date(second):
     """
