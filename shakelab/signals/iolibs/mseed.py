@@ -25,6 +25,7 @@ from struct import pack, unpack
 import sys
 import matplotlib.pyplot as plt
 
+from shakelab.utils.time import Date
 
 class MiniSeed(object):
     """
@@ -70,13 +71,13 @@ class MiniSeed(object):
                 record.read_header(byte_stream)
 
                 # Reading the blockettes
-                data_offset = record.header['OFFSET_TO_BEGINNING_OF_DATA']
+                data_offset = record.get_data_offset()
                 byte_stream.read(fid, data_offset - 48)
                 record.read_blockette(byte_stream)
 
                 # Reading data
-                data_len = record.blockette[1000]['DATA_RECORD_LENGTH']
-                byte_stream.read(fid, 2**data_len - data_offset)
+                data_length = record.get_data_length()
+                byte_stream.read(fid, 2**data_length - data_offset)
                 record.read_data(byte_stream)
 
                 last_sample = record.data[-1]
@@ -222,6 +223,29 @@ class Record(object):
 
         self.data = data[:nos]
 
+    def get_data_offset(self):
+        """
+        """
+        return self.header['OFFSET_TO_BEGINNING_OF_DATA']
+
+    def get_data_length(self):
+        """
+        """
+        return self.blockette[1000]['DATA_RECORD_LENGTH']
+
+    def get_time_start(self):
+        """
+        """
+        year = self.header['YEAR']
+        day = self.header['DAY']
+        hour = self.header['HOURS']
+        minute = self.header['MINUTES']
+        second = self.header['SECONDS']
+
+    def get_time_end(self):
+        """
+        """
+        a = 1
 
 # =============================================================================
 # INTERNAL: binary operations

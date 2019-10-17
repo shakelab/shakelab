@@ -21,7 +21,10 @@
 Time and date functionalities
 """
 
-from datetime import datetime
+MSEC = 60
+HSEC = 3600
+DSEC = 86400
+YDAYS = 365
 
 class Date(object):
     """
@@ -34,12 +37,35 @@ class Date(object):
     def set(self, date):
         """
         """
-        self.year = int(date[0])
-        self.month = int(date[1])
-        self.day = int(date[2])
-        self.hour = int(date[3])
-        self.minute = int(date[4])
-        self.second = float(date[5])
+        if date[0] >= 1:
+            self.year = int(date[0])
+        else:
+            raise ValueError('Year must be > 1')
+
+        if date[1] >= 1 and date[1] <= 12:
+            self.month = int(date[1])
+        else:
+            raise ValueError('Month must be between 1 and 12')
+
+        if date[2] >= 1 and date[2] <= 31:
+            self.day = int(date[2])
+        else:
+            raise ValueError('Day must be between 1 and 31')
+
+        if date[3] >= 0 and date[3] <= 23:
+            self.hour = int(date[3])
+        else:
+            raise ValueError('Hours must be between 0 and 23')
+
+        if date[4] >= 0 and date[4] <= 59:
+            self.minute = int(date[4])
+        else:
+            raise ValueError('Minutes must be between 0 and 59')
+
+        if date[5] >= 0 and date[5] <= 59:
+            self.second = float(date[5])
+        else:
+            raise ValueError('Seconds must be between 0 and 59')
 
     def get(self):
         """
@@ -62,11 +88,11 @@ class Date(object):
         """
         """
         if unit is 'm':
-            second *= 60
+            second *= MSEC
         if unit is 'h':
-            second *= 3600
+            second *= HSEC
         if unit is 'd':
-            second *= 86400
+            second *= DSEC
 
         self.from_second(self.to_second() + second)
 
@@ -97,37 +123,10 @@ class Date(object):
         """
         return repr(self.get())
 
-
-def date_to_sec(year, month, day, hour, minute, second):
-    """
-    """
-    isecond = int(second // 1)
-    msecond = int((second % 1) * 1e6)
-
-    t0 = datetime(1 ,1 ,1 ,0 ,0 ,0 ,0)
-    t1 = datetime(year, month, day, hour, minute, isecond, msecond)
-    return (t1 - t0).total_seconds()
-
-def sec_to_date(second=0.):
-    """
-    NOTE: Datetime produces rounding errors for unknown reason.
-    """
-    sref = date_to_sec(1970, 1, 1, 0, 0, 0.)
-    d = datetime.utcfromtimestamp(second - sref)
-    fsecond = d.second + (d.microsecond * 1e-6)
-    return [d.year, d.month, d.day, d.hour, d.minute, fsecond]
-
-# -----------------------------------------------------------------------------
-# MY IMPLEMENTATION - UNDER DEVELOPMENT
-
-DSEC = 24.*3600.
-YDAYS = 365.
-
 def leap_check(year):
     """
     Check if leap year.
     """
-
     c0 = (year % 4 == 0)
     c1 = (year % 100 != 0)
     c2 = (year % 400 == 0)
@@ -136,15 +135,15 @@ def leap_check(year):
 
 def leap_num(year):
     """
+    Compute the number of leap years before current year
     """
-
     n0 = (year-1)//4
     n1 = (year-1)//100
     n2 = (year-1)//400
 
     return n0 - n1 + n2
 
-def date_to_sec_mine(year=1, month=1, day=1, hour=0, minute=0, second=0.0):
+def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0):
     """
     Convert a date to seconds.
     Not yet implemented for b.c. years.
@@ -155,54 +154,79 @@ def date_to_sec_mine(year=1, month=1, day=1, hour=0, minute=0, second=0.0):
       return None
 
     if leap_check(year):
-        MDAYS = [0.,31.,60.,91.,121.,152.,182.,213.,244.,274.,305.,335.]
+        MDAYS = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
     else:
-        MDAYS = [0.,31.,59.,90.,120.,151.,181.,212.,243.,273.,304.,334.]
+        MDAYS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
 
     ysec = (year - 1) * YDAYS * DSEC
     ysec += leap_num(year) * DSEC
     msec = MDAYS[int(month) - 1] * DSEC
     dsec = (day - 1) * DSEC
 
-    sec = ysec + msec + dsec + hour*3600.+ minute*60. + second*1.
+    sec = ysec + msec + dsec + hour*HSEC+ minute*MSEC + second*1.
 
     return sec
 
-def sec_to_date_mine(second):
+def day_to_month(year, day):
     """
-    IN PROGRESS!!!
     """
-    # Number of days in 4 years (including a leap year)
-    ysec = YDAYS * DSEC
-    ysec4 = ysec*4 + DSEC
-
-    nsec4 = (second // ysec4)
-    if nsec4 > 0:
-        sres = second - (nsec4 * ysec4)
-    else:
-        sres = second
-
-    nsec = sres // ysec
-    year = (nsec4 * 4) + nsec
-
-    # Residual seconds in the last year
-    if nsec > 0:
-        sres = sres - (nsec * ysec)
-
-    # Number of days left in the last year
-    days = sres // DSEC
-
     if leap_check(year):
-        MDAYS = [31.,60.,91.,121.,152.,182.,213.,244.,274.,305.,335.,365.]
+        MDAYS = [31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366]
     else:
-        MDAYS = [31.,59.,90.,120.,151.,181.,212.,243.,273.,304.,334.,366.]
+        MDAYS = [31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365]
 
-    for m,d in enumerate(MDAYS):
-        if d > days:
-            month = m
+    for m, d in enumerate(MDAYS):
+        if day <= d:
+            month = m + 1
+            if m > 0:
+                day -= MDAYS[m - 1]
             break
 
-    sres = sres - (MDAYS[int(month)] * DSEC)
+    return month
 
-    print(year, month, sres)
+def sec_to_date(second):
+    """
+    Implemented using a direct search approach
+    (it would be nicer to implement a more elengant algorithm).
+    """
+    # Loop over years (accounting for leap days)
+    year = 0
+    while True:
+        year += 1
+        secy = YDAYS * DSEC
+        if leap_check(year):
+            secy += DSEC
+        if second > secy:
+            second -= secy
+        else:
+            break
+
+    # Number of total days in the last year
+    day = (second // DSEC) + 1
+
+    # Find month corresponding to day of the year
+    if leap_check(year):
+        MDAYS = [31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366]
+    else:
+        MDAYS = [31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365]
+
+    for m, d in enumerate(MDAYS):
+        if day <= d:
+            month = m + 1
+            if m > 0:
+                day -= MDAYS[m - 1]
+                second -= MDAYS[m - 1] * DSEC
+            break
+    second -= (day - 1) * DSEC
+
+    # Hours
+    hour = second // HSEC
+    second -= hour * HSEC
+
+    # Minutes
+    minute = second // MSEC
+    second -= minute * MSEC
+
+    return [int(year), int(month), int(day),
+            int(hour), int(minute), second]
 
