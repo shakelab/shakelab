@@ -22,10 +22,9 @@ An simple Python library for MiniSeeed file manipulation
 """
 
 from struct import pack, unpack
-import sys
-import matplotlib.pyplot as plt
 
 from shakelab.utils.time import Date
+from shakelab.utils.time import day_to_month
 
 class MiniSeed(object):
     """
@@ -44,15 +43,14 @@ class MiniSeed(object):
         if file is not None:
             self.read(file)
 
-    def read(self, file):
+    def read(self, file, byte_order=None):
         """
         """
+        # Set byte order
+        if byte_order is not None:
+            self.byte_order = byte_order
 
         with open(file, 'rb') as fid:
-
-            # Last sample from previous record
-            # (used in STEIN compression)
-            last_sample = None
 
             # Loop over records
             while True:
@@ -65,7 +63,7 @@ class MiniSeed(object):
                     break
 
                 # Initialise new record
-                record = Record(last_sample)
+                record = Record()
 
                 # Reading header information
                 record.read_header(byte_stream)
@@ -80,18 +78,11 @@ class MiniSeed(object):
                 byte_stream.read(fid, 2**data_length - data_offset)
                 record.read_data(byte_stream)
 
-                last_sample = record.data[-1]
                 self.record.append(record)
 
-                #print(record.header)
-                #print(record.blockette)
+                #print(record.get_time_start())
+                #print(record.get_time_end())
 
-            data = []
-            for r in self.record:
-                data += r.data
-            plt.plot(data, '-')
-            plt.show(block=False)
-            #sys.exit()
 
 # =============================================================================
 # Record related methods
@@ -99,19 +90,16 @@ class MiniSeed(object):
 class Record(object):
     """
     """
-    def __init__(self, first=None):
+    def __init__(self):
     
         self.header = {}
         self.blockette = {}
         self.data = []
-        self.first = first
-
 
     def read_header(self, byte_stream):
         """
         Importing header structure
         """
-
         head_struc = [('SEQUENCE_NUMBER', 's', 6),
                       ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
                       ('RESERVED_BYTE', 's', 1),
@@ -145,7 +133,6 @@ class Record(object):
         """
         Importing blockettes
         """
-
         block_struc =  {1000 : [('ENCODING_FORMAT', 'B', 1),
                                 ('WORD_ORDER', 'B', 1),
                                 ('DATA_RECORD_LENGTH', 'B', 1),
@@ -175,7 +162,6 @@ class Record(object):
         """
         Importing data
         """
-
         data_struc = {0 : ('s', 1),
                       1 : ('h', 2),
                       3 : ('i', 4),
@@ -204,21 +190,23 @@ class Record(object):
                 if fn is 0:
                     first = word[1]
                     last = word[2]
-                    if self.first is None:
-                        current = first
-                    else:
-                        current = self.first
 
+                # Extract nibbles
                 cn = [_binmask(word[0], 2, 15-n) for n in range(16)]
 
                 for i in range(16):
                     if cn[i] in [1, 2, 3]:
                         for diff in _w32split(word[i], cn[i], enc):
-                            current += diff
-                            data[cnt] = current
-                            cnt += 1
+                                if fn is 0:
+                                    # Skipe first difference
+                                    if cnt is not 0:
+                                        first += diff
+                                else:
+                                    first += diff
+                                data[cnt] = first
+                                cnt += 1
 
-            if current != last:
+            if first != last:
                 raise ValueError('Sample mismatch in record')
 
         self.data = data[:nos]
@@ -241,11 +229,23 @@ class Record(object):
         hour = self.header['HOURS']
         minute = self.header['MINUTES']
         second = self.header['SECONDS']
+        msecond = self.header['MSECONDS'] * 1e-4
+
+        # Convert total days to month/day
+        (month, day) = day_to_month(year, day)
+
+        date = Date([year, month, day, hour, minute, second + msecond])
+        return round(date.to_second(), 4)
 
     def get_time_end(self):
         """
         """
-        a = 1
+        nsamp = self.header['NUMBER_OF_SAMPLES']
+        srate = self.header['SAMPLE_RATE_FACTOR']
+        if srate < 0:
+            srate = -1/srate
+        return round(self.get_time_start() + (nsamp/srate), 4)
+
 
 # =============================================================================
 # INTERNAL: binary operations
@@ -311,7 +311,6 @@ def _w32split(word, order, scheme):
     Split a long-word (32 bits) into integers of different
     lenght in bits (depending on STEIM1 or STEIM2 scheme)
     """
-
     if order is 1:
         out = _getdiff(word, 8, 4)
 
