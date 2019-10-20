@@ -187,6 +187,7 @@ class Record(object):
                 for wn in range(16):
                     word[wn] = byte_stream.get('i', 4)
 
+                # First and last sample
                 if fn is 0:
                     first = word[1]
                     last = word[2]
@@ -194,21 +195,25 @@ class Record(object):
                 # Extract nibbles
                 cn = [_binmask(word[0], 2, 15-n) for n in range(16)]
 
+                # Collecting differences
                 for i in range(16):
                     if cn[i] in [1, 2, 3]:
                         for diff in _w32split(word[i], cn[i], enc):
-                                if fn is 0:
-                                    # Skipe first difference
-                                    if cnt is not 0:
-                                        first += diff
-                                else:
-                                    first += diff
-                                data[cnt] = first
-                                cnt += 1
+                            data[cnt] = diff
+                            cnt += 1
 
-            if first != last:
+            # Last sample from previous record (for check)
+            self.previous = first - data[0]
+
+            # Computing full samples from differences
+            data[0] = first
+            for i in range(1, nos):
+                data[i] += data[i-1]
+
+            if data[-1] != last:
                 raise ValueError('Sample mismatch in record')
 
+        # Store data
         self.data = data[:nos]
 
     def get_data_offset(self):
