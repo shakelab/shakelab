@@ -62,10 +62,10 @@ class Date(object):
         else:
             raise ValueError('Minutes must be between 0 and 59')
 
-        if date[5] >= 0 and date[5] <= 59:
+        if date[5] >= 0 and date[5] < 60:
             self.second = float(date[5])
         else:
-            raise ValueError('Seconds must be between 0 and 59')
+            raise ValueError('Seconds must be between 0 and 60')
 
     def get(self):
         """

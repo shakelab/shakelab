@@ -28,7 +28,6 @@ from shakelab.utils.time import day_to_month
 
 class MiniSeed(object):
     """
-    Non-continuous recordings are not (yet) supported
     """
 
     def __init__(self, file=None, byte_order='le'):
@@ -78,14 +77,66 @@ class MiniSeed(object):
                 byte_stream.read(fid, 2**data_length - data_offset)
                 record.read_data(byte_stream)
 
-                self.record.append(record)
+                # Split record in case of multiplexing
+                # and non-contiguous data
+                if not self.record:
+                    self.record.append(record)
+                    #!!! Include here the code to reset header info
 
-                #print(record.get_time_start())
-                #print(record.get_time_end())
+                else:
+                    hc1 = record.header_check()
+                    tm1 = record.get_time_start()
 
+                    if (tm1 == tm0) and (set(hc1) == set(hc0)):
+                        self.record[-1].data += record.data
+                    else:
+                        self.record.append(record)
+                       #!!! Include here the code to reset header info
+
+                hc0 = record.header_check()
+                tm0 = record.get_time_end()
 
 # =============================================================================
 # Record related methods
+
+head_struc = [('SEQUENCE_NUMBER', 's', 6),
+              ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
+              ('RESERVED_BYTE', 's', 1),
+              ('STATION_CODE', 's', 5),
+              ('LOCATION_IDENTIFIER', 's', 2),
+              ('CHANNEL_IDENTIFIER', 's', 3),
+              ('NETWORK_CODE', 's', 2),
+              ('YEAR', 'H', 2),
+              ('DAY', 'H', 2),
+              ('HOURS', 'B', 1),
+              ('MINUTES', 'B', 1),
+              ('SECONDS', 'B', 1),
+              ('UNUSED', 'B', 1),
+              ('MSECONDS', 'H', 2),
+              ('NUMBER_OF_SAMPLES', 'H', 2),
+              ('SAMPLE_RATE_FACTOR', 'h', 2),
+              ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
+              ('ACTIVITY_FLAGS', 'B', 1),
+              ('IO_FLAGS', 'B', 1),
+              ('DATA_QUALITY_FLAGS', 'B', 1),
+              ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
+              ('TIME_CORRECTION', 'l', 4),
+              ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
+              ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
+
+block_struc =  {1000 : [('ENCODING_FORMAT', 'B', 1),
+                        ('WORD_ORDER', 'B', 1),
+                        ('DATA_RECORD_LENGTH', 'B', 1),
+                        ('RESERVED', 'B', 1)],
+                1001 : [('TIMING_QUALITY', 'B', 1),
+                        ('MICRO_SEC', 'B', 1),
+                        ('RESERVED', 'B', 1),
+                        ('FRAME_COUNT', 'B', 1)]}
+
+data_struc = {0 : ('s', 1),
+              1 : ('h', 2),
+              3 : ('i', 4),
+              4 : ('f', 4)}
 
 class Record(object):
     """
@@ -100,31 +151,6 @@ class Record(object):
         """
         Importing header structure
         """
-        head_struc = [('SEQUENCE_NUMBER', 's', 6),
-                      ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
-                      ('RESERVED_BYTE', 's', 1),
-                      ('STATION_CODE', 's', 5),
-                      ('LOCATION_IDENTIFIER', 's', 2),
-                      ('CHANNEL_IDENTIFIER', 's', 3),
-                      ('NETWORK_CODE', 's', 2),
-                      ('YEAR', 'H', 2),
-                      ('DAY', 'H', 2),
-                      ('HOURS', 'B', 1),
-                      ('MINUTES', 'B', 1),
-                      ('SECONDS', 'B', 1),
-                      ('UNUSED', 'B', 1),
-                      ('MSECONDS', 'H', 2),
-                      ('NUMBER_OF_SAMPLES', 'H', 2),
-                      ('SAMPLE_RATE_FACTOR', 'h', 2),
-                      ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
-                      ('ACTIVITY_FLAGS', 'B', 1),
-                      ('IO_FLAGS', 'B', 1),
-                      ('DATA_QUALITY_FLAGS', 'B', 1),
-                      ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
-                      ('TIME_CORRECTION', 'l', 4),
-                      ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
-                      ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
-
         self.header = {}
         for hs in head_struc:
             self.header[hs[0]] = byte_stream.get(hs[1], hs[2])
@@ -133,15 +159,6 @@ class Record(object):
         """
         Importing blockettes
         """
-        block_struc =  {1000 : [('ENCODING_FORMAT', 'B', 1),
-                                ('WORD_ORDER', 'B', 1),
-                                ('DATA_RECORD_LENGTH', 'B', 1),
-                                ('RESERVED', 'B', 1)],
-                        1001 : [('TIMING_QUALITY', 'B', 1),
-                                ('MICRO_SEC', 'B', 1),
-                                ('RESERVED', 'B', 1),
-                                ('FRAME_COUNT', 'B', 1)]}
-
         for nb in range(self.header['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
 
             # Blockette code
@@ -162,11 +179,6 @@ class Record(object):
         """
         Importing data
         """
-        data_struc = {0 : ('s', 1),
-                      1 : ('h', 2),
-                      3 : ('i', 4),
-                      4 : ('f', 4)}
-
         nos = self.header['NUMBER_OF_SAMPLES']
         enc = self.blockette[1000]['ENCODING_FORMAT']
 
@@ -244,6 +256,8 @@ class Record(object):
 
     def get_time_end(self):
         """
+        Return the time (in total seconds) of the last sample plus
+        one sample (for consistency check with the next record)
         """
         nsamp = self.header['NUMBER_OF_SAMPLES']
         srate = self.header['SAMPLE_RATE_FACTOR']
@@ -251,6 +265,13 @@ class Record(object):
             srate = -1/srate
         return round(self.get_time_start() + (nsamp/srate), 4)
 
+    def header_check(self):
+        """
+        List the header itmes which must be equal between
+        consecutive records from the same stream
+        """
+        check_items = [3, 4, 5, 6, 15, 16, 22]
+        return [self.header[head_struc[i][0]] for i in check_items]
 
 # =============================================================================
 # INTERNAL: binary operations
@@ -294,7 +315,6 @@ class ByteStream(object):
         """
         """
         return len(self.data)
-
 
 def _binmask(word, bits, position):
     """
