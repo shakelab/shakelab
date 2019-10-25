@@ -24,26 +24,29 @@ Module for basic waveform analysis
 import numpy as _np
 from shakelab.utils.time import Date
 
+keymap = {0 : 0, 'e' : 0, 'E' : 0, 'ew' : 0, 'EW' : 0, 'x' : 0, 'X' : 0,
+          1 : 1, 'n' : 1, 'N' : 1, 'ns' : 1, 'NS' : 1, 'y' : 1, 'Y' : 1,
+          2 : 2, 'u' : 2, 'U' : 2, 'ud' : 2, 'UD' : 2, 'z' : 2, 'Z' : 2}
 
-class Recording(object):
+
+class Record(object):
     """
-    Single recording, split or not into multiple windows.
-    It can be multichannel, but channels must be synchronous,
-    sampled uniformly and related to the same measurement location.
+    Single recording. It can be multichannel, but channels must
+    be synchronous and related to the same measurement location.
     """
 
     def __init__(self):
         self.id = None
-        self.dt = None
-        self.units = None
+        self.delta = None
+        self.scale = None
         self.time = Date()
-        self.channel = []
+        self.data = None
 
     def __len__(self):
-        return len(self.channel)
+        return len(self.data)
 
-    def __getitem__(self, sliced):
-        return self.channel[sliced]
+    def __getitem__(self, item):
+        return self.data[keymap[item]]
 
 class Station(object):
     """
@@ -52,10 +55,9 @@ class Station(object):
 
     def __init__(self):
         self.id = None
-        self.name = None
         self.latitude = None
         self.longitude = None
-        self.recording = []
+        self.record = []
 
     def __len__(self):
         return len(self.recording)
