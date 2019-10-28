@@ -49,52 +49,47 @@ class MiniSeed(object):
         if byte_order is not None:
             self.byte_order = byte_order
 
-        with open(file, 'rb') as fid:
+        # Initialise stream object
+        byte_stream = ByteStream(self.byte_order)
+        byte_stream.read(file)
 
-            # Loop over records
-            while True:
+        # Loop over records
+        while True:
 
-                # Initialise stream object
-                byte_stream = ByteStream(self.byte_order)
+            # Initialise new record
+            record = Record()
 
-                # Reading the fixed header (48 bytes)
-                if not byte_stream.read(fid, 48):
-                    break
+            # Reading header information
+            record.read_header(byte_stream)
 
-                # Initialise new record
-                record = Record()
+            # Reading the blockettes
+            record.read_blockette(byte_stream)
 
-                # Reading header information
-                record.read_header(byte_stream)
+            # Reading data
+            record.read_data(byte_stream)
 
-                # Reading the blockettes
-                data_offset = record.get_data_offset()
-                byte_stream.read(fid, data_offset - 48)
-                record.read_blockette(byte_stream)
+            # Split record in case of multiplexing
+            # and non-contiguous data
+            if not self.record:
+                self.record.append(record)
+                #!!! Include here the code to reset header info
 
-                # Reading data
-                data_length = record.get_data_length()
-                byte_stream.read(fid, 2**data_length - data_offset)
-                record.read_data(byte_stream)
+            else:
+                hc1 = record.header_check()
+                tm1 = record.get_time_start()
 
-                # Split record in case of multiplexing
-                # and non-contiguous data
-                if not self.record:
-                    self.record.append(record)
-                    #!!! Include here the code to reset header info
-
+                if (tm1 == tm0) and (set(hc1) == set(hc0)):
+                    self.record[-1].data += record.data
                 else:
-                    hc1 = record.header_check()
-                    tm1 = record.get_time_start()
+                    self.record.append(record)
+                   #!!! Include here the code to reset header info
 
-                    if (tm1 == tm0) and (set(hc1) == set(hc0)):
-                        self.record[-1].data += record.data
-                    else:
-                        self.record.append(record)
-                       #!!! Include here the code to reset header info
+            hc0 = record.header_check()
+            tm0 = record.get_time_end()
 
-                hc0 = record.header_check()
-                tm0 = record.get_time_end()
+            # Check if last record, otherwise exit
+            if byte_stream.offset >= byte_stream.length:
+                break
 
 # =============================================================================
 # Record related methods
@@ -164,9 +159,12 @@ class Record(object):
             # Blockette code
             block_type = byte_stream.get('H', 2)
 
+            # Offset to the beginning of the next blockette
+            offset_next =  byte_stream.get('H', 2)
+
             if block_type in block_struc:
-                # Offset to the beginning of the next blockette
-                blockette = {'OFFSET_NEXT' : byte_stream.get('H', 2)}
+                # Blockette initialisation
+                blockette = {'OFFSET_NEXT' : offset_next}
 
                 # Loop through blockette specific keys
                 for bs in block_struc[block_type]:
@@ -174,6 +172,7 @@ class Record(object):
                     self.blockette[block_type] = blockette
             else:
                 print('Blockette type {0} not supported'.format(block_type))
+                byte_stream.offset += offset_next 
 
     def read_data(self, byte_stream):
         """
@@ -182,18 +181,22 @@ class Record(object):
         nos = self.header['NUMBER_OF_SAMPLES']
         enc = self.blockette[1000]['ENCODING_FORMAT']
 
-        data = [None] * nos
-
         if enc in [0, 1, 3, 4]:
 
-            for ds in range(nos):
+            bnum = self.data_length()//data_struc[enc][1]
+            data = [None] * bnum
+
+            # Reading all data bytes, including zeros
+            for ds in range(bnum):
                 data[ds] = byte_stream.get(data_struc[enc][0],
                                            data_struc[enc][1])
 
         if enc in [10, 11]:
 
             cnt = 0
-            for fn in range(byte_stream.len()//64):
+            data = [None] * nos
+
+            for fn in range(self.data_length()//64):
 
                 word = [None] * 16
                 for wn in range(16):
@@ -228,15 +231,11 @@ class Record(object):
         # Store data
         self.data = data[:nos]
 
-    def get_data_offset(self):
+    def data_length(self):
         """
         """
-        return self.header['OFFSET_TO_BEGINNING_OF_DATA']
-
-    def get_data_length(self):
-        """
-        """
-        return self.blockette[1000]['DATA_RECORD_LENGTH']
+        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] - 
+                self.header['OFFSET_TO_BEGINNING_OF_DATA'])
 
     def get_time_start(self):
         """
@@ -286,16 +285,13 @@ class ByteStream(object):
         self.offset = 0
         self.byte_order = byte_order
 
-    def read(self, fid, byte_num):
+    def read(self, file):
         """
         """
-        self.data = fid.read(byte_num)
         self.offset = 0
-
-        if self.data:
-            return True
-        else:
-            return False
+        with open(file, 'rb') as fid:
+            self.data = fid.read()
+        self.length = len(self.data)
 
     def get(self, byte_key, byte_num=1):
         """
@@ -311,10 +307,10 @@ class ByteStream(object):
 
         return unpack(byte_key, byte_pack)[0]
 
-    def len(self):
+    def reminder(self):
         """
         """
-        return len(self.data)
+        return (self.length - self.offset)
 
 def _binmask(word, bits, position):
     """
