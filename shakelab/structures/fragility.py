@@ -63,6 +63,13 @@ class FragilityModel(metaclass=ABCMeta):
         damage state.
         """
 
+    @abstractmethod
+    def initialize_uncertainty(self, dsl):
+        """
+        Initialize the uncertainty dictionary for furhter use.
+        """
+
+
 class FragilityModelParametric(FragilityModel):
     """
     Subclass of :class:`FagilityModel` with paramteric format (mean, stdv)
@@ -71,6 +78,9 @@ class FragilityModelParametric(FragilityModel):
 
     def add_damage_state(self, dsl, mean, stdv):
         self.damage_state[dsl] = (mean, stdv)
+
+    def initialize_uncertainty(self, dsl):
+        self.uncertainties[dsl] = (0,0)
 
     def get_poes(self, dsl, gmi):
         """
@@ -98,6 +108,9 @@ class FragilityModelDiscrete(FragilityModel):
 
     def add_damage_state(self, dsl, poes):
         self.damage_state[dsl] = _np.array(poes)
+
+    def initialize_uncertainty(self, dsl):
+        self.uncertainties[dsl] = (0,0)
 
     def get_poes(self, dsl, gmi, sampling='lin'):
         if sampling is 'lin':
