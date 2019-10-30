@@ -42,6 +42,7 @@ class FragilityModel(metaclass=ABCMeta):
         self.gmt = gmi_type
         self.bounds = bounds
         self.damage_state = {}
+        self.uncertainties = {}
 
     @abstractmethod
     def get_poes(self, dsl, gmi):
