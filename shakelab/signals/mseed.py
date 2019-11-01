@@ -73,25 +73,25 @@ class MiniSeed(object):
             # Split record in case of multiplexing
             # and non-contiguous data
             if not self.record:
-                hc0 = record.header_set()
-                tm0 = record.time_seconds()
-                dt0 = record.duration()
+                hc_0 = record.header_set()
+                tm_0 = record.time_seconds()
+                dt_0 = record.duration()
 
                 self.record.append(record)
 
             else:
-                hc1 = record.header_set()
-                tm1 = record.time_seconds()
-                dt1 = record.duration()
+                hc_1 = record.header_set()
+                tm_1 = record.time_seconds()
+                dt_1 = record.duration()
 
-                if (hc0 == hc1) and (tm0 + dt0 == tm1):
+                if (hc_0 == hc_1) and (tm_0 + dt_0 == tm_1):
                     self.record[-1].data += record.data
                 else:
                     self.record.append(record)
 
-                hc0 = hc1
-                tm0 = tm1
-                dt0 = dt1
+                hc_0 = hc_1
+                tm_0 = tm_1
+                dt_0 = dt_1
 
             # Check if last record, otherwise exit
             if byte_stream.offset >= byte_stream.length:
