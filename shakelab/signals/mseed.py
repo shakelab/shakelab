@@ -73,20 +73,25 @@ class MiniSeed(object):
             # Split record in case of multiplexing
             # and non-contiguous data
             if not self.record:
-                self.record.append(record)
-                #!!! Include here the code to reset header info
-            else:
-                hc1 = record.header_check()
-                tm1 = record.time_alpha()
+                hc0 = record.header_set()
+                tm0 = record.time_seconds()
+                dt0 = record.duration()
 
-                if (tm1 == tm0) and (set(hc1) == set(hc0)):
+                self.record.append(record)
+
+            else:
+                hc1 = record.header_set()
+                tm1 = record.time_seconds()
+                dt1 = record.duration()
+
+                if (hc0 == hc1) and (tm0 + dt0 == tm1):
                     self.record[-1].data += record.data
                 else:
                     self.record.append(record)
-                   #!!! Include here the code to reset header info
 
-            hc0 = record.header_check()
-            tm0 = record.time_omega()
+                hc0 = hc1
+                tm0 = tm1
+                dt0 = dt1
 
             # Check if last record, otherwise exit
             if byte_stream.offset >= byte_stream.length:
@@ -238,7 +243,7 @@ class Record(object):
         return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] - 
                 self.header['OFFSET_TO_BEGINNING_OF_DATA'])
 
-    def time_alpha(self):
+    def time_seconds(self):
         """
         """
         year = self.header['YEAR']
@@ -254,10 +259,8 @@ class Record(object):
         date = Date([year, month, day, hour, minute, second + msecond])
         return round(date.to_second(), 4)
 
-    def time_omega(self):
+    def duration(self):
         """
-        Return the time (in total seconds) of the last sample plus
-        one sample (for consistency check with the next record)
         """
         nsamp = self.header['NUMBER_OF_SAMPLES']
         srate = self.header['SAMPLE_RATE_FACTOR']
@@ -267,15 +270,15 @@ class Record(object):
         if rmult < 0: rmult = 1./rmult
         srate *= rmult
 
-        return round(self.time_alpha() + (nsamp/srate), 4)
+        return (nsamp/srate)
 
-    def header_check(self):
+    def header_set(self):
         """
         List the header itmes which must be equal between
         consecutive records from the same stream
         """
-        check_items = [3, 4, 5, 6]
-        return [self.header[head_struc[i][0]] for i in check_items]
+        items = [3, 4, 5, 6]
+        return set([self.header[head_struc[i][0]] for i in items])
 
 # =============================================================================
 # INTERNAL: binary operations
