@@ -312,8 +312,9 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
                 nl = lnum-1
                 dh = depth[nz] - bounds[-1]
             else:
-                # There might be a more python way to do that...
-                nl = map(lambda x: x >= depth[nz], bounds).index(True) - 1
+                # There might be a more pythonic way to do that...
+                zlim = lambda x: x >= depth[nz]
+                nl = list(map(zlim, bounds)).index(True) - 1
                 dh = depth[nz] - bounds[nl]
 
             # Displacement of the up-going and down-going waves
