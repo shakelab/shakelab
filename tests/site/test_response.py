@@ -141,7 +141,70 @@ class ShTansferFunctionTestCase(unittest.TestCase):
 
         return freq, ampf
 
+    def test_2_layer_model_free_surface(self):
+        """
+        Case with two layers
+        """
 
+        self.check_amplification('test/site/data/psvq/2_layer_model/amp.i0.txt',
+                                 np.array([100., 0.]),
+                                 np.array([200., 1200.]),
+                                 np.array([1900., 2500.]),
+                                 np.array([10., 100.]),
+                                 0.,
+                                 0.)
+
+    def test_2_layer_model_1st_interface(self):
+        """
+        Case with two layers and calculation at the 1st interface
+        """
+
+        self.check_amplification('test/site/data/psvq/2_layer_model/amp.i1.txt',
+                                 np.array([100., 0.]),
+                                 np.array([200., 1200.]),
+                                 np.array([1900., 2500.]),
+                                 np.array([10., 100.]),
+                                 0.,
+                                 100.)
+
+    def test_3_layer_model_free_surface(self):
+        """
+        Case with three layers
+        """
+
+        self.check_amplification('test/site/data/psvq/3_layer_model/amp.i0.txt',
+                                 np.array([10., 50., 0]),
+                                 np.array([200., 500., 1200.]),
+                                 np.array([1900., 2100., 2500.]),
+                                 np.array([10., 20., 100.]),
+                                 0.,
+                                 0.)
+
+    def test_3_layer_model_1st_interface(self):
+        """
+        Case with three layers and calculation at the 1st interface
+        """
+
+        self.check_amplification('test/site/data/psvq/3_layer_model/amp.i1.txt',
+                                 np.array([10., 50., 0]),
+                                 np.array([200., 500., 1200.]),
+                                 np.array([1900., 2100., 2500.]),
+                                 np.array([10., 20., 100.]),
+                                 0.,
+                                 10.)
+
+    def test_3_layer_model_2nd_interface(self):
+        """
+        Case with three layers and calculation at the 2st interface
+        """
+
+        self.check_amplification('test/site/data/psvq/3_layer_model/amp.i2.txt',
+                                 np.array([10., 50., 0]),
+                                 np.array([200., 500., 1200.]),
+                                 np.array([1900., 2100., 2500.]),
+                                 np.array([10., 20., 100.]),
+                                 0.,
+                                 60.)
 
 if __name__ == '__main__':
     unittest.main()
