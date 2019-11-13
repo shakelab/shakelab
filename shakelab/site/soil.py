@@ -244,7 +244,7 @@ def gt_soil_class(vs30, code='EC8'):
             gt_class = 'D'
         else:
             gt_class = None
-            print 'Warning: no class assigned'
+            print('Warning: no class assigned')
 
     # NEHRP (BSSC 1997)
     if code == 'NEHRP':
@@ -260,6 +260,6 @@ def gt_soil_class(vs30, code='EC8'):
             gt_class = 'E'
         else:
             gt_class = None
-            print 'Warning: no class assigned'
+            print('Warning: no class assigned')
 
     return gt_class
