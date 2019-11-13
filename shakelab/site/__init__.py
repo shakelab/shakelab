@@ -1,1 +1,1 @@
-name = "quakelab"
+name = "shakelab"
