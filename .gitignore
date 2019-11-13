@@ -10,7 +10,7 @@ dist
 *.whl
 
 # Travis configuration
-.travis.yml
+#.travis.yml
 
 # Mac stuff
 .DS_Store
