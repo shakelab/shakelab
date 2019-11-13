@@ -146,7 +146,7 @@ class ShTansferFunctionTestCase(unittest.TestCase):
         Case with two layers
         """
 
-        self.check_amplification('test/site/data/psvq/2_layer_model/amp.i0.txt',
+        self.check_amplification('tests/site/data/psvq/2_layer_model/amp.i0.txt',
                                  np.array([100., 0.]),
                                  np.array([200., 1200.]),
                                  np.array([1900., 2500.]),
@@ -159,7 +159,7 @@ class ShTansferFunctionTestCase(unittest.TestCase):
         Case with two layers and calculation at the 1st interface
         """
 
-        self.check_amplification('test/site/data/psvq/2_layer_model/amp.i1.txt',
+        self.check_amplification('tests/site/data/psvq/2_layer_model/amp.i1.txt',
                                  np.array([100., 0.]),
                                  np.array([200., 1200.]),
                                  np.array([1900., 2500.]),
@@ -172,7 +172,7 @@ class ShTansferFunctionTestCase(unittest.TestCase):
         Case with three layers
         """
 
-        self.check_amplification('test/site/data/psvq/3_layer_model/amp.i0.txt',
+        self.check_amplification('tests/site/data/psvq/3_layer_model/amp.i0.txt',
                                  np.array([10., 50., 0]),
                                  np.array([200., 500., 1200.]),
                                  np.array([1900., 2100., 2500.]),
@@ -185,7 +185,7 @@ class ShTansferFunctionTestCase(unittest.TestCase):
         Case with three layers and calculation at the 1st interface
         """
 
-        self.check_amplification('test/site/data/psvq/3_layer_model/amp.i1.txt',
+        self.check_amplification('tests/site/data/psvq/3_layer_model/amp.i1.txt',
                                  np.array([10., 50., 0]),
                                  np.array([200., 500., 1200.]),
                                  np.array([1900., 2100., 2500.]),
@@ -198,7 +198,7 @@ class ShTansferFunctionTestCase(unittest.TestCase):
         Case with three layers and calculation at the 2st interface
         """
 
-        self.check_amplification('test/site/data/psvq/3_layer_model/amp.i2.txt',
+        self.check_amplification('tests/site/data/psvq/3_layer_model/amp.i2.txt',
                                  np.array([10., 50., 0]),
                                  np.array([200., 500., 1200.]),
                                  np.array([1900., 2100., 2500.]),
