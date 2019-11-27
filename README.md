@@ -1,11 +1,3 @@
-# Markdown cheatsheet
-
-_(Also see [remarkable][], the markdown parser created by the author of this cheatsheet)_ 
-
-## Table of contents
-
-
-
 <img alt="ShakeLab - Tools for Engineering Seismology" class="right" style="width: 60%" src="https://raw.githubusercontent.com/klunk386/shakelab/master/logo/shakelab.png#1" />
 
 [![AGPLv3](https://www.gnu.org/graphics/agplv3-88x31.png)](https://www.gnu.org/licenses/agpl.html)
@@ -17,7 +9,7 @@ ShakeLab is an opensource project with the goal of providing a set of free and o
 
 Warning: This is still **WORK IN PROGRESS!**
 
-### Installation
+# Installation
 
 ShakeLab can be installed directly from the GitHub repository using pip:
 
