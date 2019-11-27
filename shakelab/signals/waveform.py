@@ -28,6 +28,18 @@ keymap = {0 : 0, 'e' : 0, 'E' : 0, 'ew' : 0, 'EW' : 0, 'x' : 0, 'X' : 0,
           1 : 1, 'n' : 1, 'N' : 1, 'ns' : 1, 'NS' : 1, 'y' : 1, 'Y' : 1,
           2 : 2, 'u' : 2, 'U' : 2, 'ud' : 2, 'UD' : 2, 'z' : 2, 'Z' : 2}
 
+class Channel(object):
+    """
+    """
+
+    def __init__(self):
+        self.data = []
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, item):
+        return self.data[keymap[item]]
 
 class Record(object):
     """
@@ -40,13 +52,13 @@ class Record(object):
         self.delta = None
         self.scale = None
         self.time = Date()
-        self.data = None
+        self.channel = []
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, item):
-        return self.data[keymap[item]]
+        return self.channel[sliced]
 
 class Station(object):
     """
@@ -60,10 +72,10 @@ class Station(object):
         self.record = []
 
     def __len__(self):
-        return len(self.recording)
+        return len(self.record)
 
     def __getitem__(self, sliced):
-        return self.recording[sliced]
+        return self.record[sliced]
 
 class Array(object):
     """
