@@ -1,6 +1,6 @@
 # ============================================================================
 #
-# Copyright (C) 2019 Valerio Poggi.
+# Copyright (C) 2019, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify it
