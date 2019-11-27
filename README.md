@@ -28,7 +28,7 @@ If you are a developer, you can simply install the cloned GIT repository with:
 sudo -H python3 -m pip install --upgrade --editable shakelab
 ```
 
-### Dependencies
+## Dependencies
 
 ShakeLab requires the following dependencies:
 
@@ -36,7 +36,7 @@ ShakeLab requires the following dependencies:
   * [Matplotlib](http://matplotlib.org/)
   * [Shapely](https://pypi.org/project/Shapely/)
 
-### License
+## License
 
 Copyright (c) 2019 Valerio Poggi
 
@@ -44,7 +44,7 @@ ShakeLab is free software: you can redistribute it and/or modify it under the te
 
 You should have received a copy of the GNU Affero General Public License with this download. If not, see <http://www.gnu.org/licenses/>
 
-### Disclaimer
+## Disclaimer
 
 ShakeLab is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
 
