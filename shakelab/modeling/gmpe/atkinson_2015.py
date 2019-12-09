@@ -34,14 +34,11 @@ class Atkinson2015(GMPE):
         Bulletin of the Seismological Society of America. 105(2)
     """
 
-    COEFF_FILE = 'atkinson_2015.json'
-
     REFERENCE_VELOCITY = 760.
     DISTANCE_METRIC = 'hypocentral'
     MAGNITUDE_TYPE = 'Mw'
 
-    def __init__(self):
-        super().__init__(self.COEFF_FILE)
+    _COEFF_FILE = 'atkinson_2015.json'
 
     def ground_motion(self, imt, mag, dist):
 

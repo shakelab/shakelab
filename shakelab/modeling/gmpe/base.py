@@ -29,13 +29,12 @@ class GMPE(metaclass=_abc.ABCMeta):
     Base class for ground motion prediction equation models (GMPEs).
     """
 
-    def __init__(self, json_file, label='default'):
-        self.import_coeff_from_json(json_file, label)
+    _COEFF_FILE = None
+    _COEFF_SET = 'default'
 
-    @property
-    @_abc.abstractmethod
-    def COEFF_FILE(self):
-        pass
+    def __init__(self):
+        self.import_coeff_from_json(self._COEFF_FILE,
+                                    self._COEFF_SET)
 
     @property
     @_abc.abstractmethod
@@ -58,7 +57,7 @@ class GMPE(metaclass=_abc.ABCMeta):
         """
         pass
 
-    def import_coeff_from_json(self, json_file, label='default'):
+    def import_coeff_from_json(self, json_file, coeff_set='default'):
         """
         Loads the coefficient from a separate file in json format.
         File has to be stored in the same directory of the GMPE class.
@@ -68,7 +67,7 @@ class GMPE(metaclass=_abc.ABCMeta):
 
         self.coeff = {}
         with open(path_file) as jf:
-            data = _json.load(jf)['coefficients'][label]
+            data = _json.load(jf)['coefficients'][coeff_set]
             self.keys = data['keys']
             for kp in data['type']:
                 self.coeff[kp] = [float(c) for c in data['type'][kp]]
@@ -81,7 +80,11 @@ class GMPE(metaclass=_abc.ABCMeta):
         if imt in self.coeff:
             return dict(zip(self.keys, self.coeff[imt]))
         else:
-            print('Error: Not a valid intensity measure type')
+            raise KeyError('Not a valid intensity measure type')
 
-
+    def list_imts(self):
+        """
+        List the available intensity measure types for the gmpe.
+        """
+        return [k for k in self.coeff.keys()]
 

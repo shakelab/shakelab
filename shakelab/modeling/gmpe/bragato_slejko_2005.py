@@ -37,15 +37,12 @@ class BragatoSlejko2005(GMPE):
     Distance: epicentral
     """
 
-    COEFF_FILE = 'bragato_slejko_2005.json'
-    COEFF_KEY = 'epicentral'
-
     REFERENCE_VELOCITY = 800.
     DISTANCE_METRIC = 'epicentral'
     MAGNITUDE_TYPE = 'ML'
 
-    def __init__(self):
-        super().__init__(self.COEFF_FILE, label=self.COEFF_KEY)
+    _COEFF_FILE = 'bragato_slejko_2005.json'
+    _COEFF_SET = 'epicentral'
 
     def ground_motion(self, imt, mag, dist):
 
@@ -78,6 +75,4 @@ class BragatoSlejko2005JB(BragatoSlejko2005):
     """
 
     DISTANCE_METRIC = 'joyner-boore'
-    COEFF_KEY = 'joyner-boore'
-
-
+    _COEFF_SET = 'joyner-boore'
