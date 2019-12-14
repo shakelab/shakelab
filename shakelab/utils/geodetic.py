@@ -1,6 +1,6 @@
 # ============================================================================
 #
-# Copyright (C) 2019, ShakeLab Developers.
+# Copyright (C) 2019, ShakeLab developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify it
@@ -25,6 +25,18 @@ MEAN_EARTH_RADIUS = 6371008.8
 EQUATORIAL_EARTH_RADIUS = 6378137.0
 POLAR_EARTH_RADIUS = 6356752.3
 
+def wgs_to_xy_sinproj (lat, lon):
+    """
+    Approximate conversion using sinusoidal projection.
+    """
+
+    y_dist = np.radians(MEAN_EARTH_RADIUS)
+
+    y = lat * y_dist
+    x = lon * y_dist * np.cos(np.radians(lat))
+
+    return round(x, 3), round(y, 3)
+
 
 def wgs_to_xyz_sphere(lat, lon, ele):
     """
@@ -41,6 +53,7 @@ def wgs_to_xyz_sphere(lat, lon, ele):
     z = rho * np.cos(phi)
 
     return round(x, 3), round(y, 3), round(z, 3)
+
 
 def wgs_to_xyz_ellipsoid(lat, lon, ele):
     """
@@ -62,6 +75,7 @@ def wgs_to_xyz_ellipsoid(lat, lon, ele):
 
     return round(x, 3), round(y, 3), round(z, 3)
 
+
 def geocentric_radius(lat):
     """
     Compute the distance from the Earth's center
@@ -79,6 +93,7 @@ def geocentric_radius(lat):
 
     return round(radius, 3)
 
+
 def tunnel_distance(lat1, lon1, ele1, lat2, lon2, ele2):
     """
     Compute the linear distance (circle chord) between
@@ -91,6 +106,7 @@ def tunnel_distance(lat1, lon1, ele1, lat2, lon2, ele2):
     distance = np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
 
     return round(distance, 3)
+
 
 def circle_distance(lat1, lon1, lat2, lon2):
     """
@@ -114,6 +130,7 @@ def circle_distance(lat1, lon1, lat2, lon2):
 
     return round(distance, 3)
 
+
 def circle_distance_to_test(lat1, lon1, lat2, lon2):
     """
     Compute the great circle distance between two
@@ -136,13 +153,37 @@ def circle_distance_to_test(lat1, lon1, lat2, lon2):
     return round(distance, 3)
 
 
+def spherical_mesh(delta, km=False):
+    """
+    Produce a spherical mesh using golder spiral algorithm.
+    Delta is the average distance between nearby points
+    (by default in degrees).
+    """
+
+    if km:
+        # Distance is in kilometers
+        num_pts = np.rint((4 * np.pi * MEAN_EARTH_RADIUS**2) / (delta**2))
+    else:
+        # Distance is in degrees
+        num_pts = (4 * np.pi) / (np.radians(delta)**2)
+
+    indices = np.arange(0, num_pts, dtype=float) + 0.5
+
+    phi = np.arccos(1 - 2 * (indices / num_pts))
+    theta = np.pi * (1 + 5**0.5) * indices
+
+    # Conversion to wgs84
+    lat = np.rad2deg(phi) - 90.
+    lon = np.rad2deg(unwrap(theta))
+
+    return np.round(lat, 4), np.round(lon, 4)
+    #return lat, lon
 
 
+def unwrap(angle):
+    """
+    Unwrap phase angle.
+    """
 
-
-
-
-
-
-
+    return angle - (2 * np.pi) * ((angle + np.pi)//(2 * np.pi))
 
