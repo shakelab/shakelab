@@ -158,14 +158,16 @@ def spherical_mesh(delta, km=False):
     Produce a spherical mesh using golder spiral algorithm.
     Delta is the average distance between nearby points
     (by default in degrees).
+
+    Modified from Chris Drost.
     """
 
     if km:
         # Distance is in kilometers
-        num_pts = np.rint((4 * np.pi * MEAN_EARTH_RADIUS**2) / (delta**2))
+        num_pts = np.rint(4 * np.pi * MEAN_EARTH_RADIUS**2 / delta**2)
     else:
         # Distance is in degrees
-        num_pts = (4 * np.pi) / (np.radians(delta)**2)
+        num_pts = np.rint(4 * np.pi / np.radians(delta)**2)
 
     indices = np.arange(0, num_pts, dtype=float) + 0.5
 
