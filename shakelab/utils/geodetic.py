@@ -153,7 +153,8 @@ def circle_distance_to_test(lat1, lon1, lat2, lon2):
     return round(distance, 3)
 
 
-def spherical_mesh(delta, km=False):
+def spherical_mesh(delta, km=False,
+                   latitude=(-90, 90), longitude=(-180, 180)):
     """
     Produce a spherical mesh using golder spiral algorithm.
     Delta is the average distance between nearby points
@@ -164,6 +165,7 @@ def spherical_mesh(delta, km=False):
 
     if km:
         # Distance is in kilometers
+        delta *= 1000.
         num_pts = np.rint(4 * np.pi * MEAN_EARTH_RADIUS**2 / delta**2)
     else:
         # Distance is in degrees
@@ -175,11 +177,15 @@ def spherical_mesh(delta, km=False):
     theta = np.pi * (1 + 5**0.5) * indices
 
     # Conversion to wgs84
-    lat = np.rad2deg(phi) - 90.
-    lon = np.rad2deg(unwrap(theta))
+    lat = np.degrees(phi) - 90.
+    lon = np.degrees(unwrap(theta))
+
+    i = (lat >= latitude[0]) & (lat <= latitude[1])
+    j = (lon >= longitude[0]) & (lon <= longitude[1])
+    lat = lat[i & j]
+    lon = lon[i & j]
 
     return np.round(lat, 4), np.round(lon, 4)
-    #return lat, lon
 
 
 def unwrap(angle):
