@@ -56,9 +56,9 @@ class WgsPolygon():
     Vertexes are in a list of WgsPoints.
     """
 
-    def __init__(self, vertex=[]):
+    def __init__(self, vertices=[]):
 
-        self.vertices = vertex
+        self.vertices = vertices
 
     def add(self, point):
 
