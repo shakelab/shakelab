@@ -39,10 +39,22 @@ class WgsPoint():
         self.longitude = longitude
         self.elevation = elevation
 
-    def distance_from(self, point):
+    def circle_distance(self, point):
 
         dist = circle_distance(self.latitude, self.longitude,
                                point.latitude, point.longitude)
+
+        return 1e-3 * dist
+
+    def tunnel_distance(self, point, approx='sphere'):
+
+        if approx is 'sphere':
+            handle = tunnel_distance_sphere
+        if approx is 'ellipsoid'
+            handle = tunnel_distance_ellipsoid
+
+        dist = handle(self.latitude, self.longitude, self.elevation,
+                      point.latitude, point.longitude, point.elevation
 
         return 1e-3 * dist
 
