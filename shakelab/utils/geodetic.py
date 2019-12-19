@@ -39,6 +39,17 @@ class WgsPoint():
         self.longitude = longitude
         self.elevation = elevation
 
+    def distance_from(self, point):
+
+        dist = circle_distance_to_test(self.latitude, self.longitude,
+                                       point.latitude, point.longitude)
+
+        return 1e-3 * dist
+
+    def __sub__(self, point):
+
+        return distance_from(point)
+
 class WgsPolygon():
     """
     A polygon in geographical coordinates.
@@ -47,11 +58,11 @@ class WgsPolygon():
 
     def __init__(self, vertex=[]):
 
-        self.vertex = vertex
+        self.vertices = vertex
 
     def add(self, point):
 
-        self.vertex.append(point)
+        self.vertices.append(point)
 
     def from_array(self, latitude, longitude):
 
@@ -68,8 +79,8 @@ class WgsPolygon():
         Export latitude and longitude as numpy arrays.
         """
 
-        lat = np.array([v.latitude for v in self.vertex])
-        lon = np.array([v.longitude for v in self.vertex])
+        lat = np.array([v.latitude for v in self.vertices])
+        lon = np.array([v.longitude for v in self.vertices])
 
         return lat, lon
 
@@ -78,21 +89,24 @@ class WgsPolygon():
         Export a list of tuples with geographical coordinates.
         """
 
-        return [(v.latitude, v.longitude) for v in self.vertex]
+        return [(v.latitude, v.longitude) for v in self.vertices]
 
     def bounds(self):
 
         lat, lon = self.to_array()
 
-        return [(min(lat), max(lat)), (min(lon), max(lon))]
+        return (min(lat), max(lat)), (min(lon), max(lon))
 
     def area(self):
+        """
+        Note: area is in square kilometers
+        """
 
         # Coordinate conversion using equal area projection
         lat, lon = self.to_array()
         x, y = wgs_to_xy_sinproj(lat, lon)
 
-        return polygon_area(x, y)
+        return 1e-6 * polygon_area_shoelace(x, y)
 
     def contains(self, point):
         """
@@ -106,10 +120,10 @@ class WgsPolygon():
 
         return contains(polygon_x, polygon_y, x, y)
 
-    def to_grid(self, delta=0.1):
+    def to_grid(self, delta=0.1, km=False):
 
         bnd = self.bounds()
-        grd_lat, grd_lon = spherical_mesh(delta,
+        grd_lat, grd_lon = spherical_mesh(delta, km,
                                           latitude=bnd[0],
                                           longitude=bnd[1])
 
@@ -125,7 +139,7 @@ class WgsMesh():
     """
     """
 
-    def __init__(self):
+    def __init__(self, ):
         self.points = []
 
     def add(self, point):
@@ -140,6 +154,32 @@ class WgsMesh():
         lon = np.array([v.longitude for v in self.points])
 
         return lat, lon
+
+    def intersect(self, polygon):
+
+        points = []
+        for p in self.points:
+            if polygon.contains(p):
+                points.append(p)
+        self.points = points
+
+    def create_global_grid(self, delta, km=False,
+                                 latitude=(-90, 90),
+                                 longitude=(-180, 180),
+                                 polygon=None):
+
+        if polygon is not None:
+            latitude, longitude = polygon.bounds()
+
+        grd_lat, grd_lon = spherical_mesh(delta, km,
+                                          latitude=latitude,
+                                          longitude=longitude)
+
+        for lat, lon in zip(grd_lat, grd_lon):
+            self.add(WgsPoint(lat, lon))
+
+        if polygon is not None:
+            self.intersect(polygon)
 
 # ----------------------------------------------------------------------------
 # Geometric functions
