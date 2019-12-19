@@ -41,8 +41,8 @@ class WgsPoint():
 
     def distance_from(self, point):
 
-        dist = circle_distance_to_test(self.latitude, self.longitude,
-                                       point.latitude, point.longitude)
+        dist = circle_distance(self.latitude, self.longitude,
+                               point.latitude, point.longitude)
 
         return 1e-3 * dist
 
@@ -163,10 +163,8 @@ class WgsMesh():
                 points.append(p)
         self.points = points
 
-    def create_global_grid(self, delta, km=False,
-                                 latitude=(-90, 90),
-                                 longitude=(-180, 180),
-                                 polygon=None):
+    def create_global_grid(self, delta, km=False, polygon=None,
+                           latitude=(-90, 90), longitude=(-180, 180)):
 
         if polygon is not None:
             latitude, longitude = polygon.bounds()
@@ -187,7 +185,7 @@ class WgsMesh():
 def contains(polygon_x, polygon_y, x, y):
     """
     Evaluate if a point is inside a polygon.
-    From: ????
+    Modified from: ????
     """
 
     n = len(list(zip(polygon_x, polygon_y)))
@@ -215,7 +213,7 @@ def contains(polygon_x, polygon_y, x, y):
 def polygon_area(x, y):
     """
     Calculates the area of an arbitrary polygon given its verticies.
-    From: Joe Kington
+    Modified from Joe Kington
     """
 
     area = 0.0
@@ -242,12 +240,20 @@ def wgs_to_xy_sinproj(lat, lon):
     Approximate conversion using sinusoidal projection.
     """
 
-    y_dist = np.radians(MEAN_EARTH_RADIUS)
-
-    y = lat * y_dist
-    x = lon * y_dist * np.cos(np.radians(lat))
+    y = np.radians(lat) * MEAN_EARTH_RADIUS
+    x = np.radians(lon) * MEAN_EARTH_RADIUS * np.cos(np.radians(lat))
 
     return np.round(x, 3), np.round(y, 3)
+
+def xy_to_wgs_sinproj(x, y):
+    """
+    Approximate conversion using sinusoidal projection.
+    """
+
+    lat = np.degrees(y / MEAN_EARTH_RADIUS)
+    lon = np.degrees(x / (MEAN_EARTH_RADIUS * np.cos(np.radians(lat))))
+
+    return np.round(lat, 4), np.round(lon, 4)
 
 def wgs_to_xyz_sphere(lat, lon, ele):
     """
@@ -328,7 +334,7 @@ def tunnel_distance_ellipsoid(lat1, lon1, ele1, lat2, lon2, ele2):
 
     return np.round(distance, 3)
 
-def circle_distance(lat1, lon1, lat2, lon2):
+def circle_distance_to_test(lat1, lon1, lat2, lon2):
     """
     Compute the great circle distance between two
     points on the spherical earth surface.
@@ -350,7 +356,7 @@ def circle_distance(lat1, lon1, lat2, lon2):
 
     return np.round(distance, 3)
 
-def circle_distance_to_test(lat1, lon1, lat2, lon2):
+def circle_distance(lat1, lon1, lat2, lon2):
     """
     Compute the great circle distance between two
     points on the spherical earth surface.
@@ -364,7 +370,7 @@ def circle_distance_to_test(lat1, lon1, lat2, lon2):
     dlon = lon2 - lon1
     dlat = lat2 - lat1
     
-    a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
+    a = np.sin(dlat/2)**2 * np.sin(dlon/2)**2 + np.cos(lat1) * np.cos(lat2)
     c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
     
     distance = MEAN_EARTH_RADIUS * c
