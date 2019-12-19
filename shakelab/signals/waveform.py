@@ -38,8 +38,8 @@ class Channel(object):
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, item):
-        return self.data[keymap[item]]
+    def __getitem__(self, sliced):
+        return self.data[sliced]
 
 class Record(object):
     """
@@ -55,10 +55,10 @@ class Record(object):
         self.channel = []
 
     def __len__(self):
-        return len(self.data)
+        return len(self.channel)
 
     def __getitem__(self, item):
-        return self.channel[sliced]
+        return self.channel[keymap[item]]
 
 class Station(object):
     """

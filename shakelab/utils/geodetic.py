@@ -19,13 +19,185 @@
 # ============================================================================
 
 import numpy as np
+import shapely.geometry as geo
 
 # CONSTANTS
 MEAN_EARTH_RADIUS = 6371008.8
 EQUATORIAL_EARTH_RADIUS = 6378137.0
 POLAR_EARTH_RADIUS = 6356752.3
 
-def wgs_to_xy_sinproj (lat, lon):
+
+class WgsPoint():
+
+    def __init__(self, latitude=0., longitude=0., elevation=0.):
+        """
+        Coordinates are in WGS84 system.
+        Elevation is referred to the seal level
+        """
+
+        self.latitude = latitude
+        self.longitude = longitude
+        self.elevation = elevation
+
+class WgsPolygon():
+    """
+    A polygon in geographical coordinates.
+    Vertexes are in a list of WgsPoints.
+    """
+
+    def __init__(self, vertex=[]):
+
+        self.vertex = vertex
+
+    def add(self, point):
+
+        self.vertex.append(point)
+
+    def from_array(self, latitude, longitude):
+
+        for lat, lon in zip(latitude, longitude):
+            self.add(WgsPoint(lat, lon))
+
+    def from_list(self, polygon):
+
+        for p in polygon:
+            self.add(WgsPoint(p[0], p[1]))
+
+    def to_array(self):
+        """
+        Export latitude and longitude as numpy arrays.
+        """
+
+        lat = np.array([v.latitude for v in self.vertex])
+        lon = np.array([v.longitude for v in self.vertex])
+
+        return lat, lon
+
+    def to_list(self):
+        """
+        Export a list of tuples with geographical coordinates.
+        """
+
+        return [(v.latitude, v.longitude) for v in self.vertex]
+
+    def bounds(self):
+
+        lat, lon = self.to_array()
+
+        return [(min(lat), max(lat)), (min(lon), max(lon))]
+
+    def area(self):
+
+        # Coordinate conversion using equal area projection
+        lat, lon = self.to_array()
+        x, y = wgs_to_xy_sinproj(lat, lon)
+
+        return polygon_area(x, y)
+
+    def contains(self, point):
+        """
+        point is a WgsPoint object
+        """
+
+        # Is it needed to project coordinate?
+        lat, lon = self.to_array()
+        polygon_x, polygon_y = wgs_to_xy_sinproj(lat, lon)
+        x, y = wgs_to_xy_sinproj(point.latitude, point.longitude)
+
+        return contains(polygon_x, polygon_y, x, y)
+
+    def to_grid(self, delta=0.1):
+
+        bnd = self.bounds()
+        grd_lat, grd_lon = spherical_mesh(delta,
+                                          latitude=bnd[0],
+                                          longitude=bnd[1])
+
+        mesh = WgsMesh()
+        for lat, lon in zip(grd_lat, grd_lon):
+            point = WgsPoint(lat, lon)
+            if self.contains(point):
+                mesh.add(point)
+
+        return mesh
+
+class WgsMesh():
+    """
+    """
+
+    def __init__(self):
+        self.points = []
+
+    def add(self, point):
+        self.points.append(point)
+
+    def to_array(self):
+        """
+        Export latitude and longitude as numpy arrays.
+        """
+
+        lat = np.array([v.latitude for v in self.points])
+        lon = np.array([v.longitude for v in self.points])
+
+        return lat, lon
+
+# ----------------------------------------------------------------------------
+# Geometric functions
+
+def contains(polygon_x, polygon_y, x, y):
+    """
+    Evaluate if a point is inside a polygon.
+    From: ????
+    """
+
+    n = len(list(zip(polygon_x, polygon_y)))
+
+    x0 = polygon_x[0]
+    y0 = polygon_y[0]
+
+    result = False
+
+    for i in range(n + 1):
+        x1 = polygon_x[i % n]
+        y1 = polygon_y[i % n]
+
+        if min(y0, y1) < y <= max(y0, y1):
+            if x <= max(x0, x1):
+                if y0 != y1:
+                    xints = (y-y0) * (x1-x0) / (y1-y0) + x0
+                if x0 == x1 or x <= xints:
+                    result = not result
+
+        x0, y0 = x1, y1
+
+    return result
+
+def polygon_area(x, y):
+    """
+    Calculates the area of an arbitrary polygon given its verticies.
+    From: Joe Kington
+    """
+
+    area = 0.0
+    for i in range(-1, len(x)-1):
+        area += x[i] * (y[i+1] - y[i-1])
+
+    return abs(area) / 2.0
+
+def polygon_area_shoelace(x, y):
+    """
+    Using Shoelace formula to compute area.
+    """
+
+    a = np.dot(x, np.roll(y, 1))
+    b = np.dot(y, np.roll(x, 1))
+
+    return 0.5*np.abs(a - b)
+
+# ----------------------------------------------------------------------------
+# Geodetic functions
+
+def wgs_to_xy_sinproj(lat, lon):
     """
     Approximate conversion using sinusoidal projection.
     """
@@ -35,8 +207,7 @@ def wgs_to_xy_sinproj (lat, lon):
     y = lat * y_dist
     x = lon * y_dist * np.cos(np.radians(lat))
 
-    return round(x, 3), round(y, 3)
-
+    return np.round(x, 3), np.round(y, 3)
 
 def wgs_to_xyz_sphere(lat, lon, ele):
     """
@@ -52,8 +223,7 @@ def wgs_to_xyz_sphere(lat, lon, ele):
     y = rho * np.sin(phi) * np.sin(theta)
     z = rho * np.cos(phi)
 
-    return round(x, 3), round(y, 3), round(z, 3)
-
+    return np.round(x, 3), np.round(y, 3), np.round(z, 3)
 
 def wgs_to_xyz_ellipsoid(lat, lon, ele):
     """
@@ -73,8 +243,7 @@ def wgs_to_xyz_ellipsoid(lat, lon, ele):
     y = (rho + ele) * np.cos(phi) * np.sin(theta)
     z = ((per2/eer2) * rho + ele) * np.sin(phi)
 
-    return round(x, 3), round(y, 3), round(z, 3)
-
+    return np.round(x, 3), np.round(y, 3), np.round(z, 3)
 
 def geocentric_radius(lat):
     """
@@ -91,10 +260,22 @@ def geocentric_radius(lat):
 
     radius = np.sqrt((a + b * c)/(1 + c))
 
-    return round(radius, 3)
+    return np.round(radius, 3)
 
+def tunnel_distance_sphere(lat1, lon1, ele1, lat2, lon2, ele2):
+    """
+    Compute the linear distance (circle chord) between
+    two points on the spherical earth surface.
+    """
 
-def tunnel_distance(lat1, lon1, ele1, lat2, lon2, ele2):
+    x1, y1, z1 = wgs_to_xyz_sphere(lat1, lon1, ele1)
+    x2, y2, z2 = wgs_to_xyz_sphere(lat2, lon2, ele2)
+
+    distance = np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
+
+    return np.round(distance, 3)
+
+def tunnel_distance_ellipsoid(lat1, lon1, ele1, lat2, lon2, ele2):
     """
     Compute the linear distance (circle chord) between
     two points on the earth ellipsoid surface.
@@ -105,8 +286,7 @@ def tunnel_distance(lat1, lon1, ele1, lat2, lon2, ele2):
 
     distance = np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
 
-    return round(distance, 3)
-
+    return np.round(distance, 3)
 
 def circle_distance(lat1, lon1, lat2, lon2):
     """
@@ -128,8 +308,7 @@ def circle_distance(lat1, lon1, lat2, lon2):
 
     distance = 2 * MEAN_EARTH_RADIUS * np.arcsin(np.sqrt(a))
 
-    return round(distance, 3)
-
+    return np.round(distance, 3)
 
 def circle_distance_to_test(lat1, lon1, lat2, lon2):
     """
@@ -150,8 +329,7 @@ def circle_distance_to_test(lat1, lon1, lat2, lon2):
     
     distance = MEAN_EARTH_RADIUS * c
     
-    return round(distance, 3)
-
+    return np.round(distance, 3)
 
 def spherical_mesh(delta, km=False,
                    latitude=(-90, 90), longitude=(-180, 180)):
@@ -186,7 +364,6 @@ def spherical_mesh(delta, km=False,
     lon = lon[i & j]
 
     return np.round(lat, 4), np.round(lon, 4)
-
 
 def unwrap(angle):
     """
