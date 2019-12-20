@@ -50,11 +50,11 @@ class WgsPoint():
 
         if approx is 'sphere':
             handle = tunnel_distance_sphere
-        if approx is 'ellipsoid'
+        if approx is 'ellipsoid':
             handle = tunnel_distance_ellipsoid
 
         dist = handle(self.latitude, self.longitude, self.elevation,
-                      point.latitude, point.longitude, point.elevation
+                      point.latitude, point.longitude, point.elevation)
 
         return 1e-3 * dist
 
@@ -430,3 +430,27 @@ def unwrap(angle):
 
     return angle - (2 * np.pi) * ((angle + np.pi)//(2 * np.pi))
 
+def cartesian_mesh(delta):
+    """
+    Create a spherical mesh from a cartesian grid using
+    sinusoidal projection.
+    Delta is in meters.
+    """
+
+    maxx =  np.pi * MEAN_EARTH_RADIUS
+    maxy =  np.pi * MEAN_EARTH_RADIUS / 2
+
+    xax = np.arange(0, maxx, delta)
+    yax = np.arange(0, maxy, delta)
+    xrng = np.concatenate([np.flip(-xax), xax[1:]])
+    yrng = np.concatenate([np.flip(-yax), yax[1:]])
+
+    x, y = np.meshgrid(xrng, yrng)
+    lat, lon = xy_to_wgs_sinproj(x.flatten(), y.flatten())
+
+    i = (lat > -90.) & (lat < 90.)
+    j = (lon > -180.) & (lon < 180.)
+    lat = lat[i & j]
+    lon = lon[i & j]
+
+    return np.round(lat, 4), np.round(lon, 4)
