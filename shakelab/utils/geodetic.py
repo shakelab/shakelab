@@ -25,7 +25,7 @@ import shapely.geometry as geo
 MEAN_EARTH_RADIUS = 6371008.8
 EQUATORIAL_EARTH_RADIUS = 6378137.0
 POLAR_EARTH_RADIUS = 6356752.3
-
+DEG_TO_M = 111195.
 
 class WgsPoint():
 
@@ -430,26 +430,33 @@ def unwrap(angle):
 
     return angle - (2 * np.pi) * ((angle + np.pi)//(2 * np.pi))
 
-def cartesian_mesh(delta):
+def cartesian_mesh(delta, km=False,
+                   latitude=(-90, 90), longitude=(-180, 180)):
     """
     Create a spherical mesh from a cartesian grid using
     sinusoidal projection.
+    Such approach is problematic at new-day line and should
+    used only within longitude -180 to 180 degrees.
     Delta is in meters.
     """
 
     maxx =  np.pi * MEAN_EARTH_RADIUS
     maxy =  np.pi * MEAN_EARTH_RADIUS / 2
 
-    xax = np.arange(0, maxx, delta)
-    yax = np.arange(0, maxy, delta)
-    xrng = np.concatenate([np.flip(-xax), xax[1:]])
-    yrng = np.concatenate([np.flip(-yax), yax[1:]])
+    if not km:
+        delta *= DEG_TO_M
 
-    x, y = np.meshgrid(xrng, yrng)
+    x_rng = maxx - (maxx % delta)
+    y_rng = maxy - (maxy % delta)
+
+    x_axes = np.arange(-x_rng, x_rng, delta)
+    y_axes = np.arange(-y_rng, y_rng, delta)
+    x, y = np.meshgrid(x_axes, y_axes)
+
     lat, lon = xy_to_wgs_sinproj(x.flatten(), y.flatten())
 
-    i = (lat > -90.) & (lat < 90.)
-    j = (lon > -180.) & (lon < 180.)
+    i = (lat >= latitude[0]) & (lat <= latitude[1])
+    j = (lon >= longitude[0]) & (lon <= longitude[1])
     lat = lat[i & j]
     lon = lon[i & j]
 
