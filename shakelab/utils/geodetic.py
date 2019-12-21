@@ -60,7 +60,7 @@ class WgsPoint():
 
     def __sub__(self, point):
 
-        return distance_from(point)
+        return tunnel_distance(point)
 
 class WgsPolygon():
     """
@@ -69,8 +69,19 @@ class WgsPolygon():
     """
 
     def __init__(self, vertices=[]):
-
         self.vertices = vertices
+
+    def __iter__(self):
+        self._counter = 0
+        return self
+
+    def __next__(self):
+        try:
+            point = self.vertices[self._counter]
+            self._counter += 1
+        except IndexError:
+            raise StopIteration
+        return point
 
     def add(self, point):
 
@@ -154,6 +165,18 @@ class WgsMesh():
     def __init__(self, ):
         self.points = []
 
+    def __iter__(self):
+        self._counter = 0
+        return self
+
+    def __next__(self):
+        try:
+            point = self.points[self._counter]
+            self._counter += 1
+        except IndexError:
+            raise StopIteration
+        return point
+
     def add(self, point):
         self.points.append(point)
 
@@ -175,8 +198,8 @@ class WgsMesh():
                 points.append(p)
         self.points = points
 
-    def create_global_grid(self, delta, km=False, polygon=None,
-                           latitude=(-90, 90), longitude=(-180, 180)):
+    def create_grid(self, delta, km=False, polygon=None,
+                    latitude=(-90, 90), longitude=(-180, 180)):
 
         if polygon is not None:
             latitude, longitude = polygon.bounds()
@@ -190,6 +213,13 @@ class WgsMesh():
 
         if polygon is not None:
             self.intersect(polygon)
+
+    def to_ascii(self, csv_file):
+
+        with open(csv_file, 'w') as f:
+            f.write('latitude, longitude\n')
+            for p in self.points:
+                f.write('{0},{1}\n'.format(p.latitude, p.longitude))
 
 # ----------------------------------------------------------------------------
 # Geometric functions
@@ -389,6 +419,8 @@ def circle_distance(lat1, lon1, lat2, lon2):
     
     return np.round(distance, 3)
 
+# ----------------------------------------------------------------------------
+
 def spherical_mesh(delta, km=False,
                    latitude=(-90, 90), longitude=(-180, 180)):
     """
@@ -435,8 +467,8 @@ def cartesian_mesh(delta, km=False,
     """
     Create a spherical mesh from a cartesian grid using
     sinusoidal projection.
-    Such approach is problematic at new-day line and should
-    used only within longitude -180 to 180 degrees.
+    Such approach is inconsistent at the new-day line and should
+    be used only locally and within longitude -180 to 180 degrees.
     Delta is in meters.
     """
 

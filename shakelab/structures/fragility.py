@@ -139,20 +139,20 @@ class FragilityCollection(object):
     """
     """
     def __init__(self, json_file=None):
-        self.__counter = 0
         self.model = []
         if json_file is not None:
             self.import_from_json(json_file)
 
     def __iter__(self):
+        self._counter = 0
         return self
 
     def __next__(self):
         try:
-            model = self.model[self.__counter]
+            model = self.model[self._counter]
+            self._counter += 1
         except IndexError:
             raise StopIteration
-        self.__counter += 1
         return model
 
     def add_model(self, fragility_model):
