@@ -60,7 +60,8 @@ class WgsPoint():
 
     def __sub__(self, point):
 
-        return tunnel_distance(point)
+        if isinstance(point, WgsPoint):
+            return tunnel_distance(point)
 
 class WgsPolygon():
     """
