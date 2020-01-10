@@ -24,7 +24,6 @@ import json as _json
 import numpy as _np
 import scipy.stats as _stat
 import scipy.interpolate as _ipol
-import csv as _csv
 
 import matplotlib.pyplot as plt
 from abc import ABCMeta, abstractmethod
@@ -101,9 +100,9 @@ class FragilityModelDiscrete(FragilityModel):
         self.damage_state[dsl] = _np.array(poes)
 
     def get_poes(self, dsl, gmi, sampling='lin'):
-        if sampling is 'lin':
+        if sampling == 'lin':
             scale = lambda x: x
-        if sampling is 'log':
+        if sampling == 'log':
             scale = lambda x: _np.log(x)
         fi = _ipol.interp1d(scale(self.gmi), self.damage_state[dsl])
         return fi(scale(gmi))
