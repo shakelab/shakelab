@@ -1,12 +1,12 @@
-# ============================================================================
+# ****************************************************************************
 #
-# Copyright (C) 2019, ShakeLab Developers.
+# Copyright (C) 2019-2020, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
-# ShakeLab is free software: you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published
-# by the Free Software Foundation, either version 3 of the License,
-# or (at your option) any later version.
+# ShakeLab is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
 #
 # ShakeLab is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
-# ============================================================================
+# ****************************************************************************
 """
 An simple Python library for SAC file manipulation
 """
@@ -68,8 +68,6 @@ class Sac(object):
             for H in _HdrStruc:
                 self.head[H[0]] = H[3]
 
-    #--------------------------------------------------------------------------
-
     def read(self, file, byte_order='le'):
         """
         Read SAC file from disk
@@ -103,8 +101,6 @@ class Sac(object):
 
         # Warn user if model file does not exist
         print('Error: File not found')
-
-    #--------------------------------------------------------------------------
 
     def write(self, file, byte_order='le', owrite=False):
         """
@@ -146,8 +142,6 @@ class Sac(object):
         # Warn user if model file does not exist
         print('Error: File not found')
 
-    #--------------------------------------------------------------------------
-
     def info(self):
         """
         Print header details
@@ -164,10 +158,10 @@ class Sac(object):
                 print('{0:>12} = {1}'.format(H[0], data))
 
 
-# =============================================================================
-# INTERNAL: bytewise read
-
 def _fread(fid, bnum, bkey, bord):
+    """
+    Bytewise read.
+    """
 
     hex = fid.read(bnum)
 
@@ -180,10 +174,10 @@ def _fread(fid, bnum, bkey, bord):
     return data
 
 
-# =============================================================================
-# INTERNAL: bytewise write
-
 def _fwrite(fid, data, bnum, bkey, bord):
+    """
+    Bytewise write.
+    """
 
     if bkey == 's': bkey = str(bnum) + bkey
     if bord == 'be': bkey = '>' + bkey
@@ -194,7 +188,6 @@ def _fwrite(fid, data, bnum, bkey, bord):
     fid.write(hex)
 
 
-# =============================================================================
 # INTERNAL: Header Structure (sorted)
 #   [0] - Field Name
 #   [1] - Length in Bytes

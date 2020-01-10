@@ -1,25 +1,22 @@
-# =============================================================================
+# ****************************************************************************
 #
-# Copyright (C) 2010-2017 GEM Foundation
+# Copyright (C) 2019-2020, ShakeLab Developers.
+# This file is part of ShakeLab.
 #
-# This file is part of the OpenQuake's Site Response Toolkit (OQ-SRTK)
+# ShakeLab is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
 #
-# OQ-SRTK is free software: you can redistribute it and/or modify it
-# under the terms of the GNU Affero General Public License as published
-# by the Free Software Foundation, either version 3 of the License,
-# or (at your option) any later version.
-#
-# OQ-SRTK is distributed in the hope that it will be useful,
+# ShakeLab is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
 #
-# You should have received a copy of the GNU Affero General Public License
+# You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
-# Author: Valerio Poggi
-#
-# =============================================================================
+# ****************************************************************************
 """
 The module contains several functions to derive and manipulate average
 soil parameters, such as travel-time average velocity and site kappa.
@@ -28,8 +25,6 @@ soil parameters, such as travel-time average velocity and site kappa.
 import numpy as _np
 import scipy.optimize as _spo
 
-
-# =============================================================================
 
 def depth_weighted_average(thickness, soil_param, depth):
     """
@@ -67,8 +62,6 @@ def depth_weighted_average(thickness, soil_param, depth):
     return mean_param
 
 
-# =============================================================================
-
 def traveltime_velocity(thickness, s_velocity, depth=30):
     """
     The function calculates the travel-time average (harmonic mean)
@@ -99,8 +92,6 @@ def traveltime_velocity(thickness, s_velocity, depth=30):
 
     return mean_velocity
 
-
-# =============================================================================
 
 def compute_site_kappa(thickness, s_velocity, s_quality, depth=[]):
     """
@@ -136,8 +127,6 @@ def compute_site_kappa(thickness, s_velocity, s_quality, depth=[]):
 
     return kappa0
 
-
-# =============================================================================
 
 def quarter_wavelength_average(thickness, s_velocity, density, frequency):
     """
@@ -198,8 +187,6 @@ def quarter_wavelength_average(thickness, s_velocity, density, frequency):
     return qwl_depth, qwl_velocity, qwl_density
 
 
-# =============================================================================
-
 def _qwl_fit_func(search_depth, thickness, slowness, frequency):
     """
     Internal function to recursively search for the qwl depth.
@@ -214,8 +201,6 @@ def _qwl_fit_func(search_depth, thickness, slowness, frequency):
 
     return misfit
 
-
-# =============================================================================
 
 def gt_soil_class(vs30, code='EC8'):
     """

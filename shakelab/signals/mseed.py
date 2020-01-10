@@ -1,12 +1,12 @@
-# ============================================================================
+# ****************************************************************************
 #
-# Copyright (C) 2019, ShakeLab Developers.
+# Copyright (C) 2019-2020, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
-# ShakeLab is free software: you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published
-# by the Free Software Foundation, either version 3 of the License,
-# or (at your option) any later version.
+# ShakeLab is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
 #
 # ShakeLab is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,15 +16,54 @@
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
-# ============================================================================
+# ****************************************************************************
 """
 An simple Python library for MiniSeeed file manipulation
 """
 
 from struct import pack, unpack
+from shakelab.libutils.time import Date
+from shakelab.libutils.time import day_to_month
 
-from shakelab.utils.time import Date
-from shakelab.utils.time import day_to_month
+head_struc = [('SEQUENCE_NUMBER', 's', 6),
+              ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
+              ('RESERVED_BYTE', 's', 1),
+              ('STATION_CODE', 's', 5),
+              ('LOCATION_IDENTIFIER', 's', 2),
+              ('CHANNEL_IDENTIFIER', 's', 3),
+              ('NETWORK_CODE', 's', 2),
+              ('YEAR', 'H', 2),
+              ('DAY', 'H', 2),
+              ('HOURS', 'B', 1),
+              ('MINUTES', 'B', 1),
+              ('SECONDS', 'B', 1),
+              ('UNUSED', 'B', 1),
+              ('MSECONDS', 'H', 2),
+              ('NUMBER_OF_SAMPLES', 'H', 2),
+              ('SAMPLE_RATE_FACTOR', 'h', 2),
+              ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
+              ('ACTIVITY_FLAGS', 'B', 1),
+              ('IO_FLAGS', 'B', 1),
+              ('DATA_QUALITY_FLAGS', 'B', 1),
+              ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
+              ('TIME_CORRECTION', 'l', 4),
+              ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
+              ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
+
+block_struc =  {1000: [('ENCODING_FORMAT', 'B', 1),
+                        ('WORD_ORDER', 'B', 1),
+                        ('DATA_RECORD_LENGTH', 'B', 1),
+                        ('RESERVED', 'B', 1)],
+                1001: [('TIMING_QUALITY', 'B', 1),
+                        ('MICRO_SEC', 'B', 1),
+                        ('RESERVED', 'B', 1),
+                        ('FRAME_COUNT', 'B', 1)]}
+
+data_struc = {0: ('s', 1),
+              1: ('h', 2),
+              3: ('i', 4),
+              4: ('f', 4)}
+
 
 class MiniSeed(object):
     """
@@ -97,47 +136,6 @@ class MiniSeed(object):
             if byte_stream.offset >= byte_stream.length:
                 break
 
-# =============================================================================
-# Record related methods
-
-head_struc = [('SEQUENCE_NUMBER', 's', 6),
-              ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
-              ('RESERVED_BYTE', 's', 1),
-              ('STATION_CODE', 's', 5),
-              ('LOCATION_IDENTIFIER', 's', 2),
-              ('CHANNEL_IDENTIFIER', 's', 3),
-              ('NETWORK_CODE', 's', 2),
-              ('YEAR', 'H', 2),
-              ('DAY', 'H', 2),
-              ('HOURS', 'B', 1),
-              ('MINUTES', 'B', 1),
-              ('SECONDS', 'B', 1),
-              ('UNUSED', 'B', 1),
-              ('MSECONDS', 'H', 2),
-              ('NUMBER_OF_SAMPLES', 'H', 2),
-              ('SAMPLE_RATE_FACTOR', 'h', 2),
-              ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
-              ('ACTIVITY_FLAGS', 'B', 1),
-              ('IO_FLAGS', 'B', 1),
-              ('DATA_QUALITY_FLAGS', 'B', 1),
-              ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
-              ('TIME_CORRECTION', 'l', 4),
-              ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
-              ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
-
-block_struc =  {1000 : [('ENCODING_FORMAT', 'B', 1),
-                        ('WORD_ORDER', 'B', 1),
-                        ('DATA_RECORD_LENGTH', 'B', 1),
-                        ('RESERVED', 'B', 1)],
-                1001 : [('TIMING_QUALITY', 'B', 1),
-                        ('MICRO_SEC', 'B', 1),
-                        ('RESERVED', 'B', 1),
-                        ('FRAME_COUNT', 'B', 1)]}
-
-data_struc = {0 : ('s', 1),
-              1 : ('h', 2),
-              3 : ('i', 4),
-              4 : ('f', 4)}
 
 class Record(object):
     """
@@ -170,7 +168,7 @@ class Record(object):
 
             if block_type in block_struc:
                 # Blockette initialisation
-                blockette = {'OFFSET_NEXT' : offset_next}
+                blockette = {'OFFSET_NEXT': offset_next}
 
                 # Loop through blockette specific keys
                 for bs in block_struc[block_type]:
@@ -280,8 +278,6 @@ class Record(object):
         items = [3, 4, 5, 6]
         return set([self.header[head_struc[i][0]] for i in items])
 
-# =============================================================================
-# INTERNAL: binary operations
 
 class ByteStream(object):
     """
@@ -310,7 +306,7 @@ class ByteStream(object):
         if byte_key == 's':
             byte_key = str(byte_num) + byte_key
 
-        byte_map = {'be' : '>', 'le' : '<'}
+        byte_map = {'be': '>', 'le': '<'}
         byte_key = byte_map[self.byte_order] + byte_key
 
         return unpack(byte_key, byte_pack)[0]
@@ -320,11 +316,13 @@ class ByteStream(object):
         """
         return (self.length - self.offset)
 
+
 def _binmask(word, bits, position):
     """
     Extract N-bits nibble from long word and convert it to integer
     """
     return (word >> bits * position) & (2**(bits) - 1)
+
 
 def _getdiff(word, bits, dnum):
     """
@@ -334,6 +332,7 @@ def _getdiff(word, bits, dnum):
         s = _binmask(word, bits, i)
         out[(dnum-1)-i] = s if s < 2**(bits-1) else s - 2**(bits)
     return out
+
 
 def _w32split(word, order, scheme):
     """
@@ -377,6 +376,3 @@ def _w32split(word, order, scheme):
                 out = _getdiff(word, 4, 7)
 
     return out
-
-
-

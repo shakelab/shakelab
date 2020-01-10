@@ -1,34 +1,28 @@
-# =============================================================================
+# ****************************************************************************
 #
-# Copyright (C) 2010-2017 GEM Foundation
+# Copyright (C) 2019-2020, ShakeLab Developers.
+# This file is part of ShakeLab.
 #
-# This file is part of the OpenQuake's Site Response Toolkit (OQ-SRTK)
+# ShakeLab is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
 #
-# OQ-SRTK is free software: you can redistribute it and/or modify it
-# under the terms of the GNU Affero General Public License as published
-# by the Free Software Foundation, either version 3 of the License,
-# or (at your option) any later version.
-#
-# OQ-SRTK is distributed in the hope that it will be useful,
+# ShakeLab is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
 #
-# You should have received a copy of the GNU Affero General Public License
+# You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
-# Author: Valerio Poggi
-#
-# =============================================================================
+# ****************************************************************************
 """
 Plotting utilities for data visualisation
 """
 
 import numpy as _np
 import matplotlib.pyplot as _plt
-
-# =============================================================================
-# Figure settings
 
 FIG_SIZE_MODEL = (4, 6)
 FIG_SIZE_RESPONSE = (8, 4)
@@ -45,8 +39,6 @@ RESPONSE_LABELS = {'shtf': 'SH-wave amplification',
                    'qwl': 'Qwl amplification'}
 
 
-# =============================================================================
-
 def plot_models(site1d, key='vs', color='r', hold=False):
     """
     """
@@ -58,8 +50,6 @@ def plot_models(site1d, key='vs', color='r', hold=False):
     for mod in site1d.model:
         plot_profile(mod, key, color, hold=True, show=False)
 
-
-# =============================================================================
 
 def plot_profile(model, key='vs', color='r', hold=False, show=True):
     """
@@ -96,8 +86,6 @@ def plot_profile(model, key='vs', color='r', hold=False, show=True):
     if show:
         _profile_decoration(key)
 
-
-# =============================================================================
 
 def _profile_decoration(key):
     """

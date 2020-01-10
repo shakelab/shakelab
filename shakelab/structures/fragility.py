@@ -1,22 +1,22 @@
-# ============================================================================
+# ****************************************************************************
 #
-# Copyright (C) 2019 Valerio Poggi.
+# Copyright (C) 2019-2020, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
-# ShakeLab is free software: you can redistribute it and/or modify it
-# under the terms of the GNU Affero General Public License as published
-# by the Free Software Foundation, either version 3 of the License,
-# or (at your option) any later version.
+# ShakeLab is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
 #
 # ShakeLab is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
 #
-# You should have received a copy of the GNU Affero General Public License
+# You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
-# ============================================================================
+# ****************************************************************************
 """
 """
 
@@ -30,8 +30,8 @@ import matplotlib.pyplot as plt
 from abc import ABCMeta, abstractmethod
 import xml.etree.cElementTree as xet
 
-
 GMI_DEFAULT = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
 
 class FragilityModel(metaclass=ABCMeta):
     """
@@ -62,6 +62,7 @@ class FragilityModel(metaclass=ABCMeta):
         damage state.
         """
 
+
 class FragilityModelParametric(FragilityModel):
     """
     Subclass of :class:`FagilityModel` with paramteric format (mean, stdv)
@@ -89,6 +90,7 @@ class FragilityModelParametric(FragilityModel):
             fmd.add_damage_state(dsl, self.get_poes(dsl, gmi))
         return fmd
 
+
 class FragilityModelDiscrete(FragilityModel):
     """
     Subclass of :class:`FagilityModel` with discrete format of the
@@ -106,6 +108,7 @@ class FragilityModelDiscrete(FragilityModel):
         fi = _ipol.interp1d(scale(self.gmi), self.damage_state[dsl])
         return fi(scale(gmi))
 
+
 def normal_to_lognormal(mean, stdv):
     """
     NOTE: This conversion is actually not clear to me and must be
@@ -114,6 +117,7 @@ def normal_to_lognormal(mean, stdv):
     beta = _np.sqrt(_np.log(1 + (stdv / mean) ** 2))
     teta = mean / _np.sqrt(1 + (stdv / mean) ** 2)
     return beta, teta
+
 
 def plot_fragility_model(fm, gmi, file=None):
     """
@@ -134,6 +138,7 @@ def plot_fragility_model(fm, gmi, file=None):
 
     if file is not None:
         plt.savefig(file, dpi=150)
+
 
 class FragilityCollection(object):
     """
@@ -194,51 +199,51 @@ class FragilityCollection(object):
     def export_to_xml(self, xml_file, ndl=0.1):
 
         nrml = xet.Element('nrml', {
-                    'xmlns' : 'http://openquake.org/xmlns/nrml/0.5',
-                    'xmlns:gml' : 'http://www.opengis.net/gml'})
+                    'xmlns': 'http://openquake.org/xmlns/nrml/0.5',
+                    'xmlns:gml': 'http://www.opengis.net/gml'})
 
         fm = xet.SubElement(nrml, 'fragilityModel', {
-                    'assetCategory' : 'buildings',
-                    'id' : 'buildings',
-                    'lossCategory' : 'structural'})
- 
+                    'assetCategory': 'buildings',
+                    'id': 'buildings',
+                    'lossCategory': 'structural'})
+
         xet.SubElement(fm, 'description').text = 'Fragility model'
         xet.SubElement(fm, 'limitStates').text = 'D1 D2 D3 D4 D5'
 
         for m in self.model:
             if isinstance(m, FragilityModelParametric):
                 ff = xet.SubElement(fm, 'fragilityFunction', {
-                            'id' : '{0}'.format(m.id),
-                            'format' : 'continuous',
-                            'shape' : 'lognormal'})
+                            'id': '{0}'.format(m.id),
+                            'format': 'continuous',
+                            'shape': 'lognormal'})
 
                 im = xet.SubElement(ff, 'imls', {
-                            'imt' : '{0}'.format(m.gmt),
-                            'noDamageLimit' : '{0}'.format(ndl),
-                            'minIML' : '{0}'.format(m.bounds[0]),
-                            'maxIML' : '{0}'.format(m.bounds[1])})
+                            'imt': '{0}'.format(m.gmt),
+                            'noDamageLimit': '{0}'.format(ndl),
+                            'minIML': '{0}'.format(m.bounds[0]),
+                            'maxIML': '{0}'.format(m.bounds[1])})
 
                 for dsl in m.damage_state.keys():
                     mean = m.damage_state[dsl][0]
                     stdv = m.damage_state[dsl][1]
                     par = xet.SubElement(ff, 'params', {
-                                'ls' : '{0}'.format(dsl),
-                                'mean' : '{0}'.format(mean),
-                                'stddev' : '{0}'.format(stdv)})
+                                'ls': '{0}'.format(dsl),
+                                'mean': '{0}'.format(mean),
+                                'stddev': '{0}'.format(stdv)})
 
             if isinstance(m, FragilityModelDiscrete):
                 ff = xet.SubElement(fm, 'fragilityFunction', {
-                            'id' : '{0}'.format(m.id),
-                            'format' : 'discrete'})
+                            'id': '{0}'.format(m.id),
+                            'format': 'discrete'})
 
                 im = xet.SubElement(ff, 'imls', {
-                            'imt' : '{0}'.format(m.gmt),
-                            'noDamageLimit' : '{0}'.format(ndl)})
+                            'imt': '{0}'.format(m.gmt),
+                            'noDamageLimit': '{0}'.format(ndl)})
                 im.text = ' '.join(str(n) for n in m.gmi)
 
                 for dsl in m.damage_state.keys():
                     poe = xet.SubElement(ff, 'poes', {
-                                'ls' : '{0}'.format(dsl)})
+                                'ls': '{0}'.format(dsl)})
                     poe.text = ' '.join(str(n) for n in m.damage_state[dsl])
 
         indent(nrml)
@@ -254,7 +259,6 @@ class FragilityCollection(object):
                 fc.add_model(fm.to_discrete(gmi))
         return fc
 
-# ----------------------------------------------------------------------------
 
 class TaxonomyTree(object):
     """
@@ -270,7 +274,6 @@ class TaxonomyTree(object):
             for fmt in data['taxonomy_list']:
                 self.tree.append(fmt)
 
-# ----------------------------------------------------------------------------
 
 class TaxonomyItem(object):
     """
@@ -278,25 +281,27 @@ class TaxonomyItem(object):
     def __init__(self, id=None, number_of_buildings=None):
         self.id = id
         self.number_of_buildings = number_of_buildings
-        self.occupants = {'day' : None,
-                          'transit' : None,
-                          'night' : None}
-        self.cost = {'structural' : None,
-                     'nonstructural' : None,
-                     'content' : None,
-                     'bi' : None}
+        self.occupants = {'day': None,
+                          'transit': None,
+                          'night': None}
+        self.cost = {'structural': None,
+                     'nonstructural': None,
+                     'content': None,
+                     'bi': None}
+
 
 class LocationItem(object):
     """
     """
     def __init__(self, id=None, code=None,
-                       latitude=None, longitude=None, area=None):
+                 latitude=None, longitude=None, area=None):
         self.id = id
         self.code = code
         self.latitude = latitude
         self.longitude = longitude
         self.area = area
         self.taxonomy = []
+
 
 class Exposure(object):
     """
@@ -344,13 +349,13 @@ class Exposure(object):
         """
 
         nrml = xet.Element('nrml', {
-                    'xmlns' : 'http://openquake.org/xmlns/nrml/0.5',
-                    'xmlns:gml' : 'http://www.opengis.net/gml'})
+                    'xmlns': 'http://openquake.org/xmlns/nrml/0.5',
+                    'xmlns:gml': 'http://www.opengis.net/gml'})
 
         em = xet.SubElement(nrml, 'exposureModel', {
-                    'id' : 'buildings',
-                    'category' : 'buildings',
-                    'taxonomySource' : 'GEM taxonomy'})
+                    'id': 'buildings',
+                    'category': 'buildings',
+                    'taxonomySource': 'GEM taxonomy'})
 
         xet.SubElement(em, 'description').text = 'Buildings'
 
@@ -360,24 +365,24 @@ class Exposure(object):
         for name in ['structura', 'nonstructural',
                      'contents', 'business_interruption']:
             xet.SubElement(ctp, 'costType', {
-                        'name' : name,
-                        'unit' : 'EUR',
-                        'type' : 'per_asset'})
-        xet.SubElement(con, 'area', {'type': 'per_asset', 'unit' : 'SQM'})
+                        'name': name,
+                        'unit': 'EUR',
+                        'type': 'per_asset'})
+        xet.SubElement(con, 'area', {'type': 'per_asset', 'unit': 'SQM'})
         xet.SubElement(em, 'tagNames').text = 'Municipality Section'
 
         ass = xet.SubElement(em, 'Assets')
         for li in self.location:
             for tax in li.taxonomy:
                 ast = xet.SubElement(ass, 'asset', {
-                            'id' : li.id,
-                            'name' : li.code,
-                            'area' : str(li.area),
-                            'number' : str(tax.number_of_buildings),
-                            'taxonomy' : tax.id})
+                            'id': li.id,
+                            'name': li.code,
+                            'area': str(li.area),
+                            'number': str(tax.number_of_buildings),
+                            'taxonomy': tax.id})
                 xet.SubElement(ast, 'location', {
-                            'lon' : str(li.longitude),
-                            'lat' : str(li.latitude)})
+                            'lon': str(li.longitude),
+                            'lat': str(li.latitude)})
                 occ = xet.SubElement(ast, 'occupances')
                 cst = xet.SubElement(ast, 'costs')
 
@@ -386,7 +391,6 @@ class Exposure(object):
         tree = xet.ElementTree(nrml)
         tree.write(xml_file, encoding='utf-8', xml_declaration=True)
 
-# ----------------------------------------------------------------------------
 
 def indent(elem, level=0):
     """
@@ -406,5 +410,3 @@ def indent(elem, level=0):
     else:
         if level and (not elem.tail or not elem.tail.strip()):
             elem.tail = i
-
-

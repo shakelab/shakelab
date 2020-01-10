@@ -1,25 +1,22 @@
-# =============================================================================
+# ****************************************************************************
 #
-# Copyright (C) 2010-2017 GEM Foundation
+# Copyright (C) 2019-2020, ShakeLab Developers.
+# This file is part of ShakeLab.
 #
-# This file is part of the OpenQuake's Site Response Toolkit (OQ-SRTK)
+# ShakeLab is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
 #
-# OQ-SRTK is free software: you can redistribute it and/or modify it
-# under the terms of the GNU Affero General Public License as published
-# by the Free Software Foundation, either version 3 of the License,
-# or (at your option) any later version.
-#
-# OQ-SRTK is distributed in the hope that it will be useful,
+# ShakeLab is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
 #
-# You should have received a copy of the GNU Affero General Public License
+# You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
-# Author: Valerio Poggi
-#
-# =============================================================================
+# ****************************************************************************
 """
 Module containing the database classes to handle site information.
 """
@@ -30,9 +27,6 @@ import openquake.srtk.soil as _avg
 import openquake.srtk.response as _amp
 import openquake.srtk.utils as _ut
 
-# =============================================================================
-# Constants & initialisation variables
-
 # Precision for decimal rounding
 DECIMALS = 6
 
@@ -42,15 +36,11 @@ ENG_KEYS = ['vsz', 'qwl', 'kappa', 'class', 'weight']
 AMP_KEYS = ['shtf', 'qwl', 'kappa']
 
 
-# =============================================================================
-
 class Model(object):
     """
     Base class to store a single site model, including the vertical
     soil profile, derived engineering parameters and amplification.
     """
-
-    # -------------------------------------------------------------------------
 
     def __init__(self):
 
@@ -72,8 +62,6 @@ class Model(object):
         self.amp = {}
         for K in AMP_KEYS:
             self.amp[K] = _np.array([])
-
-    # -------------------------------------------------------------------------
 
     def add_layer(self, data, index=-1):
         """
@@ -119,8 +107,6 @@ class Model(object):
                 else:
                     self.geo[K] = _np.insert(self.geo[K], index, _np.nan)
 
-    # -------------------------------------------------------------------------
-
     def del_layer(self, index=-1):
         """
         Method to remove a single layer from te 1d soil profile
@@ -133,8 +119,6 @@ class Model(object):
 
         for K in GEO_KEYS:
             self.geo[K] = _np.delete(self.geo[K], int(index))
-
-    # -------------------------------------------------------------------------
 
     def from_file(self, ascii_file, header=[], skip=0,
                   comment='#', delimiter=','):
@@ -196,8 +180,6 @@ class Model(object):
                         self.add_layer(layer)
             f.close()
 
-    # -------------------------------------------------------------------------
-
     def to_file(self, ascii_file, keys=GEO_KEYS,
                 delimiter=',', mode='w',
                 write_header=True, write_length=False):
@@ -227,7 +209,6 @@ class Model(object):
                 f.write('\n')
             f.close()
 
-# =============================================================================
 
 class Site1D(object):
     """
@@ -247,8 +228,6 @@ class Site1D(object):
         self.freq = []
         self.model = []
         self.mean = Model()
-
-    # -------------------------------------------------------------------------
 
     def add_model(self, model=[], index=-1):
         """
@@ -272,8 +251,6 @@ class Site1D(object):
         else:
             self.model.insert(index, Model())
 
-    # -------------------------------------------------------------------------
-
     def del_model(self, index=-1):
         """
         Remove a model from the site database
@@ -284,8 +261,6 @@ class Site1D(object):
         """
 
         del self.model[int(index)]
-
-    # -------------------------------------------------------------------------
 
     def read_model(self, ascii_file, header=[], skip=0, comment='#',
                    delimiter=',', index=-1, owrite=False):
@@ -340,8 +315,6 @@ class Site1D(object):
         # Update average
         self.model_average()
 
-    # -------------------------------------------------------------------------
-
     def model_average(self):
         """
         Compute the mean soil profile and its uncertainty.
@@ -352,8 +325,6 @@ class Site1D(object):
         for key in GEO_KEYS:
             data = [mod.geo[key] for mod in self.model]
             self.mean.geo[key] = _ut.log_stat(data)
-
-    # -------------------------------------------------------------------------
 
     def traveltime_velocity(self, depth=30.):
         """
@@ -383,8 +354,6 @@ class Site1D(object):
             self.mean.eng['vsz'][z] = (_ut.a_round(mn, DECIMALS),
                                        _ut.a_round(sd, DECIMALS))
 
-    # -------------------------------------------------------------------------
-
     def compute_soil_class(self, code='EC8'):
         """
         Compute geotechnical classification according to specified
@@ -408,8 +377,6 @@ class Site1D(object):
         except:
             print 'Error: Vs30 must be calculated first'
             return
-
-    # -------------------------------------------------------------------------
 
     def frequency_axis(self, fmin, fmax, fnum, log=True):
         """
@@ -439,8 +406,6 @@ class Site1D(object):
         if not _np.sum(self.freq):
             raise ValueError('Frequency axis must be first instantiated')
 
-    # -------------------------------------------------------------------------
-
     def quarter_wavelength_average(self):
         """
         Compute quarter-wavelength parameters (velocity and density)
@@ -469,8 +434,6 @@ class Site1D(object):
             mn, sd = _ut.log_stat(data)
             self.mean.eng['qwl'][key] = (_ut.a_round(mn, DECIMALS),
                                          _ut.a_round(sd, DECIMALS))
-
-    # -------------------------------------------------------------------------
 
     def quarter_wavelength_amplification(self, vs_ref=[],
                                          dn_ref=[], inc_ang=0.):
@@ -513,8 +476,6 @@ class Site1D(object):
         self.mean.amp['qwl'] = (_ut.a_round(mn, DECIMALS),
                                 _ut.a_round(sd, DECIMALS))
 
-    # -------------------------------------------------------------------------
-
     def compute_site_kappa(self, depth=[]):
         """
         Compute the Kappa parameter directly from the site model
@@ -541,8 +502,6 @@ class Site1D(object):
         self.mean.eng['kappa'] = (_ut.a_round(mn, DECIMALS),
                                   _ut.a_round(sd, DECIMALS))
 
-    # -------------------------------------------------------------------------
-
     def attenuation_decay(self):
         """
         Compute the frequency-dependent attenuation function
@@ -563,8 +522,6 @@ class Site1D(object):
         mn, sd = _ut.log_stat(data)
         self.mean.amp['kappa'] = (_ut.a_round(mn, DECIMALS),
                                   _ut.a_round(sd, DECIMALS))
-
-    # -------------------------------------------------------------------------
 
     def sh_transfer_function(self, inc_ang=0., elastic=False, complex=False):
         """
@@ -620,8 +577,6 @@ class Site1D(object):
         else:
             self.mean.amp['shtf'] = _ut.log_stat(data)
 
-    # -------------------------------------------------------------------------
-
     def resonance_frequency(self):
         """
         Identify resonance frequencies on an amplification spectrum.
@@ -637,8 +592,6 @@ class Site1D(object):
                                       self.mean.amp['shtf'][0])
         self.mean.amp['fn'] = fn
 
-
-# =============================================================================
 
 class Grid2D(object):
     """
@@ -658,8 +611,6 @@ class Grid2D(object):
         self.geo = {}
         for K in GEO_KEYS:
             self.geo[K] = []
-
-    # -------------------------------------------------------------------------
 
     def set_grid(self, xlim, ylim, dx=1., dy=1.):
         """
@@ -682,8 +633,6 @@ class Grid2D(object):
         x = _np.arange(xlim[0], xlim[1]+dx, dx)
         y = _np.arange(ylim[0], ylim[1]+dy, dy)
         self.gx, self.gy = _np.meshgrid(x, y)
-
-    # -------------------------------------------------------------------------
 
     def import_sites(self, site_list, method='cubic'):
         """
@@ -726,8 +675,6 @@ class Grid2D(object):
                                                  rescale=True)
                 self.geo[K].append(data)
 
-    # -------------------------------------------------------------------------
-
     def export_sites(self, ix=[], iy=[]):
         """
         Export the pseudo-3D model as a list of 1D sites;
@@ -769,8 +716,6 @@ class Grid2D(object):
 
         return sites
 
-    # -------------------------------------------------------------------------
-
     def extract_model(self, ix, iy):
         """
         Extract a single model profile from the pseudo-3d grid
@@ -791,8 +736,6 @@ class Grid2D(object):
             model.geo[K] = _np.array(data)
 
         return model
-
-    # -------------------------------------------------------------------------
 
     def to_ascii(self, ascii_file, keys=GEO_KEYS):
         """
@@ -827,6 +770,3 @@ class Grid2D(object):
 
                     f.write(','.join([str(d) for d in data]))
                     f.write('\n')
-
-
-
