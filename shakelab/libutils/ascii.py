@@ -17,7 +17,6 @@
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
 # ****************************************************************************
-
 """
 A tool to manipulate tabular data from/to ascii files.
 """
@@ -74,10 +73,10 @@ class AsciiTable():
         for i, item in enumerate(self.database):
 
             # Check value types
-            if isinstance(data, list):
-                element = data[i]
-            else:
+            if isinstance(data, (str, int, float)):
                 element = data
+            else:
+                element = data[i]
 
             # Add element at corresponding key
             self.database[i][key] = element
@@ -129,7 +128,7 @@ class AsciiTable():
             print('Error: headers do not match...')
 
     def read(self, ascii_file, header=None, dtype='float', delimiter=',',
-                               skipline=0, comments='#', empty=None):
+             skipline=0, comment='#', empty=None):
         """
         Import data from ascii file (tabular)
         """
@@ -137,81 +136,76 @@ class AsciiTable():
         self.header = []
         self.database = []
 
-        try:
-            # Open input ascii file
-            with open(ascii_file, 'r') as f:
+        # Open input ascii file
+        with open(ascii_file, 'r') as f:
 
-                # Ignore initial line(s) if necessary
-                for i in range(0, skipline):
-                    f.readline()
+            # Ignore initial line(s) if necessary
+            for i in range(0, skipline):
+                f.readline()
 
-                # Import header (skip comments)
-                if not header:
-                    while 1:
-                        line = f.readline()
-                        if line[0] != comment:
-                            break
-                    header = line.strip().split(delimiter)
-                self.header = header
-
-                # Loop over lines
-                for line in f:
-
-                     # Skip comments, if any
+            # Import header (skip comments)
+            if not header:
+                while 1:
+                    line = f.readline()
                     if line[0] != comment:
-                        value = line.strip().split(delimiter)
+                        break
+                header = line.strip().split(delimiter)
+            self.header = header
 
-                        # Loop over data values
-                        data = []
-                        for i, h in enumerate(header):
+            # Loop over lines
+            for line in f:
 
-                            # Skip empty header fields
-                            if h not in ['', None]:
+                # Skip comments, if any
+                if line[0] != comment:
+                    value = line.strip().split(delimiter)
 
-                                # Data type(s) switch
-                                if isinstance(dtype, list):
-                                    dtp = dtype[i]
-                                else:
-                                    dtp = dtype
+                    # Loop over data values
+                    data = []
+                    for i, h in enumerate(header):
 
-                                # Check for empty elements
-                                if value[i] in ['', 'None', 'NaN', 'nan']:
-                                    value[i] = empty
+                        # Skip empty header fields
+                        if h not in ['', None]:
 
-                                data.append(_cast(value[i], dtp))
-                        self.add_element(data)
-                f.close()
+                            # Data type(s) switch
+                            if isinstance(dtype, list):
+                                dtp = dtype[i]
+                            else:
+                                dtp = dtype
 
-        except:
-            # Warn user if model file does not exist
-            print('Error: file not found.')
+                            # Check for empty elements
+                            if value[i] in ['', 'None', 'NaN', 'nan']:
+                                value[i] = empty
+
+                            data.append(_cast(value[i], dtp))
+                    self.add_element(data)
+            return
+
+        # Warn user if model file does not exist
+        print('Error: file not found.')
 
     def write(self, ascii_file, header=True, delimiter=','):
         """
         Export data object into an ascii file.
         """
+        with open(ascii_file, 'w') as f:
 
-        try:
-            with open(ascii_file, 'w') as f:
+            # Write header
+            if header:
+                f.write(delimiter.join(self.header) + '\n')
 
-                # Write header
-                if header:
-                    f.write(delimiter.join(self.header) + '\n')
+            # Write data (loop over rows)
+            for i, item in enumerate(self.database):
+                data = [_cast(item[j], 's') for j in self.header]
+                data = delimiter.join(data)
 
-                # Write data (loop over rows)
-                for i, item in enumerate(self.database):
-                    data = [_cast(item[j], 's') for j in self.header]
-                    data = delimiter.join(data)
+                if i < (self.size()[0] - 1):
+                    f.write(data + '\n')
+                else:
+                    f.write(data)
+            return
 
-                    if i < (self.size()[0] - 1):
-                        f.write(data + '\n')
-                    else:
-                        f.write(data)
-                f.close()
-
-        except:
-            # Warn user if model file does not exist
-            print('Cannot open file.')
+        # Warn user if model file does not exist
+        print('Cannot open file.')
 
     def extract(self, key, dtype='float'):
         """
@@ -220,6 +214,7 @@ class AsciiTable():
         """
 
         return [_cast(item[key], dtype) for item in self.database]
+
 
 def _cast(value, dtype='float'):
     """

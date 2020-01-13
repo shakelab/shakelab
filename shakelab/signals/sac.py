@@ -54,7 +54,7 @@ class Sac(object):
 
         # Variable initialisation
         self.head = {}
-        self.data = [[],[]]
+        self.data = [[], []]
 
         # Set byte order
         self.byte = byte_order
@@ -89,12 +89,12 @@ class Sac(object):
 
             # Import first block of data
             for N in range(0, self.head['NPTS']):
-                self.data[0].append(_fread(fid, 4, 'f', self.byte));
+                self.data[0].append(_fread(fid, 4, 'f', self.byte))
 
             # Import second block of data
             if self.head['LEVEN'] != 1 or self.head['IFTYPE'] in (2, 3):
                 for N in range(0, self.head['NPTS']):
-                    self.data[1].append(_fread(fid, 4, 'f', self.byte));
+                    self.data[1].append(_fread(fid, 4, 'f', self.byte))
 
             fid.close()
             return
@@ -165,9 +165,12 @@ def _fread(fid, bnum, bkey, bord):
 
     hex = fid.read(bnum)
 
-    if bkey == 's': bkey = str(bnum) + bkey
-    if bord == 'be': bkey = '>' + bkey
-    if bord == 'le': bkey = '<' + bkey
+    if bkey == 's':
+        bkey = str(bnum) + bkey
+    if bord == 'be':
+        bkey = '>' + bkey
+    if bord == 'le':
+        bkey = '<' + bkey
 
     data = unpack(bkey, hex)[0]
 
@@ -179,9 +182,12 @@ def _fwrite(fid, data, bnum, bkey, bord):
     Bytewise write.
     """
 
-    if bkey == 's': bkey = str(bnum) + bkey
-    if bord == 'be': bkey = '>' + bkey
-    if bord == 'le': bkey = '<' + bkey
+    if bkey == 's':
+        bkey = str(bnum) + bkey
+    if bord == 'be':
+        bkey = '>' + bkey
+    if bord == 'le':
+        bkey = '<' + bkey
 
     hex = pack(bkey, data)
 

@@ -50,14 +50,14 @@ head_struc = [('SEQUENCE_NUMBER', 's', 6),
               ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
               ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
 
-block_struc =  {1000: [('ENCODING_FORMAT', 'B', 1),
-                        ('WORD_ORDER', 'B', 1),
-                        ('DATA_RECORD_LENGTH', 'B', 1),
-                        ('RESERVED', 'B', 1)],
-                1001: [('TIMING_QUALITY', 'B', 1),
-                        ('MICRO_SEC', 'B', 1),
-                        ('RESERVED', 'B', 1),
-                        ('FRAME_COUNT', 'B', 1)]}
+block_struc = {1000: [('ENCODING_FORMAT', 'B', 1),
+                      ('WORD_ORDER', 'B', 1),
+                      ('DATA_RECORD_LENGTH', 'B', 1),
+                      ('RESERVED', 'B', 1)],
+               1001: [('TIMING_QUALITY', 'B', 1),
+                      ('MICRO_SEC', 'B', 1),
+                      ('RESERVED', 'B', 1),
+                      ('FRAME_COUNT', 'B', 1)]}
 
 data_struc = {0: ('s', 1),
               1: ('h', 2),
@@ -141,7 +141,7 @@ class Record(object):
     """
     """
     def __init__(self):
-    
+
         self.header = {}
         self.blockette = {}
         self.data = []
@@ -164,7 +164,7 @@ class Record(object):
             block_type = byte_stream.get('H', 2)
 
             # Offset to the beginning of the next blockette
-            offset_next =  byte_stream.get('H', 2)
+            offset_next = byte_stream.get('H', 2)
 
             if block_type in block_struc:
                 # Blockette initialisation
@@ -176,7 +176,7 @@ class Record(object):
                     self.blockette[block_type] = blockette
             else:
                 print('Blockette type {0} not supported'.format(block_type))
-                byte_stream.offset += offset_next 
+                byte_stream.offset += offset_next
 
     def read_data(self, byte_stream):
         """
@@ -238,7 +238,7 @@ class Record(object):
     def data_length(self):
         """
         """
-        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] - 
+        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
                 self.header['OFFSET_TO_BEGINNING_OF_DATA'])
 
     def time_seconds(self):
@@ -264,8 +264,10 @@ class Record(object):
         srate = self.header['SAMPLE_RATE_FACTOR']
         rmult = self.header['SAMPLE_RATE_MULTIPLIER']
 
-        if srate < 0: srate = -1./srate
-        if rmult < 0: rmult = 1./rmult
+        if srate < 0:
+            srate = -1./srate
+        if rmult < 0:
+            rmult = 1./rmult
         srate *= rmult
 
         return (nsamp/srate)

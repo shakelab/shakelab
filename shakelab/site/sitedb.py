@@ -50,18 +50,18 @@ class Model(object):
 
     def _geo_init(self):
         self.geo = {}
-        for K in GEO_KEYS:
-            self.geo[K] = _np.array([])
+        for k in GEO_KEYS:
+            self.geo[k] = _np.array([])
 
     def _eng_init(self):
         self.eng = {}
-        for K in ENG_KEYS:
-            self.eng[K] = _np.array([])
+        for k in ENG_KEYS:
+            self.eng[k] = _np.array([])
 
     def _amp_init(self):
         self.amp = {}
-        for K in AMP_KEYS:
-            self.amp[K] = _np.array([])
+        for k in AMP_KEYS:
+            self.amp[k] = _np.array([])
 
     def add_layer(self, data, index=-1):
         """
@@ -85,13 +85,13 @@ class Model(object):
             # Check for zeros (replace with NaNs)
             data = [d if d > 0 else _np.nan for d in data]
 
-            for I, K in enumerate(GEO_KEYS):
+            for i, k in enumerate(GEO_KEYS):
                 if index < 0:
-                    index = len(self.geo[K])
-                if I < len(data):
-                    self.geo[K] = _np.insert(self.geo[K], index, data[I])
+                    index = len(self.geo[k])
+                if i < len(data):
+                    self.geo[k] = _np.insert(self.geo[k], index, data[i])
                 else:
-                    self.geo[K] = _np.insert(self.geo[K], index, _np.nan)
+                    self.geo[k] = _np.insert(self.geo[k], index, _np.nan)
 
         # Case: Dictionary
         if isinstance(data, dict):
@@ -99,13 +99,13 @@ class Model(object):
             # Check for zeros (replace with NaNs)
             data = {k: (v if v > 0 else _np.nan) for k, v in data.items()}
 
-            for K in GEO_KEYS:
+            for k in GEO_KEYS:
                 if index < 0:
-                    index = len(self.geo[K])
-                if K in data.keys():
-                    self.geo[K] = _np.insert(self.geo[K], index, data[K])
+                    index = len(self.geo[k])
+                if k in data.keys():
+                    self.geo[k] = _np.insert(self.geo[k], index, data[k])
                 else:
-                    self.geo[K] = _np.insert(self.geo[K], index, _np.nan)
+                    self.geo[k] = _np.insert(self.geo[k], index, _np.nan)
 
     def del_layer(self, index=-1):
         """
@@ -117,8 +117,8 @@ class Model(object):
             should be removed. Use -1 for the last layer (default).
         """
 
-        for K in GEO_KEYS:
-            self.geo[K] = _np.delete(self.geo[K], int(index))
+        for k in GEO_KEYS:
+            self.geo[k] = _np.delete(self.geo[k], int(index))
 
     def from_file(self, ascii_file, header=[], skip=0,
                   comment='#', delimiter=','):
@@ -153,14 +153,8 @@ class Model(object):
         self._geo_init()
 
         # Open input ascii file
-        try:
-            f = open(ascii_file, 'r')
+        with open(ascii_file, 'r') as f:
 
-        except:
-            print('Error: Wrong file or file path')
-            return
-
-        else:
             # Ignore initial line(s) if necessary
             for _ in range(0, skip):
                 next(f)
@@ -178,7 +172,11 @@ class Model(object):
                     else:
                         layer = {k: float(d) for k, d in zip(header, data)}
                         self.add_layer(layer)
+
             f.close()
+            return
+
+        print('Error: Wrong file or file path')
 
     def to_file(self, ascii_file, keys=GEO_KEYS,
                 delimiter=',', mode='w',
@@ -189,14 +187,8 @@ class Model(object):
         if not isinstance(keys, list):
             keys = [keys]
 
-        try:
-            f = open(ascii_file, mode)
+        with open(ascii_file, mode) as f:
 
-        except:
-            print('Error: Wrong file or file path')
-            return
-
-        else:
             if write_header:
                 f.write(delimiter.join(keys))
                 f.write('\n')
@@ -207,7 +199,11 @@ class Model(object):
                 values = [str(l) if not _np.isnan(l) else '0' for l in layer]
                 f.write(delimiter.join(values))
                 f.write('\n')
+
             f.close()
+            return
+
+        print('Error: Wrong file or file path')
 
 
 class Site1D(object):
@@ -375,7 +371,7 @@ class Site1D(object):
                 mod.eng['class'] = _avg.gt_soil_class(vs30, code)
 
         except:
-            print 'Error: Vs30 must be calculated first'
+            print('Error: Vs30 must be calculated first')
             return
 
     def frequency_axis(self, fmin, fmax, fnum, log=True):
@@ -609,8 +605,8 @@ class Grid2D(object):
 
     def _geo_init(self):
         self.geo = {}
-        for K in GEO_KEYS:
-            self.geo[K] = []
+        for k in GEO_KEYS:
+            self.geo[k] = []
 
     def set_grid(self, xlim, ylim, dx=1., dy=1.):
         """
@@ -664,8 +660,8 @@ class Grid2D(object):
                                             rescale=True)
 
         # Model interpolation
-        for K in GEO_KEYS:
-            model = [s.mean.geo[K][0] for s in site_list]
+        for k in GEO_KEYS:
+            model = [s.mean.geo[k][0] for s in site_list]
 
             for layer in _np.array(model).T:
                 data = _scp.interpolate.griddata(h_crd,
@@ -673,7 +669,7 @@ class Grid2D(object):
                                                  (self.gx, self.gy),
                                                  method=method,
                                                  rescale=True)
-                self.geo[K].append(data)
+                self.geo[k].append(data)
 
     def export_sites(self, ix=[], iy=[]):
         """
@@ -707,9 +703,9 @@ class Grid2D(object):
         sites = []
         for i in ix:
             for j in iy:
-                site = Site1D(x=self.gx[j,i],
-                              y=self.gy[j,i],
-                              z=self.gz[j,i])
+                site = Site1D(x=self.gx[j, i],
+                              y=self.gy[j, i],
+                              z=self.gz[j, i])
                 site.add_model(self.extract_model(i, j))
                 site.model_average()
                 sites.append(site)
@@ -731,9 +727,9 @@ class Grid2D(object):
         """
 
         model = Model()
-        for K in GEO_KEYS:
-            data = [d[iy][ix] for d in self.geo[K]]
-            model.geo[K] = _np.array(data)
+        for k in GEO_KEYS:
+            data = [d[iy][ix] for d in self.geo[k]]
+            model.geo[k] = _np.array(data)
 
         return model
 
@@ -760,13 +756,13 @@ class Grid2D(object):
 
                     # Point coordinates
                     data = []
-                    data.append(self.gx[j,i])
-                    data.append(self.gy[j,i])
+                    data.append(self.gx[j, i])
+                    data.append(self.gy[j, i])
 
                     # Loop over site properties and layer
                     for k in keys:
                         for l in range(0, nl):
-                            data.append(self.geo[k][l][j,i])
+                            data.append(self.geo[k][l][j, i])
 
                     f.write(','.join([str(d) for d in data]))
                     f.write('\n')
