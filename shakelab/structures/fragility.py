@@ -259,6 +259,14 @@ class FragilityCollection(object):
         return fc
 
 
+class TreeItem(object):
+    """
+    """
+    def __init__(self, id=None):
+        self.id = id
+        self.branch = {}
+
+
 class TaxonomyTree(object):
     """
     """
@@ -270,8 +278,21 @@ class TaxonomyTree(object):
     def import_from_json(self, json_file):
         with open(json_file) as jf:
             data = _json.load(jf)
-            for fmt in data['taxonomy_list']:
-                self.tree.append(fmt)
+            for tte in data['taxonomy_list']:
+                self.add_from_dict(tte)
+
+    def add_from_dict(self, tte):
+        """
+        """
+        ti = TreeItem(tte['id'])
+        for fm in tte['fragility']:
+            ti.branch[fm['id']] = float(fm['weight'])
+        self.tree.append(ti)
+
+    def get_element(self, id):
+        """
+        """
+        return next((x for x in self.tree if x.id  == id), None)
 
 
 class TaxonomyItem(object):
@@ -373,17 +394,22 @@ class Exposure(object):
         ass = xet.SubElement(em, 'Assets')
         for li in self.location:
             for tax in li.taxonomy:
-                ast = xet.SubElement(ass, 'asset', {
-                            'id': li.id,
-                            'name': li.code,
-                            'area': str(li.area),
-                            'number': str(tax.number_of_buildings),
-                            'taxonomy': tax.id})
-                xet.SubElement(ast, 'location', {
-                            'lon': str(li.longitude),
-                            'lat': str(li.latitude)})
-                occ = xet.SubElement(ast, 'occupances')
-                cst = xet.SubElement(ast, 'costs')
+                tte = taxonomy_tree.get_element(tax.id)
+                for bri, brw in tte.branch.items():
+                    nob = int(tax.number_of_buildings * brw)
+                    id = '_'.join([li.id, tax.id, bri])
+
+                    ast = xet.SubElement(ass, 'asset', {
+                                'id': id,
+                                'name': li.code,
+                                'area': str(li.area),
+                                'number': str(nob),
+                                'taxonomy': bri})
+                    xet.SubElement(ast, 'location', {
+                                'lon': str(li.longitude),
+                                'lat': str(li.latitude)})
+                    occ = xet.SubElement(ast, 'occupances')
+                    cst = xet.SubElement(ast, 'costs')
 
         indent(nrml)
 
