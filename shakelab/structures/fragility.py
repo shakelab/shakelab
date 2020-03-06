@@ -195,61 +195,6 @@ class FragilityCollection(object):
             for fmd in data['fragility_collection']:
                 self.add_from_dict(fmd)
 
-    def export_to_xml(self, xml_file, ndl=0.1):
-
-        nrml = xet.Element('nrml', {
-                    'xmlns': 'http://openquake.org/xmlns/nrml/0.5',
-                    'xmlns:gml': 'http://www.opengis.net/gml'})
-
-        fm = xet.SubElement(nrml, 'fragilityModel', {
-                    'assetCategory': 'buildings',
-                    'id': 'buildings',
-                    'lossCategory': 'structural'})
-
-        xet.SubElement(fm, 'description').text = 'Fragility model'
-        xet.SubElement(fm, 'limitStates').text = 'D1 D2 D3 D4 D5'
-
-        for m in self.model:
-            if isinstance(m, FragilityModelParametric):
-                ff = xet.SubElement(fm, 'fragilityFunction', {
-                            'id': '{0}'.format(m.id),
-                            'format': 'continuous',
-                            'shape': 'lognormal'})
-
-                im = xet.SubElement(ff, 'imls', {
-                            'imt': '{0}'.format(m.gmt),
-                            'noDamageLimit': '{0}'.format(ndl),
-                            'minIML': '{0}'.format(m.bounds[0]),
-                            'maxIML': '{0}'.format(m.bounds[1])})
-
-                for dsl in m.damage_state.keys():
-                    mean = m.damage_state[dsl][0]
-                    stdv = m.damage_state[dsl][1]
-                    par = xet.SubElement(ff, 'params', {
-                                'ls': '{0}'.format(dsl),
-                                'mean': '{0}'.format(mean),
-                                'stddev': '{0}'.format(stdv)})
-
-            if isinstance(m, FragilityModelDiscrete):
-                ff = xet.SubElement(fm, 'fragilityFunction', {
-                            'id': '{0}'.format(m.id),
-                            'format': 'discrete'})
-
-                im = xet.SubElement(ff, 'imls', {
-                            'imt': '{0}'.format(m.gmt),
-                            'noDamageLimit': '{0}'.format(ndl)})
-                im.text = ' '.join(str(n) for n in m.gmi)
-
-                for dsl in m.damage_state.keys():
-                    poe = xet.SubElement(ff, 'poes', {
-                                'ls': '{0}'.format(dsl)})
-                    poe.text = ' '.join(str(n) for n in m.damage_state[dsl])
-
-        indent(nrml)
-
-        tree = xet.ElementTree(nrml)
-        tree.write(xml_file, encoding='utf-8', xml_declaration=True)
-
     def to_discrete(self, gmi=GMI_DEFAULT):
 
         fc = FragilityCollection()
@@ -323,7 +268,7 @@ class LocationItem(object):
         self.taxonomy = []
 
 
-class Exposure(object):
+class ExposureDatabase(object):
     """
     """
     def __init__(self, json_file=None):
@@ -362,76 +307,3 @@ class Exposure(object):
             for exp in data['exposure']:
                 self.add_from_dict(exp)
 
-    def export_to_xml(self, taxonomy_tree, xml_file):
-        """
-        WARNING: this is specific to our case study (Friuly Region)
-        and will be made more general in the future
-        """
-
-        nrml = xet.Element('nrml', {
-                    'xmlns': 'http://openquake.org/xmlns/nrml/0.5',
-                    'xmlns:gml': 'http://www.opengis.net/gml'})
-
-        em = xet.SubElement(nrml, 'exposureModel', {
-                    'id': 'buildings',
-                    'category': 'buildings',
-                    'taxonomySource': 'GEM taxonomy'})
-
-        xet.SubElement(em, 'description').text = 'Buildings'
-
-        con = xet.SubElement(em, 'conversions')
-        ctp = xet.SubElement(con, 'costTypes')
-
-        for name in ['structura', 'nonstructural',
-                     'contents', 'business_interruption']:
-            xet.SubElement(ctp, 'costType', {
-                        'name': name,
-                        'unit': 'EUR',
-                        'type': 'per_asset'})
-        xet.SubElement(con, 'area', {'type': 'per_asset', 'unit': 'SQM'})
-        xet.SubElement(em, 'tagNames').text = 'Municipality Section'
-
-        ass = xet.SubElement(em, 'Assets')
-        for li in self.location:
-            for tax in li.taxonomy:
-                tte = taxonomy_tree.get_element(tax.id)
-                for bri, brw in tte.branch.items():
-                    nob = int(tax.number_of_buildings * brw)
-                    id = '_'.join([li.id, tax.id, bri])
-
-                    ast = xet.SubElement(ass, 'asset', {
-                                'id': id,
-                                'name': li.code,
-                                'area': str(li.area),
-                                'number': str(nob),
-                                'taxonomy': bri})
-                    xet.SubElement(ast, 'location', {
-                                'lon': str(li.longitude),
-                                'lat': str(li.latitude)})
-                    occ = xet.SubElement(ast, 'occupances')
-                    cst = xet.SubElement(ast, 'costs')
-
-        indent(nrml)
-
-        tree = xet.ElementTree(nrml)
-        tree.write(xml_file, encoding='utf-8', xml_declaration=True)
-
-
-def indent(elem, level=0):
-    """
-    Code from Fredrik Lundh to create pretty indented xml files
-    http://effbot.org/zone/element-lib.htm#prettyprint
-    """
-    i = "\n" + level*"    "
-    if len(elem):
-        if not elem.text or not elem.text.strip():
-            elem.text = i + "    "
-        if not elem.tail or not elem.tail.strip():
-            elem.tail = i
-        for elem in elem:
-            indent(elem, level+1)
-        if not elem.tail or not elem.tail.strip():
-            elem.tail = i
-    else:
-        if level and (not elem.tail or not elem.tail.strip()):
-            elem.tail = i
