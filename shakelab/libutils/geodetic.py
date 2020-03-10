@@ -22,6 +22,7 @@
 
 import numpy as np
 import shapely.geometry as geo
+impoer geojson
 
 # CONSTANTS
 MEAN_EARTH_RADIUS = 6371008.8
@@ -223,6 +224,24 @@ class WgsMesh():
             f.write('latitude, longitude\n')
             for p in self.points:
                 f.write('{0},{1}\n'.format(p.latitude, p.longitude))
+
+def read_geometry_collection(geometry_file, format='geojson'):
+
+    collection = []
+
+    if format is 'geojson':
+        with open(geometry_file) as f:
+            data = geojson.load(f)
+            for feature in data['features']:
+                if feature['geometry']['type'] is 'Polygon':
+                    p = WgsPolygon()
+                    p.from_list(feature['geometry']['coordinates'][0])
+                    collection.append(p)
+
+    else:
+        print('Format not yet supported')
+
+    return collection
 
 # ----------------------------------------------------------------------------
 # Geometric functions
