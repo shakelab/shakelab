@@ -100,34 +100,47 @@ def exposure_to_xml(exposure, taxonomy_tree, xml_file):
     con = xet.SubElement(em, 'conversions')
     ctp = xet.SubElement(con, 'costTypes')
 
-    for name in ['structura', 'nonstructural',
+    for name in ['structural', 'nonstructural',
                  'contents', 'business_interruption']:
         xet.SubElement(ctp, 'costType', {
                     'name': name,
                     'unit': 'EUR',
                     'type': 'per_asset'})
     xet.SubElement(con, 'area', {'type': 'per_asset', 'unit': 'SQM'})
-    xet.SubElement(em, 'tagNames').text = 'Municipality Section'
+    xet.SubElement(em, 'tagNames').text = 'sezione comune'
 
-    ass = xet.SubElement(em, 'Assets')
+    ass = xet.SubElement(em, 'assets')
     for li in exposure.location:
         for tax in li.taxonomy:
             tte = taxonomy_tree.get_element(tax.id)
             for bri, brw in tte.branch.items():
                 nob = int(tax.number_of_buildings * brw)
-                id = '_'.join([li.id, tax.id, bri])
+                if nob > 0:
+                    id = '_'.join([li.id, tax.id, bri])
 
-                ast = xet.SubElement(ass, 'asset', {
+                    ast = xet.SubElement(ass, 'asset', {
                             'id': id,
                             'name': li.code,
                             'area': str(li.area),
                             'number': str(nob),
                             'taxonomy': bri})
-                xet.SubElement(ast, 'location', {
+                    xet.SubElement(ast, 'location', {
                             'lon': str(li.longitude),
                             'lat': str(li.latitude)})
-                occ = xet.SubElement(ast, 'occupances')
-                cst = xet.SubElement(ast, 'costs')
+                    occ = xet.SubElement(ast, 'occupancies')
+                    for mytime in ['day','transit','night']:
+                        occ_s = xet.SubElement(occ, 'occupancy', {
+                            'occupants': str(int(tax.occupants['day'])),  
+                            'period': mytime})
+                    cst = xet.SubElement(ast, 'costs') 
+                    for mytype in ['structural', 'nonstructural',
+                        'contents', 'business_interruption']:
+                        cst_s = xet.SubElement(cst, 'cost', {
+                            'type': mytype,
+                            'value': '0'})
+                    tags = xet.SubElement(ast, 'tags' , {
+                            'sezione': 'all_included',  
+                            'comune': li.code})
 
     indent(nrml)
 
