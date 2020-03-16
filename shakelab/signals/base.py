@@ -23,6 +23,7 @@ Module for basic waveform analysis
 
 from shakelab.signals import mseed, sac
 from scipy import signal
+import numpy as np
 
 
 def import_record(file, format='sac', path=None, byte_order='le',
@@ -88,22 +89,27 @@ class Record(object):
     def __getitem__(self, sliced):
         return self.data[sliced]
 
-    def filter(self, fl=None, fh=None, order=2):
+    def rmean(self):
+        """
+        """
+        self.data -= np.mean(self.data)
+
+    def filter(self, low=None, high=None, order=2):
         """
         """
 
         # Corner frequencies
         corners = []
 
-        if fl:
-            corners.append(2. * fl * self.dt)
+        if low:
+            corners.append(2. * low * self.dt)
             filter_type = 'high'
 
-        if fh:
-            corners.append(2. * fh * self.dt)
+        if high:
+            corners.append(2. * high * self.dt)
             filter_type = 'low'
 
-        if fl and hl:
+        if low and high:
             filter_type = 'band'
 
         if len(corners) > 0:
@@ -114,8 +120,17 @@ class Record(object):
             zi = signal.lfilter_zi(b, a);
             self.data,_ = signal.lfilter(b, a, self.data, zi=zi*self.data[0])
 
+    def taper(self, percentage=0.2):
+        """
+        """
+        pass
+
     def cut(self, start, stop):
         """
         """
         pass
 
+    def pad(self, zeros):
+        """
+        """
+        pass
