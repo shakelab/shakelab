@@ -157,6 +157,26 @@ class Sac(object):
             if data != H[3]:
                 print('{0:>12} = {1}'.format(H[0], data))
 
+    def time_date(self):
+        """
+        """
+        pass
+
+    def time_seconds(self):
+        """
+        """
+        pass
+
+    def sampling_rate(self):
+        """
+        """
+        return self.head['DELTA']
+
+    def duration(self):
+        """
+        """
+        pass
+
 
 def _fread(fid, bnum, bkey, bord):
     """

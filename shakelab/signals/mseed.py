@@ -241,7 +241,7 @@ class Record(object):
         return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
                 self.header['OFFSET_TO_BEGINNING_OF_DATA'])
 
-    def time_seconds(self):
+    def time_date(self):
         """
         """
         year = self.header['YEAR']
@@ -254,13 +254,17 @@ class Record(object):
         # Convert total days to month/day
         (month, day) = day_to_month(year, day)
 
-        date = Date([year, month, day, hour, minute, second + msecond])
+        return Date([year, month, day, hour, minute, second + msecond])
+
+    def time_seconds(self):
+        """
+        """
+        date = self.time_date()
         return round(date.to_second(), 4)
 
-    def duration(self):
+    def sampling_rate(self):
         """
         """
-        nsamp = self.header['NUMBER_OF_SAMPLES']
         srate = self.header['SAMPLE_RATE_FACTOR']
         rmult = self.header['SAMPLE_RATE_MULTIPLIER']
 
@@ -269,6 +273,14 @@ class Record(object):
         if rmult < 0:
             rmult = 1./rmult
         srate *= rmult
+
+        return srate
+
+    def duration(self):
+        """
+        """
+        nsamp = self.header['NUMBER_OF_SAMPLES']
+        srate = self.sampling_rate()
 
         return (nsamp/srate)
 
