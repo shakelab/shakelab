@@ -21,9 +21,11 @@
 Module for basic waveform analysis
 """
 
-from shakelab.signals import mseed, sac
 from scipy import signal
 import numpy as np
+
+from shakelab.signals import mseed, sac
+from shakelab.libutils.time import Date
 
 
 def import_record(file, format='sac', path=None, byte_order='le',
@@ -36,12 +38,12 @@ def import_record(file, format='sac', path=None, byte_order='le',
 
     # Import recordings from file
     if format is 'mseed':
-        ms = miniseed.MiniSeed(file, byte_order=byte_order)
+        ms = mseed.MiniSeed(file, byte_order=byte_order)
         for mr in ms.record:
             rec = Record()
             rec.dt = mr.sampling_rate()
             rec.time = mr.time_date()
-            rec.data = mr.data
+            rec.data = np.array(mr.data)
             rec_list.append(rec)
 
     elif format is 'sac':
@@ -49,7 +51,7 @@ def import_record(file, format='sac', path=None, byte_order='le',
         rec = Record()
         rec.dt = sac.sampling_rate()
         rec.time = sac.time_date()
-        rec.data = sac.data[0]
+        rec.data = np.array(sac.data[0])
 
     elif format is 'ascii':
         raise NotImplementedError('format not yet implemented')
@@ -114,16 +116,21 @@ class Record(object):
 
         if len(corners) > 0:
             # Butterworth filter
-            b, a = signal.butter(order, corners, btype=filter_type)
+            sos = signal.butter(order, corners, analog=False,
+                                btype=filter_type, output='sos')
+            self.data = signal.sosfiltfilt(sos, self.data)
 
-            # Filtering seismic record
-            zi = signal.lfilter_zi(b, a);
-            self.data,_ = signal.lfilter(b, a, self.data, zi=zi*self.data[0])
-
-    def taper(self, percentage=0.2):
+    def taper(self, window=0.1):
         """
+        time is in seconds.
+        negative time means the whole window (cosine taper)
         """
-        pass
+        tnum = len(self.data)
+        if window < 0:
+            alpha = 1
+        else:
+            alpha = 2 * float(window)/(self.dt * tnum)
+        self.data = (self.data * signal.tukey(tnum, alpha))
 
     def cut(self, start, stop):
         """
@@ -131,6 +138,11 @@ class Record(object):
         pass
 
     def pad(self, zeros):
+        """
+        """
+        pass
+
+    def shift(self, time):
         """
         """
         pass
