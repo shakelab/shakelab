@@ -21,8 +21,10 @@
 Module for basic waveform analysis
 """
 
-from scipy import signal
+import scipy as sp
 import numpy as np
+
+from scipy import fftpack, integrate
 
 from shakelab.signals import mseed, sac
 from shakelab.libutils.time import Date
@@ -91,9 +93,15 @@ class Record(object):
     def __getitem__(self, sliced):
         return self.data[sliced]
 
+    def duration(self):
+        """
+        """
+        return (len(self) - 1) * self.dt
+
     def rmean(self):
         """
         """
+
         self.data -= np.mean(self.data)
 
     def filter(self, low=None, high=None, order=2):
@@ -116,33 +124,66 @@ class Record(object):
 
         if len(corners) > 0:
             # Butterworth filter
-            sos = signal.butter(order, corners, analog=False,
-                                btype=filter_type, output='sos')
-            self.data = signal.sosfiltfilt(sos, self.data)
+            sos = sp.signal.butter(order, corners, analog=False,
+                                   btype=filter_type, output='sos')
+            self.data = sp.signal.sosfiltfilt(sos, self.data)
+
+    def cut(self, start, stop):
+        """
+        """
+
+        pass
 
     def taper(self, window=0.1):
         """
         time is in seconds.
         negative time means the whole window (cosine taper)
         """
+
         tnum = len(self.data)
         if window < 0:
             alpha = 1
         else:
-            alpha = 2 * float(window)/(self.dt * tnum)
-        self.data = (self.data * signal.tukey(tnum, alpha))
-
-    def cut(self, start, stop):
-        """
-        """
-        pass
+            alpha = min(2 * float(window)/(self.dt * tnum), 1)
+        self.data = (self.data * sp.signal.tukey(tnum, alpha))
 
     def pad(self, zeros):
         """
         """
+
         pass
 
     def shift(self, time):
         """
         """
+
         pass
+
+    def integrate(self, method='fft'):
+        """
+        """
+
+        if method is 'cum':
+            self.data = integrate.cumtrapz(self.data, dx=self.dt,
+                                           initial=0)
+        elif method is 'fft':
+            self.data = fftpack.diff(self.data, order=-1,
+                                     period=self.duration())
+        else:
+            raise NotImplementedError('method not implemented')
+
+    def differentiate(self, method='fft'):
+        """
+        """
+
+        if method is 'grad':
+            self.data = np.gradient(self.data, self.dt)
+
+        elif method is 'fft':
+            self.data = fftpack.diff(self.data, order=1,
+                                     period=self.duration())
+        else:
+            raise NotImplementedError('method not implemented')
+
+
+
