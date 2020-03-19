@@ -24,9 +24,10 @@ Module for basic waveform analysis
 import scipy as sp
 import numpy as np
 
-from scipy import fftpack, integrate
+from scipy import signal, fftpack, integrate
+from copy import deepcopy
 
-from shakelab.signals import mseed, sac
+from shakelab.signals import mseed, sac, ascii
 from shakelab.libutils.time import Date
 
 
@@ -54,6 +55,15 @@ def import_record(file, format='sac', path=None, byte_order='le',
         rec.dt = sac.sampling_rate()
         rec.time = sac.time_date()
         rec.data = np.array(sac.data[0])
+        rec_list.append(rec)
+
+    elif format is 'itaca':
+        it = ascii.Itaca(file)
+        rec = Record()
+        rec.dt = it.sampling_rate()
+        rec.data = it.time_date()
+        rec.data = it.data
+        rec_list.append(rec)
 
     elif format is 'ascii':
         raise NotImplementedError('format not yet implemented')
@@ -85,7 +95,7 @@ class Record(object):
     def __init__(self):
         self.dt = None
         self.data = []
-        self.time = Date()
+        self.date = Date()
 
     def __len__(self):
         return len(self.data)
@@ -97,6 +107,12 @@ class Record(object):
         """
         """
         return (len(self) - 1) * self.dt
+
+    def time(self, reference=None):
+        """
+        to do: add reference
+        """
+        return np.arange(0, len(self)) * self.dt
 
     def rmean(self):
         """
@@ -124,9 +140,9 @@ class Record(object):
 
         if len(corners) > 0:
             # Butterworth filter
-            sos = sp.signal.butter(order, corners, analog=False,
-                                   btype=filter_type, output='sos')
-            self.data = sp.signal.sosfiltfilt(sos, self.data)
+            sos = signal.butter(order, corners, analog=False,
+                                btype=filter_type, output='sos')
+            self.data = signal.sosfiltfilt(sos, self.data)
 
     def cut(self, start, stop):
         """
@@ -150,13 +166,11 @@ class Record(object):
     def pad(self, zeros):
         """
         """
-
         pass
 
     def shift(self, time):
         """
         """
-
         pass
 
     def integrate(self, method='fft'):
@@ -185,5 +199,8 @@ class Record(object):
         else:
             raise NotImplementedError('method not implemented')
 
-
+    def copy(self):
+        """
+        """
+        return deepcopy(self)
 
