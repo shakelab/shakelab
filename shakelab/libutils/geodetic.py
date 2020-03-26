@@ -22,7 +22,7 @@
 
 import numpy as np
 import shapely.geometry as geo
-impoer geojson
+import json
 
 # CONSTANTS
 MEAN_EARTH_RADIUS = 6371008.8
@@ -32,7 +32,7 @@ DEG_TO_M = 111195.
 
 class WgsPoint():
 
-    def __init__(self, latitude=0., longitude=0., elevation=0.):
+    def __init__(self, latitude=None, longitude=None, elevation=None):
         """
         Coordinates are in WGS84 system.
         Elevation is referred to the seal level
@@ -72,8 +72,10 @@ class WgsPolygon():
     Vertexes are in a list of WgsPoints.
     """
 
-    def __init__(self, vertices=[]):
-        self.vertices = vertices
+    def __init__(self, vertices=None):
+        self.vertices = []
+        if vertices is not None:
+            self.vertices = vertices
 
     def __iter__(self):
         self._counter = 0
@@ -96,9 +98,9 @@ class WgsPolygon():
         for lat, lon in zip(latitude, longitude):
             self.add(WgsPoint(lat, lon))
 
-    def from_list(self, polygon):
+    def from_list(self, points):
 
-        for p in polygon:
+        for p in points:
             self.add(WgsPoint(p[0], p[1]))
 
     def to_array(self):
@@ -231,12 +233,38 @@ def read_geometry_collection(geometry_file, format='geojson'):
 
     if format is 'geojson':
         with open(geometry_file) as f:
-            data = geojson.load(f)
+            data = json.load(f)
+
             for feature in data['features']:
-                if feature['geometry']['type'] is 'Polygon':
-                    p = WgsPolygon()
-                    p.from_list(feature['geometry']['coordinates'][0])
+                ftype = feature['geometry']['type']
+                fcoor = feature['geometry']['coordinates']
+                p = None
+
+                if ftype == 'Point':
+                    p = WgsPoint()
+                    p.latitude = fcoor[1]
+                    p.longitue = fcoor[0]
                     collection.append(p)
+
+                if ftype == "MultiPoint":
+                    pass
+
+                if ftype == "LineString":
+                    pass
+
+                if ftype == "MultiLineString":
+                    pass
+
+                if ftype == 'Polygon':
+                    p = WgsPolygon()
+                    p.from_list(fcoor[0])
+                    collection.append(p)
+
+                if ftype == 'MultiPolygon':
+                    for fpart in fcoor:
+                        p = WgsPolygon()
+                        p.from_list(fpart[0])
+                        collection.append(p)
 
     else:
         print('Format not yet supported')

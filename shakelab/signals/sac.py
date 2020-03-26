@@ -24,6 +24,8 @@ An simple Python library for SAC file manipulation
 from struct import pack, unpack
 from os.path import isfile
 
+from shakelab.libutils.time import Date
+from shakelab.libutils.time import day_to_month
 
 class Sac(object):
 
@@ -160,12 +162,23 @@ class Sac(object):
     def time_date(self):
         """
         """
-        pass
+        year = self.head['NZYEAR']
+        day = self.head['NZJDAY']
+        hour = self.head['NZHOUR']
+        minute = self.head['NZMIN']
+        second = self.head['NZSEC']
+        msecond = self.head['NZMSEC'] * 1e-4
+
+        # Convert total days to month/day
+        (month, day) = day_to_month(year, day)
+
+        return Date([year, month, day, hour, minute, second + msecond])
 
     def time_seconds(self):
         """
         """
-        pass
+        date = self.time_date()
+        return round(date.to_second(), 4)
 
     def sampling_rate(self):
         """
@@ -175,7 +188,10 @@ class Sac(object):
     def duration(self):
         """
         """
-        pass
+        nsamp = self.header['NPTS']
+        srate = self.sampling_rate()
+
+        return (nsamp/srate)
 
 
 def _fread(fid, bnum, bkey, bord):
