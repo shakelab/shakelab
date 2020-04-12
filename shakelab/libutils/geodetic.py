@@ -66,16 +66,20 @@ class WgsPoint():
         if isinstance(point, WgsPoint):
             return tunnel_distance(point)
 
+    def __call__(self):
+
+        return self.latitude, self.longitude
+
 class WgsPolygon():
     """
     A polygon in geographical coordinates.
     Vertexes are in a list of WgsPoints.
     """
 
-    def __init__(self, vertices=None):
-        self.vertices = []
-        if vertices is not None:
-            self.vertices = vertices
+    def __init__(self, points=None):
+        self.points = []
+        if points is not None:
+            self.from_list(points)
 
     def __iter__(self):
         self._counter = 0
@@ -83,15 +87,19 @@ class WgsPolygon():
 
     def __next__(self):
         try:
-            point = self.vertices[self._counter]
+            point = self.points[self._counter]
             self._counter += 1
         except IndexError:
             raise StopIteration
         return point
 
+    def __call__(self):
+
+        return self.to_array()
+
     def add(self, point):
 
-        self.vertices.append(point)
+        self.points.append(point)
 
     def from_array(self, latitude, longitude):
 
@@ -108,8 +116,8 @@ class WgsPolygon():
         Export latitude and longitude as numpy arrays.
         """
 
-        lat = np.array([v.latitude for v in self.vertices])
-        lon = np.array([v.longitude for v in self.vertices])
+        lat = np.array([v.latitude for v in self.points])
+        lon = np.array([v.longitude for v in self.points])
 
         return lat, lon
 
@@ -118,7 +126,7 @@ class WgsPolygon():
         Export a list of tuples with geographical coordinates.
         """
 
-        return [(v.latitude, v.longitude) for v in self.vertices]
+        return [(v.latitude, v.longitude) for v in self.points]
 
     def bounds(self):
 
@@ -227,7 +235,7 @@ class WgsMesh():
             for p in self.points:
                 f.write('{0},{1}\n'.format(p.latitude, p.longitude))
 
-def read_geometry_collection(geometry_file, format='geojson'):
+def read_geometry(geometry_file, format='geojson'):
 
     collection = []
 
@@ -238,13 +246,13 @@ def read_geometry_collection(geometry_file, format='geojson'):
             for feature in data['features']:
                 ftype = feature['geometry']['type']
                 fcoor = feature['geometry']['coordinates']
-                p = None
+                att = feature['properties']
 
                 if ftype == 'Point':
-                    p = WgsPoint()
-                    p.latitude = fcoor[1]
-                    p.longitue = fcoor[0]
-                    collection.append(p)
+                    crd = WgsPoint()
+                    crd.latitude = fcoor[1]
+                    crd.longitue = fcoor[0]
+                    collection.append((crd, att))
 
                 if ftype == "MultiPoint":
                     pass
@@ -256,15 +264,15 @@ def read_geometry_collection(geometry_file, format='geojson'):
                     pass
 
                 if ftype == 'Polygon':
-                    p = WgsPolygon()
-                    p.from_list(fcoor[0])
-                    collection.append(p)
+                    crd = WgsPolygon()
+                    crd.from_list(fcoor[0])
+                    collection.append((crd, att))
 
                 if ftype == 'MultiPolygon':
                     for fpart in fcoor:
-                        p = WgsPolygon()
-                        p.from_list(fpart[0])
-                        collection.append(p)
+                        crd = WgsPolygon()
+                        crd.from_list(fpart[0])
+                        collection.append((crd, att))
 
     else:
         print('Format not yet supported')

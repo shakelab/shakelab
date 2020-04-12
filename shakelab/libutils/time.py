@@ -31,10 +31,22 @@ class Date(object):
     """
 
     def __init__(self, date=None):
-        if date is not None:
-            self.set(date)
+        self.year = None
+        self.month = None
+        self.day = None
+        self.hour = None
+        self.minute = None
+        self.second = None
 
-    def set(self, date):
+        if date is not None:
+            if type(date) in [list, tuple]:
+                self.set_date(date)
+            elif type(date) in [int, float]:
+                self.from_seconds(date)
+            else:
+                print('Format not (yet) recognized')
+
+    def set_date(self, date):
         """
         """
         if date[0] >= 1:
@@ -67,42 +79,48 @@ class Date(object):
         else:
             raise ValueError('Seconds must be between 0 and 60')
 
-    def get(self):
+    def get_date(self):
         """
         """
         return [self.year, self.month, self.day,
                 self.hour, self.minute, self.second]
 
-    def to_second(self):
+    def to_seconds(self):
         """
         """
         return date_to_sec(self.year, self.month, self.day,
                            self.hour, self.minute, self.second)
 
-    def from_second(self, second):
+    def from_seconds(self, second):
         """
         """
-        self.set(sec_to_date(second))
+        self.set_date(sec_to_date(second))
 
-    def shift_time(self, second, unit='s'):
+    def shift_time(self, time, units='s'):
         """
         """
-        if unit is 'm':
-            second *= MSEC
-        if unit is 'h':
-            second *= HSEC
-        if unit is 'd':
-            second *= DSEC
+        if units in ['s', 'second', 'seconds']:
+            seconds = time
+        elif units in ['m', 'minute', 'minutes']:
+            seconds = time * MSEC
+        elif units in ['h', 'hour', 'hours']:
+            seconds = time * HSEC
+        elif unit in ['d', 'day', 'days']:
+            seconds = time * DSEC
+        else:
+            print('Time units not yet implemented')
 
-        self.from_second(self.to_second() + second)
+        self.from_seconds(self.to_seconds() + seconds)
 
     def __add__(self, value):
         """
         """
         if isinstance(value, (int, float)):
             dnew = Date()
-            dnew.from_second(self.to_second() + value)
+            dnew.from_seconds(self.to_seconds() + value)
             return dnew
+        elif isinstance(value, Date):
+            return self.to_seconds() + value.to_seconds()
         else:
             print('Not a supported operation')
 
@@ -111,17 +129,17 @@ class Date(object):
         """
         if isinstance(value, (int, float)):
             dnew = Date()
-            dnew.from_second(self.to_second() - value)
+            dnew.from_seconds(self.to_seconds() - value)
             return dnew
         elif isinstance(value, Date):
-            return self.to_second() - value.to_second()
+            return self.to_seconds() - value.to_seconds()
         else:
             print('Not a supported operation')
 
     def __repr__(self):
         """
         """
-        return repr(self.get())
+        return repr(self.get_date())
 
 def leap_check(year):
     """

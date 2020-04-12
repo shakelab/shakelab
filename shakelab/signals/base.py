@@ -199,6 +199,16 @@ class Record(object):
         else:
             raise NotImplementedError('method not implemented')
 
+    def convolve(self, record):
+        """
+        """
+        pass
+
+    def crosscorr(self, record):
+        """
+        """
+        pass
+
     def copy(self):
         """
         """

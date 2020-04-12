@@ -23,6 +23,7 @@
 
 import numpy as np
 
+
 def moment_to_magnitude(moment):
 
     # Using Hanks & Kanamori equation
@@ -33,7 +34,7 @@ def magnitude_to_moment(magnitude):
     # Using Hanks & Kanamori equation
     return 10**((3./2.) * magnitude + 10.7)
 
-class MagnitudeOccurrencePair()
+class MagnitudeOccurrencePair():
 
     def __init__(self, magnitude=None, occurrence=None):
         self.magnitude = magnitude
@@ -41,9 +42,9 @@ class MagnitudeOccurrencePair()
 
     def get_total_moment(self):
         # Using Hanks & Kanamori equation
-        return = magnitude_to_moment(self.magnitude) * self.occurrence
+        return magnitude_to_moment(self.magnitude) * self.occurrence
 
-class MagnitudeDistribution()
+class MagnitudeDistribution():
 
     def __init__(self):
         self.mfd = []
@@ -74,17 +75,37 @@ class MagnitudeDistribution()
 
 class BoundedGutembergRichter():
 
-    def __init__(self, a_value=None, b_value=None, max_mag=None, ref_mag=0.):
+    def __init__(self, a_value, b_value, min_mag, max_mag, ref_mag=0.):
         self.a_value = a_value
         self.b_value = b_value
+        self.min_mag = min_mag
         self.max_mag = max_mag
 
-    def compute_rates(self, magnitudes):
+    def cumulative_rates(self, magnitude=None):
+
+        if magnitude is None:
+            magnitude = self.min_mag
 
         p1 = 10.**self.a_value
-        p2 = 10.**(-self.b_value * magnitudes)
+        p2 = 10.**(-self.b_value * magnitude)
         p3 = 10.**(-self.b_value * self.max_mag)
 
-        return p1 * (p2 - p3)
+        cumrts = p1 * (p2 - p3)
+
+        cumrts[magnitude > self.max_mag] = 0.
+        return cumrts
+
+    def inverse_sampling(self, snum):
+        """
+        Samples are derived using the inverse transform sampling (also known
+        as inversion sampling, inverse probability integral transform)
+        """
+
+        um = np.random.rand(snum)
+        cf = 1.-(10.**(-self.b_value*(self.max_mag-self.min_mag)))
+        return self.min_mag-np.log10(1.-(um*cf))/self.b_value
+
+
+
 
 
