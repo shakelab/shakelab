@@ -18,7 +18,7 @@
 #
 # ****************************************************************************
 """
-Time and date functionalities
+Time and date functionalities.
 """
 
 MSEC = 60
