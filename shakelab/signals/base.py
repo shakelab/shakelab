@@ -117,13 +117,11 @@ class Record(object):
     def rmean(self):
         """
         """
-
         self.data -= np.mean(self.data)
 
     def filter(self, low=None, high=None, order=2):
         """
         """
-
         # Corner frequencies
         corners = []
 
@@ -147,7 +145,6 @@ class Record(object):
     def cut(self, start, stop):
         """
         """
-
         pass
 
     def taper(self, window=0.1):
@@ -155,7 +152,6 @@ class Record(object):
         time is in seconds.
         negative time means the whole window (cosine taper)
         """
-
         tnum = len(self.data)
         if window < 0:
             alpha = 1
@@ -163,17 +159,17 @@ class Record(object):
             alpha = min(2 * float(window)/(self.dt * tnum), 1)
         self.data = (self.data * sp.signal.tukey(tnum, alpha))
 
-    def pad(self, time):
+    def zero_padding(self, time):
         """
         """
         zeros = np.zeros(round(time/self.dt))
         self.data = np.concatenate((self.data, zeros))
 
-    def shift(self, time, pad=True):
+    def time_shift(self, time, padding=True):
         """
         Perform time shift of a signal using fft-based circular convolution.
         """
-        if pad:
+        if padding:
             zeros = np.zeros(len(self.data))
             data = np.concatenate((self.data, zeros))
         else:
@@ -185,7 +181,6 @@ class Record(object):
     def integrate(self, method='fft'):
         """
         """
-
         if method is 'cum':
             self.data = integrate.cumtrapz(self.data, dx=self.dt,
                                            initial=0)
@@ -198,7 +193,6 @@ class Record(object):
     def differentiate(self, method='fft'):
         """
         """
-
         if method is 'grad':
             self.data = np.gradient(self.data, self.dt)
 
@@ -208,15 +202,17 @@ class Record(object):
         else:
             raise NotImplementedError('method not implemented')
 
-    def convolve(self, record):
+    def convolve(self, record, mode='full', method='fft'):
         """
         """
-        pass
+        self.data = signal.convolve(self.data, record.data,
+                                    mode=mode, method=method)
 
-    def crosscorr(self, record):
+    def correlate(self, record, mode='full', method='fft'):
         """
         """
-        pass
+        self.data = signal.correlate(self.data, record.data,
+                                     mode=mode, method=method)
 
     def copy(self):
         """
