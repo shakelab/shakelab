@@ -151,12 +151,4 @@ def sdof_transfer_function(fmax, fnum, omega0, zeta=0.05):
     tf = np.concatenate((tf, np.flip(tf)))
 
     return tf
-
-def fft_positive_axis(n, dt):
-    """
-    Compute the only positive frequency axis of an fft.
-    """
-
-    # return np.arange(n)*(1./(n*dt))
-    return np.linspace(0., (n-1.)/(dt*n), n)
     

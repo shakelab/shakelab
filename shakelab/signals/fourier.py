@@ -19,3 +19,43 @@
 # ****************************************************************************
 """
 """
+
+import numpy as np
+
+
+def fft_axis(snum, dt):
+    """
+    Equivalent to numpy.fft.fftfreq()
+    Only used as reference.
+    """
+
+    # Check for odd/even number of samples
+    if np.mod(snum, 2) == 0:
+        pax = np.arange(0, snum/2)
+        nax = np.arange(-snum/2, 0)
+    else:
+        pax = np.arange(0, (snum+1)/2)
+        nax = np.arange(-(snum-1)/2, 0)
+        
+    return np.concatenate((pax, nax))/(snum*dt)
+
+def fft_positive_axis(snum, dt):
+    """
+    Compute the positive frequency axis of an fft.
+    """
+
+    # return np.arange(snum)*(1./(snum*dt))
+    return np.linspace(0., (snum-1.)/(dt*snum), snum)
+
+def time_shift(signal, dt, time):
+    """
+    Perform time shift of a signal using fft-based circular convolution.
+    No zero-padding is assumed.
+    """
+
+    frax = np.fft.fftfreq(len(signal), dt)
+    expt = np.exp(-2*1j*np.pi*time*frax)
+    shift = np.fft.ifft(np.fft.fft(signal)*expt)
+
+    return np.real(shift)
+

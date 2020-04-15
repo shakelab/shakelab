@@ -18,9 +18,10 @@
 #
 # ****************************************************************************
 """
-Time and date functionalities.
+Time and date functionalities
 """
 
+# CONSTANTS
 MSEC = 60
 HSEC = 3600
 DSEC = 86400

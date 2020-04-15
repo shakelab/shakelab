@@ -27,7 +27,7 @@ import numpy as np
 from scipy import signal, fftpack, integrate
 from copy import deepcopy
 
-from shakelab.signals import mseed, sac, ascii
+from shakelab.signals import mseed, sac, ascii, fourier
 from shakelab.libutils.time import Date
 
 
@@ -163,15 +163,24 @@ class Record(object):
             alpha = min(2 * float(window)/(self.dt * tnum), 1)
         self.data = (self.data * sp.signal.tukey(tnum, alpha))
 
-    def pad(self, zeros):
+    def pad(self, time):
         """
         """
-        pass
+        zeros = np.zeros(round(time/self.dt))
+        self.data = np.concatenate((self.data, zeros))
 
-    def shift(self, time):
+    def shift(self, time, pad=True):
         """
+        Perform time shift of a signal using fft-based circular convolution.
         """
-        pass
+        if pad:
+            zeros = np.zeros(len(self.data))
+            data = np.concatenate((self.data, zeros))
+        else:
+            data = self.data
+
+        data = fourier.time_shift(data, self.dt, time)
+        self.data = data[0:len(self.data)]
 
     def integrate(self, method='fft'):
         """

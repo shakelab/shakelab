@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ****************************************************************************
 #
 # Copyright (C) 2019-2020, ShakeLab Developers.
@@ -18,57 +19,179 @@
 #
 # ****************************************************************************
 """
+This modules includes a set of tools for geographical data manipulation.
 """
 
+__all__ = [
+    'read_geometry', 'write_geometry',
+    'WgsPoint', 'WgsPolygon'
+    ]
+
 import numpy as np
-import shapely.geometry as geo
 import json
+
+import matplotlib as _mat
 
 # CONSTANTS
 MEAN_EARTH_RADIUS = 6371008.8
 EQUATORIAL_EARTH_RADIUS = 6378137.0
 POLAR_EARTH_RADIUS = 6356752.3
 DEG_TO_M = 111195.
+NDIGITS = 4
+
+def read_geometry(geometry_file, file_type='geojson'):
+    """
+    """
+
+    collection = []
+
+    if file_type in ['gj', 'geojson']:
+        with open(geometry_file, 'r') as f:
+            data = json.load(f)
+
+            for feature in data['features']:
+                ftype = feature['geometry']['type']
+                fcoor = feature['geometry']['coordinates']
+                fatt = feature['properties']
+
+                if ftype == 'Point':
+                    item = WgsPoint()
+                    item.latitude = fcoor[1]
+                    item.longitue = fcoor[0]
+                    item.attributes = fatt
+                    collection.append(item)
+
+                if ftype == "MultiPoint":
+                    for fpart in fcoor:
+                        item = WgsPoint()
+                        item.latitude = fcoor[1]
+                        item.longitue = fcoor[0]
+                        item.attributes = fatt
+                        collection.append(item)
+
+                if ftype == "LineString":
+                    pass
+
+                if ftype == "MultiLineString":
+                    pass
+
+                if ftype == 'Polygon':
+                    item = WgsPolygon()
+                    item.from_list(fcoor[0])
+                    item.attributes = fatt
+                    collection.append(item)
+
+                if ftype == 'MultiPolygon':
+                    for fpart in fcoor:
+                        item = WgsPolygon()
+                        item.from_list(fpart[0])
+                        item.attributes = fatt
+                        collection.append(item)
+
+    else:
+        print('Format not yet supported')
+
+    return collection
+
+def write_geometry(collection, geometry_file, decimals=NDIGITS):
+    """
+    """
+
+    data = {
+        "type": "FeatureCollection",
+        "features": []
+        }
+
+    for item in collection:
+        feature = {
+            'geometry': {},
+            'properties': {}
+            }
+
+        if isinstance(item, WgsPoint):
+            lat = np.round(item.latitude, decimals)
+            lon = np.round(item.longitude, decimals)
+            feature['geometry'] = {
+                'type': 'Point',
+                'coordinates': [lon, lat],
+                'properties': {}
+                }
+
+        if isinstance(item, WgsPolygon):
+            lat, lon = item.to_array()
+            lat = np.round(lat, decimals)
+            lon = np.round(lon, decimals)
+            feature['geometry'] = {
+                'type': 'Polygon',
+                'coordinates': [[[x,y] for x,y in zip(lon, lat)]],
+                'properties': {}
+                }
+
+        data['features'].append(feature)
+
+    with open(geometry_file, 'w') as f:
+        json.dump(data, f)
+
 
 class WgsPoint():
+    """
+    A single point in space using WGS84 coordinate system.
+    Elevation is referred to the sea level
 
-    def __init__(self, latitude=None, longitude=None, elevation=None):
-        """
-        Coordinates are in WGS84 system.
-        Elevation is referred to the seal level
-        """
+    Arguments:
+        latitude (float):
+            the latitude of the point in degrees
 
+        longitude (float):
+            the longitude of the point in degrees
+
+        elevation (float, default 0.):
+            the elevation of the point in meters, referred to the sea level
+    """
+
+    def __init__(self, latitude, longitude, elevation=0.):
         self.latitude = latitude
         self.longitude = longitude
         self.elevation = elevation
+        self.attributes = {}
 
     def circle_distance(self, point):
+        """
+        Compute the great-circle distance between two geographical points
+        assuming a spherical earth.
+        
+        Arguments:
+            point (WgsPoint):
+                the geographical point for the calculation
 
-        dist = circle_distance(self.latitude, self.longitude,
+        Notes:
+            point elevation is not considered, therefore the two points
+            (or their projection) are assumed to be on the earth surface.
+        """
+        return circle_distance(self.latitude, self.longitude,
                                point.latitude, point.longitude)
 
-        return 1e-3 * dist
-
     def tunnel_distance(self, point, approx='sphere'):
-
+        """
+        """
         if approx is 'sphere':
             handle = tunnel_distance_sphere
         if approx is 'ellipsoid':
             handle = tunnel_distance_ellipsoid
 
-        dist = handle(self.latitude, self.longitude, self.elevation,
+        return handle(self.latitude, self.longitude, self.elevation,
                       point.latitude, point.longitude, point.elevation)
 
-        return 1e-3 * dist
-
     def __sub__(self, point):
-
+        """
+        """
         if isinstance(point, WgsPoint):
             return tunnel_distance(point)
 
     def __call__(self):
-
-        return self.latitude, self.longitude
+        """
+        """
+        return self.latitude, self.longitude, self.elevation
 
 class WgsPolygon():
     """
@@ -80,6 +203,7 @@ class WgsPolygon():
         self.points = []
         if points is not None:
             self.from_list(points)
+        self.attributes = {}
 
     def __iter__(self):
         self._counter = 0
@@ -128,13 +252,13 @@ class WgsPolygon():
 
         return [(v.latitude, v.longitude) for v in self.points]
 
-    def bounds(self):
+    def get_bounds(self):
 
         lat, lon = self.to_array()
 
         return (min(lat), max(lat)), (min(lon), max(lon))
 
-    def area(self):
+    def get_area(self):
         """
         Note: area is in square kilometers
         """
@@ -159,7 +283,7 @@ class WgsPolygon():
 
     def to_grid(self, delta=0.1, km=False):
 
-        bnd = self.bounds()
+        bnd = self.get_bounds()
         grd_lat, grd_lon = spherical_mesh(delta, km,
                                           latitude=bnd[0],
                                           longitude=bnd[1])
@@ -178,6 +302,7 @@ class WgsMesh():
 
     def __init__(self, ):
         self.points = []
+        self.attributes = {}
 
     def __iter__(self):
         self._counter = 0
@@ -216,7 +341,7 @@ class WgsMesh():
                     latitude=(-90, 90), longitude=(-180, 180)):
 
         if polygon is not None:
-            latitude, longitude = polygon.bounds()
+            latitude, longitude = polygon.get_bounds()
 
         grd_lat, grd_lon = spherical_mesh(delta, km,
                                           latitude=latitude,
@@ -228,56 +353,12 @@ class WgsMesh():
         if polygon is not None:
             self.intersect(polygon)
 
-    def to_ascii(self, csv_file):
+    def to_csv(self, csv_file):
 
         with open(csv_file, 'w') as f:
             f.write('latitude, longitude\n')
             for p in self.points:
                 f.write('{0},{1}\n'.format(p.latitude, p.longitude))
-
-def read_geometry(geometry_file, format='geojson'):
-
-    collection = []
-
-    if format is 'geojson':
-        with open(geometry_file) as f:
-            data = json.load(f)
-
-            for feature in data['features']:
-                ftype = feature['geometry']['type']
-                fcoor = feature['geometry']['coordinates']
-                att = feature['properties']
-
-                if ftype == 'Point':
-                    crd = WgsPoint()
-                    crd.latitude = fcoor[1]
-                    crd.longitue = fcoor[0]
-                    collection.append((crd, att))
-
-                if ftype == "MultiPoint":
-                    pass
-
-                if ftype == "LineString":
-                    pass
-
-                if ftype == "MultiLineString":
-                    pass
-
-                if ftype == 'Polygon':
-                    crd = WgsPolygon()
-                    crd.from_list(fcoor[0])
-                    collection.append((crd, att))
-
-                if ftype == 'MultiPolygon':
-                    for fpart in fcoor:
-                        crd = WgsPolygon()
-                        crd.from_list(fpart[0])
-                        collection.append((crd, att))
-
-    else:
-        print('Format not yet supported')
-
-    return collection
 
 # ----------------------------------------------------------------------------
 # Geometric functions
@@ -343,7 +424,7 @@ def wgs_to_xy_sinproj(lat, lon):
     y = np.radians(lat) * MEAN_EARTH_RADIUS
     x = np.radians(lon) * MEAN_EARTH_RADIUS * np.cos(np.radians(lat))
 
-    return np.round(x, 3), np.round(y, 3)
+    return np.round(x, NDIGITS), np.round(y, NDIGITS)
 
 def xy_to_wgs_sinproj(x, y):
     """
@@ -353,7 +434,7 @@ def xy_to_wgs_sinproj(x, y):
     lat = np.degrees(y / MEAN_EARTH_RADIUS)
     lon = np.degrees(x / (MEAN_EARTH_RADIUS * np.cos(np.radians(lat))))
 
-    return np.round(lat, 4), np.round(lon, 4)
+    return np.round(lat, NDIGITS), np.round(lon, NDIGITS)
 
 def wgs_to_xyz_sphere(lat, lon, ele):
     """
@@ -369,7 +450,7 @@ def wgs_to_xyz_sphere(lat, lon, ele):
     y = rho * np.sin(phi) * np.sin(theta)
     z = rho * np.cos(phi)
 
-    return np.round(x, 3), np.round(y, 3), np.round(z, 3)
+    return np.round(x, NDIGITS), np.round(y, NDIGITS), np.round(z, NDIGITS)
 
 def wgs_to_xyz_ellipsoid(lat, lon, ele):
     """
@@ -389,7 +470,7 @@ def wgs_to_xyz_ellipsoid(lat, lon, ele):
     y = (rho + ele) * np.cos(phi) * np.sin(theta)
     z = ((per2/eer2) * rho + ele) * np.sin(phi)
 
-    return np.round(x, 3), np.round(y, 3), np.round(z, 3)
+    return np.round(x, NDIGITS), np.round(y, NDIGITS), np.round(z, NDIGITS)
 
 def geocentric_radius(lat):
     """
@@ -406,7 +487,7 @@ def geocentric_radius(lat):
 
     radius = np.sqrt((a + b * c)/(1 + c))
 
-    return np.round(radius, 3)
+    return np.round(radius, NDIGITS)
 
 def tunnel_distance_sphere(lat1, lon1, ele1, lat2, lon2, ele2):
     """
@@ -419,7 +500,7 @@ def tunnel_distance_sphere(lat1, lon1, ele1, lat2, lon2, ele2):
 
     distance = np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
 
-    return np.round(distance, 3)
+    return np.round(distance, NDIGITS)
 
 def tunnel_distance_ellipsoid(lat1, lon1, ele1, lat2, lon2, ele2):
     """
@@ -432,7 +513,7 @@ def tunnel_distance_ellipsoid(lat1, lon1, ele1, lat2, lon2, ele2):
 
     distance = np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
 
-    return np.round(distance, 3)
+    return np.round(distance, NDIGITS)
 
 def circle_distance_to_test(lat1, lon1, lat2, lon2):
     """
@@ -454,7 +535,7 @@ def circle_distance_to_test(lat1, lon1, lat2, lon2):
 
     distance = 2 * MEAN_EARTH_RADIUS * np.arcsin(np.sqrt(a))
 
-    return np.round(distance, 3)
+    return np.round(distance, NDIGITS)
 
 def circle_distance(lat1, lon1, lat2, lon2):
     """
@@ -475,7 +556,7 @@ def circle_distance(lat1, lon1, lat2, lon2):
     
     distance = MEAN_EARTH_RADIUS * c
     
-    return np.round(distance, 3)
+    return np.round(distance, NDIGITS)
 
 # ----------------------------------------------------------------------------
 
@@ -511,7 +592,7 @@ def spherical_mesh(delta, km=False,
     lat = lat[i & j]
     lon = lon[i & j]
 
-    return np.round(lat, 4), np.round(lon, 4)
+    return np.round(lat, NDIGITS), np.round(lon, NDIGITS)
 
 def unwrap(angle):
     """
@@ -550,4 +631,4 @@ def cartesian_mesh(delta, km=False,
     lat = lat[i & j]
     lon = lon[i & j]
 
-    return np.round(lat, 4), np.round(lon, 4)
+    return np.round(lat, NDIGITS), np.round(lon, NDIGITS)
