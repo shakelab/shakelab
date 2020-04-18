@@ -136,6 +136,10 @@ class MiniSeed(object):
             if byte_stream.offset >= byte_stream.length:
                 break
 
+    def write(self, file, byte_order=None):
+        """
+        """
+        pass
 
 class Record(object):
     """

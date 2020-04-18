@@ -122,21 +122,21 @@ class Record(object):
         """
         self.data -= np.mean(self.data)
 
-    def filter(self, low=None, high=None, order=2):
+    def filter(self, highpass=None, lowpass=None, order=2):
         """
         """
         # Corner frequencies
         corners = []
 
-        if low:
-            corners.append(2. * low * self.dt)
+        if (highpass is not None):
+            corners.append(2. * highpass * self.dt)
             filter_type = 'high'
 
-        if high:
+        if (lowpass is not None):
             corners.append(2. * high * self.dt)
             filter_type = 'low'
 
-        if low and high:
+        if (highpass is not None) and (lowpass is not None):
             filter_type = 'band'
 
         if len(corners) > 0:
@@ -153,13 +153,13 @@ class Record(object):
         i1 = len(self)
         t1 = self.duration()
 
-        if starttime is not None:
+        if (starttime is not None):
             if isinstance(starttime, Date):
                 t0 = starttime - self.time
             elif isinstance(starttime, (int, float)):
                 t0 = starttime
 
-        if endtime is not None:
+        if (endtime is not None):
             if isinstance(endtime, Date):
                 t1 = endtime - self.time
             elif isinstance(endtime, (int, float)):
@@ -179,7 +179,7 @@ class Record(object):
 
     def taper(self, time=0.1):
         """
-        time length is in seconds.
+        time is in seconds.
         negative time means the whole window (cosine taper)
         """
         tnum = len(self)
@@ -268,3 +268,57 @@ class Record(object):
         """
         """
         pass
+
+
+class Channel(object):
+    """
+    """
+
+    def __init__(self):
+        self.record = []
+
+    def __len__(self):
+        return len(self.record)
+
+    def __getitem__(self, sliced):
+        return self.record[sliced]
+
+
+class Station(object):
+    """
+    Single measuring location in space with one or more recordings.
+    It can be multichannel, but channels must be synchronous and
+    related to the same measurement location.
+    """
+
+    keymap = {0 : 0, 'e' : 0, 'E' : 0, 'ew' : 0, 'EW' : 0, 'x' : 0, 'X' : 0,
+              1 : 1, 'n' : 1, 'N' : 1, 'ns' : 1, 'NS' : 1, 'y' : 1, 'Y' : 1,
+              2 : 2, 'u' : 2, 'U' : 2, 'ud' : 2, 'UD' : 2, 'z' : 2, 'Z' : 2}
+
+    def __init__(self):
+        self.id = None
+        self.latitude = None
+        self.longitude = None
+        self.channel = []
+
+    def __len__(self):
+        return len(self.channel)
+
+    def __getitem__(self, item):
+        return self.channel[keymap[item]]
+
+
+class Array(object):
+    """
+    Array of measuring locations.
+    """
+
+    def __init__(self):
+        self.id = None
+        self.station = []
+
+    def __len__(self):
+        return len(self.station)
+
+    def __getitem__(self, sliced):
+        return self.station[sliced]
