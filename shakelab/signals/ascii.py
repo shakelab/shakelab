@@ -18,7 +18,7 @@
 #
 # ****************************************************************************
 """
-Methods to parse ascii files
+Coolection of methods to parse text files
 """
 
 class Itaca(object):
@@ -63,6 +63,12 @@ class Itaca(object):
             for value in f:
                 if value:
                     self.data.append(float(value))
+
+    def write(self, file):
+        """
+        """
+        pass
+
 
     def sampling_rate(self):
         """

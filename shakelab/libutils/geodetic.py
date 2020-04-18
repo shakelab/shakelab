@@ -22,10 +22,8 @@
 This modules includes a set of tools for geographical data manipulation.
 """
 
-__all__ = [
-    'read_geometry', 'write_geometry',
-    'WgsPoint', 'WgsPolygon'
-    ]
+__all__ = ['read_geometry', 'write_geometry',
+           'WgsPoint', 'WgsPolygon']
 
 import numpy as np
 import json
@@ -540,7 +538,9 @@ def circle_distance_to_test(lat1, lon1, lat2, lon2):
 def circle_distance(lat1, lon1, lat2, lon2):
     """
     Compute the great circle distance between two
-    points on the spherical earth surface.
+    points on the spherical earth surface using the
+    Haversine formula
+    Modified from: Chris Veness
     """
     
     lat1 = np.radians(lat1)
@@ -548,10 +548,10 @@ def circle_distance(lat1, lon1, lat2, lon2):
     lat2 = np.radians(lat2)
     lon2 = np.radians(lon2)
     
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
+    dlon = (lon2 - lon1)/2
+    dlat = (lat2 - lat1)/2
     
-    a = np.sin(dlat/2)**2 * np.sin(dlon/2)**2 + np.cos(lat1) * np.cos(lat2)
+    a = np.sin(dlat)**2 + np.sin(dlon)**2 * np.cos(lat1) * np.cos(lat2)
     c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
     
     distance = MEAN_EARTH_RADIUS * c
@@ -608,7 +608,7 @@ def cartesian_mesh(delta, km=False,
     sinusoidal projection.
     Such approach is inconsistent at the new-day line and should
     be used only locally and within longitude -180 to 180 degrees.
-    Delta is in meters.
+    Delta is in degrees if not speficied otherwise.
     """
 
     maxx =  np.pi * MEAN_EARTH_RADIUS
@@ -632,3 +632,4 @@ def cartesian_mesh(delta, km=False,
     lon = lon[i & j]
 
     return np.round(lat, NDIGITS), np.round(lon, NDIGITS)
+

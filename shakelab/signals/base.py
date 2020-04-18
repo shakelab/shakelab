@@ -147,6 +147,7 @@ class Record(object):
 
     def cut(self, starttime=None, endtime=None):
         """
+        Cut the signal to the nearest time sample.
         """
         i0 = 0
         t0 = 0.
