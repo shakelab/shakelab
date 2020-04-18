@@ -95,7 +95,7 @@ class Record(object):
     def __init__(self):
         self.dt = None
         self.data = []
-        self.date = Date()
+        self.time = Date()
 
     def __len__(self):
         return len(self.data)
@@ -108,11 +108,14 @@ class Record(object):
         """
         return (len(self) - 1) * self.dt
 
-    def time(self, reference=None):
+    def tarray(self, reference='relative'):
         """
         to do: add reference
         """
-        return np.arange(0, len(self)) * self.dt
+        tax = np.arange(0, len(self)) * self.dt
+        if reference in ['a', 'absolute']:
+            tax += self.time.to_seconds()
+        return tax
 
     def rmean(self):
         """
@@ -142,40 +145,67 @@ class Record(object):
                                 btype=filter_type, output='sos')
             self.data = signal.sosfiltfilt(sos, self.data)
 
-    def cut(self, start, stop):
+    def cut(self, starttime=None, endtime=None):
         """
         """
-        pass
+        i0 = 0
+        t0 = 0.
+        i1 = len(self)
+        t1 = self.duration()
 
-    def taper(self, window=0.1):
+        if starttime is not None:
+            if isinstance(starttime, Date):
+                t0 = starttime - self.time
+            elif isinstance(starttime, (int, float)):
+                t0 = starttime
+
+        if endtime is not None:
+            if isinstance(endtime, Date):
+                t1 = endtime - self.time
+            elif isinstance(endtime, (int, float)):
+                t1 = endtime
+
+        if (0. < t0 < self.duration()):
+            i0 = int(np.argwhere(self.tarray() > t0)[0])
+
+        if (0. < t1 < self.duration()):
+            i1 = int(np.argwhere(self.tarray() > t1)[0])
+
+        if (i1 > i0):
+            self.data = self.data[i0:i1]
+            self.time += t0
+        else:
+            print('Error: endtime before starttime')
+
+    def taper(self, time=0.1):
         """
-        time is in seconds.
+        time length is in seconds.
         negative time means the whole window (cosine taper)
         """
-        tnum = len(self.data)
-        if window < 0:
+        tnum = len(self)
+        if time < 0:
             alpha = 1
         else:
-            alpha = min(2 * float(window)/(self.dt * tnum), 1)
+            alpha = min(2 * float(time)/(self.dt * tnum), 1)
         self.data = (self.data * sp.signal.tukey(tnum, alpha))
 
-    def zero_padding(self, time):
+    def padding(self, time):
         """
         """
         zeros = np.zeros(round(time/self.dt))
         self.data = np.concatenate((self.data, zeros))
 
-    def time_shift(self, time, padding=True):
+    def shift(self, time, padding=True):
         """
-        Perform time shift of a signal using fft-based circular convolution.
+        Shift a signal in time by using fft-based circular convolution.
         """
         if padding:
-            zeros = np.zeros(len(self.data))
+            zeros = np.zeros(len(self))
             data = np.concatenate((self.data, zeros))
         else:
             data = self.data
 
-        data = fourier.time_shift(data, self.dt, time)
+        data = fourier.shift_time(data, self.dt, time)
         self.data = data[0:len(self.data)]
 
     def integrate(self, method='fft'):
@@ -219,3 +249,22 @@ class Record(object):
         """
         return deepcopy(self)
 
+    def peak_amplitude(self):
+        """
+        """
+        return np.max(np.abs(sel.data))
+
+    def sigificant_duration(self):
+        """
+        """
+        pass
+
+    def bracketed_duration(self):
+        """
+        """
+        pass
+
+    def integral_amplitude(self):
+        """
+        """
+        pass

@@ -37,7 +37,7 @@ def fft_axis(snum, dt):
         pax = np.arange(0, (snum+1)/2)
         nax = np.arange(-(snum-1)/2, 0)
         
-    return np.concatenate((pax, nax))/(snum*dt)
+    return np.concatenate((pax, nax))/(dt*snum)
 
 def fft_positive_axis(snum, dt):
     """
@@ -47,9 +47,9 @@ def fft_positive_axis(snum, dt):
     # return np.arange(snum)*(1./(snum*dt))
     return np.linspace(0., (snum-1.)/(dt*snum), snum)
 
-def time_shift(signal, dt, time):
+def shift_time(signal, dt, time):
     """
-    Perform time shift of a signal using fft-based circular convolution.
+    Shift a signal in time by using fft-based circular convolution.
     No zero-padding is assumed.
     """
 
