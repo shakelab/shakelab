@@ -30,64 +30,61 @@ import json
 
 import matplotlib as _mat
 
-# CONSTANTS
+# GEODETIC CONSTANTS
 MEAN_EARTH_RADIUS = 6371008.8
 EQUATORIAL_EARTH_RADIUS = 6378137.0
 POLAR_EARTH_RADIUS = 6356752.3
 DEG_TO_M = 111195.
 NDIGITS = 4
 
-def read_geometry(geometry_file, file_type='geojson'):
+
+def read_geometry(geometry_file):
     """
     """
 
     collection = []
 
-    if file_type in ['gj', 'geojson']:
-        with open(geometry_file, 'r') as f:
-            data = json.load(f)
+    with open(geometry_file, 'r') as f:
+        data = json.load(f)
 
-            for feature in data['features']:
-                ftype = feature['geometry']['type']
-                fcoor = feature['geometry']['coordinates']
-                fatt = feature['properties']
+        for feature in data['features']:
+            ftype = feature['geometry']['type']
+            fcoor = feature['geometry']['coordinates']
+            fatt = feature['properties']
 
-                if ftype == 'Point':
+            if ftype == 'Point':
+                item = WgsPoint()
+                item.latitude = fcoor[1]
+                item.longitue = fcoor[0]
+                item.attributes = fatt
+                collection.append(item)
+
+            if ftype == "MultiPoint":
+                for fpart in fcoor:
                     item = WgsPoint()
                     item.latitude = fcoor[1]
                     item.longitue = fcoor[0]
                     item.attributes = fatt
                     collection.append(item)
 
-                if ftype == "MultiPoint":
-                    for fpart in fcoor:
-                        item = WgsPoint()
-                        item.latitude = fcoor[1]
-                        item.longitue = fcoor[0]
-                        item.attributes = fatt
-                        collection.append(item)
+            if ftype == "LineString":
+                pass
 
-                if ftype == "LineString":
-                    pass
+            if ftype == "MultiLineString":
+                pass
 
-                if ftype == "MultiLineString":
-                    pass
+            if ftype == 'Polygon':
+                item = WgsPolygon()
+                item.from_list(fcoor[0])
+                item.attributes = fatt
+                collection.append(item)
 
-                if ftype == 'Polygon':
+            if ftype == 'MultiPolygon':
+                for fpart in fcoor:
                     item = WgsPolygon()
-                    item.from_list(fcoor[0])
+                    item.from_list(fpart[0])
                     item.attributes = fatt
                     collection.append(item)
-
-                if ftype == 'MultiPolygon':
-                    for fpart in fcoor:
-                        item = WgsPolygon()
-                        item.from_list(fpart[0])
-                        item.attributes = fatt
-                        collection.append(item)
-
-    else:
-        print('Format not yet supported')
 
     return collection
 
@@ -191,6 +188,7 @@ class WgsPoint():
         """
         return self.latitude, self.longitude, self.elevation
 
+
 class WgsPolygon():
     """
     A polygon in geographical coordinates.
@@ -270,27 +268,32 @@ class WgsPolygon():
     def contains(self, point):
         """
         point is a WgsPoint object
+        return boolean
         """
 
-        # Is it needed to project coordinate?
-        lat, lon = self.to_array()
-        polygon_x, polygon_y = wgs_to_xy_sinproj(lat, lon)
-        x, y = wgs_to_xy_sinproj(point.latitude, point.longitude)
+        poly_lat, poly_lon = self.to_array()
 
-        return contains(polygon_x, polygon_y, x, y)
+        return contains(poly_lon, poly_lat,
+                        point.longitude, point.latitude)
 
-    def to_grid(self, delta=0.1, km=False):
+    def create_mesh(self, delta, meters=False, mesh_type='cartesian'):
 
         bnd = self.get_bounds()
-        grd_lat, grd_lon = spherical_mesh(delta, km,
-                                          latitude=bnd[0],
-                                          longitude=bnd[1])
+        if mesh_type is 'spherical':
+            grd_lat, grd_lon = spherical_mesh(delta, meters,
+                                              latlim=bnd[0],
+                                              lonlim=bnd[1])
+
+        if mesh_type is 'cartesian':
+            grd_lat, grd_lon = cartesian_mesh(delta, meters,
+                                              latlim=bnd[0],
+                                              lonlim=bnd[1])
 
         mesh = WgsMesh()
+        poly_lat, poly_lon = self.to_array()
         for lat, lon in zip(grd_lat, grd_lon):
-            point = WgsPoint(lat, lon)
-            if self.contains(point):
-                mesh.add(point)
+            if contains(poly_lon, poly_lat, lon, lat):
+                mesh.add(WgsPoint(lat, lon))
 
         return mesh
 
@@ -335,15 +338,22 @@ class WgsMesh():
                 points.append(p)
         self.points = points
 
-    def create_grid(self, delta, km=False, polygon=None,
-                    latitude=(-90, 90), longitude=(-180, 180)):
+    def create_mesh(self, delta, meters=False, polygon=None,
+                    latlim=(-90, 90), lonlim=(-180, 180),
+                    mesh_type='cartesian'):
 
         if polygon is not None:
-            latitude, longitude = polygon.get_bounds()
+            latlim, lonlim = polygon.get_bounds()
 
-        grd_lat, grd_lon = spherical_mesh(delta, km,
-                                          latitude=latitude,
-                                          longitude=longitude)
+        if mesh_type is 'spherical':
+            grd_lat, grd_lon = spherical_mesh(delta, meters=meters,
+                                              latlim=latlim,
+                                              lonlim=lonlim)
+
+        if mesh_type is 'cartesian':
+            grd_lat, grd_lon = cartesian_mesh(delta, meters=meters,
+                                              latlim=latlim,
+                                              lonlim=lonlim)
 
         for lat, lon in zip(grd_lat, grd_lon):
             self.add(WgsPoint(lat, lon))
@@ -359,7 +369,7 @@ class WgsMesh():
                 f.write('{0},{1}\n'.format(p.latitude, p.longitude))
 
 # ----------------------------------------------------------------------------
-# Geometric functions
+# Geometric functions (cartesian x, y)
 
 def contains(polygon_x, polygon_y, x, y):
     """
@@ -560,8 +570,8 @@ def circle_distance(lat1, lon1, lat2, lon2):
 
 # ----------------------------------------------------------------------------
 
-def spherical_mesh(delta, km=False,
-                   latitude=(-90, 90), longitude=(-180, 180)):
+def spherical_mesh(delta, meters=False,
+                   latlim=(-90, 90), lonlim=(-180, 180)):
     """
     Produce a spherical mesh using golder spiral algorithm.
     Delta is the average distance between nearby points
@@ -570,9 +580,8 @@ def spherical_mesh(delta, km=False,
     Modified from Chris Drost.
     """
 
-    if km:
-        # Distance is in kilometers
-        delta *= 1000.
+    if meters:
+        # Distance is in meters
         num_pts = np.rint(4 * np.pi * MEAN_EARTH_RADIUS**2 / delta**2)
     else:
         # Distance is in degrees
@@ -587,8 +596,8 @@ def spherical_mesh(delta, km=False,
     lat = np.degrees(phi) - 90.
     lon = np.degrees(unwrap(theta))
 
-    i = (lat >= latitude[0]) & (lat <= latitude[1])
-    j = (lon >= longitude[0]) & (lon <= longitude[1])
+    i = (lat >= latlim[0]) & (lat <= latlim[1])
+    j = (lon >= lonlim[0]) & (lon <= lonlim[1])
     lat = lat[i & j]
     lon = lon[i & j]
 
@@ -601,8 +610,8 @@ def unwrap(angle):
 
     return angle - (2 * np.pi) * ((angle + np.pi)//(2 * np.pi))
 
-def cartesian_mesh(delta, km=False,
-                   latitude=(-90, 90), longitude=(-180, 180)):
+def cartesian_mesh(delta, meters=False,
+                   latlim=(-90, 90), lonlim=(-180, 180)):
     """
     Create a spherical mesh from a cartesian grid using
     sinusoidal projection.
@@ -611,25 +620,33 @@ def cartesian_mesh(delta, km=False,
     Delta is in degrees if not speficied otherwise.
     """
 
-    maxx =  np.pi * MEAN_EARTH_RADIUS
-    maxy =  np.pi * MEAN_EARTH_RADIUS / 2
-
-    if not km:
+    if not meters:
         delta *= DEG_TO_M
 
-    x_rng = maxx - (maxx % delta)
-    y_rng = maxy - (maxy % delta)
+    r = MEAN_EARTH_RADIUS
 
-    x_axes = np.arange(-x_rng, x_rng, delta)
-    y_axes = np.arange(-y_rng, y_rng, delta)
-    x, y = np.meshgrid(x_axes, y_axes)
+    xlen =  np.pi * r
+    ylen =  np.pi * r / 2
 
-    lat, lon = xy_to_wgs_sinproj(x.flatten(), y.flatten())
+    xmax = xlen - (xlen % delta)
+    ymax = ylen - (ylen % delta)
 
-    i = (lat >= latitude[0]) & (lat <= latitude[1])
-    j = (lon >= longitude[0]) & (lon <= longitude[1])
-    lat = lat[i & j]
-    lon = lon[i & j]
+    xrng = np.arange(-xmax, xmax, delta)
+    yrng = np.arange(-ymax, ymax, delta)
+
+    ylim = np.radians(latlim) * r
+    ysel = yrng[(yrng >= ylim[0]) & (yrng <= ylim[1])]
+
+    lat = np.array([])
+    lon = np.array([])
+
+    for ys in ysel:
+        xlim = np.radians(lonlim) * r * np.cos(ys / r)
+        xsel = xrng[(xrng >= xlim[0]) & (xrng <= xlim[1])]
+
+        lat0, lon0 = xy_to_wgs_sinproj(xsel, ys*np.ones(len(xsel)))
+
+        lat = np.append(lat, lat0)
+        lon = np.append(lon, lon0)
 
     return np.round(lat, NDIGITS), np.round(lon, NDIGITS)
-
