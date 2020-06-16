@@ -130,44 +130,99 @@ def write_geometry(collection, geometry_file, decimals=NDIGITS):
 
 class WgsPoint():
     """
-    A single point in space using WGS84 coordinate system.
-    Elevation is referred to the sea level
+    Class to represent a geographical location of a point in the WGS84
+    coordinate system.
 
-    Arguments:
+    Attributes:
         latitude (float):
-            the latitude of the point in degrees
+            The latitude of the point in decimal degrees.
 
         longitude (float):
-            the longitude of the point in degrees
+            The longitude of the point in decimal degrees.
 
-        elevation (float, default 0.):
-            the elevation of the point in meters, referred to the sea level
+        elevation (float):
+            The elevation of the point in meters, referred to the sea level.
+
+        attributes (dict):
+            Optional container for general meta-information
+
+    Methods:
+        circle_distance:
+
+        tunnel_distance:
     """
 
     def __init__(self, latitude, longitude, elevation=0.):
+        """
+        Initialise the class by passing the coordinates of the point.
+        If no elevation is provided, 0 m.a.s.l. is assumed.
+
+        Args:
+            latitude (float):
+                The latitude of the point in decimal degrees.
+
+            longitude (float):
+                The longitude of the point in decimal degrees.
+
+            elevation (float = 0.):
+                The elevation of the point in meters, referred
+                to the sea level.
+        """
         self.latitude = latitude
         self.longitude = longitude
         self.elevation = elevation
         self.attributes = {}
 
+    def __call__(self):
+        """
+        Returns the coordinates of the point.
+        """
+        return self.latitude, self.longitude, self.elevation
+
+    def __sub__(self, point):
+        """
+        Returns the tunnel distance in meters.
+        """
+        if isinstance(point, WgsPoint):
+            return self.tunnel_distance(point)
+
     def circle_distance(self, point):
         """
-        Compute the great-circle distance between two geographical points
-        assuming a spherical earth.
+        Compute the great-circle distance between current location and a
+        given geographical point assuming a spherical earth.
         
-        Arguments:
+        Args:
             point (WgsPoint):
-                the geographical point for the calculation
+                The second geographical location for the calculation.
+
+        Returns:
+            The circle distance between points in meters.
 
         Notes:
-            point elevation is not considered, therefore the two points
+            Point elevation is not considered, therefore the two points
             (or their projection) are assumed to be on the earth surface.
+
+        To do:
+            calculation for ellipsoid should be implemented.
         """
         return circle_distance(self.latitude, self.longitude,
                                point.latitude, point.longitude)
 
     def tunnel_distance(self, point, approx='sphere'):
         """
+        Compute the tunnel distance between the current location and a
+        given geographical location. Calculation can be done assuming
+        spherical or ellipsoidal earth.
+
+        Args:
+            point (WgsPoint):
+                The second geographical location for the calculation.
+
+            approx (str = 'sphere', 'ellipsoid'):
+                The earth's form approximation used as reference frame.
+
+        Returns:
+            The circle tunnel between points in meters.
         """
         if approx is 'sphere':
             handle = tunnel_distance_sphere
@@ -176,17 +231,6 @@ class WgsPoint():
 
         return handle(self.latitude, self.longitude, self.elevation,
                       point.latitude, point.longitude, point.elevation)
-
-    def __sub__(self, point):
-        """
-        """
-        if isinstance(point, WgsPoint):
-            return tunnel_distance(point)
-
-    def __call__(self):
-        """
-        """
-        return self.latitude, self.longitude, self.elevation
 
 
 class WgsPolygon():

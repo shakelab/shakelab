@@ -58,4 +58,3 @@ def shift_time(signal, dt, time):
     shift = np.fft.ifft(np.fft.fft(signal)*expt)
 
     return np.real(shift)
-

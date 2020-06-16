@@ -162,6 +162,16 @@ def leap_num(year):
 
     return n0 - n1 + n2
 
+def days_in_month(year):
+    """
+    """
+    if leap_check(year):
+        mdays = [31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366]
+    else:
+        mdays = [31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365]
+
+    return mdays
+
 def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0):
     """
     Convert a date to seconds.
@@ -172,10 +182,7 @@ def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0):
       print('Error: Year must be positive (> 1)')
       return None
 
-    if leap_check(year):
-        MDAYS = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
-    else:
-        MDAYS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+    MDAYS = [0] + days_in_month(2012)[:-1]
 
     ysec = (year - 1) * YDAYS * DSEC
     ysec += leap_num(year) * DSEC
@@ -189,10 +196,7 @@ def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0):
 def day_to_month(year, day):
     """
     """
-    if leap_check(year):
-        MDAYS = [31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366]
-    else:
-        MDAYS = [31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365]
+    MDAYS = days_in_month(year)
 
     for m, d in enumerate(MDAYS):
         if day <= d:
@@ -206,7 +210,7 @@ def day_to_month(year, day):
 def sec_to_date(second):
     """
     Implemented using a direct search approach
-    (it would be nicer to implement a more elengant algorithm).
+    (it would be nicer to use a more elengant algorithm).
     """
     # Loop over years (accounting for leap days)
     year = 0
@@ -224,10 +228,7 @@ def sec_to_date(second):
     day = (second // DSEC) + 1
 
     # Find month corresponding to day of the year
-    if leap_check(year):
-        MDAYS = [31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366]
-    else:
-        MDAYS = [31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365]
+    MDAYS = days_in_month(year)
 
     for m, d in enumerate(MDAYS):
         if day <= d:

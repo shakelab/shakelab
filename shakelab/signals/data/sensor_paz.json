@@ -1,0 +1,29 @@
+{
+"WoodAnderson":
+    {
+    "description": "Stanndard Wood-Anderson torsion seismograph",
+    "input_units": null,
+    "output_units": null,
+    "corner_frequency": 0.8,
+    "damping": null,
+    "sensitivity": 2800,
+    "normalization_factor": 1,
+    "normalization_frequency": null,
+    "poles": [[-6.2832, -4.7124], [-6.2832, 4.7124]],
+    "zeros": [[0, 0], [0, 0]]
+    },
+
+"LE3D1S":
+    {
+    "description": "Lennartz LE-3Dlite, LE-1 DV (1s)",
+    "input_units": "m/s",
+    "output_units": "v",
+    "corner_frequency": 1,
+    "damping": 0.707,
+    "sensitivity": 400,
+    "normalization_factor": 1,
+    "normalization_frequency": 5,
+    "poles": [[-1.083, 0], [-4.444, 4.444], [-4.444, -4.444]],
+    "zeros": [[0, 0], [0, 0], [0, 0]]
+    }
+}
