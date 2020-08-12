@@ -14,18 +14,18 @@ Warning: This is still **WORK IN PROGRESS!**
 ShakeLab can be installed directly from the GitHub repository using pip:
 
 ```console
-sudo -H python3 -m pip install git+https://github.com/shakelab/shakelab.git
+python3 -m pip install git+https://github.com/shakelab/shakelab.git
 ```
 To upgrade an existing installation:
 
 ```console
-sudo -H python3 -m pip install --upgrade git+https://github.com/shakelab/shakelab.git
+python3 -m pip install --upgrade git+https://github.com/shakelab/shakelab.git
 ```
 
 If you are a developer, you can simply install the cloned GIT repository with:
 
 ```console
-sudo -H python3 -m pip install --upgrade --editable shakelab
+python3 -m pip install --upgrade --editable shakelab
 ```
 
 ## Dependencies
