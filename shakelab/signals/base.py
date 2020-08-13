@@ -50,11 +50,11 @@ def import_record(file, format='sac', path=None, byte_order='le',
             rec_list.append(rec)
 
     elif format is 'sac':
-        sac = sac.Sac(file, byte_order=byte_order)
+        sc = sac.Sac(file, byte_order=byte_order)
         rec = Record()
-        rec.dt = sac.sampling_rate()
-        rec.time = sac.time_date()
-        rec.data = np.array(sac.data[0])
+        rec.dt = sc.sampling_rate()
+        rec.time = sc.time_date()
+        rec.data = np.array(sc.data[0])
         rec_list.append(rec)
 
     elif format is 'itaca':
@@ -253,9 +253,9 @@ class Record(object):
     def peak_amplitude(self):
         """
         """
-        return np.max(np.abs(sel.data))
+        return np.max(np.abs(self.data))
 
-    def sigificant_duration(self):
+    def significant_duration(self):
         """
         """
         pass
