@@ -22,6 +22,8 @@
 
 import numpy as np
 
+from shakelab.signals import base
+
 
 def fft_axis(snum, dt):
     """
@@ -58,3 +60,36 @@ def shift_time(signal, dt, time):
     shift = np.fft.ifft(np.fft.fft(signal)*expt)
 
     return np.real(shift)
+
+class Spectrum():
+    """
+    Fourier Spectrum
+    """
+
+    def __init__(self, record=None):
+        self.dt = None
+        self.data = []
+        self.time = Date()
+
+        if record is not None:
+            self.fft(record)
+
+    def fft(self, record):
+        """
+        """
+        self.dt = record.dt
+        self.data = np.fft.fft(record.data)
+        self.time = record.time
+
+    def ifft(self):
+        """
+        """
+        record = base.record()
+        record.data = np.real(np.fft.ifft(self.data))
+        record.time = self.time
+        return record
+
+
+
+
+

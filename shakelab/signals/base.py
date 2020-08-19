@@ -209,6 +209,18 @@ class Record(object):
         data = fourier.shift_time(data, self.dt, time)
         self.data = data[0:len(self.data)]
 
+    def fft(self):
+        """
+        """
+        return fourier.Spectrum(self)
+
+    def ifft(self, spectrum):
+        """
+        """
+        self.dt = spectrum.dt
+        self.data = np.real(np.fft.ifft(spectrum.data))
+        self.time = spectrum.time
+
     def integrate(self, method='fft'):
         """
         """
