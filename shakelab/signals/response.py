@@ -24,10 +24,67 @@ import os as _os
 import json as _json
 import numpy as np
 
+from shakelab.signals.fourier import fft, ifft, fft_axis
 
-from shakelab.signals.fourier import fft_axis
 
-def sensor_response(frequency, paz):
+paz_map = {
+    'description': None,
+    'input_units': None,
+    'output_units': None,
+    'corner_frequency': None,
+    'damping': None,
+    'sensitivity': None,
+    'normalization_factor': None,
+    'normalization_frequency': None,
+    'poles': None,
+    'zeros': None
+    }
+
+class SensorResponse():
+    """
+    """
+
+    def __init__(self, paz=None, **kwargs):
+        self.paz = paz_map
+        self.freq = None
+        self.resp = None
+
+        if paz is not None:
+            self.paz = paz
+
+        for key in kwargs:
+            self.paz[key] = kwargs[key]
+
+    def load_paz(self, sensor_id, json_file=None):
+        """
+        """
+        self.paz = load_paz_from_file(sensor_id, json_file)
+
+    def compute_response(self, frequency):
+        """
+        """
+        self.freq = frequency
+        self.resp = sensor_transfer_function(frequency, self.paz)
+
+
+def load_paz_from_file(sensor_id, paz_file=None):
+    """
+    """
+    if paz_file is None:
+        full_path = _os.path.dirname(__file__)
+        json_file = _os.path.join(full_path, 'data', 'sensor_paz.json')
+
+    with open(paz_file) as jf:
+        paz = _json.load(jf)
+
+    # Converting to complex number format
+    for k in paz.keys():
+        paz[k]['poles'] = [p[0]+p[1]*1j for p in paz[k]['poles']]
+        paz[k]['zeros'] = [p[0]+p[1]*1j for p in paz[k]['zeros']]
+
+    return paz[sensor_id]
+
+def sensor_transfer_function(frequency, paz):
     """
     Note: poles and zeros must be in radians/seconds
     """
@@ -49,7 +106,7 @@ def sensor_response(frequency, paz):
 def remove_sensor_response(record, polezeros, wlev=0.1):
     """
     """
-    spec = np.fft.fft(record.data)
+    spec = fft(record.data)
     freq = fft_axis(len(record), record.dt)
     resp = sensor_response(freq, polezeros)
 
@@ -57,22 +114,8 @@ def remove_sensor_response(record, polezeros, wlev=0.1):
     i0 = (resp != 0.)
     resp[i0] = np.conj(resp[i0])/(resp[i0]*np.conj(resp[i0]) + wlev)
 
-    return np.real(np.fft.ifft(spec * resp))
+    return np.real(ifft(spec * resp))
 
-def load_response(sensor_id):
-    """
-    """
-    full_path = _os.path.dirname(__file__)
-    path_file = _os.path.join(full_path, 'data', 'sensor_paz.json')
 
-    with open(path_file) as jf:
-        paz = _json.load(jf)
-
-    # Converting to complex number format
-    for k in paz.keys():
-        paz[k]['poles'] = [p[0]+p[1]*1j for p in paz[k]['poles']]
-        paz[k]['zeros'] = [p[0]+p[1]*1j for p in paz[k]['zeros']]
-
-    return paz[sensor_id]
 
 

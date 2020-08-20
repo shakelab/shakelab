@@ -40,7 +40,7 @@ def import_record(file, format='sac', path=None, byte_order='le',
     rec_list = []
 
     # Import recordings from file
-    if format is 'mseed':
+    if format == 'mseed':
         ms = mseed.MiniSeed(file, byte_order=byte_order)
         for mr in ms.record:
             rec = Record()
@@ -49,7 +49,7 @@ def import_record(file, format='sac', path=None, byte_order='le',
             rec.data = np.array(mr.data)
             rec_list.append(rec)
 
-    elif format is 'sac':
+    elif format == 'sac':
         sc = sac.Sac(file, byte_order=byte_order)
         rec = Record()
         rec.dt = sc.sampling_rate()
@@ -57,7 +57,7 @@ def import_record(file, format='sac', path=None, byte_order='le',
         rec.data = np.array(sc.data[0])
         rec_list.append(rec)
 
-    elif format is 'itaca':
+    elif format == 'itaca':
         it = ascii.Itaca(file)
         rec = Record()
         rec.dt = it.sampling_rate()
@@ -65,19 +65,19 @@ def import_record(file, format='sac', path=None, byte_order='le',
         rec.data = it.data
         rec_list.append(rec)
 
-    elif format is 'ascii':
+    elif format == 'ascii':
         raise NotImplementedError('format not yet implemented')
 
-    elif format is 'seisan':
+    elif format == 'seisan':
         raise NotImplementedError('format not yet implemented')
 
-    elif format is 'seg2':
+    elif format == 'seg2':
         raise NotImplementedError('format not yet implemented')
 
-    elif format is 'dat':
+    elif format == 'dat':
         raise NotImplementedError('format not yet implemented')
 
-    elif format is 'gse':
+    elif format == 'gse':
         raise NotImplementedError('format not yet implemented')
 
     else:
@@ -224,10 +224,10 @@ class Record(object):
     def integrate(self, method='fft'):
         """
         """
-        if method is 'cum':
+        if method == 'cum':
             self.data = integrate.cumtrapz(self.data, dx=self.dt,
                                            initial=0)
-        elif method is 'fft':
+        elif method == 'fft':
             self.data = fftpack.diff(self.data, order=-1,
                                      period=self.duration())
         else:
@@ -236,10 +236,10 @@ class Record(object):
     def differentiate(self, method='fft'):
         """
         """
-        if method is 'grad':
+        if method == 'grad':
             self.data = np.gradient(self.data, self.dt)
 
-        elif method is 'fft':
+        elif method == 'fft':
             self.data = fftpack.diff(self.data, order=1,
                                      period=self.duration())
         else:

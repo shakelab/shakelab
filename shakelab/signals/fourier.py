@@ -23,7 +23,19 @@
 import numpy as np
 
 from shakelab.signals import base
+from shakelab.libutils.time import Date
 
+
+def fft(data):
+    """
+    Note: better using numpy.fft or scipy.fftpack?
+    """
+    return np.fft.fft(data)
+
+def ifft(data):
+    """
+    """
+    return np.fft.ifft(data)
 
 def fft_axis(snum, dt):
     """
@@ -57,9 +69,10 @@ def shift_time(signal, dt, time):
 
     frax = np.fft.fftfreq(len(signal), dt)
     expt = np.exp(-2*1j*np.pi*time*frax)
-    shift = np.fft.ifft(np.fft.fft(signal)*expt)
+    shift = ifft(fft(signal)*expt)
 
     return np.real(shift)
+
 
 class Spectrum():
     """
@@ -78,18 +91,28 @@ class Spectrum():
         """
         """
         self.dt = record.dt
-        self.data = np.fft.fft(record.data)
+        self.data = fft(record.data)
         self.time = record.time
 
     def ifft(self):
         """
         """
         record = base.record()
-        record.data = np.real(np.fft.ifft(self.data))
+        record.data = np.real(ifft(self.data))
         record.time = self.time
         return record
 
+    def get_amplitude(self, one_side=False):
+        """
+        """
+        return np.abs(self.data)
 
-
-
+    def get_phase(self, unwrap=False):
+        """
+        """
+        phase = np.angle(self.data)
+        if unwrap:
+            return np.unwrap(phase)
+        else:
+            return phase
 
