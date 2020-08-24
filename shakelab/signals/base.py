@@ -108,7 +108,7 @@ class Record(object):
         """
         return (len(self) - 1) * self.dt
 
-    def tarray(self, reference='relative'):
+    def time_axis(self, reference='relative'):
         """
         to do: add reference
         """

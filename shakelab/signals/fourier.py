@@ -30,14 +30,14 @@ def fft(data):
     """
     Note: better using numpy.fft or scipy.fftpack?
     """
-    return np.fft.fft(data)
+    return np.fft.fft(data) * (2/len(data))
 
 def ifft(data):
     """
     """
-    return np.fft.ifft(data)
+    return np.fft.ifft(data) / (2/len(data))
 
-def fft_axis(snum, dt):
+def fft_axis_double_sided(snum, dt):
     """
     Equivalent to numpy.fft.fftfreq()
     Only used as reference.
@@ -53,7 +53,7 @@ def fft_axis(snum, dt):
         
     return np.concatenate((pax, nax))/(dt*snum)
 
-def fft_positive_axis(snum, dt):
+def fft_axis_single_sided(snum, dt):
     """
     Compute the positive frequency axis of an fft.
     """
@@ -80,25 +80,36 @@ class Spectrum():
     """
 
     def __init__(self, record=None):
-        self.dt = None
+        self.df = None
         self.data = []
         self.time = Date()
 
         if record is not None:
             self.fft(record)
 
-    def fft(self, record):
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, sliced):
+        return self.data[sliced]
+
+    def fft(self, record, norm=False):
         """
         """
-        self.dt = record.dt
+        self.df = 1./(record.dt * len(record))
         self.data = fft(record.data)
+        if norm:
+            self.data = self.data / record.dt
         self.time = record.time
 
-    def ifft(self):
+    def ifft(self, norm=False):
         """
         """
-        record = base.record()
+        record = base.Record()
+        record.dt = 1./(self.df * len(self))
         record.data = np.real(ifft(self.data))
+        if norm:
+            record.data = record.data / self.df
         record.time = self.time
         return record
 
