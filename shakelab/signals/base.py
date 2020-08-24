@@ -117,7 +117,7 @@ class Record(object):
             tax += self.time.to_seconds()
         return tax
 
-    def rmean(self):
+    def remove_mean(self):
         """
         """
         self.data -= np.mean(self.data)
@@ -190,7 +190,7 @@ class Record(object):
             alpha = min(2 * float(time)/(self.dt * tnum), 1)
         self.data = (self.data * sp.signal.tukey(tnum, alpha))
 
-    def padding(self, time):
+    def zero_padding(self, time):
         """
         """
         zeros = np.zeros(round(time/self.dt))
