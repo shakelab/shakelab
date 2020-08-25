@@ -217,9 +217,10 @@ class Record(object):
     def ifft(self, spectrum):
         """
         """
-        self.dt = spectrum.dt
-        self.data = np.real(np.fft.ifft(spectrum.data))
-        self.time = spectrum.time
+        record = spectrum.ifft()
+        self.dt = record.dt
+        self.data = record.data
+        self.time = record.time
 
     def integrate(self, method='fft'):
         """
