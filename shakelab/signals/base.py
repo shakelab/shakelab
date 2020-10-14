@@ -27,7 +27,7 @@ import numpy as np
 from scipy import signal, fftpack, integrate
 from copy import deepcopy
 
-from shakelab.signals import mseed, sac, ascii, fourier
+from shakelab.signals import mseed, sac, smdb, fourier
 from shakelab.libutils.time import Date
 
 
@@ -58,7 +58,7 @@ def import_record(file, format='sac', path=None, byte_order='le',
         rec_list.append(rec)
 
     elif format == 'itaca':
-        it = ascii.Itaca(file)
+        it = smdb.Itaca(file)
         rec = Record()
         rec.dt = it.sampling_rate()
         rec.data = it.time_date()
@@ -133,7 +133,7 @@ class Record(object):
             filter_type = 'high'
 
         if (lowpass is not None):
-            corners.append(2. * high * self.dt)
+            corners.append(2. * lowpass * self.dt)
             filter_type = 'low'
 
         if (highpass is not None) and (lowpass is not None):

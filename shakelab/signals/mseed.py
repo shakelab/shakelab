@@ -91,7 +91,8 @@ class MiniSeed(object):
             self.byte_order = byte_order
 
         # Initialise stream object
-        byte_stream = ByteStream(self.byte_order)
+        # (This approach will pre-load the whole file into memory)
+        byte_stream = ByteStream(byte_order=self.byte_order)
         byte_stream.read(file)
 
         # Loop over records
@@ -154,6 +155,8 @@ class Record(object):
         """
         Importing header structure
         """
+        self._record_offset = byte_stream.offset
+
         self.header = {}
         for hs in head_struc:
             self.header[hs[0]] = byte_stream.get(hs[1], hs[2])
@@ -162,6 +165,9 @@ class Record(object):
         """
         Importing blockettes
         """
+        byte_stream.offset = (self._record_offset +
+                              self.header['OFFSET_TO_BEGINNING_OF_BLOCKETTE'])
+
         for nb in range(self.header['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
 
             # Blockette code
@@ -186,6 +192,9 @@ class Record(object):
         """
         Importing data
         """
+        byte_stream.offset = (self._record_offset +
+                              self.header['OFFSET_TO_BEGINNING_OF_DATA'])
+
         nos = self.header['NUMBER_OF_SAMPLES']
         enc = self.blockette[1000]['ENCODING_FORMAT']
 
@@ -199,7 +208,7 @@ class Record(object):
                 data[ds] = byte_stream.get(data_struc[enc][0],
                                            data_struc[enc][1])
 
-        if enc in [10, 11]:
+        elif enc in [10, 11]:
 
             cnt = 0
             data = [None] * nos
@@ -211,7 +220,7 @@ class Record(object):
                     word[wn] = byte_stream.get('i', 4)
 
                 # First and last sample
-                if fn is 0:
+                if fn == 0:
                     first = word[1]
                     last = word[2]
 
@@ -235,6 +244,9 @@ class Record(object):
 
             if data[-1] != last:
                 raise ValueError('Sample mismatch in record')
+
+        else:
+            raise ValueError('Not recognized data format: ', enc)
 
         # Store data
         self.data = data[:nos]
@@ -264,7 +276,7 @@ class Record(object):
         """
         """
         date = self.time_date()
-        return round(date.to_second(), 4)
+        return round(date.to_seconds(), 4)
 
     def sampling_rate(self):
         """
@@ -301,11 +313,12 @@ class ByteStream(object):
     """
     """
 
-    def __init__(self, byte_order='le'):
+    def __init__(self, data=[], byte_order='le'):
 
-        self.data = []
         self.offset = 0
+        self.data = data
         self.byte_order = byte_order
+        self.length = len(self.data)
 
     def read(self, file):
         """
@@ -357,40 +370,46 @@ def _w32split(word, order, scheme):
     Split a long-word (32 bits) into integers of different
     lenght in bits (depending on STEIM1 or STEIM2 scheme)
     """
-    if order is 1:
+    if order == 1:
         out = _getdiff(word, 8, 4)
 
     # STEIM 1
-    if scheme is 10:
-        if order is 2:
+    if scheme == 10:
+        if order == 2:
             out = _getdiff(word, 16, 2)
 
-        if order is 3:
-            out = [word]
+        if order == 3:
+            out = _getdiff(word, 32, 1)
 
     # STEIM 2
-    if scheme is 11:
+    if scheme == 11:
         dnib = _binmask(word, 2, 15)
 
-        if order is 2:
-            if dnib is 1:
+        if order == 2:
+            if dnib == 0:
+                raise ValueError('Nibble not recognized')
+
+            elif dnib == 1:
                 out = _getdiff(word, 30, 1)
 
-            if dnib is 2:
+            elif dnib == 2:
                 out = _getdiff(word, 15, 2)
 
-            if dnib is 3:
+            elif dnib == 3:
                 out = _getdiff(word, 10, 3)
 
-        if order is 3:
-            if dnib is 0:
+        if order == 3:
+            if dnib == 0:
                 out = _getdiff(word, 6, 5)
 
-            if dnib is 1:
+            elif dnib == 1:
                 out = _getdiff(word, 5, 6)
 
-            if dnib is 2:
+            elif dnib == 2:
                 # TO CHECK!
                 out = _getdiff(word, 4, 7)
+
+            elif dnib == 3:
+                raise ValueError('Nibble not recognized')
 
     return out
