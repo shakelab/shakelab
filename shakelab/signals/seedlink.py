@@ -18,12 +18,164 @@
 #
 # ****************************************************************************
 """
-Seedlink implementation
+Seedlink client implementation
 """
 
-class RingBuffer:
+import socket
+from Threading import Thread, Event
+from shakelab.signals.mseed import ByteStream, Record
+
+SL_DEFAULT_PORT = 18000
+BUFFER_SIZE = 1024
+
+
+class Client():
+
+    def __init__(self, host=None, port=SL_DEFAULT_PORT):
+        self._s = None
+        self.host = host
+        self.port = port
+
+        if self.host is not None:
+            self.connect(host, port)
+
+    def _send(self, string):
+        """
+        """
+        self._s.send(bytes('{0}\r'.format(string), 'utf8'))
+
+    def _recv(self, buffer_size=BUFFER_SIZE):
+        """
+        """
+        return self._s.recv(buffer_size).decode()
+
+    def connect(self, host, port=SL_DEFAULT_PORT):
+        """
+        """
+        try:
+            self._s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+            self._s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536)
+            self._s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+            self._s.connect((host, port))
+            self._s.setblocking(1)
+
+            self._send('HELLO')
+            response = self._recv()
+            print(repr(response.strip()))
+
+        except:
+            print('Error')
+
+    def info(self, level):
+        """
+        Requests an INFO packet.
+        Level should be one of the following:
+            ID, CAPABILITIES, STATIONS, STREAMS, GAPS, CONNECTIONS, ALL
+        """
+        levels = ['ID', 'CAPABILITIES', 'STATIONS', 'STREAMS',
+                  'GAPS', 'CONNECTIONS', 'ALL']
+
+        if level not in levels:
+            print('Error')
+
+        else:
+            self._s.send(b'INFO STATIONS\r')
+            info = ""
+
+            while True:
+                header = self._s.recv(8).decode()
+
+                data = b''
+                while len(data) < 512:
+                    data += self._s.recv(8)
+
+                byte_stream = ByteStream(data=data, byte_order='be')
+                record = Record(byte_stream)
+                info += record.decode()
+
+                if '*' not in header: break
+
+            print(info)
+
+
+    def station(self, station_code, network_code=''):
+        """
+        Turns on multi-station mode, used to transfer data of
+        multiple stations over a single TCP channel.
+        """
+        command = 'STATION {0} {1}\r'.format(station_code, network_code)
+        self._s.send(bytes(command, 'utf8'))
+        response = self._s.recv(BUFFER_SIZE).decode()
+        print(repr(response.strip()))
+
+
+    def select(self, pattern=''):
+        """
+        """
+        command = 'SELECT {0}\r'.format(pattern)
+        print(command)
+        self._s.send(bytes(command, 'utf8'))
+        response = self._s.recv(BUFFER_SIZE).decode()
+        print(repr(response.strip()))
+
+    def start_thread(self):
+        """
+        """
+        event = Event()
+        self._t = Thread(target=self.get_data)
+        self._t.start()
+
+    def close_thread(self):
+        self._t.join()
+
+    def get_data(self):
+        """
+        """
+        
+
+    def start(self):
+        """
+        """
+        self._s.send(b'END\r')
+
+        for i in range(1024):
+
+            header = self._s.recv(8).decode()
+            print('Received:', repr(header.strip()))
+
+            # Ensuring that received data is exactly 512 bytes
+            # In UNIX is equivalent to: s.recv(512, socket.MSG_WAITALL)
+            data = b''
+            while len(data) < 512:
+                data += self._s.recv(8)
+                if not data: break
+
+            byte_stream = ByteStream(data=data, byte_order='be')
+            record = Record(byte_stream)
+
+            print(record.header)
+            print(record.blockette)
+
+
+    def close(self):
+        """
+        Closes the connection to seedlink server.
+        """
+        try:
+            self._s.send(b'BYE\r')
+            self._s.close()
+        except:
+            print('No connection to close')
+
+
+
+
+class RingBuffer():
     """
-    Modified from the example of Sébastien Keim
+    Modified from the example of Sébastien Keim.
     """
     
     def __init__(self, size):

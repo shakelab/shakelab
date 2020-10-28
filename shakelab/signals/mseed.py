@@ -100,15 +100,7 @@ class MiniSeed(object):
 
             # Initialise new record
             record = Record()
-
-            # Reading header information
-            record.read_header(byte_stream)
-
-            # Reading the blockettes
-            record.read_blockette(byte_stream)
-
-            # Reading data
-            record.read_data(byte_stream)
+            record.read_stream(byte_stream)
 
             # Split record in case of multiplexing
             # and non-contiguous data
@@ -145,11 +137,26 @@ class MiniSeed(object):
 class Record(object):
     """
     """
-    def __init__(self):
+    def __init__(self, byte_stream=None):
 
         self.header = {}
         self.blockette = {}
         self.data = []
+
+        if byte_stream is not None:
+            self.read_stream(byte_stream)
+
+    def read_stream(self, byte_stream):
+        """
+        """
+        # Reading header information
+        self.read_header(byte_stream)
+
+        # Reading the blockettes
+        self.read_blockette(byte_stream)
+
+        # Reading data
+        self.read_data(byte_stream)
 
     def read_header(self, byte_stream):
         """
@@ -307,6 +314,11 @@ class Record(object):
         """
         items = [3, 4, 5, 6]
         return set([self.header[head_struc[i][0]] for i in items])
+
+    def decode(self):
+        """
+        """
+        return "".join([d.decode() for d in self.data])
 
 
 class ByteStream(object):
