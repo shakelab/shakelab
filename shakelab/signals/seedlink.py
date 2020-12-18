@@ -22,7 +22,11 @@ Seedlink client implementation
 """
 
 import socket
-from Threading import Thread, Event
+from threading import Thread, Event
+import xml.etree.ElementTree as et
+
+import matplotlib.pyplot as plt
+
 from shakelab.signals.mseed import ByteStream, Record
 
 SL_DEFAULT_PORT = 18000
@@ -35,6 +39,7 @@ class Client():
         self._s = None
         self.host = host
         self.port = port
+        self.id = []
 
         if self.host is not None:
             self.connect(host, port)
@@ -64,7 +69,7 @@ class Client():
 
             self._send('HELLO')
             response = self._recv()
-            print(repr(response.strip()))
+            print(response)
 
         except:
             print('Error')
@@ -82,9 +87,9 @@ class Client():
             print('Error')
 
         else:
-            self._s.send(b'INFO STATIONS\r')
-            info = ""
+            self._send('INFO ' + level)
 
+            info = ""
             while True:
                 header = self._s.recv(8).decode()
 
@@ -96,9 +101,18 @@ class Client():
                 record = Record(byte_stream)
                 info += record.decode()
 
+                # to check
                 if '*' not in header: break
 
-            print(info)
+            self.id = []
+            root = et.fromstring(info)
+            for child in root:
+                if child.tag == 'station':
+                   self.id.append(child.attrib)
+                else:
+                   print('Not identified tag')
+
+            return info
 
 
     def station(self, station_code, network_code=''):
@@ -156,8 +170,12 @@ class Client():
             byte_stream = ByteStream(data=data, byte_order='be')
             record = Record(byte_stream)
 
-            print(record.header)
-            print(record.blockette)
+            #print(record.header)
+            #print(record.blockette)
+            
+            plt.figure(1)
+            plt.plot(record.data)
+            plt.show(block=False)
 
 
     def close(self):
