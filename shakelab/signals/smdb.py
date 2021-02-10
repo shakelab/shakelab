@@ -21,6 +21,8 @@
 Coolection of methods to parse text files
 """
 
+from shakelab.libutils.time import Date
+
 class Itaca(object):
 
     def __init__(self, file=[]):
@@ -50,11 +52,11 @@ class Itaca(object):
 
                 cast = itaca_head_struc[key]
                 if value:
-                    if cast is 's':
+                    if cast == 's':
                         self.head[key] = str(value)
-                    if cast is 'i':
+                    elif cast == 'i':
                             self.head[key] = int(value)
-                    if cast is 'f':
+                    elif cast == 'f':
                             self.head[key] = float(value)
                 else:
                     self.head[key] = None
@@ -69,7 +71,6 @@ class Itaca(object):
         """
         pass
 
-
     def sampling_rate(self):
         """
         """
@@ -78,7 +79,18 @@ class Itaca(object):
     def time_date(self):
         """
         """
-        return None
+
+        date = self.head['DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS']
+        
+        year = int(date[0:4])
+        month = int(date[4:6])
+        day = int(date[6:8])
+        hour = int(date[9:11])
+        minute = int(date[11:13])
+        second = float(date[13:])
+
+        return Date([year, month, day, hour, minute, second])
+
 
 itaca_head_struc = {
     'EVENT_NAME': 's',
@@ -122,6 +134,10 @@ itaca_head_struc = {
     'N_BIT_DIGITAL_CONVERTER': 'i',
     'PGA_CM/S^2': 'f',
     'TIME_PGA_S': 'f',
+    'PGV_CM/S': 'f',
+    'TIME_PGV_S': 'f',
+    'PGD_CM': 'f',
+    'TIME_PGD_S': 'f',
     'BASELINE_CORRECTION': 's',
     'FILTER_TYPE': 's',
     'FILTER_ORDER': 's',

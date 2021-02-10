@@ -116,7 +116,12 @@ class MiniSeed(object):
                 tm_1 = record.time_seconds()
                 dt_1 = record.duration()
 
-                if (hs_0 == hs_1) and (tm_0 + dt_0 == tm_1):
+                # Due to numerical round problems, time must
+                # be rounded a posteriori to millisecond precision
+                tr_0 = round(tm_0 + dt_0, 4)
+                tr_1 = round(tm_1, 4)
+
+                if (hs_0 == hs_1) and (tr_0 == tr_1):
                     self.record[-1].data += record.data
                 else:
                     self.record.append(record)
@@ -283,7 +288,7 @@ class Record(object):
         """
         """
         date = self.time_date()
-        return round(date.to_seconds(), 4)
+        return date.to_seconds()
 
     def sampling_rate(self):
         """
@@ -305,7 +310,7 @@ class Record(object):
         nsamp = self.header['NUMBER_OF_SAMPLES']
         srate = self.sampling_rate()
 
-        return (nsamp/srate)
+        return nsamp/srate
 
     def header_set(self):
         """
