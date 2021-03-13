@@ -159,7 +159,8 @@ class Sac(object):
             if data != H[3]:
                 print('{0:>12} = {1}'.format(H[0], data))
 
-    def time_date(self):
+    @property
+    def time(self):
         """
         """
         year = self.head['NZYEAR']
@@ -174,24 +175,27 @@ class Sac(object):
 
         return Date([year, month, day, hour, minute, second + msecond])
 
-    def time_seconds(self):
+    @property
+    def seconds(self):
         """
+        Rounding to millisecond precision
         """
-        date = self.time_date()
-        return round(date.to_second(), 4)
+        return round(self.time.to_second(), 4)
 
-    def sampling_rate(self):
+    @property
+    def delta(self):
         """
         """
         return self.head['DELTA']
 
+    @property
     def duration(self):
         """
         """
         nsamp = self.header['NPTS']
-        srate = self.sampling_rate()
+        srate = self.sampling_rate
 
-        return (nsamp/srate)
+        return (nsamp * delta)
 
 
 def _fread(fid, bnum, bkey, bord):

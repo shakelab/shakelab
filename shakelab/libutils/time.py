@@ -193,7 +193,7 @@ def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0):
 
     return sec
 
-def day_to_month(year, day):
+def days_to_month(year, day):
     """
     """
     MDAYS = days_in_month(year)

@@ -23,7 +23,7 @@ An simple Python library for MiniSeeed file manipulation
 
 from struct import pack, unpack
 from shakelab.libutils.time import Date
-from shakelab.libutils.time import day_to_month
+from shakelab.libutils.time import days_to_month
 
 head_struc = [('SEQUENCE_NUMBER', 's', 6),
               ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
@@ -65,17 +65,87 @@ data_struc = {0: ('s', 1),
               4: ('f', 4)}
 
 
+class DataStream(object):
+
+    def __init__(self, network=None, station=None,
+                       location=None, channel=None):
+
+        self.network = network
+        self.station = station
+        self.location = location
+        self.channel = channel
+
+        self.delta = None
+        self.data = []
+
+    def __contains__(self, record):
+
+        return (self.network == record.header['NETWORK_CODE'] and
+                self.station == record.header['STATION_CODE'] and
+                self.location == record.header['LOCATION_IDENTIFIER'] and
+                self.channel == record.header['CHANNEL_IDENTIFIER'])
+
+    def append(self, record):
+
+        self.delta = record.delta
+        self.data.append(record.data)
+
+
+        """
+        # Split record in case of multiplexing
+        # and non-contiguous data
+        if not self.record:
+            hs_0 = record.header_set()
+            tm_0 = record.time.to_seconds()
+            dt_0 = record.duration
+
+            self.record.append(record)
+
+        else:
+            print(record.header)
+            hs_1 = record.header_set()
+            tm_1 = record.time.to_seconds()
+            dt_1 = record.duration
+
+            # Due to numerical rounding problems, time must
+            # be rounded a posteriori to millisecond precision
+            tr_0 = round(tm_0 + dt_0, 4)
+            tr_1 = round(tm_1, 4)
+
+            if (hs_0 == hs_1) and (tr_0 == tr_1):
+                self.record[-1].data += record.data
+            else:
+                self.record.append(record)
+
+            hs_0 = hs_1
+            tm_0 = tm_1
+            dt_0 = dt_1
+
+
+    def get_stream(self, network, station, location, channel):
+        stream = MiniSeed()
+
+        for record in self.record:
+            if network in record.header['NETWORK_CODE']:
+                if station in record.header['STATION_CODE']:
+                    if location in record.header['LOCATION_IDENTIFIER']:
+                        if channel in record.header['CHANNEL_IDENTIFIER']:
+                            stream.record.append(record)
+
+        return stream
+        """
+
 class MiniSeed(object):
     """
     """
 
     def __init__(self, file=None, byte_order='le'):
 
-        # Record list initialisation
-        self.record = []
-
         # Set byte order
-        self.byte_order = byte_order
+        self._byte_order = byte_order
+
+        # Record list initialisation
+        self.stream = []
 
         # Import miniSEED file
         if file is not None:
@@ -84,15 +154,15 @@ class MiniSeed(object):
     def read(self, file, byte_order=None):
         """
         """
-        self.record = []
-
         # Set byte order
         if byte_order is not None:
-            self.byte_order = byte_order
+            self._byte_order = byte_order
 
         # Initialise stream object
-        # (This approach will pre-load the whole file into memory)
-        byte_stream = ByteStream(byte_order=self.byte_order)
+        # This approach will pre-load the whole file into memory,
+        # which is due to the fact that record size is not known
+        # a priori.
+        byte_stream = ByteStream(byte_order=self._byte_order)
         byte_stream.read(file)
 
         # Loop over records
@@ -100,35 +170,27 @@ class MiniSeed(object):
 
             # Initialise new record
             record = Record()
-            record.read_stream(byte_stream)
 
-            # Split record in case of multiplexing
-            # and non-contiguous data
-            if not self.record:
-                hs_0 = record.header_set()
-                tm_0 = record.time_seconds()
-                dt_0 = record.duration()
+            try:
+                record.read(byte_stream)
 
-                self.record.append(record)
+                success = False
+                for stream in self.stream:
+                    if record in stream:
+                        stream.append(record)
+                        success = True
+                        break;
 
-            else:
-                hs_1 = record.header_set()
-                tm_1 = record.time_seconds()
-                dt_1 = record.duration()
+                if not success:
+                    stream = DataStream(record.header['NETWORK_CODE'],
+                                        record.header['STATION_CODE'],
+                                        record.header['LOCATION_IDENTIFIER'],
+                                        record.header['CHANNEL_IDENTIFIER'])
+                    stream.append(record)
+                    self.stream.append(stream)
 
-                # Due to numerical round problems, time must
-                # be rounded a posteriori to millisecond precision
-                tr_0 = round(tm_0 + dt_0, 4)
-                tr_1 = round(tm_1, 4)
-
-                if (hs_0 == hs_1) and (tr_0 == tr_1):
-                    self.record[-1].data += record.data
-                else:
-                    self.record.append(record)
-
-                hs_0 = hs_1
-                tm_0 = tm_1
-                dt_0 = dt_1
+            except:
+                raise ValueError('Not a valid record. Skip...')
 
             # Check if last record, otherwise exit
             if byte_stream.offset >= byte_stream.length:
@@ -136,8 +198,10 @@ class MiniSeed(object):
 
     def write(self, file, byte_order=None):
         """
+        TO DO
         """
         pass
+
 
 class Record(object):
     """
@@ -149,21 +213,21 @@ class Record(object):
         self.data = []
 
         if byte_stream is not None:
-            self.read_stream(byte_stream)
+            self.read(byte_stream)
 
-    def read_stream(self, byte_stream):
+    def read(self, byte_stream):
         """
         """
         # Reading header information
-        self.read_header(byte_stream)
+        self._get_header(byte_stream)
 
         # Reading the blockettes
-        self.read_blockette(byte_stream)
+        self._get_blockette(byte_stream)
 
         # Reading data
-        self.read_data(byte_stream)
+        self._get_data(byte_stream)
 
-    def read_header(self, byte_stream):
+    def _get_header(self, byte_stream):
         """
         Importing header structure
         """
@@ -173,7 +237,7 @@ class Record(object):
         for hs in head_struc:
             self.header[hs[0]] = byte_stream.get(hs[1], hs[2])
 
-    def read_blockette(self, byte_stream):
+    def _get_blockette(self, byte_stream):
         """
         Importing blockettes
         """
@@ -200,7 +264,7 @@ class Record(object):
                 print('Blockette type {0} not supported'.format(block_type))
                 byte_stream.offset += offset_next
 
-    def read_data(self, byte_stream):
+    def _get_data(self, byte_stream):
         """
         Importing data
         """
@@ -220,12 +284,16 @@ class Record(object):
                 data[ds] = byte_stream.get(data_struc[enc][0],
                                            data_struc[enc][1])
 
+            # Decode ASCII data (e.g. logs)
+            if enc == 0:
+                data = "".join([d.decode() for d in data])
+
         elif enc in [10, 11]:
 
             cnt = 0
             data = [None] * nos
 
-            for fn in range(self.data_length()//64):
+            for fn in range(self.data_length//64):
 
                 word = [None] * 16
                 for wn in range(16):
@@ -263,13 +331,15 @@ class Record(object):
         # Store data
         self.data = data[:nos]
 
+    @property
     def data_length(self):
         """
         """
         return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
                 self.header['OFFSET_TO_BEGINNING_OF_DATA'])
 
-    def time_date(self):
+    @property
+    def time(self):
         """
         """
         year = self.header['YEAR']
@@ -280,17 +350,12 @@ class Record(object):
         msecond = self.header['MSECONDS'] * 1e-4
 
         # Convert total days to month/day
-        (month, day) = day_to_month(year, day)
+        (month, day) = days_to_month(year, day)
 
         return Date([year, month, day, hour, minute, second + msecond])
 
-    def time_seconds(self):
-        """
-        """
-        date = self.time_date()
-        return date.to_seconds()
-
-    def sampling_rate(self):
+    @property
+    def delta(self):
         """
         """
         srate = self.header['SAMPLE_RATE_FACTOR']
@@ -302,28 +367,24 @@ class Record(object):
             rmult = 1./rmult
         srate *= rmult
 
-        return srate
+        return 1./srate
 
+    @property
     def duration(self):
         """
         """
         nsamp = self.header['NUMBER_OF_SAMPLES']
-        srate = self.sampling_rate()
+        delta = self.delta
 
-        return nsamp/srate
+        return nsamp * delta
 
-    def header_set(self):
+    @property
+    def identifier(self):
         """
-        List the header itmes which must be equal between
-        consecutive records from the same stream
+        List the stream identifiers
         """
-        items = [3, 4, 5, 6]
-        return set([self.header[head_struc[i][0]] for i in items])
-
-    def decode(self):
-        """
-        """
-        return "".join([d.decode() for d in self.data])
+        items = [6, 3, 4, 5]
+        return [self.header[head_struc[i][0]] for i in items]
 
 
 class ByteStream(object):
@@ -356,9 +417,14 @@ class ByteStream(object):
 
         byte_map = {'be': '>', 'le': '<'}
         byte_key = byte_map[self.byte_order] + byte_key
+        value = unpack(byte_key, byte_pack)[0]
 
-        return unpack(byte_key, byte_pack)[0]
+        if isinstance(value, bytes):
+            value = value.decode()
 
+        return value
+
+    @property
     def reminder(self):
         """
         """

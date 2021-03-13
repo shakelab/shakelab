@@ -1,7 +1,7 @@
 {
 "WoodAnderson":
     {
-    "description": "Stanndard Wood-Anderson torsion seismograph",
+    "description": "Standard Wood-Anderson torsion seismograph",
     "input_units": null,
     "output_units": null,
     "corner_frequency": 0.8,

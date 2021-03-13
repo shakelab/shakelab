@@ -40,8 +40,8 @@ def reader(file, format='sac', path=None, byte_order='le',
         ms = mseed.MiniSeed(file, byte_order=byte_order)
         for mr in ms.record:
             rec = Record()
-            rec.dt = 1./mr.sampling_rate()
-            rec.time = mr.time_date()
+            rec.dt = 1./mr.sampling_rate
+            rec.time = mr.time
             rec.data = np.array(mr.data)
             rec_list.append(rec)
 

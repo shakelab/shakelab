@@ -23,7 +23,7 @@
 import numpy as np
 
 
-class Earthquake():
+class Event():
     """
     """
 
@@ -32,12 +32,12 @@ class Earthquake():
         self.magnitude
         self.location
 
-class EarthquakeDB():
+class EqCatalogue():
     """
     """
 
     def __init__(self):
-        self.earthquake = []
+        self.db = []
 
     def __iter__(self):
         self._counter = 0
@@ -45,14 +45,14 @@ class EarthquakeDB():
 
     def __next__(self):
         try:
-            event = self.earthquake[self._counter]
+            event = self.db[self._counter]
             self._counter += 1
         except IndexError:
             raise StopIteration
         return event
 
     def __getitem__(self, item):
-        return self.earthquake[item]
+        return self.db[item]
 
 
 

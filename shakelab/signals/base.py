@@ -36,7 +36,7 @@ class Record(object):
     """
 
     def __init__(self):
-        self.dt = None
+        self.delta = None
         self.data = []
         self.time = Date()
 
@@ -49,13 +49,13 @@ class Record(object):
     def duration(self):
         """
         """
-        return (len(self) - 1) * self.dt
+        return (len(self) - 1) * self.delta
 
     def taxis(self, reference='relative'):
         """
         to do: add reference
         """
-        tax = np.arange(0., len(self)) * self.dt
+        tax = np.arange(0., len(self)) * self.delta
         if reference in ['a', 'absolute']:
             tax += self.time.to_seconds()
         return tax
@@ -72,11 +72,11 @@ class Record(object):
         corners = []
 
         if (highpass is not None):
-            corners.append(2. * highpass * self.dt)
+            corners.append(2. * highpass * self.delta)
             filter_type = 'high'
 
         if (lowpass is not None):
-            corners.append(2. * lowpass * self.dt)
+            corners.append(2. * lowpass * self.delta)
             filter_type = 'low'
 
         if (highpass is not None) and (lowpass is not None):
@@ -110,10 +110,10 @@ class Record(object):
                 t1 = endtime
 
         if (0. < t0 < self.duration()):
-            i0 = int(np.argwhere(self.tarray() > t0)[0])
+            i0 = int(np.argwhere(self.taxis() > t0)[0])
 
         if (0. < t1 < self.duration()):
-            i1 = int(np.argwhere(self.tarray() > t1)[0])
+            i1 = int(np.argwhere(self.taxis() > t1)[0])
 
         if (i1 > i0):
             self.data = self.data[i0:i1]
@@ -130,13 +130,13 @@ class Record(object):
         if time < 0:
             alpha = 1
         else:
-            alpha = min(2 * float(time)/(self.dt * tnum), 1)
+            alpha = min(2 * float(time)/(self.delta * tnum), 1)
         self.data = (self.data * sp.signal.tukey(tnum, alpha))
 
     def zero_padding(self, time):
         """
         """
-        zeros = np.zeros(round(time/self.dt))
+        zeros = np.zeros(round(time/self.delta))
         self.data = np.concatenate((self.data, zeros))
 
     def shift(self, time, padding=True):
@@ -149,7 +149,7 @@ class Record(object):
         else:
             data = self.data
 
-        data = fourier.shift_time(data, self.dt, time)
+        data = fourier.shift_time(data, self.delta, time)
         self.data = data[0:len(self.data)]
 
     def fft(self):
@@ -161,7 +161,7 @@ class Record(object):
         """
         """
         record = spectrum.ifft()
-        self.dt = record.dt
+        self.delta = record.delta
         self.data = record.data
         self.time = record.time
 
@@ -169,7 +169,7 @@ class Record(object):
         """
         """
         if method == 'cum':
-            self.data = integrate.cumtrapz(self.data, dx=self.dt,
+            self.data = integrate.cumtrapz(self.data, dx=self.delta,
                                            initial=0)
         elif method == 'fft':
             self.data = fftpack.diff(self.data, order=-1,
@@ -181,7 +181,7 @@ class Record(object):
         """
         """
         if method == 'grad':
-            self.data = np.gradient(self.data, self.dt)
+            self.data = np.gradient(self.data, self.delta)
 
         elif method == 'fft':
             self.data = fftpack.diff(self.data, order=1,
