@@ -23,16 +23,58 @@ Module for earthquake catalogue storage and manipulation.
 
 import numpy as np
 import pickle
+import json
 from copy import deepcopy
 
 from shakelab.libutils.time import Date
 from shakelab.libutils.geodetic import WgsPoint
 
+def read(file_name, type='bin'):
+    """
+    """
+    edb = EqDatabase()
+
+    if type == 'bin':
+
+        edb.load(file_name)
+
+    elif type == 'json':
+
+        with open(file_name, 'r') as f:
+            data = json.load(f)['EqDatabase']
+            edb.header = data['Header']
+
+            for ee in data['Event']:
+                event = Event(ee['id'])
+
+                for ms in ee['Magnitude']:
+                    event.add_magnitude(ms)
+                for ls in ee['Location']:
+                    event.add_location(ls)
+
+                edb.add_event(event)
+
+    elif type == 'csv':
+        pass
+
+    elif type == 'isf':
+        pass
+
+    elif type == 'ndk':
+        pass
+
+    return edb
+
+def write(file_name, type='bin'):
+    """
+    """
+    pass
+
 class MagnitudeSolution(object):
     """
     """
 
-    KEY_LIST = ['MagSize', 'MagError', 'MagType', 'MagPrime']
+    KEY_LIST = ['MagSize', 'MagError', 'MagType', 'MagCode', 'MagPrime']
 
     def __init__(self, size=None, error=None, type=None,
                        code=None, prime=False):
@@ -65,7 +107,7 @@ class MagnitudeSolution(object):
         elif key == 'MagCode':
             self.code = cast_value(value, str)
         elif key == 'MagPrime':
-            self.code = cast_value(value, bool)
+            self.prime = cast_value(value, bool)
         else:
             raise KeyError('{0}'.format(key))
 
@@ -184,8 +226,8 @@ class LocationSolution(object):
             self.hypo.laterror = cast_value(value, float)
         elif key == 'LonError':
             self.hypo.lonerror = cast_value(value, float)
-        elif key == 'deperror':
-            self.hypo.deperror = cast_value(value, float)
+        elif key == 'DepError':
+            self.hypo.eleerror = cast_value(value, float)
         elif key == 'LocCode':
             self.code = cast_value(value, str)
         elif key == 'LocPrime':
