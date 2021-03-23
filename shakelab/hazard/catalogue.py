@@ -22,6 +22,8 @@ Module for earthquake catalogue storage and manipulation.
 """
 
 import numpy as np
+import pickle
+from copy import deepcopy
 
 from shakelab.libutils.time import Date
 from shakelab.libutils.geodetic import WgsPoint
@@ -68,10 +70,15 @@ class MagnitudeSolution(object):
             raise KeyError('{0}'.format(key))
 
     def __str__(self):
-        msg = ''
+        #msg = ''
+        #for key in self.keys:
+        #    msg += '\t{0}: {1}\n'.format(key, self[key])
+        #return msg
+
+        msg = []
         for key in self.keys:
-            msg += '\t{0}: {1}\n'.format(key, self[key])
-        return msg
+            msg.append('{0}: {1}'.format(key, self[key]))
+        return ' | '.join(msg) + '\n'
 
     def import_data(self, data, prime=False):
         """
@@ -187,10 +194,15 @@ class LocationSolution(object):
             raise KeyError('{0}'.format(key))
 
     def __str__(self):
-        msg = ''
+        #msg = ''
+        #for key in self.keys:
+        #    msg += '\t{0}: {1}\n'.format(key, self[key])
+        #return msg
+
+        msg = []
         for key in self.keys:
-            msg += '\t{0}: {1}\n'.format(key, self[key])
-        return msg
+            msg.append('{0}: {1}'.format(key, self[key]))
+        return ' | '.join(msg) + '\n'
 
     def import_data(self, data, prime=False):
         """
@@ -326,6 +338,14 @@ class Event(object):
         if location is not None:
             self.add_location(location, prime=True)
 
+    def __str__(self):
+        msg = 'EVENT {0}\n'.format(self.id)
+        msg += 'MAGNITUDE SOLUTIONS:\n'
+        msg += self.magnitude.__str__()
+        msg += 'LOCATION SOLUTIONS:\n'
+        msg += self.location.__str__()
+        return msg
+
     def add_magnitude(self, magnitude, prime=False):
         """
         """
@@ -376,9 +396,9 @@ class EqDatabase(object):
         msg = ''
         for (key, value) in self.header.items():
             if value is not None:
-                msg += '\t{0}: {1}\n'.format(key, cast_value(value, str, ''))
+                msg += '{0}: {1}\n'.format(key, cast_value(value, str, ''))
 
-        msg += '\tNumber of events: {0}'.format(len(self))
+        msg += 'Number of events: {0}'.format(len(self))
         return msg
 
     def __len__(self):
@@ -407,6 +427,15 @@ class EqDatabase(object):
                 self.event[idx].add_location(ls)
         else:
             self.event.append(event)
+
+    def del_event(self, id):
+        """
+        """
+        idx = self._get_index(id)
+        if idx is not None:
+            del self.event[idx]
+        else:
+            raise ValueError('id not found')
 
     def add_magnitude(self, id, magnitude, prime=False):
         """
@@ -441,6 +470,47 @@ class EqDatabase(object):
             if id == event.id:
                 return event
         return None
+
+    def copy(self):
+        """
+        """
+        return deepcopy(self)
+
+    def sort_by_date(self):
+        """
+        Sorting is performed on prime location solutions
+        """
+        time = []
+        for event in self.event:
+            time.append(event.location.prime.date.to_seconds())
+
+        idx = sorted(range(len(time)), key=lambda k: time[k], reverse=False)
+
+        events = []
+        for i in idx:
+            events.append(self.event[i])
+
+        self.event = events
+
+    def load(self, file_name):
+        """
+        Load the database from pickle file
+        """
+        with open(file_name, 'rb') as f:
+            buf = pickle.load(f)
+            self.header = buf.header
+            self.event = buf.event
+            f.close()
+            return
+
+    def dump(self, file_name):
+        """
+        Save the database to a pickle file
+        """
+        with open(file_name, 'wb') as f:
+            pickle.dump(self, f, protocol=2)
+            f.close()
+            return
 
 
 def cast_value(value, dtype, default=None):
