@@ -29,15 +29,17 @@ YDAYS = 365
 
 class Date(object):
     """
+    Note: error is in seconds
     """
 
-    def __init__(self, date=None):
+    def __init__(self, date=None, error=0.):
         self.year = None
         self.month = None
         self.day = None
         self.hour = None
         self.minute = None
         self.second = None
+        self.error = error
 
         if date is not None:
             if type(date) in [list, tuple]:
@@ -137,10 +139,10 @@ class Date(object):
         else:
             print('Not a supported operation')
 
-    def __repr__(self):
-        """
-        """
-        return repr(self.get_date())
+    #def __repr__(self):
+    #    """
+    #    """
+    #    return repr(self.get_date())
 
 def leap_check(year):
     """

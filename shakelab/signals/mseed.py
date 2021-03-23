@@ -67,13 +67,20 @@ data_struc = {0: ('s', 1),
 
 class DataStream(object):
 
+    class StreamId(object):
+
+        def __init__(self, network, station, location, channel):
+
+            self.network = network
+            self.station = station
+            self.location = location
+            self.channel = channel
+
+
     def __init__(self, network=None, station=None,
                        location=None, channel=None):
 
-        self.network = network
-        self.station = station
-        self.location = location
-        self.channel = channel
+        self.sid = StreamId(network, station, location, channel)
 
         self.delta = None
         self.data = []
@@ -85,10 +92,74 @@ class DataStream(object):
                 self.location == record.header['LOCATION_IDENTIFIER'] and
                 self.channel == record.header['CHANNEL_IDENTIFIER'])
 
+    def __str__(self):
+
+        msg = 'MiniSEED Stream: '
+        msg += ' NETWORK {0}'.format(sef.sid.network)
+        msg += ' STATION {0},'.format(sef.sid.station)
+        msg += ' LOCATION {0},'.format(sef.sid.location)
+        msg += ' CHANNEL {0},'.format(sef.sid.channel)
+        print(msg)
+
     def append(self, record):
 
         self.delta = record.delta
         self.data.append(record.data)
+
+class StreamCollector(object):
+
+    def __init__(self):
+        self.db = []
+
+    def add_stream(self, stream_id):
+        """
+        """
+        if not check_stream(stream_id):
+            self.db.append(DataStream([stream_id[0],
+                                       stream_id[1],
+                                       stream_id[2],
+                                       stream_id[3]]))
+        else:
+            print('Stream already exists')
+
+    def delete_stream(self):
+        """
+        """
+        pass
+
+    def list_streams(self):
+        """
+        """
+        for stream in self.db:
+            print(stream)
+
+    def check_stream(self, stream_id):
+        """
+        """
+        idx = 0
+        for i, stream in enumerate(self.db):
+            if stream_id == stream.stream_id:
+                idx = i
+        return i
+
+    def append_record(self, record):
+        """
+        """
+
+        success = False
+        for stream in self.db:
+            if record in stream:
+                stream.append(record)
+                success = True
+                break;
+
+        if not success:
+            self.add_stream(record.header['NETWORK_CODE'],
+                            record.header['STATION_CODE'],
+                            record.header['LOCATION_IDENTIFIER'],
+                            record.header['CHANNEL_IDENTIFIER'])
+            stream.append(record)
+            self.stream.append(stream)
 
 
         """
@@ -145,7 +216,7 @@ class MiniSeed(object):
         self._byte_order = byte_order
 
         # Record list initialisation
-        self.stream = []
+        self.streams = StreamCollector()
 
         # Import miniSEED file
         if file is not None:
@@ -168,26 +239,9 @@ class MiniSeed(object):
         # Loop over records
         while True:
 
-            # Initialise new record
-            record = Record()
-
             try:
-                record.read(byte_stream)
-
-                success = False
-                for stream in self.stream:
-                    if record in stream:
-                        stream.append(record)
-                        success = True
-                        break;
-
-                if not success:
-                    stream = DataStream(record.header['NETWORK_CODE'],
-                                        record.header['STATION_CODE'],
-                                        record.header['LOCATION_IDENTIFIER'],
-                                        record.header['CHANNEL_IDENTIFIER'])
-                    stream.append(record)
-                    self.stream.append(stream)
+                record = Record(byte_stream)
+                self.streams.append(record)
 
             except:
                 raise ValueError('Not a valid record. Skip...')

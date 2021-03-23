@@ -41,7 +41,6 @@ NDIGITS = 4
 def read_geometry(geometry_file):
     """
     """
-
     collection = []
 
     with open(geometry_file, 'r') as f:
@@ -152,7 +151,8 @@ class WgsPoint():
         tunnel_distance:
     """
 
-    def __init__(self, latitude, longitude, elevation=0.):
+    def __init__(self, latitude, longitude, elevation=0.,
+                       laterror=0., lonerror=0., eleerror=0.):
         """
         Initialise the class by passing the coordinates of the point.
         If no elevation is provided, 0 m.a.s.l. is assumed.
@@ -171,6 +171,11 @@ class WgsPoint():
         self.latitude = latitude
         self.longitude = longitude
         self.elevation = elevation
+
+        self.laterror = laterror
+        self.lonerror = lonerror
+        self.eleerror = eleerror
+
         self.attributes = {}
 
     def __call__(self):
@@ -224,9 +229,9 @@ class WgsPoint():
         Returns:
             The circle tunnel between points in meters.
         """
-        if approx is 'sphere':
+        if approx == 'sphere':
             handle = tunnel_distance_sphere
-        if approx is 'ellipsoid':
+        if approx == 'ellipsoid':
             handle = tunnel_distance_ellipsoid
 
         return handle(self.latitude, self.longitude, self.elevation,
@@ -323,12 +328,12 @@ class WgsPolygon():
     def create_mesh(self, delta, meters=False, mesh_type='cartesian'):
 
         bnd = self.get_bounds()
-        if mesh_type is 'spherical':
+        if mesh_type == 'spherical':
             grd_lat, grd_lon = spherical_mesh(delta, meters,
                                               latlim=bnd[0],
                                               lonlim=bnd[1])
 
-        if mesh_type is 'cartesian':
+        if mesh_type == 'cartesian':
             grd_lat, grd_lon = cartesian_mesh(delta, meters,
                                               latlim=bnd[0],
                                               lonlim=bnd[1])
@@ -389,12 +394,12 @@ class WgsMesh():
         if polygon is not None:
             latlim, lonlim = polygon.get_bounds()
 
-        if mesh_type is 'spherical':
+        if mesh_type == 'spherical':
             grd_lat, grd_lon = spherical_mesh(delta, meters=meters,
                                               latlim=latlim,
                                               lonlim=lonlim)
 
-        if mesh_type is 'cartesian':
+        if mesh_type == 'cartesian':
             grd_lat, grd_lon = cartesian_mesh(delta, meters=meters,
                                               latlim=latlim,
                                               lonlim=lonlim)
