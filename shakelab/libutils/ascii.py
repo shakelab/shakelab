@@ -21,6 +21,8 @@
 A tool to manipulate tabular data from/to ascii files.
 """
 
+from shakelab.libutils.utils import cast_value
+
 
 class AsciiTable():
 
@@ -105,6 +107,14 @@ class AsciiTable():
         for i, item in enumerate(self.database):
             self.database[i][new_key] = self.data[i].pop(old_key)
 
+    def extract(self, key, dtype=float):
+        """
+        Extract data values by key.
+        Data type can be specified.
+        """
+
+        return [cast_value(item[key], dtype) for item in self.database]
+
     def size(self):
         """
         Return size of the database.
@@ -127,7 +137,7 @@ class AsciiTable():
         else:
             print('Error: headers do not match...')
 
-    def read(self, ascii_file, header=None, dtype='float', delimiter=',',
+    def read(self, ascii_file, header=None, dtype=str, delimiter=',',
              skipline=0, comment='#', empty=None):
         """
         Import data from ascii file (tabular)
@@ -172,11 +182,7 @@ class AsciiTable():
                             else:
                                 dtp = dtype
 
-                            # Check for empty elements
-                            if value[i] in ['', 'None', 'NaN', 'nan']:
-                                value[i] = empty
-
-                            data.append(_cast(value[i], dtp))
+                            data.append(cast_value(value[i], dtp, empty))
                     self.add_element(data)
             return
 
@@ -195,7 +201,7 @@ class AsciiTable():
 
             # Write data (loop over rows)
             for i, item in enumerate(self.database):
-                data = [_cast(item[j], 's') for j in self.header]
+                data = [cast_value(item[j], str) for j in self.header]
                 data = delimiter.join(data)
 
                 if i < (self.size()[0] - 1):
@@ -206,32 +212,3 @@ class AsciiTable():
 
         # Warn user if model file does not exist
         print('Cannot open file.')
-
-    def extract(self, key, dtype='float'):
-        """
-        Extract data values by key.
-        Data type can be specified.
-        """
-
-        return [_cast(item[key], dtype) for item in self.database]
-
-
-def _cast(value, dtype='float'):
-    """
-    Private method to recast variables.
-    """
-
-    # Check for empty fields or nans
-    if value is not None:
-
-        # Data casting
-        if dtype in ['int', 'i']:
-            value = int(value)
-
-        if dtype in ['float', 'f']:
-            value = float(value)
-
-        if dtype in ['string', 's']:
-            value = str(value)
-
-    return value

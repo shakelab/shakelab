@@ -25,130 +25,52 @@ from struct import pack, unpack
 from shakelab.libutils.time import Date
 from shakelab.libutils.time import days_to_month
 
-head_struc = [('SEQUENCE_NUMBER', 's', 6),
-              ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
-              ('RESERVED_BYTE', 's', 1),
-              ('STATION_CODE', 's', 5),
-              ('LOCATION_IDENTIFIER', 's', 2),
-              ('CHANNEL_IDENTIFIER', 's', 3),
-              ('NETWORK_CODE', 's', 2),
-              ('YEAR', 'H', 2),
-              ('DAY', 'H', 2),
-              ('HOURS', 'B', 1),
-              ('MINUTES', 'B', 1),
-              ('SECONDS', 'B', 1),
-              ('UNUSED', 'B', 1),
-              ('MSECONDS', 'H', 2),
-              ('NUMBER_OF_SAMPLES', 'H', 2),
-              ('SAMPLE_RATE_FACTOR', 'h', 2),
-              ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
-              ('ACTIVITY_FLAGS', 'B', 1),
-              ('IO_FLAGS', 'B', 1),
-              ('DATA_QUALITY_FLAGS', 'B', 1),
-              ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
-              ('TIME_CORRECTION', 'l', 4),
-              ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
-              ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
-
-block_struc = {1000: [('ENCODING_FORMAT', 'B', 1),
-                      ('WORD_ORDER', 'B', 1),
-                      ('DATA_RECORD_LENGTH', 'B', 1),
-                      ('RESERVED', 'B', 1)],
-               1001: [('TIMING_QUALITY', 'B', 1),
-                      ('MICRO_SEC', 'B', 1),
-                      ('RESERVED', 'B', 1),
-                      ('FRAME_COUNT', 'B', 1)]}
-
-data_struc = {0: ('s', 1),
-              1: ('h', 2),
-              3: ('i', 4),
-              4: ('f', 4)}
-
 
 class DataStream(object):
-
-    class StreamId(object):
-
-        def __init__(self, network, station, location, channel):
-
-            self.network = network
-            self.station = station
-            self.location = location
-            self.channel = channel
-
 
     def __init__(self, network=None, station=None,
                        location=None, channel=None):
 
-        self.sid = StreamId(network, station, location, channel)
+        self.header = {'network': network,
+                       'station': station,
+                       'location': location,
+                       'channel': channel}
 
-        self.delta = None
-        self.data = []
-
-    def __contains__(self, record):
-
-        return (self.network == record.header['NETWORK_CODE'] and
-                self.station == record.header['STATION_CODE'] and
-                self.location == record.header['LOCATION_IDENTIFIER'] and
-                self.channel == record.header['CHANNEL_IDENTIFIER'])
-
-    def __str__(self):
-
-        msg = 'MiniSEED Stream: '
-        msg += ' NETWORK {0}'.format(sef.sid.network)
-        msg += ' STATION {0},'.format(sef.sid.station)
-        msg += ' LOCATION {0},'.format(sef.sid.location)
-        msg += ' CHANNEL {0},'.format(sef.sid.channel)
-        print(msg)
+        self.record = []
 
     def append(self, record):
+        """
+        """
+        self.record.append(record)
 
-        self.delta = record.delta
-        self.data.append(record.data)
 
 class StreamCollector(object):
 
     def __init__(self):
-        self.db = []
+        self.stream = []
 
-    def add_stream(self, stream_id):
-        """
-        """
-        if not check_stream(stream_id):
-            self.db.append(DataStream([stream_id[0],
-                                       stream_id[1],
-                                       stream_id[2],
-                                       stream_id[3]]))
-        else:
-            print('Stream already exists')
-
-    def delete_stream(self):
+    def add(self, stream):
         """
         """
         pass
 
-    def list_streams(self):
+    def delete(self):
         """
         """
-        for stream in self.db:
-            print(stream)
+        pass
 
-    def check_stream(self, stream_id):
+    def append(self, record):
         """
         """
-        idx = 0
-        for i, stream in enumerate(self.db):
-            if stream_id == stream.stream_id:
-                idx = i
-        return i
+        header = {'network': record.header['NETWORK_CODE'],
+                  'station': record.header['STATION_CODE'],
+                  'location': record.header['LOCATION_IDENTIFIER'],
+                  'channel': record.header['CHANNEL_IDENTIFIER']}
 
-    def append_record(self, record):
-        """
-        """
 
         success = False
-        for stream in self.db:
-            if record in stream:
+        for stream in self.stream:
+            if header == stream.header:
                 stream.append(record)
                 success = True
                 break;
@@ -161,50 +83,6 @@ class StreamCollector(object):
             stream.append(record)
             self.stream.append(stream)
 
-
-        """
-        # Split record in case of multiplexing
-        # and non-contiguous data
-        if not self.record:
-            hs_0 = record.header_set()
-            tm_0 = record.time.to_seconds()
-            dt_0 = record.duration
-
-            self.record.append(record)
-
-        else:
-            print(record.header)
-            hs_1 = record.header_set()
-            tm_1 = record.time.to_seconds()
-            dt_1 = record.duration
-
-            # Due to numerical rounding problems, time must
-            # be rounded a posteriori to millisecond precision
-            tr_0 = round(tm_0 + dt_0, 4)
-            tr_1 = round(tm_1, 4)
-
-            if (hs_0 == hs_1) and (tr_0 == tr_1):
-                self.record[-1].data += record.data
-            else:
-                self.record.append(record)
-
-            hs_0 = hs_1
-            tm_0 = tm_1
-            dt_0 = dt_1
-
-
-    def get_stream(self, network, station, location, channel):
-        stream = MiniSeed()
-
-        for record in self.record:
-            if network in record.header['NETWORK_CODE']:
-                if station in record.header['STATION_CODE']:
-                    if location in record.header['LOCATION_IDENTIFIER']:
-                        if channel in record.header['CHANNEL_IDENTIFIER']:
-                            stream.record.append(record)
-
-        return stream
-        """
 
 class MiniSeed(object):
     """
@@ -241,7 +119,7 @@ class MiniSeed(object):
 
             try:
                 record = Record(byte_stream)
-                self.streams.append(record)
+                #self.streams.append(record)
 
             except:
                 raise ValueError('Not a valid record. Skip...')
@@ -260,6 +138,7 @@ class MiniSeed(object):
 class Record(object):
     """
     """
+
     def __init__(self, byte_stream=None):
 
         self.header = {}
@@ -285,6 +164,32 @@ class Record(object):
         """
         Importing header structure
         """
+
+        head_struc = [('SEQUENCE_NUMBER', 's', 6),
+                      ('DATA_HEADER_QUALITY_INDICATOR', 's', 1),
+                      ('RESERVED_BYTE', 's', 1),
+                      ('STATION_CODE', 's', 5),
+                      ('LOCATION_IDENTIFIER', 's', 2),
+                      ('CHANNEL_IDENTIFIER', 's', 3),
+                      ('NETWORK_CODE', 's', 2),
+                      ('YEAR', 'H', 2),
+                      ('DAY', 'H', 2),
+                      ('HOURS', 'B', 1),
+                      ('MINUTES', 'B', 1),
+                      ('SECONDS', 'B', 1),
+                      ('UNUSED', 'B', 1),
+                      ('MSECONDS', 'H', 2),
+                      ('NUMBER_OF_SAMPLES', 'H', 2),
+                      ('SAMPLE_RATE_FACTOR', 'h', 2),
+                      ('SAMPLE_RATE_MULTIPLIER', 'h', 2),
+                      ('ACTIVITY_FLAGS', 'B', 1),
+                      ('IO_FLAGS', 'B', 1),
+                      ('DATA_QUALITY_FLAGS', 'B', 1),
+                      ('NUMBER_OF_BLOCKETTES_TO_FOLLOW', 'B', 1),
+                      ('TIME_CORRECTION', 'l', 4),
+                      ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
+                      ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
+
         self._record_offset = byte_stream.offset
 
         self.header = {}
@@ -295,6 +200,16 @@ class Record(object):
         """
         Importing blockettes
         """
+
+        block_struc = {1000: [('ENCODING_FORMAT', 'B', 1),
+                              ('WORD_ORDER', 'B', 1),
+                              ('DATA_RECORD_LENGTH', 'B', 1),
+                              ('RESERVED', 'B', 1)],
+                       1001: [('TIMING_QUALITY', 'B', 1),
+                              ('MICRO_SEC', 'B', 1),
+                              ('RESERVED', 'B', 1),
+                              ('FRAME_COUNT', 'B', 1)]}
+
         byte_stream.offset = (self._record_offset +
                               self.header['OFFSET_TO_BEGINNING_OF_BLOCKETTE'])
 
@@ -322,6 +237,12 @@ class Record(object):
         """
         Importing data
         """
+
+        data_struc = {0: ('s', 1),
+                      1: ('h', 2),
+                      3: ('i', 4),
+                      4: ('f', 4)}
+
         byte_stream.offset = (self._record_offset +
                               self.header['OFFSET_TO_BEGINNING_OF_DATA'])
 
@@ -330,7 +251,7 @@ class Record(object):
 
         if enc in [0, 1, 3, 4]:
 
-            bnum = self.data_length()//data_struc[enc][1]
+            bnum = self.length()//data_struc[enc][1]
             data = [None] * bnum
 
             # Reading all data bytes, including zeros
@@ -347,7 +268,7 @@ class Record(object):
             cnt = 0
             data = [None] * nos
 
-            for fn in range(self.data_length//64):
+            for fn in range(self.length//64):
 
                 word = [None] * 16
                 for wn in range(16):
@@ -386,11 +307,19 @@ class Record(object):
         self.data = data[:nos]
 
     @property
-    def data_length(self):
+    def delta(self):
         """
         """
-        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
-                self.header['OFFSET_TO_BEGINNING_OF_DATA'])
+        srate = self.header['SAMPLE_RATE_FACTOR']
+        rmult = self.header['SAMPLE_RATE_MULTIPLIER']
+
+        if srate < 0:
+            srate = -1./srate
+        if rmult < 0:
+            rmult = 1./rmult
+        srate *= rmult
+
+        return 1./srate
 
     @property
     def time(self):
@@ -409,36 +338,17 @@ class Record(object):
         return Date([year, month, day, hour, minute, second + msecond])
 
     @property
-    def delta(self):
+    def length(self):
         """
         """
-        srate = self.header['SAMPLE_RATE_FACTOR']
-        rmult = self.header['SAMPLE_RATE_MULTIPLIER']
-
-        if srate < 0:
-            srate = -1./srate
-        if rmult < 0:
-            rmult = 1./rmult
-        srate *= rmult
-
-        return 1./srate
+        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
+                self.header['OFFSET_TO_BEGINNING_OF_DATA'])
 
     @property
     def duration(self):
         """
         """
-        nsamp = self.header['NUMBER_OF_SAMPLES']
-        delta = self.delta
-
-        return nsamp * delta
-
-    @property
-    def identifier(self):
-        """
-        List the stream identifiers
-        """
-        items = [6, 3, 4, 5]
-        return [self.header[head_struc[i][0]] for i in items]
+        return self.header['NUMBER_OF_SAMPLES'] * self.delta
 
 
 class ByteStream(object):

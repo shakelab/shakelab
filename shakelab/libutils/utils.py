@@ -23,7 +23,15 @@
 import numpy as _np
 
 
-# =============================================================================
+def cast_value(value, dtype, default=None):
+    """
+    """
+    if value not in [None, 'None', 'none', 'NaN', 'nan', '', []]:
+        value =  dtype(value)
+    else:
+        value = default
+    return value
+
 
 def a_round(number, decimals=3):
     """
@@ -49,8 +57,6 @@ def a_round(number, decimals=3):
     return number
 
 
-# =============================================================================
-
 def lin_stat(data):
     """
     Compute mean and standard deviation of data array
@@ -68,8 +74,6 @@ def lin_stat(data):
 
     return (mn, sd)
 
-
-# =============================================================================
 
 def log_stat(data):
     """
@@ -89,8 +93,6 @@ def log_stat(data):
 
     return (mn, sd)
 
-
-# =============================================================================
 
 def slice(data, index=[]):
     """
@@ -116,8 +118,6 @@ def slice(data, index=[]):
     return data_slice
 
 
-# =============================================================================
-
 def is_empty(value):
     """
     Boolean check if variable of arbitrary format is empty or None.
@@ -130,17 +130,15 @@ def is_empty(value):
     """
 
     C0 = (value == [])
-    C1 = (value is '')
-    C2 = (value != value)
-    C3 = (value is None)
-    C4 = (value is 'None')
+    C1 = (value == '')
+    C2 = (value == None)
+    C3 = (value == 'None')
+    C4 = (value != value)
 
     empty = (C0 or C1 or C2 or C3 or C4)
 
     return empty
 
-
-# =============================================================================
 
 def none_check(number):
     """
