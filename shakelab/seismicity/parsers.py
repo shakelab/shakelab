@@ -21,70 +21,131 @@
 Module containing earthquake catalogue parsers for different formats.
 """
 
+import os
 import json
 
 import shakelab.seismicity.catalogue as cat
+from shakelab.libutils.ascii import AsciiTable
 
 
-def read(file_name, type='bin'):
+def read(file_name, type=None):
     """
     """
-    edb = EqDatabase()
+    # Try to recognise file type from extension
+    if type is None:
+        ext = os.path.basename(file_name).split('.')[1]
+        if ext:
+            type = ext
+        else:
+            raise ValueError('file extension not found')
 
-    if type == 'bin':
+    edb = cat.EqDatabase()
 
+    if type in ['bin', 'pickle']:
         edb.load(file_name)
 
-    elif type == 'json':
+    elif type in ['json']:
+        edb = read_json(file_name)
 
-        with open(file_name, 'r') as f:
-            data = json.load(f)['EqDatabase']
-            edb.header = data['Header']
+    elif type in ['csv']:
+        edb = read_csv(file_name)
 
-            for ee in data['Event']:
-                event = Event(ee['Id'])
+    elif type in ['isf', 'isc']:
+        edb = read_isf(file_name)
 
-                for ms in ee['Magnitude']:
-                    event.add_magnitude(ms)
-                for ls in ee['Location']:
-                    event.add_location(ls)
-
-                edb.add_event(event)
-
-    elif type == 'csv':
+    elif type in ['ndk', 'gcmt']:
         pass
 
-    elif type == 'isf':
-        pass
-
-    elif type == 'ndk':
-        pass
+    else:
+        raise ValueError('type not recognized')
 
     return edb
 
-def write(edb, file_name, type='bin'):
+
+def write(edb, file_name, type=None):
     """
     """
+    # Try to recognise file type from extension
+    if type is None:
+        ext = os.path.basename(file_name).split('.')[1]
+        if ext:
+            type = ext
+        else:
+            raise ValueError('file extension not found')
+
     if not isinstance(edb, EqDatabase):
         raise ValueError('not a valid database')
 
-    if type == 'bin':
-
+    elif type in ['bin', 'pickle']:
         edb.dump(file_name)
 
-    if type == 'csv':
-
-        at = AsciiTable()
-
     elif type == 'json':
-
         data = edb.export_to_dict()
 
         with open(file_name, 'w') as f:
             json.dump(data, f, indent=True)
 
+    else:
+        raise ValueError('type not recognized')
 
-def read_ISF(isf_file, name=None, version=None, info=None):
+def read_csv(csv_file, header=None, delimiter=',', skipline=0, comment='#'):
+    """
+    Import data in CSV format.
+    Arbitrary header is allowed.
+    """
+    tab = AsciiTable()
+    tab.read(csv_file, header=header,
+                       delimiter=delimiter,
+                       skipline=skipline,
+                       comment=comment)
+
+    if 'Id' not in tab.header:
+        tab.add_key('Id', 1, [i for i in range(tab.size[0])])
+
+    # Initialising database
+    edb = cat.EqDatabase()
+
+    # Loop over events
+    for data in tab:
+
+        event = cat.Event(data['Id'])
+
+        loc_dict = {k: v for k, v in data.items() if k in cat._LOCMAP}
+        event.location.add(loc_dict)
+
+        mag_dict = {k: v for k, v in data.items() if k in cat._MAGMAP}
+        event.magnitude.add(mag_dict)
+
+        edb.event.append(event)
+
+    return edb
+
+
+def read_json(json_file):
+    """
+    """
+
+    with open(json_file, 'r') as f:
+
+        data = json.load(f)['EqDatabase']
+        edb.header = data['Header']
+
+        # Loop over events
+        for ee in data['Event']:
+
+            event = cat.Event(ee['Id'])
+
+            for ms in ee['Magnitude']:
+                event.add_magnitude(ms)
+            for ls in ee['Location']:
+                event.add_location(ls)
+
+            edb.event.append(event)
+
+    return edb
+
+
+def read_isf(isf_file, name=None, version=None, info=None):
     """
     Importer for ISC bulletin in ISF format
     """

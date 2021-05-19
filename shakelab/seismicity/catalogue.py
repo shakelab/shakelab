@@ -334,7 +334,17 @@ class EqDatabase(object):
             if value is not None:
                 msg += '{0}: {1}\n'.format(key, cast_value(value, str, ''))
 
-        msg += 'Number of events: {0}'.format(len(self))
+        msg += 'Number of events: {0}\n'.format(len(self))
+
+        min, max = self.get_range('Year')
+        msg += 'Year rage: ({0}, {1})\n'.format(min, max)
+
+        min, max = self.get_range('MagSize')
+        msg += 'Magnitude rage: ({0}, {1})\n'.format(min, max)
+
+        min, max = self.get_range('Depth')
+        msg += 'Depth rage: ({0}, {1})\n'.format(min, max)
+
         return msg
 
     def __len__(self):
@@ -485,7 +495,7 @@ class EqDatabase(object):
             for ide in ide_list:
                 del self.event[ide]
 
-    def extract(self, key, remove_empty=True):
+    def extract(self, key, remove_empty=True, any=False):
         """
         """
         values = []
@@ -518,7 +528,7 @@ class EqDatabase(object):
     def get_range(self, key):
         """
         """
-        values = self.export(key, remove_empty=True)
+        values = self.extract(key, remove_empty=True)
         return [min(values), max(values)]
 
     def sort_by_date(self):
@@ -556,43 +566,3 @@ class EqDatabase(object):
             pickle.dump(self, f, protocol=2)
             f.close()
             return
-
-
-def generate_synthetic_catalogue(aval, bval, mmin, mmax, duration=1.):
-    """
-    Must define an initial date!
-
-    also, it is probably worth to generalize the MFD as input
-    instead of aval, bval.
-    """
-
-    # Annual rate
-    rate = (10.**aval)*(10.**(-bval*mmin)-10.**(-bval*mmax))
-    catlen = int(rate*duration)
-
-    # Magnitude distribution:
-    # Derived as the inverse of the 
-    # double-truncated cumulative GR
-    # See Inverse transform sampling (also known as inversion sampling,
-    # the inverse probability integral transform)
-
-    Um = np.random.rand(catlen)
-    C = 1.-(10.**(-bval*(mmax-mmin)))
-    magnitude = mmin-np.log10(1.-(Um*C))/bval
-
-    # Average interval time obtained
-    # from the inverse of the cumulative
-    # of the exponential distribution
-    # (Poisson assumption)
-    # TOCHECK!
-
-    Ut = np.random.rand(catlen)
-    dT = -np.log(1-Ut)/catlen
-    T = np.cumsum(dT)
-
-    # Seconds per year
-    # (Not counting leap second years)
-    secyear = duration*365.*24.*60.*60.
-    timesec = T*secyear
-
-    return timesec, magnitude

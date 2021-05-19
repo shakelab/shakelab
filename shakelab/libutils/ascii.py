@@ -115,6 +115,7 @@ class AsciiTable():
 
         return [cast_value(item[key], dtype) for item in self.database]
 
+    @property
     def size(self):
         """
         Return size of the database.
@@ -154,7 +155,7 @@ class AsciiTable():
                 f.readline()
 
             # Import header (skip comments)
-            if not header:
+            if header is None:
                 while 1:
                     line = f.readline()
                     if line[0] != comment:
