@@ -113,12 +113,14 @@ class Spectrum():
         record.time = self.time
         return record
 
-    def get_amplitude(self, one_side=False):
+    @property
+    def amplitude(self, one_side=False):
         """
         """
         return np.abs(self.data)
 
-    def get_phase(self, unwrap=False):
+    @property
+    def phase(self, unwrap=False):
         """
         """
         phase = np.angle(self.data)
