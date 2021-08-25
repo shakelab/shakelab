@@ -20,6 +20,26 @@
 """
 """
 
+import numpy as np
+
+
+def poisson_probability(lambda_rate, investigation_time=50.):
+    """
+    Probability of “at-least” one occurrence of a Poisson process
+    with a known constant mean rate (λ) and time interval (t).
+    NOTE: clearly, rate is the inverse of the return period....
+    """
+
+    return 1 - np.exp(-lambda_rate * investigation_time) 
+
+def poisson_rate(probability, investigation_time=50.):
+    """
+    Occurrence rate of “at-least” one event of a Poisson process with 
+    known probability (P) time interval (t).
+    NOTE: clearly, rate is the inverse of the return period....
+    """
+
+    return - np.log(1 - probability)/investigation_time
 
 def generate_synthetic_catalogue(aval, bval, mmin, mmax, duration=1.):
     """

@@ -76,22 +76,55 @@ def shift_time(signal, dt, time):
 
 class Spectrum():
     """
-    Fourier Spectrum
+    Fourier spectrum base class
     """
 
-    def __init__(self, record=None):
-        self.df = None
+    def __init__(self):
         self.data = []
         self.time = Date()
-
-        if record is not None:
-            self.fft(record)
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, sliced):
         return self.data[sliced]
+
+    @property
+    def amplitude(self):
+        """
+        """
+        return np.abs(self.data)
+
+    @property
+    def phase(self, unwrap=False):
+        """
+        """
+        phase = np.angle(self.data)
+        if unwrap:
+            return np.unwrap(phase)
+        else:
+            return phase
+
+
+class DiscreteSpectrum(Spectrum):
+    """
+    Discrete Fourier spectrum
+    """
+
+    def __init__(self):
+        pass
+
+
+class FFTSpectrum(Spectrum):
+    """
+    Fourier spectrum in FFT format
+    """
+
+    def __init__(self, record=None):
+        self.df = None
+
+        if record is not None:
+            self.fft(record)
 
     def fft(self, record, norm=False):
         """
@@ -113,19 +146,5 @@ class Spectrum():
         record.time = self.time
         return record
 
-    @property
-    def amplitude(self, one_side=False):
-        """
-        """
-        return np.abs(self.data)
 
-    @property
-    def phase(self, unwrap=False):
-        """
-        """
-        phase = np.angle(self.data)
-        if unwrap:
-            return np.unwrap(phase)
-        else:
-            return phase
 
