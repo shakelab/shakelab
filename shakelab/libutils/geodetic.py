@@ -617,6 +617,29 @@ def circle_distance(lat1, lon1, lat2, lon2):
     
     return np.round(distance, NDIGITS)
 
+def wgs_to_azimuth(lat1, lon1, lat2, lon2):
+    """
+    Compute the azimuth (to north) of a segment by
+    its vertex wgs coordinates.
+    """
+
+    lat1 = np.radians(lat1)
+    lon1 = np.radians(lon1)
+    lat2 = np.radians(lat2)
+    lon2 = np.radians(lon2)
+
+    dlon = lon2 - lon1
+    a = np.sin(dlon)*np.cos(lat2)
+    b = np.cos(lat1)*np.sin(lat2)
+    c = np.sin(lat1)*np.cos(lat2)*np.cos(dlon)
+
+    azimuth = np.degrees(np.arctan2(a, b-c))
+
+    if azimuth < 0.:
+        azimuth += 360.
+
+    return azimuth
+
 # ----------------------------------------------------------------------------
 
 def spherical_mesh(delta, meters=False,
