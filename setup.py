@@ -5,7 +5,7 @@ with open('README.md', 'r') as fh:
 
 setuptools.setup(
     name='shakelab',
-    version='2019.11.dev1',
+    version='0.0.1',
     author='Valerio Poggi',
     author_email='vpoggi@inogs.it',
     description='Python tools for engineering seismology',

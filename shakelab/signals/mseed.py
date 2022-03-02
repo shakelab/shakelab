@@ -21,6 +21,7 @@
 An simple Python library for MiniSeeed file manipulation
 """
 
+from io import BytesIO
 from struct import pack, unpack
 from shakelab.libutils.time import Date
 from shakelab.libutils.time import days_to_month
@@ -94,7 +95,8 @@ class MiniSeed(object):
         self._byte_order = byte_order
 
         # Record list initialisation
-        self.streams = StreamCollector()
+        # self.streams = StreamCollector()
+        self.record = []
 
         # Import miniSEED file
         if file is not None:
@@ -108,25 +110,24 @@ class MiniSeed(object):
             self._byte_order = byte_order
 
         # Initialise stream object
-        # This approach will pre-load the whole file into memory,
-        # which is due to the fact that record size is not known
-        # a priori.
-        byte_stream = ByteStream(byte_order=self._byte_order)
-        byte_stream.read(file)
+        byte_stream = ByteStream(file, byte_order=self._byte_order)
 
         # Loop over records
         while True:
 
-            try:
-                record = Record(byte_stream)
-                #self.streams.append(record)
+            #try:
+            record = Record(byte_stream)
+            #self.streams.append(record)
+            self.record.append(record)
 
-            except:
-                raise ValueError('Not a valid record. Skip...')
+            #except:
+            #    raise ValueError('Not a valid record. Skip...')
 
-            # Check if last record, otherwise exit
+            # Check if end of stream, otherwise exit
             if byte_stream.offset >= byte_stream.length:
                 break
+
+        byte_stream.close()
 
     def write(self, file, byte_order=None):
         """
@@ -137,6 +138,7 @@ class MiniSeed(object):
 
 class Record(object):
     """
+    MiniSeed record class
     """
 
     def __init__(self, byte_stream=None):
@@ -151,6 +153,9 @@ class Record(object):
     def read(self, byte_stream):
         """
         """
+        # Set record initial offset
+        self._record_offset = byte_stream.offset
+
         # Reading header information
         self._get_header(byte_stream)
 
@@ -190,8 +195,6 @@ class Record(object):
                       ('OFFSET_TO_BEGINNING_OF_DATA', 'H', 2),
                       ('OFFSET_TO_BEGINNING_OF_BLOCKETTE', 'H', 2)]
 
-        self._record_offset = byte_stream.offset
-
         self.header = {}
         for hs in head_struc:
             self.header[hs[0]] = byte_stream.get(hs[1], hs[2])
@@ -210,28 +213,29 @@ class Record(object):
                               ('RESERVED', 'B', 1),
                               ('FRAME_COUNT', 'B', 1)]}
 
-        byte_stream.offset = (self._record_offset +
-                              self.header['OFFSET_TO_BEGINNING_OF_BLOCKETTE'])
+        block_offset = self.header['OFFSET_TO_BEGINNING_OF_BLOCKETTE']
 
         for nb in range(self.header['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
+
+            byte_stream.goto(self._record_offset + block_offset)
 
             # Blockette code
             block_type = byte_stream.get('H', 2)
 
             # Offset to the beginning of the next blockette
-            offset_next = byte_stream.get('H', 2)
+            block_offset = byte_stream.get('H', 2)
 
             if block_type in block_struc:
                 # Blockette initialisation
-                blockette = {'OFFSET_NEXT': offset_next}
+                blockette = {'OFFSET_NEXT': block_offset}
 
                 # Loop through blockette specific keys
                 for bs in block_struc[block_type]:
                     blockette[bs[0]] = byte_stream.get(bs[1], bs[2])
                     self.blockette[block_type] = blockette
+
             else:
                 print('Blockette type {0} not supported'.format(block_type))
-                byte_stream.offset += offset_next
 
     def _get_data(self, byte_stream):
         """
@@ -243,8 +247,10 @@ class Record(object):
                       3: ('i', 4),
                       4: ('f', 4)}
 
-        byte_stream.offset = (self._record_offset +
-                              self.header['OFFSET_TO_BEGINNING_OF_DATA'])
+        offset = (self._record_offset +
+                  self.header['OFFSET_TO_BEGINNING_OF_DATA'])
+
+        byte_stream.goto(offset)
 
         nos = self.header['NUMBER_OF_SAMPLES']
         enc = self.blockette[1000]['ENCODING_FORMAT']
@@ -288,9 +294,6 @@ class Record(object):
                         for diff in _w32split(word[i], cn[i], enc):
                             data[cnt] = diff
                             cnt += 1
-
-            # Last sample from previous record (for check)
-            self.previous = first - data[0]
 
             # Computing full samples from differences
             data[0] = first
@@ -353,46 +356,68 @@ class Record(object):
 
 class ByteStream(object):
     """
+    This class allows reading binary data from a file or from a
+    byte buffer using the same format.
+    Useful in combination with seedlink data.
     """
 
-    def __init__(self, data=[], byte_order='le'):
+    def __init__(self, byte_stream, byte_order='le'):
 
-        self.offset = 0
-        self.data = data
+        if isinstance(byte_stream, bytes):
+            self.sid = BytesIO(byte_stream)
+        else:
+            self.sid = open(byte_stream, 'rb')
+
         self.byte_order = byte_order
-        self.length = len(self.data)
 
-    def read(self, file):
-        """
-        """
-        self.offset = 0
-        with open(file, 'rb') as fid:
-            self.data = fid.read()
-        self.length = len(self.data)
+        self.goto(0, 2)
+        self.length = self.offset
+        self.goto(0)
 
-    def get(self, byte_key, byte_num=1):
+    def goto(self, offset, whence=0):
         """
+        offset − position of the read/write pointer within the file.
+        whence − 0 for absolute file positioning, 1 for relative to
+        the current position and 2 seek relative to the file's end.
         """
-        byte_pack = self.data[self.offset:self.offset + byte_num]
-        self.offset += byte_num
+        self.sid.seek(offset, whence)
 
-        if byte_key == 's':
-            byte_key = str(byte_num) + byte_key
+    def shift(self, places):
+        """
+        """
+        self.goto(places, 1)
+
+    @property
+    def offset(self):
+        """
+        """
+        return self.sid.tell()
+
+    def get(self, byte_format, byte_num=1, offset=None):
+        """
+        """
+        if offset is not None:
+            self.goto(offset)
+
+        byte_buffer = self.sid.read(byte_num)
+
+        if byte_format == 's':
+            byte_format = str(byte_num) + byte_format
 
         byte_map = {'be': '>', 'le': '<'}
-        byte_key = byte_map[self.byte_order] + byte_key
-        value = unpack(byte_key, byte_pack)[0]
+        byte_format = byte_map[self.byte_order] + byte_format
+
+        value = unpack(byte_format, byte_buffer)[0]
 
         if isinstance(value, bytes):
             value = value.decode()
 
         return value
 
-    @property
-    def reminder(self):
+    def close(self):
         """
         """
-        return (self.length - self.offset)
+        self.sid.close()
 
 
 def _binmask(word, bits, position):
