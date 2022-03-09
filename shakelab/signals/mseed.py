@@ -28,61 +28,65 @@ from shakelab.libutils.time import days_to_month
 
 
 class DataStream(object):
-
-    def __init__(self, network=None, station=None,
-                       location=None, channel=None):
-
-        self.header = {'network': network,
-                       'station': station,
-                       'location': location,
-                       'channel': channel}
-
-        self.record = []
-
-    def append(self, record):
-        """
-        """
-        self.record.append(record)
-
-
-class StreamCollector(object):
-
+    """
+    """
     def __init__(self):
-        self.stream = []
 
-    def add(self, stream):
-        """
-        """
-        pass
-
-    def delete(self):
-        """
-        """
-        pass
+        self.data = []
 
     def append(self, record):
         """
         """
-        header = {'network': record.header['NETWORK_CODE'],
-                  'station': record.header['STATION_CODE'],
-                  'location': record.header['LOCATION_IDENTIFIER'],
-                  'channel': record.header['CHANNEL_IDENTIFIER']}
+        self.data.append(record)
 
 
-        success = False
-        for stream in self.stream:
-            if header == stream.header:
-                stream.append(record)
-                success = True
-                break;
+class StreamLevel(object):
+    """
+    """
+    def __init__(self):
+        self._data = {}
 
-        if not success:
-            self.add_stream(record.header['NETWORK_CODE'],
-                            record.header['STATION_CODE'],
-                            record.header['LOCATION_IDENTIFIER'],
-                            record.header['CHANNEL_IDENTIFIER'])
-            stream.append(record)
-            self.stream.append(stream)
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __setitem__(self, key, value):
+        self._data[key] = value
+
+    def __delitem__(self, key):
+        del self._data[key]
+
+    def __iter__(self):
+        return iter(self._data)
+    
+    def __len__(self):
+        return len(self._data)
+
+    def list(self):
+        return [k for k in self._data.keys()]
+
+
+class Network(StreamLevel):
+    """
+    """
+    pass
+
+
+class Station(StreamLevel):
+    """
+    """
+    pass
+
+
+class Location(StreamLevel):
+    """
+    """
+    pass
+
+
+class Channel(StreamLevel):
+    """
+    """
+    pass
 
 
 class MiniSeed(object):
@@ -95,8 +99,7 @@ class MiniSeed(object):
         self._byte_order = byte_order
 
         # Record list initialisation
-        # self.streams = StreamCollector()
-        self.record = []
+        self.stream = Network()
 
         # Import miniSEED file
         if file is not None:
@@ -117,8 +120,7 @@ class MiniSeed(object):
 
             #try:
             record = Record(byte_stream)
-            #self.streams.append(record)
-            self.record.append(record)
+            self.add_record(record)
 
             #except:
             #    raise ValueError('Not a valid record. Skip...')
@@ -135,6 +137,40 @@ class MiniSeed(object):
         """
         pass
 
+    def add_stream(self, net, sta, loc, chn):
+        """
+        """
+        if net not in self.stream:
+            self.stream[net] = Station()
+
+        if sta not in self.stream[net]:
+            self.stream[net][sta] = Location()
+
+        if loc not in self.stream[net][sta]:
+            self.stream[net][sta][loc] = Channel()
+
+        if chn not in self.stream[net][sta][loc]:
+            self.stream[net][sta][loc][chn] = DataStream()
+
+    def list_streams(self):
+        """
+        """
+        for net in self.stream:
+            for sta in self.stream[net]:
+                for loc in self.stream[net][sta]:
+                    for chn in self.stream[net][sta][loc]:
+                        print('{0}.{1}.{2}.{3}'.format(net, sta, loc, chn))
+
+    def add_record(self, record):
+        """
+        """
+        net = record.network
+        sta = record.station
+        loc = record.location
+        chn = record.channel
+
+        self.add_stream(net, sta, loc, chn)
+        self.stream[net][sta][loc][chn].append(record)
 
 class Record(object):
     """
@@ -353,6 +389,29 @@ class Record(object):
         """
         return self.header['NUMBER_OF_SAMPLES'] * self.delta
 
+    @property
+    def network(self):
+        """
+        """
+        return self.header['NETWORK_CODE']
+
+    @property
+    def station(self):
+        """
+        """
+        return self.header['STATION_CODE']
+
+    @property
+    def location(self):
+        """
+        """
+        return self.header['LOCATION_IDENTIFIER']
+
+    @property
+    def channel(self):
+        """
+        """
+        return self.header['CHANNEL_IDENTIFIER']
 
 class ByteStream(object):
     """

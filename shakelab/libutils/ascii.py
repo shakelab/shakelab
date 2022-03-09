@@ -25,11 +25,23 @@ from shakelab.libutils.utils import cast_value
 
 
 class AsciiTable():
-
+    """
+    """
     def __init__(self, header=[]):
-
         self.header = header
-        self.database = []
+        self.db = []
+
+    def __getitem__(self, key):
+        return self.extract(key)
+
+    def __setitem__(self, key, value):
+        try:
+            len(value)
+        except:
+            value = [value] * len(self)
+
+        for (i,v) in zip(self.db, value):
+            i[key] = v
 
     def __iter__(self):
         self._counter = 0
@@ -37,22 +49,24 @@ class AsciiTable():
 
     def __next__(self):
         try:
-            item = self.database[self._counter]
+            item = self.db[self._counter]
             self._counter += 1
         except IndexError:
             raise StopIteration
         return item
+
+    def __len__(self):
+        return len(self.db)
 
     def add_element(self, data):
         """
         Add a new data element (row) to the database table.
         Data must be in header's format.
         """
-
         newitem = {}
         for i, key in enumerate(self.header):
             newitem[key] = data[i]
-        self.database.append(newitem)
+        self.db.append(newitem)
 
     def add_key(self, key, index=-1, data=None):
         """
@@ -60,7 +74,6 @@ class AsciiTable():
         Data structure can optionally be inflated with a scalar or a
         list values of values (default is None).
         """
-
         # Check if key is already stored
         if key in self.header:
             print('Warning: key already in header.')
@@ -72,7 +85,7 @@ class AsciiTable():
         self.header.insert(index, key)
 
         # Loop over data
-        for i, item in enumerate(self.database):
+        for i, item in enumerate(self.db):
 
             # Check value types
             if isinstance(data, (str, int, float)):
@@ -81,47 +94,52 @@ class AsciiTable():
                 element = data[i]
 
             # Add element at corresponding key
-            self.database[i][key] = element
+            self.db[i][key] = element
 
     def remove_key(self, key):
         """
         Remove a given key from header and data structure.
         """
-
         # Remove key from header
         self.header.pop(self.header.index(key))
 
         # Remove elements from data
-        for i, item in enumerate(self.database):
-            self.database[i].pop(key)
+        for i, item in enumerate(self.db):
+            self.db[i].pop(key)
 
     def rename_key(self, old_key, new_key):
         """
         Rename a given key in the header and the data structure.
-        """
-
+        """ 
         # Rename header's key
         self.header[self.header.index(old_key)] = new_key
 
         # Rename key in data structure
-        for i, item in enumerate(self.database):
-            self.database[i][new_key] = self.data[i].pop(old_key)
+        for i, item in enumerate(self.db):
+            self.db[i][new_key] = self.data[i].pop(old_key)
 
-    def extract(self, key, dtype=float):
+    def recast(self, key, dtype):
+        """
+        """
+        for i in self.db:
+            i[key] = dtype(i[key])
+
+    def extract(self, key, dtype=None):
         """
         Extract data values by key.
         Data type can be specified.
         """
-
-        return [cast_value(item[key], dtype) for item in self.database]
+        if dtype is None:
+            return [i[key] for i in self.db]
+        else:
+            return [dtype(i[key]) for i in self.db]
 
     @property
     def size(self):
         """
         Return size of the database.
         """
-
-        enum = len(self.database)
+        enum = len(self.db)
         hnum = len(self.header)
 
         return enum, hnum
@@ -131,7 +149,6 @@ class AsciiTable():
         Merge two data tables.
         Header structure must be identical.
         """
-
         if self.header == table.header:
             for i in range(0, table.size()[0]):
                 self.data.append(table.data[i])
@@ -143,9 +160,8 @@ class AsciiTable():
         """
         Import data from ascii file (tabular)
         """
-
         self.header = []
-        self.database = []
+        self.db = []
 
         # Open input ascii file
         with open(ascii_file, 'r') as f:
@@ -184,6 +200,7 @@ class AsciiTable():
                                 dtp = dtype
 
                             data.append(cast_value(value[i], dtp, empty))
+
                     self.add_element(data)
             return
 
@@ -201,7 +218,8 @@ class AsciiTable():
                 f.write(delimiter.join(self.header) + '\n')
 
             # Write data (loop over rows)
-            for i, item in enumerate(self.database):
+            for i, item in enumerate(self.db):
+
                 data = [cast_value(item[j], str) for j in self.header]
                 data = delimiter.join(data)
 
