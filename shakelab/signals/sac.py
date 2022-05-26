@@ -55,6 +55,7 @@ class Sac(object):
         """
 
         # Variable initialisation
+        # To do: initialise header with empty fields
         self.head = {}
         self.data = [[], []]
 

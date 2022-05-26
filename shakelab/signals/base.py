@@ -28,17 +28,83 @@ from scipy import signal, fftpack, integrate
 from copy import deepcopy
 
 from shakelab.libutils.time import Date
+from shakelab.libutils.geodetic import WgsPoint
+from shakelab.signals import fourier
+
+
+class StreamId(object):
+    """
+    """
+    def __init__(self, code=None):
+        self.network = ''
+        self.station = ''
+        self.location = ''
+        self.channel = ''
+
+        if code is not None:
+            self.set(code)
+
+    def __repr__(self):
+        return '{0}.{1}.{2}.{3}'.format(self.network,
+                                        self.station,
+                                        self.location,
+                                        self.channel)
+
+    def set(self, code):
+        """
+        """
+        if isinstance(code, str):
+            code = code.split('.')
+            self.network = code[0]
+            self.station = code[1]
+            self.location = code[2]
+            self.channel = code[3]
+
+        if isinstance(code, dict):
+            self.network = code['network']
+            self.station = code['station']
+            self.location = code['location']
+            self.channel = code['channel']
+
+
+class Header(object):
+    """
+    """
+    def __init__(self):
+        self._rate = None
+        self._delta = None
+        self.time = Date()
+        self.location = WgsPoint(None, None)
+        self.sid = StreamId()
+        self.response = None
+        self.meta = {}
+
+    @property
+    def delta(self):
+        return self._delta
+
+    @property
+    def rate(self):
+        return self._rate
+
+    @delta.setter
+    def delta(self, value):
+        self._delta = value
+        self._rate = 1./value
+
+    @rate.setter
+    def rate(self, value):
+        self._rate = value
+        self._delta = 1./value
 
 
 class Record(object):
     """
-    Single recording.
+    Individual (continuos) recording block.
     """
-
     def __init__(self):
-        self.delta = None
-        self.data = []
-        self.time = Date()
+        self.head = Header()
+        self.data = np.array([])
 
     def __len__(self):
         return len(self.data)
@@ -49,34 +115,40 @@ class Record(object):
     def duration(self):
         """
         """
-        return (len(self) - 1) * self.delta
+        return (len(self) - 1) * self.head.delta
 
-    def taxis(self, reference='relative'):
+
+    def time_axis(self, reference='relative', shift=0.):
         """
         to do: add reference
         """
-        tax = np.arange(0., len(self)) * self.delta
+        tax = np.arange(0., len(self)) * self.head.delta
         if reference in ['a', 'absolute']:
-            tax += self.time.to_seconds()
-        return tax
+            tax += self.head.time.to_seconds()
+        return tax + shift
+
+    @property
+    def time(self):
+        return self.time_axis()
 
     def remove_mean(self):
         """
         """
         self.data -= np.mean(self.data)
 
-    def filter(self, highpass=None, lowpass=None, order=2):
+    def filter(self, highpass=None, lowpass=None, order=2, minphase=False):
         """
+        zero-phase and min-phase are allowed
         """
         # Corner frequencies
         corners = []
 
         if (highpass is not None):
-            corners.append(2. * highpass * self.delta)
+            corners.append(2. * highpass * self.head.delta)
             filter_type = 'high'
 
         if (lowpass is not None):
-            corners.append(2. * lowpass * self.delta)
+            corners.append(2. * lowpass * self.head.delta)
             filter_type = 'low'
 
         if (highpass is not None) and (lowpass is not None):
@@ -86,6 +158,10 @@ class Record(object):
             # Butterworth filter
             sos = signal.butter(order, corners, analog=False,
                                 btype=filter_type, output='sos')
+
+        if minphase:
+	        self.data = signal.sosfilt(sos, self.data)
+        else:
             self.data = signal.sosfiltfilt(sos, self.data)
 
     def cut(self, starttime=None, endtime=None):
@@ -130,13 +206,13 @@ class Record(object):
         if time < 0:
             alpha = 1
         else:
-            alpha = min(2 * float(time)/(self.delta * tnum), 1)
+            alpha = min(2 * float(time)/(self.head.delta * tnum), 1)
         self.data = (self.data * sp.signal.tukey(tnum, alpha))
 
     def zero_padding(self, time):
         """
         """
-        zeros = np.zeros(round(time/self.delta))
+        zeros = np.zeros(round(time/self.head.delta))
         self.data = np.concatenate((self.data, zeros))
 
     def shift(self, time, padding=True):
@@ -149,7 +225,7 @@ class Record(object):
         else:
             data = self.data
 
-        data = fourier.shift_time(data, self.delta, time)
+        data = fourier.shift_time(data, self.head.delta, time)
         self.data = data[0:len(self.data)]
 
     def fft(self):
@@ -161,15 +237,14 @@ class Record(object):
         """
         """
         record = spectrum.ifft()
-        self.delta = record.delta
+        self.head = record.head
         self.data = record.data
-        self.time = record.time
 
     def integrate(self, method='fft'):
         """
         """
         if method == 'cum':
-            self.data = integrate.cumtrapz(self.data, dx=self.delta,
+            self.data = integrate.cumtrapz(self.data, dx=self.head.delta,
                                            initial=0)
         elif method == 'fft':
             self.data = fftpack.diff(self.data, order=-1,
@@ -181,7 +256,7 @@ class Record(object):
         """
         """
         if method == 'grad':
-            self.data = np.gradient(self.data, self.delta)
+            self.data = np.gradient(self.data, self.head.delta)
 
         elif method == 'fft':
             self.data = fftpack.diff(self.data, order=1,

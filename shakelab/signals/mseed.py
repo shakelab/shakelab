@@ -23,70 +23,6 @@ An simple Python library for MiniSeeed file manipulation
 
 from io import BytesIO
 from struct import pack, unpack
-from shakelab.libutils.time import Date
-from shakelab.libutils.time import days_to_month
-
-
-class DataStream(object):
-    """
-    """
-    def __init__(self):
-
-        self.data = []
-
-    def append(self, record):
-        """
-        """
-        self.data.append(record)
-
-
-class StreamLevel(object):
-    """
-    """
-    def __init__(self):
-        self._data = {}
-
-    def __getitem__(self, key):
-        return self._data[key]
-
-    def __setitem__(self, key, value):
-        self._data[key] = value
-
-    def __delitem__(self, key):
-        del self._data[key]
-
-    def __iter__(self):
-        return iter(self._data)
-    
-    def __len__(self):
-        return len(self._data)
-
-    def list(self):
-        return [k for k in self._data.keys()]
-
-
-class Network(StreamLevel):
-    """
-    """
-    pass
-
-
-class Station(StreamLevel):
-    """
-    """
-    pass
-
-
-class Location(StreamLevel):
-    """
-    """
-    pass
-
-
-class Channel(StreamLevel):
-    """
-    """
-    pass
 
 
 class MiniSeed(object):
@@ -99,7 +35,7 @@ class MiniSeed(object):
         self._byte_order = byte_order
 
         # Record list initialisation
-        self.stream = Network()
+        self.stream = {}
 
         # Import miniSEED file
         if file is not None:
@@ -120,7 +56,19 @@ class MiniSeed(object):
 
             #try:
             record = Record(byte_stream)
-            self.add_record(record)
+
+            if record.sid not in self.stream:
+                # Create a new stream
+                self.stream[record.sid] = [record]
+            else:
+                # Append to existing stream, accounting for data gaps
+                sn0 = self.stream[record.sid][-1].seq
+                sn1 = record.seq
+
+                if sn1 == (sn0 % 999999) + 1:
+                    self.stream[record.sid][-1].append(record)
+                else:
+                    self.stream[record.sid].append(record)
 
             #except:
             #    raise ValueError('Not a valid record. Skip...')
@@ -137,40 +85,6 @@ class MiniSeed(object):
         """
         pass
 
-    def add_stream(self, net, sta, loc, chn):
-        """
-        """
-        if net not in self.stream:
-            self.stream[net] = Station()
-
-        if sta not in self.stream[net]:
-            self.stream[net][sta] = Location()
-
-        if loc not in self.stream[net][sta]:
-            self.stream[net][sta][loc] = Channel()
-
-        if chn not in self.stream[net][sta][loc]:
-            self.stream[net][sta][loc][chn] = DataStream()
-
-    def list_streams(self):
-        """
-        """
-        for net in self.stream:
-            for sta in self.stream[net]:
-                for loc in self.stream[net][sta]:
-                    for chn in self.stream[net][sta][loc]:
-                        print('{0}.{1}.{2}.{3}'.format(net, sta, loc, chn))
-
-    def add_record(self, record):
-        """
-        """
-        net = record.network
-        sta = record.station
-        loc = record.location
-        chn = record.channel
-
-        self.add_stream(net, sta, loc, chn)
-        self.stream[net][sta][loc][chn].append(record)
 
 class Record(object):
     """
@@ -179,6 +93,7 @@ class Record(object):
 
     def __init__(self, byte_stream=None):
 
+        # TO DO: initialise header and blockette 100 with empty fields
         self.header = {}
         self.blockette = {}
         self.data = []
@@ -361,22 +276,6 @@ class Record(object):
         return 1./srate
 
     @property
-    def time(self):
-        """
-        """
-        year = self.header['YEAR']
-        day = self.header['DAY']
-        hour = self.header['HOURS']
-        minute = self.header['MINUTES']
-        second = self.header['SECONDS']
-        msecond = self.header['MSECONDS'] * 1e-4
-
-        # Convert total days to month/day
-        (month, day) = days_to_month(year, day)
-
-        return Date([year, month, day, hour, minute, second + msecond])
-
-    @property
     def length(self):
         """
         """
@@ -384,34 +283,30 @@ class Record(object):
                 self.header['OFFSET_TO_BEGINNING_OF_DATA'])
 
     @property
-    def duration(self):
+    def sid(self):
         """
+        Stream identifier (FSDN code)
         """
-        return self.header['NUMBER_OF_SAMPLES'] * self.delta
+        net = self.header['NETWORK_CODE'].strip()
+        sta = self.header['STATION_CODE'].strip()
+        loc = self.header['LOCATION_IDENTIFIER'].strip()
+        chn = self.header['CHANNEL_IDENTIFIER'].strip()
+
+        return '{0}.{1}.{2}.{3}'.format(net, sta, loc, chn)
 
     @property
-    def network(self):
+    def seq(self):
         """
+        Sequence number
         """
-        return self.header['NETWORK_CODE']
+        return int(self.header['SEQUENCE_NUMBER'])
 
-    @property
-    def station(self):
+    def append(self, record):
         """
         """
-        return self.header['STATION_CODE']
+        self.header['SEQUENCE_NUMBER'] = record.header['SEQUENCE_NUMBER']
+        self.data += record.data
 
-    @property
-    def location(self):
-        """
-        """
-        return self.header['LOCATION_IDENTIFIER']
-
-    @property
-    def channel(self):
-        """
-        """
-        return self.header['CHANNEL_IDENTIFIER']
 
 class ByteStream(object):
     """
