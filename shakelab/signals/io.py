@@ -26,34 +26,49 @@ import numpy as np
 from shakelab.signals.base import Record
 from shakelab.signals import mseed, sac, smdb, fourier
 
+from shakelab.libutils.time import Date
+from shakelab.libutils.time import days_to_month
 
-def reader(file, format='sac', path=None, byte_order='le',
+
+def reader(file, format='mseed', path=None, byte_order='be',
                      **kwargs):
     """
     """
+    # Setting path
+    if path is not None:
+        file = path + file
 
     # Initialise an empty trace
     rec_list = []
 
     # Import recordings from file
-    if format == 'mseed':
+
+    if format in ('ms', 'mseed', 'miniseed'):
+
         ms = mseed.MiniSeed(file, byte_order=byte_order)
-        for mr in ms.record:
-            rec = Record()
-            rec.dt = 1./mr.sampling_rate
-            rec.time = mr.time
-            rec.data = np.array(mr.data)
-            rec_list.append(rec)
+
+        for (code, stream) in ms.stream.items():
+            for msrec in stream:
+
+                record = Record()
+                record.head.delta = msrec.delta
+                record.head.time = Date(msrec.time, format='julian')
+                record.head.sid.set(msrec.sid)
+                record.data = np.array(msrec.data)
+
+                rec_list.append(record)
 
     elif format == 'sac':
+
         sc = sac.Sac(file, byte_order=byte_order)
-        rec = Record()
-        rec.dt = sc.sampling_rate()
-        rec.time = sc.time_date()
-        rec.data = np.array(sc.data[0])
-        rec_list.append(rec)
+        record = Record()
+        record.head.rate = sc.sampling_rate()
+        record.head.time = Date(sc.time)
+        record.data = np.array(sc.data[0])
+        rec_list.append(record)
 
     elif format == 'itaca':
+
         it = smdb.Itaca(file)
         rec = Record()
         rec.dt = it.sampling_rate()

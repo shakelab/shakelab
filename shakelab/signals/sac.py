@@ -24,8 +24,6 @@ An simple Python library for SAC file manipulation
 from struct import pack, unpack
 from os.path import isfile
 
-from shakelab.libutils.time import Date
-from shakelab.libutils.time import day_to_month
 
 class Sac(object):
 
@@ -161,29 +159,6 @@ class Sac(object):
                 print('{0:>12} = {1}'.format(H[0], data))
 
     @property
-    def time(self):
-        """
-        """
-        year = self.head['NZYEAR']
-        day = self.head['NZJDAY']
-        hour = self.head['NZHOUR']
-        minute = self.head['NZMIN']
-        second = self.head['NZSEC']
-        msecond = self.head['NZMSEC'] * 1e-4
-
-        # Convert total days to month/day
-        (month, day) = day_to_month(year, day)
-
-        return Date([year, month, day, hour, minute, second + msecond])
-
-    @property
-    def seconds(self):
-        """
-        Rounding to millisecond precision
-        """
-        return round(self.time.to_second(), 4)
-
-    @property
     def delta(self):
         """
         """
@@ -197,6 +172,19 @@ class Sac(object):
         srate = self.sampling_rate
 
         return (nsamp * delta)
+
+    @property
+    def time(self):
+        """
+        """
+        date = '{0:04d}-'.format(self.header['NZYEAR'])
+        date += '{0:03d}T'.format(self.header['NZJDAY'])
+        date += '{0:02d}:'.format(self.header['NZHOUR'])
+        date += '{0:02d}:'.format(self.header['NZMIN'])
+        date += '{0:02d}.'.format(self.header['NZSEC'])
+        date += '{0:04d}'.format(self.header['NZMSEC'])
+
+        return date
 
 
 def _fread(fid, bnum, bkey, bord):

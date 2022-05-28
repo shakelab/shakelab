@@ -27,12 +27,13 @@ HSEC = 3600
 DSEC = 86400
 YDAYS = 365
 
+
 class Date(object):
     """
     Note: error is in seconds
     """
 
-    def __init__(self, date=None, error=0.):
+    def __init__(self, date=None, format='calendar', error=0.):
         self.year = None
         self.month = None
         self.day = None
@@ -42,51 +43,106 @@ class Date(object):
         self.error = error
 
         if date is not None:
-            if type(date) in [list, tuple]:
-                self.set_date(date)
-            elif type(date) in [int, float]:
-                self.from_seconds(date)
+            self.set_date(date, format=format)
+
+    def __repr__(self):
+        """
+        """
+        return self.get_date(dtype='string')
+
+    def set_date(self, date, format='calendar'):
+        """
+        TO: parse date as ISO8601 string (calendar and ordinal)
+        """
+        if isinstance(date, (list, tuple)):
+
+            if date[0] >= 1:
+                self.year = int(date[0])
             else:
-                print('Format not (yet) recognized')
+                raise ValueError('Year must be > 1')
 
-    def set_date(self, date):
+            if date[1] >= 1 and date[1] <= 12:
+                self.month = int(date[1])
+            else:
+                raise ValueError('Month must be between 1 and 12')
+
+            if date[2] >= 1 and date[2] <= 31:
+                self.day = int(date[2])
+            else:
+                raise ValueError('Day must be between 1 and 31')
+
+            if date[3] >= 0 and date[3] <= 23:
+                self.hour = int(date[3])
+            else:
+                raise ValueError('Hours must be between 0 and 23')
+
+            if date[4] >= 0 and date[4] <= 59:
+                self.minute = int(date[4])
+            else:
+                raise ValueError('Minutes must be between 0 and 59')
+
+            if date[5] >= 0 and date[5] < 60:
+                self.second = float(date[5])
+            else:
+                raise ValueError('Seconds must be between 0 and 60')
+
+        elif isinstance(date, str):
+
+            date = date.replace('-', '')
+            date = date.replace(':', '')
+            date = date.replace('T', '')
+
+            if format in ('calendar', 'gregorian'):
+                self.year = int(date[0:4])
+                self.month = int(date[4:6])
+                self.day = int(date[6:8])
+                self.hour = int(date[8:10])
+                self.minute = int(date[10:12])
+                self.second = float(date[12:])
+
+            if format in ('ordinal', 'julian'):
+                self.year = int(date[0:4])
+                julian_day = int(date[4:7])
+                self.hour = int(date[7:9])
+                self.minute = int(date[9:11])
+                self.second = float(date[11:])
+
+                # Convert total days to month/day
+                (self.month, self.day) = days_to_month(self.year, julian_day)
+
+        elif isinstance(date, dict):
+
+            self.year = date['year']
+            self.day = date['day']
+            self.hour = date['hour']
+            self.minute = date['minute']
+            self.second = date['second']
+
+            if format in ('ordinal', 'julian'):
+                (self.month, self.day) = days_to_month(self.year, self.day)
+            else:
+                self.month = date['month']
+
+        else:
+            print('Format not (yet) recognized')
+
+    def get_date(self, dtype='list', format='calendar'):
         """
         """
-        if date[0] >= 1:
-            self.year = int(date[0])
-        else:
-            raise ValueError('Year must be > 1')
+        if type in ('l', 'list'):
+            date = [self.year, self.month, self.day,
+                    self.hour, self.minute, self.second]
 
-        if date[1] >= 1 and date[1] <= 12:
-            self.month = int(date[1])
-        else:
-            raise ValueError('Month must be between 1 and 12')
+        elif dtype in ('s', 'str', 'string'):
 
-        if date[2] >= 1 and date[2] <= 31:
-            self.day = int(date[2])
-        else:
-            raise ValueError('Day must be between 1 and 31')
+            date = '{0:04d}-'.format(self.year)
+            date += '{0:02d}-'.format(self.month)
+            date += '{0:02d}T'.format(self.day)
+            date += '{0:02d}:'.format(self.hour)
+            date += '{0:02d}:'.format(self.minute)
+            date += '{0:07.4f}'.format(self.second)
 
-        if date[3] >= 0 and date[3] <= 23:
-            self.hour = int(date[3])
-        else:
-            raise ValueError('Hours must be between 0 and 23')
-
-        if date[4] >= 0 and date[4] <= 59:
-            self.minute = int(date[4])
-        else:
-            raise ValueError('Minutes must be between 0 and 59')
-
-        if date[5] >= 0 and date[5] < 60:
-            self.second = float(date[5])
-        else:
-            raise ValueError('Seconds must be between 0 and 60')
-
-    def get_date(self):
-        """
-        """
-        return [self.year, self.month, self.day,
-                self.hour, self.minute, self.second]
+        return date
 
     def to_seconds(self):
         """
@@ -139,10 +195,6 @@ class Date(object):
         else:
             print('Not a supported operation')
 
-    #def __repr__(self):
-    #    """
-    #    """
-    #    return repr(self.get_date())
 
 def leap_check(year):
     """
