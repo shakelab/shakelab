@@ -295,6 +295,8 @@ class Record(object):
 
     def append(self, record):
         """
+        Append the data from a recording to the current.
+        Note that sequence number is updated.
         """
         self.header['SEQUENCE_NUMBER'] = record.header['SEQUENCE_NUMBER']
         self.data += record.data

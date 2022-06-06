@@ -165,24 +165,15 @@ class Sac(object):
         return self.head['DELTA']
 
     @property
-    def duration(self):
-        """
-        """
-        nsamp = self.header['NPTS']
-        srate = self.sampling_rate
-
-        return (nsamp * delta)
-
-    @property
     def time(self):
         """
         """
-        date = '{0:04d}-'.format(self.header['NZYEAR'])
-        date += '{0:03d}T'.format(self.header['NZJDAY'])
-        date += '{0:02d}:'.format(self.header['NZHOUR'])
-        date += '{0:02d}:'.format(self.header['NZMIN'])
-        date += '{0:02d}.'.format(self.header['NZSEC'])
-        date += '{0:04d}'.format(self.header['NZMSEC'])
+        date = '{0:04d}-'.format(self.head['NZYEAR'])
+        date += '{0:03d}T'.format(self.head['NZJDAY'])
+        date += '{0:02d}:'.format(self.head['NZHOUR'])
+        date += '{0:02d}:'.format(self.head['NZMIN'])
+        date += '{0:02d}.'.format(self.head['NZSEC'])
+        date += '{0:04d}'.format(self.head['NZMSEC'])
 
         return date
 

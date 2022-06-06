@@ -21,29 +21,40 @@
 Module to import / export data formats
 """
 
+import os
 import numpy as np
 
 from shakelab.signals.base import Record
-from shakelab.signals import mseed, sac, smdb, fourier
+from shakelab.signals import mseed, sac, smdb
 
 from shakelab.libutils.time import Date
 from shakelab.libutils.time import days_to_month
 
 
-def reader(file, format='mseed', path=None, byte_order='be',
-                     **kwargs):
+def reader(file, ftype=None, byte_order='be'):
     """
     """
-    # Setting path
-    if path is not None:
-        file = path + file
-
     # Initialise an empty trace
     rec_list = []
 
-    # Import recordings from file
+    if ftype is None:
 
-    if format in ('ms', 'mseed', 'miniseed'):
+        # Try to identify file from extension
+        fext = os.path.splitext(file)[1]
+
+        if fext in ['.ms', '.mseed', '.miniseed']:
+            ftype = 'mseed'
+
+        elif fext in ['.sac', '.SAC']:
+            ftype = 'sac'
+
+        else:
+            raise NotImplementedError('format not recognized')
+
+
+    # Import recordings
+
+    if ftype == 'mseed':
 
         ms = mseed.MiniSeed(file, byte_order=byte_order)
 
@@ -55,44 +66,55 @@ def reader(file, format='mseed', path=None, byte_order='be',
                 record.head.time = Date(msrec.time, format='julian')
                 record.head.sid.set(msrec.sid)
                 record.data = np.array(msrec.data)
-
                 rec_list.append(record)
 
-    elif format == 'sac':
+    elif ftype == 'sac':
 
         sc = sac.Sac(file, byte_order=byte_order)
         record = Record()
-        record.head.rate = sc.sampling_rate()
-        record.head.time = Date(sc.time)
+        record.head.delta= sc.delta
+        record.head.time = Date(sc.time, format='julian')
         record.data = np.array(sc.data[0])
         rec_list.append(record)
 
-    elif format == 'itaca':
+    elif ftype == 'itaca':
 
         it = smdb.Itaca(file)
-        rec = Record()
-        rec.dt = it.sampling_rate()
-        rec.data = it.time_date()
-        rec.data = it.data
-        rec_list.append(rec)
+        record = Record()
+        record.head.rate = it.sampling_rate()
+        record.head.time = Date(it.time)
+        record.data = np.array(it.data)
+        rec_list.append(record)
 
-    elif format == 'ascii':
+    elif ftype == 'ascii':
         raise NotImplementedError('format not yet implemented')
 
-    elif format == 'seisan':
+    elif ftype == 'seisan':
         raise NotImplementedError('format not yet implemented')
 
-    elif format == 'seg2':
+    elif ftype == 'seg2':
         raise NotImplementedError('format not yet implemented')
 
-    elif format == 'dat':
+    elif ftype == 'dat':
         raise NotImplementedError('format not yet implemented')
 
-    elif format == 'gse':
+    elif ftype == 'gse':
+        raise NotImplementedError('format not yet implemented')
+
+    elif ftype == 'reftek':
         raise NotImplementedError('format not yet implemented')
 
     else:
-        raise NotImplementedError('format not recognized')
+        pass
 
     return rec_list
+
+
+def RecDatabase(object):
+    """
+    """
+
+    def __init__(self, **kwargs):
+        self.record = []
+
 

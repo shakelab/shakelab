@@ -32,41 +32,6 @@ from shakelab.libutils.geodetic import WgsPoint
 from shakelab.signals import fourier
 
 
-class StreamId(object):
-    """
-    """
-    def __init__(self, code=None):
-        self.network = ''
-        self.station = ''
-        self.location = ''
-        self.channel = ''
-
-        if code is not None:
-            self.set(code)
-
-    def __repr__(self):
-        return '{0}.{1}.{2}.{3}'.format(self.network,
-                                        self.station,
-                                        self.location,
-                                        self.channel)
-
-    def set(self, code):
-        """
-        """
-        if isinstance(code, str):
-            code = code.split('.')
-            self.network = code[0]
-            self.station = code[1]
-            self.location = code[2]
-            self.channel = code[3]
-
-        if isinstance(code, dict):
-            self.network = code['network']
-            self.station = code['station']
-            self.location = code['location']
-            self.channel = code['channel']
-
-
 class Header(object):
     """
     """
@@ -96,6 +61,47 @@ class Header(object):
     def rate(self, value):
         self._rate = value
         self._delta = 1./value
+
+
+class StreamId(object):
+    """
+    """
+    def __init__(self, code=None):
+        self.network = ''
+        self.station = ''
+        self.location = ''
+        self.channel = ''
+
+        if code is not None:
+            self.set(code)
+
+    def __repr__(self):
+        return '{0}.{1}.{2}.{3}'.format(self.network,
+                                        self.station,
+                                        self.location,
+                                        self.channel)
+
+    def set(self, code):
+        """
+        """
+        if isinstance(code, (list, tuple)):
+            self.network = code[0]
+            self.station = code[1]
+            self.location = code[2]
+            self.channel = code[3]
+
+        if isinstance(code, str):
+            code = code.split('.')
+            self.network = code[0]
+            self.station = code[1]
+            self.location = code[2]
+            self.channel = code[3]
+
+        if isinstance(code, dict):
+            self.network = code['network']
+            self.station = code['station']
+            self.location = code['location']
+            self.channel = code['channel']
 
 
 class Record(object):

@@ -29,6 +29,7 @@ from shakelab.libutils.time import Date
 def fft(data):
     """
     Note: better using numpy.fft or scipy.fftpack?
+    Amplitude scaling should be optional.
     """
     return np.fft.fft(data) * (2/len(data))
 
