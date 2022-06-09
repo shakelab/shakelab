@@ -21,74 +21,89 @@
 """
 
 import numpy as np
+from scipy import interpolate
 
-from shakelab.signals import base
-from shakelab.libutils.time import Date
+import shakelab.signals.base as base
 
+def _halflen(snum):
+    """
+    Computing half-length of FFT, accounting for
+    odd/even number of samples
+    """
+    return np.rint(snum/2)
 
 def fft(data):
     """
-    Note: better using numpy.fft or scipy.fftpack?
-    Amplitude scaling should be optional.
+    Amplitude scaling should be optional...
     """
-    return np.fft.fft(data) * (2/len(data))
+    return np.fft.rfft(data) * 2 / len(data)
 
 def ifft(data):
     """
     """
-    return np.fft.ifft(data) / (2/len(data))
+    return np.fft.irfft(data) * len(data)
 
-def fft_axis_double_sided(snum, dt):
+def frequency(snum, delta):
     """
-    Equivalent to numpy.fft.fftfreq()
-    Only used as reference.
     """
+    return np.fft.rfftfreq(snum, delta)
 
-    # Check for odd/even number of samples
-    if np.mod(snum, 2) == 0:
-        pax = np.arange(0, snum/2)
-        nax = np.arange(-snum/2, 0)
-    else:
-        pax = np.arange(0, (snum+1)/2)
-        nax = np.arange(-(snum-1)/2, 0)
-        
-    return np.concatenate((pax, nax))/(dt*snum)
-
-def fft_axis_single_sided(snum, dt):
-    """
-    Compute the positive frequency axis of an fft.
-    """
-
-    # return np.arange(snum)*(1./(snum*dt))
-    return np.linspace(0., (snum-1.)/(dt*snum), snum)
-
-def shift_time(signal, dt, time):
+def shift_time(signal, delta, shift):
     """
     Shift a signal in time by using fft-based circular convolution.
     No zero-padding is assumed.
     """
 
-    frax = np.fft.fftfreq(len(signal), dt)
-    expt = np.exp(-2*1j*np.pi*time*frax)
-    shift = ifft(fft(signal)*expt)
+    freq = frequency(len(signal), delta)
+    expt = np.exp(-2*1j*np.pi*shift*freq)
 
-    return np.real(shift)
+    return ifft(fft(signal)*expt)
 
 
 class Spectrum():
     """
-    Fourier spectrum base class
+    Discrete Fourier spectrum class in FFT format
     """
 
-    def __init__(self):
-        self.data = []
-        self.time = Date()
+    def __init__(self, record=None):
+        self.head = base.Header()
+        self.data = np.array([], dtype="complex")
+
+        if record is not None:
+            self.fft(record)
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, sliced):
         return self.data[sliced]
+
+    def fft(self, record, norm=False):
+        """
+        """
+        self.head = record.head
+        self.data = fft(record.data)
+
+        if norm:
+            self.data = self.data / record.dt
+
+    def ifft(self, norm=False):
+        """
+        """
+        record = base.Record()
+        record.head = self.head
+        record.data = ifft(self.data)
+
+        if norm:
+            record.data = record.data / self.df
+
+        return record
+
+    @property
+    def df(self):
+        """
+        """
+        return 1/(self.head.delta * (len(self)-1))
 
     @property
     def amplitude(self):
@@ -101,51 +116,23 @@ class Spectrum():
         """
         """
         phase = np.angle(self.data)
-        if unwrap:
-            return np.unwrap(phase)
-        else:
-            return phase
 
-
-class DiscreteSpectrum(Spectrum):
-    """
-    Discrete Fourier spectrum
-    """
-
-    def __init__(self):
-        pass
-
-
-class FFTSpectrum(Spectrum):
-    """
-    Fourier spectrum in FFT format
-    """
-
-    def __init__(self, record=None):
-        self.df = None
-
-        if record is not None:
-            self.fft(record)
-
-    def fft(self, record, norm=False):
+    @property
+    def unwrap(self):
         """
         """
-        self.df = 1./(record.dt * len(record))
-        self.data = fft(record.data)
-        if norm:
-            self.data = self.data / record.dt
-        self.time = record.time
+        return np.unwrap(self.phase)
 
-    def ifft(self, norm=False):
+    @property
+    def frequency(self):
         """
         """
-        record = base.Record()
-        record.dt = 1./(self.df * len(self))
-        record.data = np.real(ifft(self.data))
-        if norm:
-            record.data = record.data / self.df
-        record.time = self.time
-        return record
+        return frequency(2*len(self)-1, self.head.delta)
 
-
+    def resample(self, frequency):
+        """
+        Extract spectrum samples at specific frequencies.
+        """
+        f = interpolate.interp1d(self.frequency, self.data)
+        return f(frequency)
 

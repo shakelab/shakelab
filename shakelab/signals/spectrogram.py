@@ -37,10 +37,9 @@ def cwt(signal, delta, wavelet):
     pass
 
 def stransform(signal, delta):
-
     # Compute S-Transform without for loops
-    # Coded by Kalyan S. Dash
-    # IIT Bhubaneswar, India
+    # Ported in python from the origina code by Kalyan S. Dash
+    # (IIT Bhubaneswaqr, India)
 
     signal = np.reshape(signal, (1, -1))
 
@@ -70,7 +69,7 @@ def stransform(signal, delta):
     hw = hw[1 : nhaf + 1, :]
 
     # Compute Stockwell Transform
-    st = np.fft.ifft(hw*gw)
+    st = np.fft.ifft(hw * gw)
 
     # Add the zero freq row
     st0 = np.mean(signal) * np.ones((1, n))

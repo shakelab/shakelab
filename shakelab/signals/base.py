@@ -29,7 +29,7 @@ from copy import deepcopy
 
 from shakelab.libutils.time import Date
 from shakelab.libutils.geodetic import WgsPoint
-from shakelab.signals import fourier
+import shakelab.signals.fourier as fourier
 
 
 class Header(object):
@@ -122,7 +122,6 @@ class Record(object):
         """
         """
         return (len(self) - 1) * self.head.delta
-
 
     def time_axis(self, reference='relative', shift=0.):
         """
