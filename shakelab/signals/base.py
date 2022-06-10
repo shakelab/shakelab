@@ -118,6 +118,7 @@ class Record(object):
     def __getitem__(self, sliced):
         return self.data[sliced]
 
+    @property
     def duration(self):
         """
         """
@@ -176,7 +177,7 @@ class Record(object):
         i0 = 0
         t0 = 0.
         i1 = len(self)
-        t1 = self.duration()
+        t1 = self.duration
 
         if (starttime is not None):
             if isinstance(starttime, Date):
@@ -190,15 +191,15 @@ class Record(object):
             elif isinstance(endtime, (int, float)):
                 t1 = endtime
 
-        if (0. < t0 < self.duration()):
-            i0 = int(np.argwhere(self.taxis() > t0)[0])
+        if (0. < t0 < self.duration):
+            i0 = int(np.argwhere(self.time > t0)[0])
 
-        if (0. < t1 < self.duration()):
-            i1 = int(np.argwhere(self.taxis() > t1)[0])
+        if (0. < t1 < self.duration):
+            i1 = int(np.argwhere(self.time > t1)[0])
 
         if (i1 > i0):
             self.data = self.data[i0:i1]
-            self.time += t0
+            self.head.time += t0
         else:
             print('Error: endtime before starttime')
 
@@ -253,7 +254,7 @@ class Record(object):
                                            initial=0)
         elif method == 'fft':
             self.data = fftpack.diff(self.data, order=-1,
-                                     period=self.duration())
+                                     period=self.duration)
         else:
             raise NotImplementedError('method not implemented')
 
@@ -265,7 +266,7 @@ class Record(object):
 
         elif method == 'fft':
             self.data = fftpack.diff(self.data, order=1,
-                                     period=self.duration())
+                                     period=self.duration)
         else:
             raise NotImplementedError('method not implemented')
 

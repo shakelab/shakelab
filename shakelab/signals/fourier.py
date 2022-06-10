@@ -54,7 +54,6 @@ def shift_time(signal, delta, shift):
     Shift a signal in time by using fft-based circular convolution.
     No zero-padding is assumed.
     """
-
     freq = frequency(len(signal), delta)
     expt = np.exp(-2*1j*np.pi*shift*freq)
 
@@ -130,6 +129,15 @@ class Spectrum():
         """
         return frequency(2*len(self)-1, self.head.delta)
 
+    def filter(self, highpass=None, lowpass=None):
+        """
+        """
+        if (highpass is not None):
+            self.data[self.frequency < highpass] = 0.
+
+        if (lowpass is not None):
+            self.data[self.frequency > lowpass] = 0.
+
     def resample(self, frequency):
         """
         Extract spectrum samples at specific frequencies.
@@ -141,6 +149,7 @@ class Spectrum():
         """
         Logarithm smoothing of (complex) spectra.
         Note: 0-frequency is preserved
+        TO-DO: algorithm is slow and memory consuming, must be optimized.
         """
         slen = len(self)
         freq = np.log(self.frequency[1:])
