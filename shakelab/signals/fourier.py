@@ -22,6 +22,7 @@
 
 import numpy as np
 from scipy import interpolate
+from copy import deepcopy
 
 import shakelab.signals.base as base
 
@@ -81,7 +82,7 @@ class Spectrum():
     def fft(self, record, norm=False):
         """
         """
-        self.head = record.head
+        self.head = deepcopy(record.head)
         self.data = fft(record.data)
 
         if norm:
@@ -91,7 +92,7 @@ class Spectrum():
         """
         """
         record = base.Record()
-        record.head = self.head
+        record.head = deepcopy(self.head)
         record.data = ifft(self.data)
 
         if norm:
@@ -112,7 +113,7 @@ class Spectrum():
         return np.abs(self.data)
 
     @property
-    def phase(self, unwrap=False):
+    def phase(self):
         """
         """
         phase = np.angle(self.data)
@@ -135,4 +136,23 @@ class Spectrum():
         """
         f = interpolate.interp1d(self.frequency, self.data)
         return f(frequency)
+
+    def logsmooth(self, sigma):
+        """
+        Logarithm smoothing of (complex) spectra.
+        Note: 0-frequency is preserved
+        """
+        slen = len(self)
+        freq = np.log(self.frequency[1:])
+        data = np.log(self.data[1:])
+        s0 = self.data[0]
+
+        smat = np.zeros((slen-1, slen-1))
+
+        for i,f0 in enumerate(freq):
+            # Gaussian weighting window
+            g = np.exp(-np.power((freq - f0)/sigma, 2.)/2.)
+            smat[:,i] = g / sum(g)
+
+        return np.insert(np.exp(np.matmul(data, smat)), 0, s0)
 
