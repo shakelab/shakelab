@@ -145,7 +145,7 @@ class Spectrum():
         f = interpolate.interp1d(self.frequency, self.data)
         return f(frequency)
 
-    def logsmooth(self, sigma):
+    def logsmooth(self, sigma, memsafe=False):
         """
         Logarithm smoothing of (complex) spectra.
         Note: 0-frequency is preserved
@@ -156,12 +156,25 @@ class Spectrum():
         data = np.log(self.data[1:])
         s0 = self.data[0]
 
-        smat = np.zeros((slen-1, slen-1))
+        if not memsafe:
+            # Fast vectorial version, although memory consuming
+            fmat = np.tile(freq, (slen - 1, 1))
 
-        for i,f0 in enumerate(freq):
             # Gaussian weighting window
-            g = np.exp(-np.power((freq - f0)/sigma, 2.)/2.)
-            smat[:,i] = g / sum(g)
+            g = np.exp(-np.power((fmat - fmat.T)/sigma, 2.)/2.)
+            sumg = np.matmul(g, np.ones(slen-1))
+            del(fmat)
+            smat = g / sumg
 
-        return np.insert(np.exp(np.matmul(data, smat)), 0, s0)
+            return np.insert(np.exp(np.matmul(data, smat)), 0, s0)
 
+        else:
+            # Slower version, but memory saving for large arrays.
+            sdata = np.zeros(slen-1, dtype='complex')
+
+            for i,f0 in enumerate(freq):
+                # Gaussian weighting window
+                g = np.exp(-np.power((freq - f0)/sigma, 2.)/2.)
+                sdata[i]= np.matmul(data, g/sum(g))
+
+            return np.insert(np.exp(sdata), 0, s0)
