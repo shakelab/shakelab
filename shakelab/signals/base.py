@@ -140,7 +140,7 @@ class Record(object):
     def remove_mean(self):
         """
         """
-        self.data -= np.mean(self.data)
+        self.data = self.data - np.mean(self.data)
 
     def filter(self, highpass=None, lowpass=None, order=2, minphase=False):
         """
@@ -176,29 +176,29 @@ class Record(object):
         """
         i0 = 0
         t0 = 0.
-        i1 = len(self)
+        i1 = len(self) - 1
         t1 = self.duration
 
         if (starttime is not None):
             if isinstance(starttime, Date):
-                t0 = starttime - self.time
+                t0 = starttime - self.head.time
             elif isinstance(starttime, (int, float)):
                 t0 = starttime
 
         if (endtime is not None):
             if isinstance(endtime, Date):
-                t1 = endtime - self.time
+                t1 = endtime - self.head.time
             elif isinstance(endtime, (int, float)):
                 t1 = endtime
 
         if (0. < t0 < self.duration):
-            i0 = int(np.argwhere(self.time > t0)[0])
+            i0 = int(np.argwhere(self.time >= t0)[0])
 
         if (0. < t1 < self.duration):
-            i1 = int(np.argwhere(self.time > t1)[0])
+            i1 = int(np.argwhere(self.time <= t1)[-1])
 
         if (i1 > i0):
-            self.data = self.data[i0:i1]
+            self.data = self.data[i0:i1+1]
             self.head.time += t0
         else:
             print('Error: endtime before starttime')

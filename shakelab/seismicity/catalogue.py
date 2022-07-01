@@ -433,9 +433,9 @@ class EqDatabase(object):
         """
         return deepcopy(self)
 
-    def select(self, key, operator, value, delete_empty=True):
+    def filter(self, key, operator, value, delete_empty=True):
         """
-        Note: this method will filter in place.
+        Note: this method will filter solutions in place.
         None items will be filtered out
         """
         if key in _LOCMAP:

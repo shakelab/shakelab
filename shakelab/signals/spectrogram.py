@@ -24,26 +24,40 @@ Collection of algorithms to compute time-frequency spectrograms.
 import numpy as np
 from numpy.matlib import repmat
 from scipy.linalg import toeplitz
+from scipy import signal
 
 
-def wft(signal, delta):
+def wft(data, delta):
     """
-    """
-    pass
-
-def cwt(signal, delta, wavelet):
-    """
+    Windowed Fourier transform
     """
     pass
 
-def stransform(signal, delta):
+def cwt(data, delta, freq, omega0=6):
+    """
+    Continuous wavelet transform with complex Morlet wavelet.
+    """
+    if isinstance(freq, (int, float)):
+        freq = np.array([freq])
+
+    widths = omega0 /(2*np.pi*delta*freq)
+    return signal.cwt(data, signal.morlet2, widths, w=omega0)
+
+def cst(dara, delta, freq):
+    """
+    Continuous Stockwell transform
+    """
+    pass
+    #wav = np.exp(-(2*np.pi*freq)**2/f0) * np.exp(2*pi*1j*freq)
+
+def stransform(data, delta):
     # Compute S-Transform without for loops
     # Ported in python from the origina code by Kalyan S. Dash
     # (IIT Bhubaneswaqr, India)
 
-    signal = np.reshape(signal, (1, -1))
+    data = np.reshape(data, (1, -1))
 
-    (_, n) = signal.shape
+    (_, n) = data.shape
 
     nhaf = int(np.fix(n/2))
 
@@ -55,7 +69,7 @@ def stransform(signal, delta):
     f_r = np.arange(-nhaf + 1 - odvn, 0)/(delta*n)
     f = np.concatenate([f_l, f_r])
 
-    hft = np.fft.fft(signal)
+    hft = np.fft.fft(data)
 
     # Compute all frequency domain Gaussians as one matrix
     invfk = np.array([1.0 / f[1 : nhaf + 1]]).T
@@ -72,7 +86,7 @@ def stransform(signal, delta):
     st = np.fft.ifft(hw * gw)
 
     # Add the zero freq row
-    st0 = np.mean(signal) * np.ones((1, n))
+    st0 = np.mean(data) * np.ones((1, n))
     st = np.concatenate([st0, st])
 
     return f_l, st

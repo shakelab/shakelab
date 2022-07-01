@@ -151,30 +151,31 @@ class Spectrum():
         Note: 0-frequency is preserved
         TO-DO: algorithm is slow and memory consuming, must be optimized.
         """
-        slen = len(self)
-        freq = np.log(self.frequency[1:])
+        slen = len(self) - 1
+        freq = np.log(self.frequency[1:]) / (np.sqrt(2) * sigma)
         data = np.log(self.data[1:])
         s0 = self.data[0]
 
         if not memsafe:
             # Fast vectorial version, although memory consuming
-            fmat = np.tile(freq, (slen - 1, 1))
 
             # Gaussian weighting window
-            g = np.exp(-np.power((fmat - fmat.T)/sigma, 2.)/2.)
-            sumg = np.matmul(g, np.ones(slen-1))
-            del(fmat)
+            g = np.exp(-(np.tile(freq, slen) - np.repeat(freq, slen))**2)
+            g = g.reshape(slen, slen)
+            
+            sumg = np.matmul(g, np.ones(slen))
             smat = g / sumg
 
             return np.insert(np.exp(np.matmul(data, smat)), 0, s0)
 
         else:
-            # Slower version, but memory saving for large arrays.
-            sdata = np.zeros(slen-1, dtype='complex')
+            # Slower version, but memory saving for large time series.
+            sdata = np.zeros(slen, dtype='complex')
 
             for i,f0 in enumerate(freq):
                 # Gaussian weighting window
-                g = np.exp(-np.power((freq - f0)/sigma, 2.)/2.)
+                g = np.exp(-(freq - f0)**2)
+
                 sdata[i]= np.matmul(data, g/sum(g))
 
             return np.insert(np.exp(sdata), 0, s0)

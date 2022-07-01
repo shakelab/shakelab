@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2022, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -29,7 +29,7 @@ class MiniSeed(object):
     """
     """
 
-    def __init__(self, file=None, byte_order='le'):
+    def __init__(self, file=None, byte_order='be'):
 
         # Set byte order
         self._byte_order = byte_order
@@ -187,7 +187,7 @@ class Record(object):
 
         if enc in [0, 1, 3, 4]:
 
-            bnum = self.length()//data_struc[enc][1]
+            bnum = self.length//data_struc[enc][1]
             data = [None] * bnum
 
             # Reading all data bytes, including zeros
@@ -200,6 +200,9 @@ class Record(object):
                 data = "".join([d.decode() for d in data])
 
         elif enc in [10, 11]:
+
+            if byte_stream.byte_order == 'le':
+                raise ValueError('STEIM1/2 only defined for Big-Endian')
 
             cnt = 0
             data = [None] * nos
@@ -309,7 +312,7 @@ class ByteStream(object):
     Useful in combination with seedlink data.
     """
 
-    def __init__(self, byte_stream, byte_order='le'):
+    def __init__(self, byte_stream, byte_order='be'):
 
         if isinstance(byte_stream, bytes):
             self.sid = BytesIO(byte_stream)
