@@ -21,7 +21,6 @@
 Module for basic waveform analysis
 """
 
-import scipy as sp
 import numpy as np
 
 from scipy import signal, fftpack, integrate
@@ -29,7 +28,11 @@ from copy import deepcopy
 
 from shakelab.libutils.time import Date
 from shakelab.libutils.geodetic import WgsPoint
+from shakelab.structures.response import (sdof_response_spectrum,
+                                          sdof_interdrift,
+                                          newmark_integration)
 import shakelab.signals.fourier as fourier
+from shakelab.libutils.constants import PI, GRAVITY
 
 
 class Header(object):
@@ -41,6 +44,7 @@ class Header(object):
         self.time = Date()
         self.location = WgsPoint(None, None)
         self.sid = StreamId()
+        self.units = None
         self.response = None
         self.meta = {}
 
@@ -213,7 +217,7 @@ class Record(object):
             alpha = 1
         else:
             alpha = min(2 * float(time)/(self.head.delta * tnum), 1)
-        self.data = (self.data * sp.signal.tukey(tnum, alpha))
+        self.data = (self.data * signal.tukey(tnum, alpha))
 
     def zero_padding(self, time):
         """
@@ -282,30 +286,87 @@ class Record(object):
         self.data = signal.correlate(self.data, record.data,
                                      mode=mode, method=method)
 
-    def copy(self):
-        """
-        """
-        return deepcopy(self)
-
     def peak_amplitude(self):
         """
         """
         return np.max(np.abs(self.data))
 
-    def significant_duration(self):
+    def arias_intesity(self):
         """
         """
-        pass
+        integral = integrate.trapz(self.data**2, dx=self.head.delta)
+        return PI * integral / (2*GRAVITY)
 
-    def bracketed_duration(self):
+    def cumulative_absolute_velocity(self):
         """
         """
-        pass
+        return integrate.trapz(np.abs(self.data), dx=self.head.delta)
 
-    def integral_amplitude(self):
+    def bracketed_duration(self, threshold=0.05):
         """
         """
-        pass
+        data = np.argwhere(np.abs(self.data) >= threshold)
+
+        if data.size != 0:
+            i0 = data[0][0]
+            i1 = data[-1][0]
+            return self.time[i1] - self.time[i0]
+        else:
+            return None
+
+    def significant_duration(self, threshold=(0.05,0.95)):
+        """
+        """
+        num = integrate.cumtrapz(self.data**2, dx=self.head.delta)
+        den = integrate.trapz(self.data**2, dx=self.head.delta)
+        cum_arias = num/den
+
+        i0 = np.argwhere(cum_arias >= threshold[0])[0][0]
+        i1 = np.argwhere(cum_arias <= threshold[1])[-1][0]
+
+        return self.time[i1] - self.time[i0]
+
+    def root_mean_square(self):
+        """
+        """
+        integral = integrate.trapz(self.data**2, dx=self.head.delta)
+
+        return np.sqrt(integral/self.duration)
+
+    def sdof_response_spectrum(self, periods, zeta=0.05):
+        """
+        """
+        periods = np.array(periods, ndmin=1)
+
+        rssp = sdof_response_spectrum(self.data, self.head.delta,
+                                      periods, zeta=zeta)
+
+        return {'sd' : rssp[0],
+                'sv' : rssp[1],
+                'sa' : rssp[2],
+                'psv' : rssp[3],
+                'psa' : rssp[4]}
+
+    def sdof_time_integrate(self, period, zeta=0.05):
+        """
+        """
+        resp = newmark_integration(self.data, self.head.delta,
+                                   period, zeta=zeta)
+
+        return {'d' : resp[0],
+                'v' : resp[1],
+                'a' : resp[2]}
+
+    def sdof_interdrift(self, period, zeta=0.05):
+        """
+        """
+        return sdof_interdrift(self.data, self.head.delta,
+                               period, zeta=zeta)
+
+    def copy(self):
+        """
+        """
+        return deepcopy(self)
 
 
 class Channel(object):

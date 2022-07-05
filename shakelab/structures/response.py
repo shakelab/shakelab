@@ -22,11 +22,11 @@
 
 import numpy as np
 
-from shakelab.libutils.constants import GRAVITY, PI
+from shakelab.libutils.constants import PI
 from shakelab.signals.fourier import frequency, fft, ifft
 
 
-def response_sdof(accg, delta, periods, zeta=0.05, method='newmark'):
+def sdof_response_spectrum(accg, delta, periods, zeta=0.05, method='newmark'):
     """
     """
     tlen = len(periods)
@@ -59,9 +59,17 @@ def response_sdof(accg, delta, periods, zeta=0.05, method='newmark'):
 
     return sd, sv, sa, psv, psa
 
+def sdof_interdrift(accg, delta, period, zeta=0.05, norm=1.):
+    """
+    """
+    top = newmark_integration(accg, delta, period, zeta=zeta)
+    bot = newmark_integration(accg, delta, 1e3, zeta=zeta)
+
+    return (top[0] - bot[0]) / norm
+
 def newmark_integration(accg, delta, period, zeta=0.05, beta=0.25, gamma=0.5):
     """
-    accg: ground acceleration
+    accg: input ground acceleration
     """
     alen = len(accg)
 
@@ -95,7 +103,7 @@ def newmark_integration(accg, delta, period, zeta=0.05, beta=0.25, gamma=0.5):
 
 def fourier_integration(accg, delta, period, zeta=0.05, nc=1):
     """
-    Fourier domain solution
+    Fourier domain solution (circular convolution)
     nc: number trace length cycles padded with zero
     """
 
