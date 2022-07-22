@@ -23,7 +23,7 @@
 import numpy as np
 
 from shakelab.libutils.constants import PI
-from shakelab.signals.fourier import frequency, fft, ifft
+from shakelab.signals import fourier
 
 
 def sdof_response_spectrum(accg, delta, periods, zeta=0.05, method='newmark'):
@@ -116,18 +116,18 @@ def fourier_integration(accg, delta, period, zeta=0.05, nc=1):
     omega0 = 2.*PI/period
 
     # Convolution axis
-    omega = 2.*PI*frequency(len(accg), delta)
+    omega = 2.*PI*fourier.frequency(len(accg), delta)
 
     # Input Fourier spectrum
-    trace_fft = fft(accg);
+    trace_fft = fourier.fft(accg);
 
     # Harmonic oscillator spectrum
     sdof_fft = sdof_transfer_function(omega, omega0, zeta)
 
     # Convolution
-    d = ifft(trace_fft * sdof_fft)
-    v = ifft(trace_fft * sdof_fft * 1j*omega)
-    a = ifft(trace_fft * sdof_fft * -(omega**2))
+    d = fourier.ifft(trace_fft * sdof_fft)
+    v = fourier.ifft(trace_fft * sdof_fft * 1j*omega)
+    a = fourier.ifft(trace_fft * sdof_fft * -(omega**2))
 
     return -d[:alen], -v[:alen], -a[:alen]+accg[:alen]
 

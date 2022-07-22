@@ -31,7 +31,7 @@ from shakelab.libutils.geodetic import WgsPoint
 from shakelab.structures.response import (sdof_response_spectrum,
                                           sdof_interdrift,
                                           newmark_integration)
-import shakelab.signals.fourier as fourier
+from shakelab.signals import fourier
 from shakelab.libutils.constants import PI, GRAVITY
 
 
@@ -286,6 +286,33 @@ class Record(object):
         self.data = signal.correlate(self.data, record.data,
                                      mode=mode, method=method)
 
+    @property
+    def analytic_signal(self):
+        """
+        Compute the analytic signal using the Hilbert transform.
+        The Hilbert transformed signal will be the imaginary part of
+        the analytical signal.
+        """
+        return signal.hilbert(self.data)
+
+    @property
+    def amplitude_envelope(self):
+        """
+        """
+        return np.abs(self.analytic_signal)
+
+    @property
+    def instantaneous_phase(self):
+        """
+        """
+        return np.unwrap(np.angle(self.analytic_signal))
+
+    @property
+    def instantaneous_frequency(self):
+        """
+        """
+        return np.diff(self.instantaneous_phase) / (2*PI) * self.head.rate
+
     def peak_amplitude(self):
         """
         """
@@ -347,7 +374,7 @@ class Record(object):
                 'psv' : rssp[3],
                 'psa' : rssp[4]}
 
-    def sdof_time_integrate(self, period, zeta=0.05):
+    def sdof_convolve(self, period, zeta=0.05):
         """
         """
         resp = newmark_integration(self.data, self.head.delta,
@@ -362,6 +389,11 @@ class Record(object):
         """
         return sdof_interdrift(self.data, self.head.delta,
                                period, zeta=zeta)
+
+    def soil1d_convolve(self, model1d, component='sh', angle=0.):
+        """
+        """
+        pass
 
     def copy(self):
         """

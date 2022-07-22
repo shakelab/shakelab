@@ -37,10 +37,9 @@ def cwt(data, delta, freq, omega0=6):
     """
     Continuous wavelet transform with complex Morlet wavelet.
     """
-    if isinstance(freq, (int, float)):
-        freq = np.array([freq])
-
+    freq = np.array(freq, ndmin=1)
     widths = omega0 /(2*np.pi*delta*freq)
+
     return signal.cwt(data, signal.morlet2, widths, w=omega0)
 
 def cst(dara, delta, freq):

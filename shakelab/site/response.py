@@ -136,7 +136,7 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
     arbitrary angle of incidence (0-90), with or without anelastic
     attenuation (qs is optional).
 
-    It return the displacements computed at arbitrary depth.
+    It returns the displacements computed at arbitrary depth.
     If depth = -1, calculation is done at each layer interface
     of the profile.
 
@@ -231,7 +231,7 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
 
     # Data vector initialisation
 
-    # Layer's amplitude vector (incognita term)
+    # Layer's amplitude vector (unknown term)
     amp_vec = _np.zeros(lnum*2, dtype=CTP)
 
     # Layer matrix

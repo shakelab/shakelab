@@ -57,7 +57,7 @@ def shift_time(signal, delta, shift):
     freq = frequency(len(signal), delta)
     expt = np.exp(-2*1j*np.pi*shift*freq)
 
-    return ifft(fft(signal)*expt)
+    return irfft(rfft(signal)*expt)
 
 
 class Spectrum():
@@ -145,7 +145,7 @@ class Spectrum():
         f = interpolate.interp1d(self.frequency, self.data)
         return f(frequency)
 
-    def logsmooth(self, sigma, memsafe=False):
+    def logsmooth(self, sigma=0.2, memsafe=False):
         """
         Logarithm smoothing of (complex) spectra.
         Note: 0-frequency is preserved
