@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2022, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -18,43 +18,37 @@
 #
 # ****************************************************************************
 """
-Collection of methods to compute seismic amplification from a
+Collection of algorithms to compute seismic amplification from a
 one-dimensional soil column.
 """
 
 import numpy as _np
 
+from shakelab.site.psvq.psvqlib import psvq_soil_response
+from shakelab.signals.fourier import Spectrum
 
-def frequency_axis(fmin, fmax, fnum, log=True):
+
+def soil_response(freq, model1d, iwave='sh', iangle=0., elastic=False):
     """
-    Compute a linear or logarithmic frequency axis
-
-    :param float fmin:
-        Minimum frequency
-
-    :param float fmax:
-        Maximum frequency
-
-    :param int fnum:
-        Number of frequencies
-
-    :param boolean log:
-        Switch between linear or logarithmic spacing
-        (default is logarithmic)
-
-    :return numpy.array freq:
-        The frequency axis
     """
+    hl = _np.array(model1d.hl)
+    vp = _np.array(model1d.vp)
+    vs = _np.array(model1d.vs)
+    dn = _np.array(model1d.dn)
 
-    if log:
-        freq = _np.logspace(_np.log10(fmin), _np.log10(fmax), fnum)
+    if elastic:
+        qp = None
+        qs = None
     else:
-        freq = _np.linspace(fmin, fmax, fnum)
+        qp = _np.array(model1d.qp)
+        qs = _np.array(model1d.qs)
 
-    return freq
+    out = psvq_soil_response(freq, hl, vp, vs, dn, qp, qs,
+                             iwave=iwave, iangle=iangle)
 
+    return out
 
-def impedance_amplification(top_vs, top_dn, ref_vs=[], ref_dn=[], inc_ang=0.):
+def impedance_amplification(top_vs, top_dn, ref_vs=[], ref_dn=[], iang=0.):
     """
     This function calculates the amplification due to a single seismic
     impedance contrast as formalized in Joyner et al. (1981) and
@@ -77,7 +71,7 @@ def impedance_amplification(top_vs, top_dn, ref_vs=[], ref_dn=[], inc_ang=0.):
     :param float or numpy.array ref_dn:
         lowermost (reference) density in kg/m3
 
-    :param float inc_ang:
+    :param float iang:
         angle of incidence in degrees, relative to the vertical
         (default is vertical incidence)
 
@@ -95,15 +89,15 @@ def impedance_amplification(top_vs, top_dn, ref_vs=[], ref_dn=[], inc_ang=0.):
     # Computing square-root impedance amplification
     imp_amp = _np.sqrt((ref_dn*ref_vs)/(top_dn*top_vs))
 
-    if inc_ang > 0.:
+    if iang > 0.:
         # Converting incident angle from degrees to radiants
-        inc_ang *= _np.pi/180.
+        iang *= _np.pi/180.
 
         # Effective angle of incidence computed using Snell's law
-        eff_ang = _np.arcsin((top_vs/ref_vs)*_np.sin(inc_ang))
+        eff_ang = _np.arcsin((top_vs/ref_vs)*_np.sin(iang))
 
         # Correcting for non-vertical incidence
-        imp_amp *= _np.sqrt(_np.cos(inc_ang)/_np.cos(eff_ang))
+        imp_amp *= _np.sqrt(_np.cos(iang)/_np.cos(eff_ang))
 
     return imp_amp
 
@@ -128,8 +122,7 @@ def attenuation_decay(freq, kappa):
 
     return att_fun
 
-
-def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
+def sh_transfer_function(freq, hl, vs, dn, qs=None, iang=0., depth=0.):
     """
     Compute the SH-wave transfer function using Knopoff formalism
     (implicit layer matrix scheme). Calculation can be done for an
@@ -159,7 +152,7 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
     :param numpy.array qs:
         array of layer's shear-wave quality factors (adimensional)
 
-    :param float inc_ang:
+    :param float iang:
         angle of incidence in degrees, relative to the vertical
         (default is vertical incidence)
 
@@ -211,7 +204,7 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
     iD = _np.zeros(lnum, dtype=CTP)
     iM = _np.zeros((lnum, lnum), dtype=CTP)
 
-    iD[0] = _np.sin(inc_ang)
+    iD[0] = _np.sin(iang)
     iM[0, -1] = 1.
 
     for nl in range(lnum-1):

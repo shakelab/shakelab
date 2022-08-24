@@ -124,23 +124,28 @@ class Date(object):
                 self.month = date['month']
 
         else:
-            print('Format not (yet) recognized')
+            raise ValueError('Format not recognized')
 
     def get_date(self, dtype='list', format='calendar'):
         """
         """
-        if type in ('l', 'list'):
+        if dtype in ('l', 'list'):
+
             date = [self.year, self.month, self.day,
                     self.hour, self.minute, self.second]
 
         elif dtype in ('s', 'str', 'string'):
 
+            # ISO-8601 format
             date = '{0:04d}-'.format(self.year)
             date += '{0:02d}-'.format(self.month)
             date += '{0:02d}T'.format(self.day)
             date += '{0:02d}:'.format(self.hour)
             date += '{0:02d}:'.format(self.minute)
             date += '{0:07.4f}'.format(self.second)
+
+        else:
+            raise ValueError('Format not recognized')
 
         return date
 

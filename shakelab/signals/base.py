@@ -38,9 +38,19 @@ from shakelab.libutils.constants import PI, GRAVITY
 class Header(object):
     """
     """
-    def __init__(self):
+    def __init__(self, parent_record=None):
+
+        # Reference to the host record is passed to access
+        # record's methods and data within the header
+        # (e.g. the recording length)
+        if parent_record is not None:
+            self._parent = parent_record
+        else:
+            self._parent = None
+
         self._rate = None
         self._delta = None
+        self._nsamp = None
         self.time = Date()
         self.location = WgsPoint(None, None)
         self.sid = StreamId()
@@ -66,6 +76,17 @@ class Header(object):
         self._rate = value
         self._delta = 1./value
 
+    @property
+    def nsamp(self):
+        try:
+            self._nsamp = self._parent.nsamp
+        except:
+            pass
+        return self._nsamp
+
+    @nsamp.setter
+    def nsamp(self, value):
+        self._nsamp = value
 
 class StreamId(object):
     """
@@ -113,14 +134,26 @@ class Record(object):
     Individual (continuos) recording block.
     """
     def __init__(self):
-        self.head = Header()
+        self.head = Header(self)
         self.data = np.array([])
 
     def __len__(self):
-        return len(self.data)
+        return self.nsamp
 
     def __getitem__(self, sliced):
         return self.data[sliced]
+
+    @property
+    def nsamp(self):
+        """
+        """
+        return len(self.data)
+
+    @property
+    def delta(self):
+        """
+        """
+        return self.head.delta
 
     @property
     def duration(self):

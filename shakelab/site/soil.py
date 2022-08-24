@@ -23,11 +23,11 @@
 import numpy as np
 
 from shakelab.site import engpar
-from shakelab.libutils import utils
 from shakelab.site.cps.surf96 import surf96
-from shakelab.site.response import sh_transfer_function
+from shakelab.site.response import soil_response
 from shakelab.site.engpar import compute_site_kappa
-
+from shakelab.signals.fourier import frequency_axis, Spectrum
+from shakelab.libutils import utils
 
 # Precision for decimal rounding
 DECIMALS = 6
@@ -315,39 +315,29 @@ class Model1D():
         """
         return self._dispersion(frequency, mode, 1, 2)
 
-    def sh_transfer_function(self, frequency, inc_ang=0., elastic=False):
+    def soil_response(self, delta, nsamp, iwave='sh', iangle=0.,
+                      ilayer=0, elastic=False):
         """
-        Compute the complex SH-wave transfer function at the
+        Compute the soil (complex) response at the
         surface for outcropping rock reference conditions.
         Calculation can be done for an arbitrary angle of
         incidence (0-90), elastic or anelastic.
 
-        For more options (e.g. calculation at arbitrary depth)
-        see the generic sh_transfer_function method in the
-        amplification module
-
-        :param float inc_ang:
-            angle of incidence in degrees, relative to the
-            vertical (default is vertical incidence)
-
-        :param boolean elastic:
-            switch between elastic and anelastic calculation
-            (default is anelastic)
-
-        :param boolean complex:
-            switch to output real (abs) or complex spectra
-            (note that type of statistic is affected)
+        ilayer = measuring layer
         """
-        hl = np.array(self.hl)
-        vs = np.array(self.vs)
-        dn = np.array(self.dn)
-        qs = np.array(self.qs) if not elastic else None
+        freq = frequency_axis(delta, nsamp)
+        out = soil_response(freq, self, iwave=iwave,
+                            iangle=iangle, elastic=elastic)
 
-        # Compute transfer function
-        tfmat = sh_transfer_function(frequency, hl, vs, dn, qs, inc_ang, 0)
+        if iwave == 'sh':
+            sp_h = Spectrum(delta=delta, nsamp=nsamp, data=out[ilayer])
+            return sp_h
 
-        #TO CHECK!!!!
-        return np.conjugate(tfmat[0])
+        else:
+            sp_h = Spectrum(delta=delta, nsamp=nsamp, data=out[0][ilayer])
+            sp_v = Spectrum(delta=delta, nsamp=nsamp, data=out[1][ilayer])
+            return sp_h, sp_v
+
 
     def site_kappa(self, depth=None):
         """

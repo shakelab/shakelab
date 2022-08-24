@@ -12,6 +12,48 @@ import numpy as np
 import cmath as cm
 
 
+def psvq_soil_response(freq, hl, vp, vs, dn, qp, qs, iwave='sh', iangle=0.):
+    """
+    Generic interface to PSVQ functions.
+    """
+    lnum = len(hl)
+    fnum = len(freq)
+    
+    if iwave == 'sh':
+        sh_h = np.zeros((lnum, fnum), dtype=complex)
+
+        for i in range(fnum):
+
+            oh = hassh(freq[i], hl, vs, dn, qs, iangle)
+            sh_h[:, i] = oh.conj()
+
+        return sh_h
+
+    elif iwave == 'p':
+        p_h = np.zeros((lnum, fnum), dtype=complex)
+        p_v = np.zeros((lnum, fnum), dtype=complex)
+
+        for i in range(fnum):
+            ov, oh = haspsv(freq[i], hl, vp, vs, dn, qp, qs, 1, iangle)
+            p_v[:, i] = ov.conj()
+            p_h[:, i] = oh.conj()
+
+        return p_v, p_h
+
+    elif iwave == 'sv':
+        sv_h = np.zeros((lnum, fnum), dtype=complex)
+        sv_v = np.zeros((lnum, fnum), dtype=complex)
+
+        for i in range(fnum):
+            ov, oh = haspsv(freq[i], hl, vp, vs, dn, qp, qs, 2, iangle)
+            sv_v[:, i] = ov.conj()
+            sv_h[:, i] = oh.conj()
+
+        return sv_v, sv_h
+
+    else:
+        raise ValueError('Not a valid iwave type')
+
 def hassh(FREQ, H, BETA, RHO, QS, GAMMA=0., POL=0., IDT=-1):
     """
     INPUT
@@ -58,7 +100,11 @@ def hassh(FREQ, H, BETA, RHO, QS, GAMMA=0., POL=0., IDT=-1):
 
     for IE in range(NE):
 
-        CBETA = BETA[IE]/(1.+0.5*1j/QS[IE])
+        if QS is None or QS[IE] is None:
+            CBETA = BETA[IE]
+        else:
+            CBETA = BETA[IE]/(1.+0.5*1j/QS[IE])
+
         CAMUE = RHO[IE]*CBETA**2
 
         ET = OMEGA/CBETA
@@ -110,7 +156,7 @@ def hassh(FREQ, H, BETA, RHO, QS, GAMMA=0., POL=0., IDT=-1):
     return VS
 
 
-def haspsv(FREQ, H, ALPHA, BETA, RHO, QP, QS, IWAVE, GAMMA=0., POL=90., IDT=1):
+def haspsv(FREQ, H, ALPHA, BETA, RHO, QP, QS, IWAVE='sh', GAMMA=0., POL=90., IDT=1):
     """
     INPUT
         FREQ : calculation frequency
@@ -172,8 +218,15 @@ def haspsv(FREQ, H, ALPHA, BETA, RHO, QP, QS, IWAVE, GAMMA=0., POL=90., IDT=1):
 
     for J in range(NE):
 
-        CBETE = BETA[J]/(1.+0.5*1j/QS[J])
-        CALFE = ALPHA[J]/(1.+0.5*1j/QP[J])
+        if QP is None or QP[J] is None:
+            CALFE = ALPHA[J]
+        else:
+            CALFE = ALPHA[J]/(1.+0.5*1j/QP[J])
+
+        if QS is None or QS[J] is None:
+            CBETE = BETA[J]
+        else:
+            CBETE = BETA[J]/(1.+0.5*1j/QS[J])
 
         CAMU = RHO[J]*CBETE*CBETE
         GAMA = cm.sqrt(K2-OMEGA2/CALFE/CALFE)
@@ -325,4 +378,4 @@ def haspsv(FREQ, H, ALPHA, BETA, RHO, QP, QS, IWAVE, GAMMA=0., POL=90., IDT=1):
         DESF[2] = CAUX[2]
         DESF[3] = CAUX[3]
 
-    return WS, US
+    return US, WS

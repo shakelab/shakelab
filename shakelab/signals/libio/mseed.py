@@ -29,27 +29,24 @@ class MiniSeed(object):
     """
     """
 
-    def __init__(self, file=None, byte_order='be'):
-
-        # Set byte order
-        self._byte_order = byte_order
+    def __init__(self, target=None, byte_order='be'):
 
         # Record list initialisation
         self.stream = {}
 
-        # Import miniSEED file
-        if file is not None:
-            self.read(file)
+        # Import data
+        if target is not None:
+            self.read(target, byte_order)
 
-    def read(self, file, byte_order=None):
+    def read(self, target, byte_order='be'):
         """
         """
-        # Set byte order
-        if byte_order is not None:
-            self._byte_order = byte_order
-
         # Initialise stream object
-        byte_stream = ByteStream(file, byte_order=self._byte_order)
+        if isinstance(target, ByteStream):
+            byte_stream = target
+
+        elif isinstance(taget, str):
+            byte_stream = ByteStream(target, byte_order=byte_order)
 
         # Loop over records
         while True:
@@ -79,7 +76,7 @@ class MiniSeed(object):
 
         byte_stream.close()
 
-    def write(self, file, byte_order=None):
+    def write(self, file_name, byte_order=None):
         """
         TO DO
         """

@@ -50,7 +50,7 @@ def cst(dara, delta, freq):
     #wav = np.exp(-(2*np.pi*freq)**2/f0) * np.exp(2*pi*1j*freq)
 
 def stransform(data, delta):
-    # Compute S-Transform without for loops
+    # Compute Stockwell Transform without for loops
     # Ported in python from the origina code by Kalyan S. Dash
     # (IIT Bhubaneswaqr, India)
 
@@ -81,7 +81,7 @@ def stransform(data, delta):
     # Exclude the first row, corresponding to zero frequency
     hw = hw[1 : nhaf + 1, :]
 
-    # Compute Stockwell Transform
+    # Convolution
     st = np.fft.ifft(hw * gw)
 
     # Add the zero freq row
