@@ -45,7 +45,7 @@ class MiniSeed(object):
         if isinstance(target, ByteStream):
             byte_stream = target
 
-        elif isinstance(taget, str):
+        elif isinstance(target, str):
             byte_stream = ByteStream(target, byte_order=byte_order)
 
         # Loop over records
@@ -54,18 +54,18 @@ class MiniSeed(object):
             #try:
             record = Record(byte_stream)
 
-            if record.sid not in self.stream:
+            if record.code not in self.stream:
                 # Create a new stream
-                self.stream[record.sid] = [record]
+                self.stream[record.code] = [record]
             else:
                 # Append to existing stream, accounting for data gaps
-                sn0 = self.stream[record.sid][-1].seq
-                sn1 = record.seq
+                sn0 = self.stream[record.code][-1].id
+                sn1 = record.id
 
                 if sn1 == (sn0 % 999999) + 1:
-                    self.stream[record.sid][-1].append(record)
+                    self.stream[record.code][-1].append(record)
                 else:
-                    self.stream[record.sid].append(record)
+                    self.stream[record.code].append(record)
 
             #except:
             #    raise ValueError('Not a valid record. Skip...')
@@ -275,9 +275,9 @@ class Record(object):
         return date
 
     @property
-    def sid(self):
+    def code(self):
         """
-        Stream identifier (FSDN code)
+        Stream identifier (FDSN code)
         """
         net = self.header['NETWORK_CODE'].strip()
         sta = self.header['STATION_CODE'].strip()
@@ -287,7 +287,7 @@ class Record(object):
         return '{0}.{1}.{2}.{3}'.format(net, sta, loc, chn)
 
     @property
-    def seq(self):
+    def id(self):
         """
         Sequence number
         """
@@ -312,9 +312,9 @@ class ByteStream(object):
     def __init__(self, byte_stream, byte_order='be'):
 
         if isinstance(byte_stream, bytes):
-            self.sid = BytesIO(byte_stream)
+            self.code = BytesIO(byte_stream)
         else:
-            self.sid = open(byte_stream, 'rb')
+            self.code = open(byte_stream, 'rb')
 
         self.byte_order = byte_order
 
@@ -328,7 +328,7 @@ class ByteStream(object):
         whence − 0 for absolute file positioning, 1 for relative to
         the current position and 2 seek relative to the file's end.
         """
-        self.sid.seek(offset, whence)
+        self.code.seek(offset, whence)
 
     def shift(self, places):
         """
@@ -339,7 +339,7 @@ class ByteStream(object):
     def offset(self):
         """
         """
-        return self.sid.tell()
+        return self.code.tell()
 
     def get(self, byte_format, byte_num=1, offset=None):
         """
@@ -347,7 +347,7 @@ class ByteStream(object):
         if offset is not None:
             self.goto(offset)
 
-        byte_buffer = self.sid.read(byte_num)
+        byte_buffer = self.code.read(byte_num)
 
         if byte_format == 's':
             byte_format = str(byte_num) + byte_format
@@ -365,7 +365,7 @@ class ByteStream(object):
     def close(self):
         """
         """
-        self.sid.close()
+        self.code.close()
 
 
 def _binmask(word, bits, position):

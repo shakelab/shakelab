@@ -36,7 +36,7 @@ DATA_CENTER_REGISTRY = {
     'IESDMC' : 'http://batsws.earth.sinica.edu.tw/fdsnws',
     'INGV' : 'http://www.ingv.it',
     'IPGP' : 'http://datacenter.ipgp.fr',
-    'IRISDMC' : 'https://ds.iris.edu',
+    'IRIS' : 'https://service.iris.edu',
     'ISC' : 'http://www.isc.ac.uk',
     'KAGSR' : 'http://sdis.emsd.ru',
     'KOERI' : 'https://www.koeri.boun.edu.tr',
@@ -55,25 +55,55 @@ DATA_CENTER_REGISTRY = {
     'OGS-ANT' : 'http://158.110.30.202:5600'
 }
 
-defaults = {
-    "starttime" : None,
-    "endtime" : None,
+FDSN_VERSION = 1
+
+STATION_DEFAULTS = {
     "network" : "*",
     "station" : "*",
     "location" : "*",
     "channel" : "*",
-    "quality" : "B",
-    "nodata" : "404",
-    "format" : "miniseed"
+    "starttime" : None,
+    "endtime" : None,
+    "startbefore" : None,
+    "startafter" : None,
+    "endbefore" : None,
+    "endafter" : None,
+    "sensor" : "*",
+    "level" : "station",
+    "includerestricted" : "true",
+    "includeavailability" : "false",
+    "includecomments" : "true",
+    "updatedafter" : "*",
+    "format" : "xml",
+    "matchtimeseries" : "false",
+    "nodata" : "204"
 }
 
-"""
-fc = FDSNClient()
-fc.get_data(params={"network":"NL",
-                    "station": "HGN",
-                    "starttime": "2017-01-01T00:00:00",
-                    "endtime": "2017-01-01T00:01:00"})
-"""
+BOX_SEARCH_DEFAULTS = {
+    "minlatitude" : -90,
+    "maxlatitude" : 90,
+    "minlongitude" : -180,
+    "maxlongitude" : 180,
+}
+
+RAD_SEARCH_DEFAULTS = {
+    "latitude" : 0,
+    "longitude" : 0,
+    "maxradius" : "180",
+    "minradius" : 0,
+}
+
+DATASELECT_DEFAULTS = {
+    "network" : "*",
+    "station" : "*",
+    "location" : "*",
+    "channel" : "*",
+    "starttime" : None,
+    "endtime" : None,
+    "quality" : "B",
+    "nodata" : "204",
+    "format" : "miniseed"
+}
 
 class FDSNClient(object):
     """
@@ -81,60 +111,56 @@ class FDSNClient(object):
     def __init__(self, data_center='ORFEUS'):
         """
         """
-        self.url = None
-
-        if data_center in DATA_CENTER_REGISTRY.keys():
-            self.url = DATA_CENTER_REGISTRY[data_center]
-        else:
-            if 'http' in data_center:
-                self.url = data_center
-            else:
-                raise ValueError('Not a valid data center')
-
+        self.url = _init_data_center(data_center)
         self.data = None
 
-    def get_station(self):
+    def query_station(self, params=None, box_bounds=None, rad_bounds=None,
+                      file_name=None, **kwargs):
         """
         """
-        pass
+        # Initialising parameters
+        params = _params_init(params, STATION_DEFAULTS)
 
-    def get_data(self, params=None, file_name=None, **kwargs):
+        # Updating parameters
+        params = _params_update(params, kwargs)
+
+        # Check for non standard values
+        params = _params_check(params)
+
+        resp = _fdsn_query(self.url, 'station', params)
+
+        print(resp.url)
+        print(resp)
+        print(resp.content.decode())
+
+    def query_data(self, params=None, file_name=None, **kwargs):
         """
         """
-        # Initialising / adding default parameters
-        if params is None:
-            params = {**defaults}
-        else:
-            if isinstance(params, dict):
-                params = {**defaults, **params}
-            elif isinstance(params, (tuple, list)):
-                if '.' in params[0]:
-                    net, sta, loc, chn = params[0].split(".")
-                    params = {**defaults,
-                              'network' : net,
-                              'station' : sta,
-                              'location' : loc,
-                              'channel' : chn,
-                              'starttime' : params[1],
-                              'endtime' : params[2]} 
-                else:
-                    params = {**defaults,
-                              'network' : params[0],
-                              'station' : params[1],
-                              'location' : params[2],
-                              'channel' : params[3],
-                              'starttime' : params[4],
-                              'endtime' : params[5]}
+        if isinstance(params, (tuple, list)):
+            if '.' in params[0]:
+                net, sta, loc, chn = params[0].split(".")
+                params = {'network' : net,
+                          'station' : sta,
+                          'location' : loc,
+                          'channel' : chn,
+                          'starttime' : params[1],
+                          'endtime' : params[2]} 
+            else:
+                params = {'network' : params[0],
+                          'station' : params[1],
+                          'location' : params[2],
+                          'channel' : params[3],
+                          'starttime' : params[4],
+                          'endtime' : params[5]}
 
-        # Updating default parameters with keyword arguments
-        for key, value in kwargs.items():
-            if key in defaults.keys():
-                params[key] = value
+        # Initialising parameters
+        params = _params_init(params, DATASELECT_DEFAULTS)
 
-        # Check for empty fields
-        for key in params:
-            if params[key] == '':
-                params[key] = '*'
+        # Updating parameters
+        params = _params_update(params, kwargs)
+
+        # Check for non standard values
+        params = _params_check(params)
 
         # Date conversion
         starttime = params['starttime']
@@ -145,10 +171,7 @@ class FDSNClient(object):
         if isinstance(endtime, Date):
             params['endtime'] = endtime.get_date(dtype='s')
 
-        version = 1
-        query = "/fdsnws/dataselect/{0}/query".format(version)
-
-        resp = requests.get(self.url + query, params=params)
+        resp = _fdsn_query(self.url, 'dataselect', params)
 
         if resp.content:
 
@@ -178,6 +201,58 @@ class FDSNClient(object):
         """
         """
         pass
+
+def _init_data_center(data_center):
+    """
+    """
+    data_center_url = None
+
+    if data_center in DATA_CENTER_REGISTRY.keys():
+        data_center_url = DATA_CENTER_REGISTRY[data_center]
+    else:
+        if 'http' in data_center:
+            data_center_url = data_center
+        else:
+            raise ValueError('Not a valid data center')
+
+    return data_center_url
+
+def _params_init(params, defaults):
+    """
+    Initialising default parameters
+    """
+    if params:
+        params = {**defaults, **params}
+    else:
+        params = {**defaults}
+
+def _params_update(params, update_params):
+    """
+    Updating parameters
+    """
+    if updated_params:
+        params = {**params, **updated_params}
+
+    return params
+
+def _params_check(params):
+    """
+    """
+    # Checking for empty fields
+    params = {k: ("*" if v=="" else v) for (k,v) in params.items()}
+
+    # Remove None entries
+    params = {k:v for (k,v) in params.items() if k is not None}
+
+    return params
+
+def _fdsn_query(data_center_url, interface, params):
+    """
+    """
+    query = "/fdsnws/{0}/{1}/query".format(interface, FDSN_VERSION)
+    resp = requests.get(data_center_url + query, params=params)
+
+    return resp
 
 def get_fdsn_data_center_registry():
     """
