@@ -54,18 +54,7 @@ class MiniSeed(object):
             #try:
             record = Record(byte_stream)
 
-            if record.code not in self.stream:
-                # Create a new stream
-                self.stream[record.code] = [record]
-            else:
-                # Append to existing stream, accounting for data gaps
-                sn0 = self.stream[record.code][-1].id
-                sn1 = record.id
-
-                if sn1 == (sn0 % 999999) + 1:
-                    self.stream[record.code][-1].append(record)
-                else:
-                    self.stream[record.code].append(record)
+            self.add_record(record)
 
             #except:
             #    raise ValueError('Not a valid record. Skip...')
@@ -81,6 +70,22 @@ class MiniSeed(object):
         TO DO
         """
         pass
+
+    def add_record(self, record):
+        """
+        """
+        if record.code not in self.stream:
+            # Create a new stream
+            self.stream[record.code] = [record]
+        else:
+            # Append to existing stream, accounting for data gaps
+            sn0 = self.stream[record.code][-1].id
+            sn1 = record.id
+
+            if sn1 == (sn0 % 999999) + 1:
+                self.stream[record.code][-1].append(record)
+            else:
+                self.stream[record.code].append(record)
 
 
 class Record(object):
