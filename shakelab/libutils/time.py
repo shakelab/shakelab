@@ -200,7 +200,18 @@ class Date(object):
         else:
             print('Not a supported operation')
 
-
+    def __eq__(self, target):
+        if isinstance(target, Date):
+            return self.get_date() == target.get_date()
+        else:
+            return False
+    def __ne__(self, target):
+        if isinstance(target, Date):
+            return self.get_date() != target.get_date()
+        else:
+            return False
+            
+            
 def leap_check(year):
     """
     Check if leap year.
