@@ -23,6 +23,7 @@
 from shakelab.libutils.time import Date
 from shakelab.signals.libio.mseed import ByteStream, MiniSeed
 
+from copy import deepcopy
 import requests
 import json
 
@@ -114,26 +115,31 @@ class FDSNClient(object):
         self.url = _init_data_center(data_center)
         self.data = None
 
-    def query_station(self, params=None, box_bounds=None, rad_bounds=None,
-                      file_name=None, **kwargs):
+    def query_station(self, params={}, box_bounds=None,
+                            rad_bounds=None, file_name=None, **kwargs):
         """
         """
-        # Initialising parameters
-        params = _params_init(params, STATION_DEFAULTS)
-
-        # Updating parameters
-        params = _params_update(params, kwargs)
+        # Initiale and update query parameters
+        params = _params_update(params, STATION_DEFAULTS, **kwargs)
 
         # Check for non standard values
         params = _params_check(params)
 
         resp = _fdsn_query(self.url, 'station', params)
 
-        print(resp.url)
-        print(resp)
-        print(resp.content.decode())
+        if resp.content:
 
-    def query_data(self, params=None, file_name=None, **kwargs):
+            if b'Error' in resp.content:
+                print(resp.content.decode())
+
+            else:
+                return resp.content.decode()
+
+        else:
+            print('No station available')
+
+
+    def query_data(self, params={}, file_name=None, **kwargs):
         """
         """
         if isinstance(params, (tuple, list)):
@@ -153,11 +159,8 @@ class FDSNClient(object):
                           'starttime' : params[4],
                           'endtime' : params[5]}
 
-        # Initialising parameters
-        params = _params_init(params, DATASELECT_DEFAULTS)
-
         # Updating parameters
-        params = _params_update(params, kwargs)
+        params = _params_update(params, DATASELECT_DEFAULTS, **kwargs)
 
         # Check for non standard values
         params = _params_check(params)
@@ -217,21 +220,15 @@ def _init_data_center(data_center):
 
     return data_center_url
 
-def _params_init(params, defaults):
+def _params_update(params, defaults, **kwargs):
     """
-    Initialising default parameters
+    Updating default parameters
     """
-    if params:
-        params = {**defaults, **params}
-    else:
-        params = {**defaults}
+    params = {**defaults, **params}
 
-def _params_update(params, update_params):
-    """
-    Updating parameters
-    """
-    if updated_params:
-        params = {**params, **updated_params}
+    for key, value in kwargs.items():
+        if key in defaults.keys():
+            params[key] = value
 
     return params
 
@@ -266,5 +263,4 @@ def get_fdsn_data_center_registry():
     resp = requests.get(url, verify=False)
     data = json.loads(resp.content.decode())
 
-    for dc in data["datacenters"]:
-        print('{0:15} {1}'.format(dc['name'], dc['website']))
+    return {dc['name'] : dc['website'] for dc in data["datacenters"]}

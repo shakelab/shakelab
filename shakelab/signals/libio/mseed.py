@@ -93,11 +93,15 @@ class Record(object):
     MiniSeed record class
     """
 
-    def __init__(self, byte_stream=None):
+    def __init__(self, byte_stream=None, **kwargs):
 
         self._header_init()
         self._blockette_init()
         self.data = []
+
+        for k,v in kwargs.items():
+            if k in self.header:
+                self.header.update({k : v})
 
         if byte_stream is not None:
             self.read(byte_stream)
