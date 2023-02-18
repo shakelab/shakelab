@@ -69,14 +69,12 @@ STATION_DEFAULTS = {
     "startafter" : None,
     "endbefore" : None,
     "endafter" : None,
-    "sensor" : "*",
     "level" : "station",
     "includerestricted" : "true",
     "includeavailability" : "false",
-    "includecomments" : "true",
-    "updatedafter" : "*",
-    "format" : "xml",
+    "updateafter" : None,
     "matchtimeseries" : "false",
+    "format" : "xml",
     "nodata" : "204"
 }
 
@@ -177,15 +175,15 @@ class FDSNClient(object):
         resp = _fdsn_query(self.url, 'dataselect', params)
 
         if resp.content:
-
             if b'Error' in resp.content:
                 print(resp.content.decode())
 
             else:
                 if file_name is None:
                     if params['format'] == 'miniseed':
-                        byte_stream = ByteStream(resp.content)
-                        self.data = MiniSeed(byte_stream)
+                        #byte_stream = ByteStream(resp.content)
+                        #self.data = MiniSeed(byte_stream)
+                        self.data = MiniSeed(resp.content)
                     else:
                         raise ValueError('Output file name must be specified')
                 else:

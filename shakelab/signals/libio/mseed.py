@@ -28,32 +28,25 @@ from struct import pack, unpack
 class MiniSeed(object):
     """
     """
+    def __init__(self, byte_stream=None, byte_order='be'):
 
-    def __init__(self, target=None, byte_order='be'):
-
-        # Record list initialisation
+        # Stream database
         self.stream = {}
 
         # Import data
-        if target is not None:
-            self.read(target, byte_order)
+        if byte_stream is not None:
+            self.read(byte_stream, byte_order)
 
-    def read(self, target, byte_order='be'):
+    def read(self, byte_stream, byte_order='be'):
         """
         """
-        # Initialise stream object
-        if isinstance(target, ByteStream):
-            byte_stream = target
-
-        elif isinstance(target, str):
-            byte_stream = ByteStream(target, byte_order=byte_order)
+        if not isinstance(byte_stream, ByteStream):
+            byte_stream = ByteStream(byte_stream, byte_order=byte_order)
 
         # Loop over records
         while True:
-
             #try:
             record = Record(byte_stream)
-
             self.add_record(record)
 
             #except:
@@ -92,7 +85,6 @@ class Record(object):
     """
     MiniSeed record class
     """
-
     def __init__(self, byte_stream=None, **kwargs):
 
         self._header_init()
@@ -139,7 +131,6 @@ class Record(object):
         """
         Importing header structure
         """
-
         self.header = {}
         for hs in head_struc:
             self.header[hs[0]] = byte_stream.get(hs[1], hs[2])
@@ -148,7 +139,6 @@ class Record(object):
         """
         Importing blockettes
         """
-
         block_offset = self.header['OFFSET_TO_BEGINNING_OF_BLOCKETTE']
 
         for nb in range(self.header['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
@@ -177,7 +167,6 @@ class Record(object):
         """
         Importing data
         """
-
         data_struc = {0: ('s', 1),
                       1: ('h', 2),
                       3: ('i', 4),
@@ -317,7 +306,6 @@ class ByteStream(object):
     byte buffer using the same format.
     Useful in combination with seedlink data.
     """
-
     def __init__(self, byte_stream, byte_order='be'):
 
         if isinstance(byte_stream, bytes):
