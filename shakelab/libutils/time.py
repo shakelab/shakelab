@@ -154,6 +154,11 @@ class Date(object):
         """
         return date_to_sec(self.year, self.month, self.day,
                            self.hour, self.minute, self.second)
+    @property
+    def seconds(self):
+        """
+        """
+        return self.to_seconds()
 
     def from_seconds(self, second):
         """
@@ -214,6 +219,7 @@ def leap_check(year):
 def leap_num(year):
     """
     Compute the number of leap years before current year
+    (starting from 1 a.c.)
     """
     n0 = (year-1)//4
     n1 = (year-1)//100
@@ -241,7 +247,8 @@ def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0):
       print('Error: Year must be positive (> 1)')
       return None
 
-    MDAYS = [0] + days_in_month(2012)[:-1]
+    #MDAYS = [0] + days_in_month(2012)[:-1]
+    MDAYS = [0] + days_in_month(year)[:-1]    # TO CHECK
 
     ysec = (year - 1) * YDAYS * DSEC
     ysec += leap_num(year) * DSEC

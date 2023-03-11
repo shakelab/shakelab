@@ -207,9 +207,9 @@ class Record(object):
         else:
             self.data = signal.sosfiltfilt(sos, self.data)
 
-    def cut(self, starttime=None, endtime=None):
+    def cut(self, starttime=None, endtime=None, inplace=True):
         """
-        Cut the signal to the nearest time sample.
+        Cut the signal in place to the nearest time sample.
         """
         i0 = 0
         t0 = 0.
@@ -235,10 +235,23 @@ class Record(object):
             i1 = int(np.argwhere(self.time <= t1)[-1])
 
         if (i1 > i0):
-            self.data = self.data[i0:i1+1]
-            self.head.time += t0
+            if inplace:
+                self.data = self.data[i0:i1+1]
+                self.head.time += t0
+            else:
+                rec = self.copy()
+                rec.data = self.data[i0:i1+1]
+                rec.head.time += t0
+                return rec
+
         else:
             print('Error: endtime before starttime')
+
+    def extract(self, starttime=None, endtime=None):
+        """
+        Return a new record with the requested time window
+        """
+        return self.cut(starttime, endtime, inplace=False)
 
     def taper(self, time=0.1):
         """
@@ -434,11 +447,18 @@ class Record(object):
         return deepcopy(self)
 
 
+
+
+
 class Channel(object):
     """
+    Channel is the representation of a stream, which could be 
+    continuos or not. Selected portions of the stream can be
+    extracted through the cut method.
     """
 
-    def __init__(self):
+    def __init__(self, id):
+        self.id = id
         self.record = []
 
     def __len__(self):
@@ -447,42 +467,76 @@ class Channel(object):
     def __getitem__(self, sliced):
         return self.record[sliced]
 
+    def add(self):
+        pass
 
-class Station(object):
-    """
-    Single measuring location in space with one or more recordings.
-    It can be multichannel, but channels must be synchronous and
-    related to the same measurement location.
-    """
+    def remove(self):
+        pass
 
-    keymap = {0 : 0, 'e' : 0, 'E' : 0, 'ew' : 0, 'EW' : 0, 'x' : 0, 'X' : 0,
-              1 : 1, 'n' : 1, 'N' : 1, 'ns' : 1, 'NS' : 1, 'y' : 1, 'Y' : 1,
-              2 : 2, 'u' : 2, 'U' : 2, 'ud' : 2, 'UD' : 2, 'z' : 2, 'Z' : 2}
+    def extract(self, fillgaps=False):
+        """
+        return records
+        """
+        pass
 
-    def __init__(self):
-        self.id = None
-        self.latitude = None
-        self.longitude = None
-        self.channel = []
+class Location(self):
+    def __init__(self, id):
+        self.id = id
+        self.channel = {}
 
     def __len__(self):
         return len(self.channel)
 
     def __getitem__(self, item):
-        return self.channel[keymap[item]]
+        return self.channel[item]
 
+    def add(self):
+        pass
 
-class Array(object):
+    def remove(self):
+        pass
+
+class Station(object):
+    """
+    """
+    def __init__(self, id):
+        self.id = id
+        self.location = {}
+
+    def __len__(self):
+        return len(self.location)
+
+    def __getitem__(self, item):
+        return self.location[item]
+
+    def add(self):
+        pass
+
+    def remove(self):
+        pass
+
+class StationCollection(object):
     """
     Array of measuring locations.
     """
-
     def __init__(self):
         self.id = None
-        self.station = []
+        self.station = {}  # Must be list! implement iterators
 
     def __len__(self):
         return len(self.station)
 
     def __getitem__(self, sliced):
         return self.station[sliced]
+
+    def add(self):
+        pass
+
+    def remove(self):
+        pass
+
+    def filter(self, streamid=None, station=None, channel=None):
+        """
+        Return a filtered collection
+        """
+        pass

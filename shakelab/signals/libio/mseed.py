@@ -24,6 +24,8 @@ An simple Python library for MiniSeeed file manipulation
 from io import BytesIO
 from struct import pack, unpack
 
+from shakelab.libutils.time import Date
+
 
 class MiniSeed(object):
     """
@@ -72,14 +74,24 @@ class MiniSeed(object):
             self.stream[record.code] = [record]
         else:
             # Append to existing stream, accounting for data gaps
-            sn0 = self.stream[record.code][-1].id
-            sn1 = record.id
+            #sn0 = self.stream[record.code][-1].seqn
+            #sn1 = record.seqn
 
-            if sn1 == (sn0 % 999999) + 1:
+            #if sn1 == (sn0 % 999999) + 1:
+            #    self.stream[record.code][-1].append(record)
+            #else:
+            #    self.stream[record.code].append(record)
+
+            d0 = self.stream[record.code][-1].time.seconds
+            dt = self.stream[record.code][-1].duration
+            d1 = record.time.seconds
+
+            # Due to numerical rounding problems, time must
+            # be rounded a posteriori to millisecond precision
+            if round(d0 + dt, 4) == round(d1, 4):
                 self.stream[record.code][-1].append(record)
             else:
                 self.stream[record.code].append(record)
-
 
 class Record(object):
     """
@@ -97,6 +109,10 @@ class Record(object):
 
         if byte_stream is not None:
             self.read(byte_stream)
+
+    def __len__(self):
+
+        return self.nsamp
 
     def _header_init(self):
         """
@@ -182,7 +198,7 @@ class Record(object):
 
         if enc in [0, 1, 3, 4]:
 
-            bnum = self.length//data_struc[enc][1]
+            bnum = self._bytelen//data_struc[enc][1]
             data = [None] * bnum
 
             # Reading all data bytes, including zeros
@@ -202,7 +218,7 @@ class Record(object):
             cnt = 0
             data = [None] * nos
 
-            for fn in range(self.length//64):
+            for fn in range(self._bytelen//64):
 
                 word = [None] * 16
                 for wn in range(16):
@@ -238,6 +254,13 @@ class Record(object):
         self.data = data[:nos]
 
     @property
+    def _bytelen(self):
+        """
+        """
+        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
+                self.header['OFFSET_TO_BEGINNING_OF_DATA'])
+
+    @property
     def delta(self):
         """
         """
@@ -253,13 +276,6 @@ class Record(object):
         return 1./srate
 
     @property
-    def length(self):
-        """
-        """
-        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
-                self.header['OFFSET_TO_BEGINNING_OF_DATA'])
-
-    @property
     def time(self):
         """
         """
@@ -270,7 +286,19 @@ class Record(object):
         date += '{0:02d}.'.format(self.header['SECONDS'])
         date += '{0:04d}'.format(self.header['MSECONDS'])
 
-        return date
+        return Date(date, format='ordinal')
+
+    @property
+    def nsamp(self):
+        """
+        """
+        return self.header['NUMBER_OF_SAMPLES']
+
+    @property
+    def duration(self):
+        """
+        """
+        return self.nsamp * self.delta
 
     @property
     def code(self):
@@ -285,7 +313,7 @@ class Record(object):
         return '{0}.{1}.{2}.{3}'.format(net, sta, loc, chn)
 
     @property
-    def id(self):
+    def seqn(self):
         """
         Sequence number
         """
@@ -295,8 +323,11 @@ class Record(object):
         """
         Append the data from a recording to the current.
         Note that sequence number is updated.
+
+        TODO: add header consistency check
         """
         self.header['SEQUENCE_NUMBER'] = record.header['SEQUENCE_NUMBER']
+        self.header['NUMBER_OF_SAMPLES'] += record.header['NUMBER_OF_SAMPLES']
         self.data += record.data
 
 
