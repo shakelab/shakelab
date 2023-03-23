@@ -204,7 +204,43 @@ class Date(object):
             return self.to_seconds() - value.to_seconds()
         else:
             print('Not a supported operation')
+            
+    def __eq__(self, target):
+        if isinstance(target, Date):
+            return self.get_date() == target.get_date()
+        else:
+            return False
 
+    def __ne__(self, target):
+        if isinstance(target, Date):
+            return self.get_date() != target.get_date()
+        else:
+            return False
+
+    def __le__(self, target):
+        if isinstance(target, Date):
+            return self.get_date() <= target.get_date()
+        else:
+            return False
+
+    def __ge__(self, target):
+        if isinstance(target, Date):
+            return self.get_date() >= target.get_date()
+        else:
+            return False
+
+    def __lt__(self, target):
+        if isinstance(target, Date):
+            return self.get_date() < target.get_date()
+        else:
+            return False
+
+    def __gt__(self, target):
+        if isinstance(target, Date):
+            return self.get_date() > target.get_date()
+        else:
+            return False
+            
 
 def leap_check(year):
     """
