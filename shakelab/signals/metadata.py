@@ -96,7 +96,8 @@ class Metadata():
             (default is ``None``)
 
         :param [str] level: 
-            The level of detail to read from input file, either 'network', 'station', 'channel' or 'response'; optional (default is 'station')
+            The level of detail to read from input file, either 'network', 
+            'station', 'channel' or 'response'; optional (default is 'station')
 
         """
         self.data = load_metadata(mdfile, format=format, sid=sid, time=time,
@@ -145,14 +146,19 @@ class Metadata():
         """
         Return either a dictionary or a list of dictionaries taken from a copy 
         of the instance data. The level of information is specified by the key. 
-        The search is hierarchical and child levels (e.g. 'Channel') are only extracted if the parent levels are available and unique.
+        The search is hierarchical and child levels (e.g. 'Channel') are only 
+        extracted if the parent levels are available and unique.
     
         :param [str] key:
             Level of information to parse input metadata for. It can be either
             'Network', 'Station', 'Location' or 'Channel'. 
 
         :return [dict, list] md_item:
-            Either a list of dictionaries, or a single dictionary (it the list would contain a single item). Note that the dictionaries follow the FDSN convention only for the corresponding level of information (they do not keep the information related to parent levels)
+            Either a list of dictionaries, or a single dictionary (it the list 
+            would contain a single item). Note that the dictionaries follow 
+            the FDSN convention only for the corresponding level of 
+            information (they do not keep the information related to parent 
+            levels)
 
         """
 
@@ -263,7 +269,8 @@ def load_metadata(mdfile, format='stationxml', sid=None, time=None,
         ``None``)        
 
     :param [str] level: 
-        The level of detail to read from input file, either 'network', 'station', 'channel' or 'response' (default is 'station')
+        The level of detail to read from input file, either 'network', 
+        'station', 'channel' or 'response' (default is 'station')
 
     :return [dict] mdata:
         Dictionary compliant to the FDSN metadata standard
@@ -289,7 +296,8 @@ def select_nslc(metadata, sid, time=None):
     """
     Filter a metadata dictionary according to the requested stream identifier 
     (net, sta, loc, cha). If time is specified, only Channels with 
-    startDate <= time <= endTime are selected, to provide the correct instrumental response at the required epoch. Returns a dictionary.
+    startDate <= time <= endTime are selected, to provide the correct 
+    instrumental response at the required epoch. Returns a dictionary.
 
     :param [dict] metadata:
         Dictionary compliant to the FDSN metadata standard; can be a 
