@@ -117,7 +117,8 @@ def _read_base_node(element, outputobj, _ns):
     data_availability = element.find(_ns("DataAvailability"))
     tmp["DataAvailability"] = _read_data_availability(data_availability, _ns)
     for label in ["alternateCode", "historicalCode", "startDate", "endDate",
-                  "restrictedStatus", "sourceID", "Description", "Identifier", "Comment", "DataAvailability"]:
+                  "restrictedStatus", "sourceID", "Description", "Identifier", 
+                  "Comment", "DataAvailability"]:
         if tmp[label] is not None:
             outputobj[label] = tmp[label]
 
@@ -1122,8 +1123,7 @@ def _read_phone(phone_elem, _ns):
     obj["PhoneNumber"] = phone_number_req
     return obj
 
-####DA QUI finire le spiegazioni
-
+  
 def tagtext2obj(element, convert):
     """ Utility to get text value from "element" tag object"""
     try:
