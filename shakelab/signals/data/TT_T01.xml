@@ -1,0 +1,2881 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<FDSNStationXML xmlns="http://www.fdsn.org/xml/station/1" schemaVersion="1.2">
+  <Source>ObsPy's obspy.io.xseed version 1.4.0</Source>
+  <Module>ObsPy 1.4.0</Module>
+  <ModuleURI>https://www.obspy.org</ModuleURI>
+  <Created>2023-03-24T11:20:28.706145Z</Created>
+  <Network code="TT">
+    <Description>Dummy test network</Description>
+    <Station code="T01" startDate="2012-01-01T00:00:00.000000Z">
+      <Latitude unit="DEGREES">45.0000</Latitude>
+      <Longitude unit="DEGREES">10.1111</Longitude>
+      <Elevation unit="METERS">130.0</Elevation>
+      <Site>
+        <Name>Test</Name>
+      </Site>
+      <CreationDate>2023-03-24T11:20:28.706145Z</CreationDate>
+      <Channel code="HHE" startDate="2012-01-01T00:00:00.000000Z" endDate="2012-01-25T10:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">20.0</Depth>
+        <Azimuth unit="DEGREES">39.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHN" startDate="2012-01-01T00:00:00.000000Z" endDate="2012-01-25T10:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">20.0</Depth>
+        <Azimuth unit="DEGREES">309.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHZ" startDate="2012-01-01T00:00:00.000000Z" endDate="2012-01-25T10:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">20.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">-90.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHE" startDate="2012-01-25T13:30:00.000000Z" endDate="2012-10-31T11:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">5.0</Depth>
+        <Azimuth unit="DEGREES">93.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG40T/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>279059000.0</Value>
+            <Frequency>2.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>571655000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">2.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="0.1486" plusError="0.1486">0.1486</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="-0.1486" plusError="-0.1486">-0.1486</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-502.7" plusError="-502.7">-502.7</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1005.0" plusError="-1005.0">-1005.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-1131.0" plusError="-1131.0">-1131.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>799.783</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHN" startDate="2012-01-25T13:30:00.000000Z" endDate="2012-10-31T11:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">5.0</Depth>
+        <Azimuth unit="DEGREES">3.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG40T/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>279059000.0</Value>
+            <Frequency>2.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>571655000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">2.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="0.1486" plusError="0.1486">0.1486</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="-0.1486" plusError="-0.1486">-0.1486</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-502.7" plusError="-502.7">-502.7</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1005.0" plusError="-1005.0">-1005.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-1131.0" plusError="-1131.0">-1131.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>799.783</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHZ" startDate="2012-01-25T13:30:00.000000Z" endDate="2012-10-31T11:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">5.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">-90.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG40T/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>279059000.0</Value>
+            <Frequency>2.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>571655000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">2.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="0.1486" plusError="0.1486">0.1486</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="-0.1486" plusError="-0.1486">-0.1486</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-502.7" plusError="-502.7">-502.7</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1005.0" plusError="-1005.0">-1005.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-1131.0" plusError="-1131.0">-1131.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>799.783</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHE" startDate="2012-10-31T11:40:00.000000Z" endDate="2013-04-11T09:00:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">90.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>LE-3D Lite/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>139582000.0</Value>
+            <Frequency>20.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>0.999891</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">20.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="2">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="4.66" plusError="4.66">4.66</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="-4.66" plusError="-4.66">-4.66</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-2.105" plusError="-2.105">-2.105</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>400.044</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHN" startDate="2012-10-31T11:40:00.000000Z" endDate="2013-04-11T09:00:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>LE-3D Lite/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>139582000.0</Value>
+            <Frequency>20.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>0.999891</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">20.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="2">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="4.66" plusError="4.66">4.66</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="-4.66" plusError="-4.66">-4.66</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-2.105" plusError="-2.105">-2.105</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>400.044</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHZ" startDate="2012-10-31T11:40:00.000000Z" endDate="2013-04-11T09:00:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">-90.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>LE-3D Lite/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>139582000.0</Value>
+            <Frequency>20.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>0.999891</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">20.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="2">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="4.66" plusError="4.66">4.66</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="-4.66" plusError="-4.66">-4.66</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-2.105" plusError="-2.105">-2.105</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>400.044</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="EHE" startDate="2013-04-11T12:00:00.000000Z" endDate="2014-02-03T12:00:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">90.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>LE-3D Lite/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>139582000.0</Value>
+            <Frequency>20.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>0.999891</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">20.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="2">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="4.66" plusError="4.66">4.66</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="-4.66" plusError="-4.66">-4.66</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-2.105" plusError="-2.105">-2.105</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>400.044</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="EHN" startDate="2013-04-11T12:00:00.000000Z" endDate="2014-02-03T12:00:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>LE-3D Lite/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>139582000.0</Value>
+            <Frequency>20.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>0.999891</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">20.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="2">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="4.66" plusError="4.66">4.66</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="-4.66" plusError="-4.66">-4.66</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-2.105" plusError="-2.105">-2.105</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>400.044</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="EHZ" startDate="2013-04-11T12:00:00.000000Z" endDate="2014-02-03T12:00:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">-90.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>LE-3D Lite/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>139582000.0</Value>
+            <Frequency>20.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>0.999891</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">20.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="2">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="4.66" plusError="4.66">4.66</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-4.21" plusError="-4.21">-4.21</Real>
+                <Imaginary minusError="-4.66" plusError="-4.66">-4.66</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-2.105" plusError="-2.105">-2.105</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>400.044</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>20.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHE" startDate="2013-04-11T12:00:00.000000Z" endDate="2015-07-28T10:00:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">20.0</Depth>
+        <Azimuth unit="DEGREES">82.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHN" startDate="2013-04-11T12:00:00.000000Z" endDate="2015-07-28T10:00:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">20.0</Depth>
+        <Azimuth unit="DEGREES">352.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHZ" startDate="2013-04-11T12:00:00.000000Z" endDate="2015-07-28T10:00:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">20.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">-90.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HNE" startDate="2014-10-01T10:30:00.000000Z" endDate="2015-07-31T08:20:00.000000Z" locationCode="02">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">90.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG5T  2g/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>355886.0</Value>
+            <Frequency>0.05</Frequency>
+            <InputUnits>
+              <Name>M/S**2</Name>
+              <Description>acceleration in meters per seconds squared</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S**2</Name>
+                <Description>acceleration in meters per seconds squared</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>3023030000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">0.05</NormalizationFrequency>
+              <Pole number="0">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="567.912" plusError="567.912">567.912</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="-567.912" plusError="-567.912">-567.912</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-4749.45" plusError="-4749.45">-4749.45</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1317.31" plusError="-1317.31">-1317.31</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>1.01997</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HNN" startDate="2014-10-01T10:30:00.000000Z" endDate="2015-07-31T08:20:00.000000Z" locationCode="02">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG5T  2g/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>355886.0</Value>
+            <Frequency>0.05</Frequency>
+            <InputUnits>
+              <Name>M/S**2</Name>
+              <Description>acceleration in meters per seconds squared</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S**2</Name>
+                <Description>acceleration in meters per seconds squared</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>3023030000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">0.05</NormalizationFrequency>
+              <Pole number="0">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="567.912" plusError="567.912">567.912</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="-567.912" plusError="-567.912">-567.912</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-4749.45" plusError="-4749.45">-4749.45</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1317.31" plusError="-1317.31">-1317.31</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>1.01997</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HNZ" startDate="2014-10-01T10:30:00.000000Z" endDate="2015-07-31T08:20:00.000000Z" locationCode="02">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">-90.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG5T  2g/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>355886.0</Value>
+            <Frequency>0.05</Frequency>
+            <InputUnits>
+              <Name>M/S**2</Name>
+              <Description>acceleration in meters per seconds squared</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S**2</Name>
+                <Description>acceleration in meters per seconds squared</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>3023030000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">0.05</NormalizationFrequency>
+              <Pole number="0">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="567.912" plusError="567.912">567.912</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="-567.912" plusError="-567.912">-567.912</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-4749.45" plusError="-4749.45">-4749.45</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1317.31" plusError="-1317.31">-1317.31</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>1.01997</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHE" startDate="2015-07-28T15:30:00.000000Z" endDate="2019-10-08T11:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">34.0</Depth>
+        <Azimuth unit="DEGREES">90.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHN" startDate="2015-07-28T15:30:00.000000Z" endDate="2019-10-08T11:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">34.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHZ" startDate="2015-07-28T15:30:00.000000Z" endDate="2019-10-08T11:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">34.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">-90.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHE" startDate="2015-07-31T08:30:00.000000Z" endDate="2016-01-29T14:00:00.000000Z" locationCode="02">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">1.0</Depth>
+        <Azimuth unit="DEGREES">90.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHN" startDate="2015-07-31T08:30:00.000000Z" endDate="2016-01-29T14:00:00.000000Z" locationCode="02">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">1.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHZ" startDate="2015-07-31T08:30:00.000000Z" endDate="2016-01-29T14:00:00.000000Z" locationCode="02">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">1.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">-90.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG-SP1-10/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>1116030000.0</Value>
+            <Frequency>3.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>909677000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">3.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="850.693" plusError="850.693">850.693</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-391.955" plusError="-391.955">-391.955</Real>
+                <Imaginary minusError="-850.693" plusError="-850.693">-850.693</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="0.4442" plusError="0.4442">0.4442</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-0.4442" plusError="-0.4442">-0.4442</Real>
+                <Imaginary minusError="-0.4442" plusError="-0.4442">-0.4442</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-2199.1" plusError="-2199.1">-2199.1</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="5">
+                <Real minusError="-471.239" plusError="-471.239">-471.239</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>3198.53</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>3.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HNE" startDate="2016-01-29T15:00:00.000000Z" locationCode="02">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">90.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG5T  2g/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>355886.0</Value>
+            <Frequency>0.05</Frequency>
+            <InputUnits>
+              <Name>M/S**2</Name>
+              <Description>acceleration in meters per seconds squared</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S**2</Name>
+                <Description>acceleration in meters per seconds squared</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>3023030000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">0.05</NormalizationFrequency>
+              <Pole number="0">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="567.912" plusError="567.912">567.912</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="-567.912" plusError="-567.912">-567.912</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-4749.45" plusError="-4749.45">-4749.45</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1317.31" plusError="-1317.31">-1317.31</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>1.01997</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HNN" startDate="2016-01-29T15:00:00.000000Z" locationCode="02">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG5T  2g/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>355886.0</Value>
+            <Frequency>0.05</Frequency>
+            <InputUnits>
+              <Name>M/S**2</Name>
+              <Description>acceleration in meters per seconds squared</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S**2</Name>
+                <Description>acceleration in meters per seconds squared</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>3023030000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">0.05</NormalizationFrequency>
+              <Pole number="0">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="567.912" plusError="567.912">567.912</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="-567.912" plusError="-567.912">-567.912</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-4749.45" plusError="-4749.45">-4749.45</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1317.31" plusError="-1317.31">-1317.31</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>1.01997</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HNZ" startDate="2016-01-29T15:00:00.000000Z" locationCode="02">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">-90.0</Dip>
+        <SampleRate>100.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG5T  2g/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>355886.0</Value>
+            <Frequency>0.05</Frequency>
+            <InputUnits>
+              <Name>M/S**2</Name>
+              <Description>acceleration in meters per seconds squared</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S**2</Name>
+                <Description>acceleration in meters per seconds squared</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>3023030000000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">0.05</NormalizationFrequency>
+              <Pole number="0">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="567.912" plusError="567.912">567.912</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-400.823" plusError="-400.823">-400.823</Real>
+                <Imaginary minusError="-567.912" plusError="-567.912">-567.912</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-4749.45" plusError="-4749.45">-4749.45</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1317.31" plusError="-1317.31">-1317.31</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>1.01997</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">100.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>0.05</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHE" startDate="2019-10-08T12:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">5.0</Depth>
+        <Azimuth unit="DEGREES">93.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG40T/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>279059000.0</Value>
+            <Frequency>2.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>571655000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">2.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="0.1486" plusError="0.1486">0.1486</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="-0.1486" plusError="-0.1486">-0.1486</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-502.7" plusError="-502.7">-502.7</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1005.0" plusError="-1005.0">-1005.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-1131.0" plusError="-1131.0">-1131.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>799.783</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHN" startDate="2019-10-08T12:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">5.0</Depth>
+        <Azimuth unit="DEGREES">3.0</Azimuth>
+        <Dip unit="DEGREES">0.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG40T/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>279059000.0</Value>
+            <Frequency>2.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>571655000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">2.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="0.1486" plusError="0.1486">0.1486</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="-0.1486" plusError="-0.1486">-0.1486</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-502.7" plusError="-502.7">-502.7</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1005.0" plusError="-1005.0">-1005.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-1131.0" plusError="-1131.0">-1131.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>799.783</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+      <Channel code="HHZ" startDate="2019-10-08T12:30:00.000000Z" locationCode="01">
+        <Latitude unit="DEGREES">45.0000</Latitude>
+        <Longitude unit="DEGREES">10.1111</Longitude>
+        <Elevation unit="METERS">130.0</Elevation>
+        <Depth unit="METERS">5.0</Depth>
+        <Azimuth unit="DEGREES">0.0</Azimuth>
+        <Dip unit="DEGREES">-90.0</Dip>
+        <SampleRate>200.0</SampleRate>
+        <Sensor>
+          <Type>Guralp CMG40T/Guralp DM24 6Ch</Type>
+        </Sensor>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>279059000.0</Value>
+            <Frequency>2.0</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>velocity in meters per second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+          <Stage number="1">
+            <PolesZeros>
+              <InputUnits>
+                <Name>M/S</Name>
+                <Description>velocity in meters per second</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </OutputUnits>
+              <PzTransferFunctionType>LAPLACE (RADIANS/SECOND)</PzTransferFunctionType>
+              <NormalizationFactor>571655000.0</NormalizationFactor>
+              <NormalizationFrequency unit="HERTZ">2.0</NormalizationFrequency>
+              <Zero number="0">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Zero number="1">
+                <Real minusError="0.0" plusError="0.0">0.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Zero>
+              <Pole number="0">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="0.1486" plusError="0.1486">0.1486</Imaginary>
+              </Pole>
+              <Pole number="1">
+                <Real minusError="-0.1486" plusError="-0.1486">-0.1486</Real>
+                <Imaginary minusError="-0.1486" plusError="-0.1486">-0.1486</Imaginary>
+              </Pole>
+              <Pole number="2">
+                <Real minusError="-502.7" plusError="-502.7">-502.7</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="3">
+                <Real minusError="-1005.0" plusError="-1005.0">-1005.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+              <Pole number="4">
+                <Real minusError="-1131.0" plusError="-1131.0">-1131.0</Real>
+                <Imaginary minusError="0.0" plusError="0.0">0.0</Imaginary>
+              </Pole>
+            </PolesZeros>
+            <StageGain>
+              <Value>799.783</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+          <Stage number="2">
+            <Coefficients>
+              <InputUnits>
+                <Name>V</Name>
+                <Description>emf in volts</Description>
+              </InputUnits>
+              <OutputUnits>
+                <Name>COUNTS</Name>
+                <Description>digital counts</Description>
+              </OutputUnits>
+              <CfTransferFunctionType>DIGITAL</CfTransferFunctionType>
+            </Coefficients>
+            <Decimation>
+              <InputSampleRate unit="HERTZ">200.0</InputSampleRate>
+              <Factor>1</Factor>
+              <Offset>0</Offset>
+              <Delay>0.0</Delay>
+              <Correction>0.0</Correction>
+            </Decimation>
+            <StageGain>
+              <Value>348920.0</Value>
+              <Frequency>2.0</Frequency>
+            </StageGain>
+          </Stage>
+        </Response>
+      </Channel>
+    </Station>
+  </Network>
+</FDSNStationXML>
