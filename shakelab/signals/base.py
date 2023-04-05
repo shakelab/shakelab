@@ -26,13 +26,14 @@ import numpy as np
 from scipy import signal, fftpack, integrate
 from copy import deepcopy
 
+from shakelab.signals import fourier
+from shakelab.signals.libio import mseed
 from shakelab.libutils.time import Date
+from shakelab.libutils.constants import PI, GRAVITY
 from shakelab.libutils.geodetic import WgsPoint
 from shakelab.structures.response import (sdof_response_spectrum,
                                           sdof_interdrift,
                                           newmark_integration)
-from shakelab.signals import fourier
-from shakelab.libutils.constants import PI, GRAVITY
 
 
 class Header(object):
@@ -88,6 +89,7 @@ class Header(object):
     def nsamp(self, value):
         self._nsamp = value
 
+
 class StreamId(object):
     """
     """
@@ -101,6 +103,11 @@ class StreamId(object):
             self.set(code)
 
     def __repr__(self):
+        self.get()
+
+    def get(self):
+        """
+        """
         return '{0}.{1}.{2}.{3}'.format(self.network,
                                         self.station,
                                         self.location,
@@ -143,6 +150,16 @@ class Record(object):
     def __getitem__(self, sliced):
         return self.data[sliced]
 
+    def __sum__(self, value):
+        if isinstance(value, (int, float)):
+            self.data += value
+        elif isinstance(value, Record):
+            self.append(value)
+
+    def __mul__(self, value):
+        if isinstance(value, (int, float)):
+            self.data *= value
+
     @property
     def nsamp(self):
         """
@@ -161,6 +178,10 @@ class Record(object):
         """
         return (len(self) - 1) * self.head.delta
 
+    @property
+    def time(self):
+        return self.head.time
+
     def time_axis(self, reference='relative', shift=0.):
         """
         to do: add reference
@@ -170,9 +191,22 @@ class Record(object):
             tax += self.head.time.to_seconds()
         return tax + shift
 
-    @property
-    def time(self):
-        return self.time_axis()
+    def append(self, record, precision=4, fillgaps=False):
+        """
+        Due to numerical rounding problems, time might
+        be rounded a to millisecond precision
+        """
+        t0 = round(record.time - self.time, precision)
+        t1 = round(self.duration + self.delta, precision)
+
+        if (t0 == t1):
+            self.data = np.append(self.data, record.data)
+            return True
+        elif (t0 < t1) and fillgaps:
+            # YET TO IMPLEMENT
+            pass
+        else:
+            return False
 
     def remove_mean(self):
         """
@@ -229,10 +263,10 @@ class Record(object):
                 t1 = endtime
 
         if (0. < t0 < self.duration):
-            i0 = int(np.argwhere(self.time >= t0)[0])
+            i0 = int(np.argwhere(self.time_axis() >= t0)[0])
 
         if (0. < t1 < self.duration):
-            i1 = int(np.argwhere(self.time <= t1)[-1])
+            i1 = int(np.argwhere(self.time_axis() <= t1)[-1])
 
         if (i1 > i0):
             if inplace:
@@ -245,7 +279,8 @@ class Record(object):
                 return rec
 
         else:
-            print('Error: endtime before starttime')
+            print('Warning: endtime before starttime')
+            return None
 
     def extract(self, starttime=None, endtime=None):
         """
@@ -383,7 +418,10 @@ class Record(object):
         if data.size != 0:
             i0 = data[0][0]
             i1 = data[-1][0]
-            return self.time[i1] - self.time[i0]
+
+            time = self.time_axis()
+            return time[i1] - time[i0]
+
         else:
             return None
 
@@ -397,7 +435,8 @@ class Record(object):
         i0 = np.argwhere(cum_arias >= threshold[0])[0][0]
         i1 = np.argwhere(cum_arias <= threshold[1])[-1][0]
 
-        return self.time[i1] - self.time[i0]
+        time = self.time_axis()
+        return time[i1] - time[i0]
 
     def root_mean_square(self):
         """
@@ -447,16 +486,11 @@ class Record(object):
         return deepcopy(self)
 
 
-
-
-
-class Channel(object):
+class Stream(object):
     """
-    Channel is the representation of a stream, which could be 
-    continuos or not. Selected portions of the stream can be
-    extracted through the cut method.
+    Representation of a single stream (or channel), which could be 
+    continuos or with gaps.
     """
-
     def __init__(self, id):
         self.id = id
         self.record = []
@@ -467,19 +501,94 @@ class Channel(object):
     def __getitem__(self, sliced):
         return self.record[sliced]
 
-    def add(self):
-        pass
+    def add(self, record):
+        """
+        """
+        if not self.record:
+            self.record = [record]
+        else:
+            if not self.record[-1].append(record):
+                # Append to stream including a gap
+                self.record.append(record)
 
     def remove(self):
         pass
 
-    def extract(self, fillgaps=False):
+    def get(self, starttime=None, endtime=None, fillgaps=False):
         """
-        return records
+        Return selected records
+        """
+        for rec in self.record:
+            sel = rec.extract(starttime, endtime)
+            if sel is not None:
+                return sel
+
+    def sort(self):
+        """
+        """
+        def get_time(rec):
+            return rec.time.seconds
+
+        self.record.sort(key=get_time)
+
+
+class StreamCollection():
+    """
+    """
+    def __init__(self):
+        self.stream = {}
+
+    def __len__(self):
+        return len(self.stream)
+
+    def __getitem__(self, sliced):
+        return self.stream[sliced]
+
+    def add(self, record):
+        """
+        """
+        code = record.head.sid.get()
+        if code not in self.keys():
+            self.stream[code] = Stream(code)
+        self.stream[code].add(record)
+
+    def remove(self):
+        pass
+
+    def keys(self):
+        """
+        """
+        return list(self.stream.keys())
+
+    def get(self, id=None):
+        """
+        Return a filtered collection
         """
         pass
 
-class Location(self):
+    def merge(self, stream_collection):
+        """
+        """
+        for stream in self.stream.items():
+            for record in stream.record:
+                self.add(record)
+
+    def read(self, byte_stream, ftype='mseed', byte_order='be'):
+        """
+        """
+        if ftype == 'mseed':
+            mseed.read(byte_stream, byte_order, self)
+
+    def write(self, file):
+        """
+        """
+        pass
+
+
+# ---------------------
+"""
+
+class Location(object):
     def __init__(self, id):
         self.id = id
         self.channel = {}
@@ -497,8 +606,7 @@ class Location(self):
         pass
 
 class Station(object):
-    """
-    """
+
     def __init__(self, id):
         self.id = id
         self.location = {}
@@ -516,9 +624,7 @@ class Station(object):
         pass
 
 class StationCollection(object):
-    """
-    Array of measuring locations.
-    """
+
     def __init__(self):
         self.id = None
         self.station = {}  # Must be list! implement iterators
@@ -536,7 +642,5 @@ class StationCollection(object):
         pass
 
     def filter(self, streamid=None, station=None, channel=None):
-        """
-        Return a filtered collection
-        """
         pass
+"""
