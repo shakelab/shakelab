@@ -26,8 +26,8 @@ import numpy as np
 from io import BytesIO
 from struct import pack, unpack
 
-from shakelab.signals.base import Record
-from shakelab.signals.libio import mseed, sac, smdb
+#from shakelab.signals.base import Record
+#from shakelab.signals.libio import mseed, sac, smdb
 
 from shakelab.libutils.time import Date
 from shakelab.libutils.time import days_to_month

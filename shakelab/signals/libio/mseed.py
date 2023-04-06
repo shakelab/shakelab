@@ -24,14 +24,14 @@ import numpy as np
 
 from shakelab.libutils.time import Date
 from shakelab.signals.io import ByteStream
-from shakelab.signals.base import Record, StreamCollection
+from shakelab.signals import base
 
 
-def read(byte_stream, byte_order='be', stream_collection=None):
+def msread(byte_stream, byte_order='be', stream_collection=None):
     """
     """
     if stream_collection is None:
-        stream_collection = StreamCollection()
+        stream_collection = base.StreamCollection()
 
     if not isinstance(byte_stream, ByteStream):
         byte_stream = ByteStream(byte_stream, byte_order=byte_order)
@@ -291,7 +291,7 @@ class MSRecord(object):
         """
         Convert MiniSeed record to Shakelab record object
         """
-        record = Record()
+        record = base.Record()
         record.head.delta = self.delta
         record.head.time = self.time
         record.head.sid.set(self.code)

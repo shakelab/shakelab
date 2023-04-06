@@ -555,16 +555,16 @@ class StreamCollection():
     def remove(self):
         pass
 
+    def get(self, code=None, starttime=None, endtime=None):
+        """
+        """
+        if code in self.keys():
+            return self.stream[code].get(starttime, endtime)
+
     def keys(self):
         """
         """
         return list(self.stream.keys())
-
-    def get(self, id=None):
-        """
-        Return a filtered collection
-        """
-        pass
 
     def merge(self, stream_collection):
         """
@@ -577,7 +577,7 @@ class StreamCollection():
         """
         """
         if ftype == 'mseed':
-            mseed.read(byte_stream, byte_order, self)
+            mseed.msread(byte_stream, byte_order, self)
 
     def write(self, file):
         """
