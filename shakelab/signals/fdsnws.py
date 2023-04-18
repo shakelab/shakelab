@@ -21,7 +21,7 @@
 """
 
 from shakelab.libutils.time import Date
-from shakelab.signals.libio.mseed import ByteStream, MiniSeed
+from shakelab.signals.base import StreamCollection
 
 from copy import deepcopy
 import requests
@@ -104,6 +104,7 @@ DATASELECT_DEFAULTS = {
     "format" : "miniseed"
 }
 
+
 class FDSNClient(object):
     """
     """
@@ -111,7 +112,6 @@ class FDSNClient(object):
         """
         """
         self.url = _init_data_center(data_center)
-        self.data = None
 
     def query_station(self, params={}, box_bounds=None,
                             rad_bounds=None, file_name=None, **kwargs):
@@ -181,9 +181,9 @@ class FDSNClient(object):
             else:
                 if file_name is None:
                     if params['format'] == 'miniseed':
-                        #byte_stream = ByteStream(resp.content)
-                        #self.data = MiniSeed(byte_stream)
-                        self.data = MiniSeed(resp.content)
+                        sc = StreamCollection()
+                        sc.read(resp.content)
+                        return sc
                     else:
                         raise ValueError('Output file name must be specified')
                 else:
@@ -262,3 +262,49 @@ def get_fdsn_data_center_registry():
     data = json.loads(resp.content.decode())
 
     return {dc['name'] : dc['website'] for dc in data["datacenters"]}
+
+
+class FDSNCode(object):
+    """
+    """
+    def __init__(self, code=None):
+        self.network = ''
+        self.station = ''
+        self.location = ''
+        self.channel = ''
+
+        if code is not None:
+            self.set(code)
+
+    def __repr__(self):
+        self.get()
+
+    def set(self, code):
+        """
+        """
+        if isinstance(code, (list, tuple)):
+            self.network = code[0]
+            self.station = code[1]
+            self.location = code[2]
+            self.channel = code[3]
+
+        if isinstance(code, str):
+            code = code.split('.')
+            self.network = code[0]
+            self.station = code[1]
+            self.location = code[2]
+            self.channel = code[3]
+
+        if isinstance(code, dict):
+            self.network = code['network']
+            self.station = code['station']
+            self.location = code['location']
+            self.channel = code['channel']
+
+    def get(self):
+        """
+        """
+        return '{0}.{1}.{2}.{3}'.format(self.network,
+                                        self.station,
+                                        self.location,
+                                        self.channel)

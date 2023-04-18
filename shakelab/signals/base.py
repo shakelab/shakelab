@@ -41,23 +41,22 @@ class Header(object):
     """
     def __init__(self, parent_record=None):
 
-        # Reference to the host record is passed to access
-        # record's methods and data within the header
-        # (e.g. the recording length)
-        if parent_record is not None:
-            self._parent = parent_record
-        else:
-            self._parent = None
-
         self._rate = None
         self._delta = None
         self._nsamp = None
+
+        self.id = None
         self.time = Date()
         self.location = WgsPoint(None, None)
-        self.sid = StreamId()
+
         self.units = None
         self.response = None
         self.meta = {}
+
+        # Reference to the host record is passed to access
+        # record's methods and data within the header
+        # (e.g. the recording length)
+        self._parent = parent_record
 
     @property
     def delta(self):
@@ -79,70 +78,30 @@ class Header(object):
 
     @property
     def nsamp(self):
-        try:
-            self._nsamp = self._parent.nsamp
-        except:
-            pass
-        return self._nsamp
+        if self._parent is not None:
+            return self._parent.nsamp
+        else:
+            return None
 
-    @nsamp.setter
-    def nsamp(self, value):
-        self._nsamp = value
-
-
-class StreamId(object):
-    """
-    """
-    def __init__(self, code=None):
-        self.network = ''
-        self.station = ''
-        self.location = ''
-        self.channel = ''
-
-        if code is not None:
-            self.set(code)
-
-    def __repr__(self):
-        self.get()
-
-    def get(self):
-        """
-        """
-        return '{0}.{1}.{2}.{3}'.format(self.network,
-                                        self.station,
-                                        self.location,
-                                        self.channel)
-
-    def set(self, code):
-        """
-        """
-        if isinstance(code, (list, tuple)):
-            self.network = code[0]
-            self.station = code[1]
-            self.location = code[2]
-            self.channel = code[3]
-
-        if isinstance(code, str):
-            code = code.split('.')
-            self.network = code[0]
-            self.station = code[1]
-            self.location = code[2]
-            self.channel = code[3]
-
-        if isinstance(code, dict):
-            self.network = code['network']
-            self.station = code['station']
-            self.location = code['location']
-            self.channel = code['channel']
-
+    def copy(self):
+        return deepcopy(self)
 
 class Record(object):
     """
     Individual (continuos) recording block.
     """
-    def __init__(self):
+    def __init__(self, time=None, delta=None, data=None):
         self.head = Header(self)
         self.data = np.array([])
+
+        if data is not None:
+            self.data = np.array(data)
+
+        if delta is not None:
+            self.head.delta = delta
+
+        if time is not None:
+            self.head.time = time
 
     def __len__(self):
         return self.nsamp
@@ -173,14 +132,23 @@ class Record(object):
         return self.head.delta
 
     @property
-    def duration(self):
+    def duration(self, precision=9):
         """
         """
-        return (len(self) - 1) * self.head.delta
+        d = (len(self) - 1) * self.head.delta
+        return round(d, precision)
 
     @property
     def time(self):
         return self.head.time
+
+    @property
+    def starttime(self):
+        return self.head.time
+
+    @property
+    def endtime(self):
+        return self.head.time + self.duration
 
     def time_axis(self, reference='relative', shift=0.):
         """
@@ -191,22 +159,49 @@ class Record(object):
             tax += self.head.time.to_seconds()
         return tax + shift
 
-    def append(self, record, precision=4, fillgaps=False):
+    def append(self, record, enforce=False, fillvalue=0., precision=9):
         """
-        Due to numerical rounding problems, time might
-        be rounded a to millisecond precision
         """
-        t0 = round(record.time - self.time, precision)
-        t1 = round(self.duration + self.delta, precision)
-
-        if (t0 == t1):
-            self.data = np.append(self.data, record.data)
-            return True
-        elif (t0 < t1) and fillgaps:
-            # YET TO IMPLEMENT
-            pass
-        else:
+        if self.delta != record.delta:
+            print('Samping rate must be uniform. Not merging.')
             return False
+
+        if self.time > record.time:
+            print('New record starts before previous record. Not merging.')
+            return False
+
+        d0 = round(self.duration + self.delta, precision)
+        d1 = round(record.time - self.time, precision)
+
+        if (d1 == d0):
+            self.data = np.concatenate((self.data, record.data))
+            return True
+
+        else:
+            (q, r) = divmod(round(d1 - d0, precision), self.delta)
+
+            if (q > 0) and enforce:
+                if r == 0:
+                    infill = np.ones(int(q)) * fillvalue
+                    segments = (self.data, infill, record.data)
+                    self.data = np.concatenate(segments)
+                    return True
+                else:
+                    print('Sampling mismatch')
+                    return False
+
+            elif (q < 0) and enforce:
+                if r == 0:
+                    segments = (self.data[0:int(q)], record.data)
+                    self.data = np.concatenate(segments)
+                    return True
+                else:
+                    print('Sampling mismatch')
+                    return False
+
+            else:
+                print('Not contiguous data')
+                return False
 
     def remove_mean(self):
         """
@@ -501,75 +496,106 @@ class Stream(object):
     def __getitem__(self, sliced):
         return self.record[sliced]
 
-    def add(self, record):
+    def append(self, record, enforce=False):
         """
         """
+        if record.head.id != self.id:
+            assert ValueError('Record ID mismatching')
+
         if not self.record:
             self.record = [record]
         else:
-            if not self.record[-1].append(record):
-                # Append to stream including a gap
+            if not self.record[-1].append(record, enforce=enforce):
                 self.record.append(record)
 
     def remove(self):
         pass
 
-    def get(self, starttime=None, endtime=None, fillgaps=False):
+    def get(self, starttime=None, endtime=None):
         """
         Return selected records
         """
+        out = None
         for rec in self.record:
             sel = rec.extract(starttime, endtime)
             if sel is not None:
-                return sel
+                if out:
+                    out.append(sel, enforce=True)
+                else:
+                    out = sel
+
+        return out
+        
 
     def sort(self):
         """
         """
         def get_time(rec):
-            return rec.time.seconds
+            return rec.head.time.seconds
 
         self.record.sort(key=get_time)
+
+    def fix(self):
+        """
+        Utility to fix gaps and overlaps between records
+        """
+        pass
 
 
 class StreamCollection():
     """
     """
     def __init__(self):
-        self.stream = {}
+        self.stream = []
 
     def __len__(self):
         return len(self.stream)
 
     def __getitem__(self, sliced):
-        return self.stream[sliced]
+        """
+        """
+        if isinstance(sliced, str):
+            return self.stream[self._idx(sliced)]
+        else:
+            return self.stream[sliced]    
 
     def add(self, record):
         """
         """
-        code = record.head.sid.get()
-        if code not in self.keys():
-            self.stream[code] = Stream(code)
-        self.stream[code].add(record)
+        id = record.head.id
+        if id not in self.ids:
+            self.stream.append(Stream(id))
+
+        self[id].append(record)
 
     def remove(self):
         pass
 
-    def get(self, code=None, starttime=None, endtime=None):
+    def get(self, id=None, starttime=None, endtime=None):
         """
         """
-        if code in self.keys():
-            return self.stream[code].get(starttime, endtime)
+        return self[id].get(starttime, endtime)
 
-    def keys(self):
+    @property
+    def ids(self):
         """
         """
-        return list(self.stream.keys())
+        return [stream.id for stream in self.stream]
+
+    def _idx(self, id):
+        """
+        """
+        idl = self.ids
+        if id in idl:
+            return idl.index(id)
+        else:
+            print('Id not found.')
+            return None
 
     def merge(self, stream_collection):
         """
         """
-        for stream in self.stream.items():
+        for stream in self.stream:
             for record in stream.record:
                 self.add(record)
 

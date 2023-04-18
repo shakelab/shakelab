@@ -22,10 +22,12 @@ Time and date functionalities
 """
 
 # CONSTANTS
-MSEC = 60
-HSEC = 3600
-DSEC = 86400
-YDAYS = 365
+MSEC = 60.
+HSEC = 3600.
+DSEC = 86400.
+YDAYS = 365.
+
+from decimal import Decimal
 
 
 class Date(object):
@@ -45,6 +47,73 @@ class Date(object):
         if date is not None:
             self.set_date(date, format=format)
 
+    def __eq__(self, value):
+        """
+        """
+        t0 = self.to_seconds(decimal=True)
+        if isinstance(value, Date):
+            t1 = value.to_seconds(decimal=True)
+        else:
+            t1 = Decimal(value)
+
+        return (t0 == t1)
+
+    def __lt__(self, value):
+        """
+        """
+        t0 = self.to_seconds(decimal=True)
+        if isinstance(value, Date):
+            t1 = value.to_seconds(decimal=True)
+        else:
+            t1 = Decimal(value)
+
+        return (t0 < t1)
+
+    def __gt__(self, value):
+        """
+        """
+        t0 = self.to_seconds(decimal=True)
+        if isinstance(value, Date):
+            t1 = value.to_seconds(decimal=True)
+        else:
+            t1 = Decimal(value)
+
+        return (t0 > t1)
+
+    def __add__(self, value):
+        """
+        """
+        if isinstance(value, (int, float)):
+            t0 = self.to_seconds(decimal=True)
+            t1 = Decimal(value)
+            return Date(float(t0 + t1))
+
+        elif isinstance(value, Date):
+            t0 = self.to_seconds(decimal=True)
+            t1 = value.to_seconds(decimal=True)
+            return float(t0 + t1)
+
+        else:
+            print('Not a supported operation.')
+            return None
+
+    def __sub__(self, value):
+        """
+        """
+        if isinstance(value, (int, float)):
+            t0 = self.to_seconds(decimal=True)
+            t1 = Decimal(value)
+            return Date(float(t0 - t1))
+
+        elif isinstance(value, Date):
+            t0 = self.to_seconds(decimal=True)
+            t1 = value.to_seconds(decimal=True)
+            return float(t0 - t1)
+
+        else:
+            print('Not a supported operation.')
+            return None
+
     def __repr__(self):
         """
         """
@@ -52,7 +121,8 @@ class Date(object):
 
     def set_date(self, date, format='calendar'):
         """
-        TO: parse date as ISO8601 string (calendar and ordinal)
+        TO DO: parse date as ISO8601 string (calendar and ordinal)
+        TO DO: create an external syntax parser
         """
         if isinstance(date, (list, tuple)):
 
@@ -86,6 +156,19 @@ class Date(object):
             else:
                 raise ValueError('Seconds must be between 0 and 60')
 
+        elif isinstance(date, dict):
+
+            self.year = date['year']
+            self.day = date['day']
+            self.hour = date['hour']
+            self.minute = date['minute']
+            self.second = date['second']
+
+            if format in ('ordinal', 'julian'):
+                (self.month, self.day) = days_to_month(self.year, self.day)
+            else:
+                self.month = date['month']
+
         elif isinstance(date, str):
 
             date = date.replace('-', '')
@@ -110,18 +193,9 @@ class Date(object):
                 # Convert total days to month/day
                 (self.month, self.day) = days_to_month(self.year, julian_day)
 
-        elif isinstance(date, dict):
+        elif isinstance(date, (int, float, Decimal)):
 
-            self.year = date['year']
-            self.day = date['day']
-            self.hour = date['hour']
-            self.minute = date['minute']
-            self.second = date['second']
-
-            if format in ('ordinal', 'julian'):
-                (self.month, self.day) = days_to_month(self.year, self.day)
-            else:
-                self.month = date['month']
+            self.from_seconds(date)
 
         else:
             raise ValueError('Format not recognized')
@@ -149,11 +223,12 @@ class Date(object):
 
         return date
 
-    def to_seconds(self):
+    def to_seconds(self, decimal=False):
         """
         """
         return date_to_sec(self.year, self.month, self.day,
-                           self.hour, self.minute, self.second)
+                           self.hour, self.minute, self.second,
+                           decimal=decimal)
     @property
     def seconds(self):
         """
@@ -163,7 +238,7 @@ class Date(object):
     def from_seconds(self, second):
         """
         """
-        self.set_date(sec_to_date(second))
+        self.set_date(sec_to_date(float(second)))
 
     def shift_time(self, time, units='s'):
         """
@@ -180,30 +255,6 @@ class Date(object):
             print('Time units not yet implemented')
 
         self.from_seconds(self.to_seconds() + seconds)
-
-    def __add__(self, value):
-        """
-        """
-        if isinstance(value, (int, float)):
-            dnew = Date()
-            dnew.from_seconds(self.to_seconds() + value)
-            return dnew
-        elif isinstance(value, Date):
-            return self.to_seconds() + value.to_seconds()
-        else:
-            print('Not a supported operation')
-
-    def __sub__(self, value):
-        """
-        """
-        if isinstance(value, (int, float)):
-            dnew = Date()
-            dnew.from_seconds(self.to_seconds() - value)
-            return dnew
-        elif isinstance(value, Date):
-            return self.to_seconds() - value.to_seconds()
-        else:
-            print('Not a supported operation')
 
 
 def leap_check(year):
@@ -237,7 +288,8 @@ def days_in_month(year):
 
     return mdays
 
-def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0):
+def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0,
+                decimal=False):
     """
     Convert a date to seconds.
     Not yet implemented for b.c. years.
@@ -255,9 +307,12 @@ def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0):
     msec = MDAYS[int(month) - 1] * DSEC
     dsec = (day - 1) * DSEC
 
-    sec = ysec + msec + dsec + hour*HSEC+ minute*MSEC + second*1.
+    sec = ysec + msec + dsec + hour*HSEC+ minute*MSEC
 
-    return sec
+    if decimal:
+        return Decimal(sec) + Decimal(second)
+    else:
+        return sec + second
 
 def days_to_month(year, day):
     """

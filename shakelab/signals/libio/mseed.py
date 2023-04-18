@@ -39,7 +39,7 @@ def msread(byte_stream, byte_order='be', stream_collection=None):
     # Loop over records
     while True:
         record = MSRecord(byte_stream)
-        stream_collection.add(record.convert())
+        stream_collection.add(record.to_shakelab())
 
         # Check if end of stream, otherwise exit
         if byte_stream.offset >= byte_stream.length:
@@ -287,16 +287,19 @@ class MSRecord(object):
         self.header['NUMBER_OF_SAMPLES'] += record.header['NUMBER_OF_SAMPLES']
         self.data += record.data
 
-    def convert(self):
+    def to_shakelab(self):
         """
         Convert MiniSeed record to Shakelab record object
         """
         record = base.Record()
+
+        record.head.id = self.code
         record.head.delta = self.delta
         record.head.time = self.time
-        record.head.sid.set(self.code)
         record.data = np.array(self.data)
+
         return record
+
 
 def _binmask(word, bits, position):
     """
