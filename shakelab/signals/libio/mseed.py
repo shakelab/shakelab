@@ -293,7 +293,7 @@ class MSRecord(object):
         """
         record = base.Record()
 
-        record.head.id = self.code
+        record.head.sid = self.code
         record.head.delta = self.delta
         record.head.time = self.time
         record.data = np.array(self.data)

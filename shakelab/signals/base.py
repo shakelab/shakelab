@@ -45,7 +45,8 @@ class Header(object):
         self._delta = None
         self._nsamp = None
 
-        self.id = None
+        self.sid = None
+        self.eid = None
         self.time = Date()
         self.location = WgsPoint(None, None)
 
@@ -487,19 +488,40 @@ class Stream(object):
     continuos or with gaps.
     """
     def __init__(self, id):
-        self.id = id
+        self.sid = id
         self.record = []
 
     def __len__(self):
         return len(self.record)
 
-    def __getitem__(self, sliced):
-        return self.record[sliced]
+    def __getitem__(self, id):
+        """
+        """
+        if isinstance(id, str):
+            return self.record[self._idx(id)]
+        else:
+            return self.record[id]
+
+    def _idx(self, id):
+        """
+        """
+        eid_list = self.eid
+        if id in eid_list:
+            return eid_list.index(id)
+        else:
+            print('Id not found.')
+            return None
+
+    @property
+    def eid(self):
+        """
+        """
+        return [record.head.eid for record in self.record]
 
     def append(self, record, enforce=False):
         """
         """
-        if record.head.id != self.id:
+        if record.head.sid != self.sid:
             assert ValueError('Record ID mismatching')
 
         if not self.record:
@@ -511,20 +533,24 @@ class Stream(object):
     def remove(self):
         pass
 
-    def get(self, starttime=None, endtime=None):
+    def get(self, eid=None, starttime=None, endtime=None):
         """
-        Return selected records
+        Return selected record, force merge if record
+        not contiguous.
         """
-        out = None
-        for rec in self.record:
-            sel = rec.extract(starttime, endtime)
-            if sel is not None:
-                if out:
-                    out.append(sel, enforce=True)
-                else:
-                    out = sel
+        if eid is not None:
+            return self[eid].extract(starttime, endtime)
 
-        return out
+        else:
+            out = None
+            for rec in self.record:
+                sel = rec.extract(starttime, endtime)
+                if sel is not None:
+                    if out is None:
+                        out = sel
+                    else:
+                        out.append(sel, enforce=True)
+            return out
         
 
     def sort(self):
@@ -551,22 +577,38 @@ class StreamCollection():
     def __len__(self):
         return len(self.stream)
 
-    def __getitem__(self, sliced):
+    def __getitem__(self, id):
         """
         """
-        if isinstance(sliced, str):
-            return self.stream[self._idx(sliced)]
+        if isinstance(id, str):
+            return self.stream[self._idx(id)]
         else:
-            return self.stream[sliced]    
+            return self.stream[id]
+
+    def _idx(self, id):
+        """
+        """
+        sid_list = self.sid
+        if id in sid_list:
+            return sid_list.index(id)
+        else:
+            print('Id not found.')
+            return None
+
+    @property
+    def sid(self):
+        """
+        """
+        return [stream.sid for stream in self.stream]
 
     def add(self, record):
         """
         """
-        id = record.head.id
-        if id not in self.ids:
-            self.stream.append(Stream(id))
+        sid = record.head.sid
+        if sid not in self.sid:
+            self.stream.append(Stream(sid))
 
-        self[id].append(record)
+        self[sid].append(record)
 
     def remove(self):
         pass
@@ -575,22 +617,6 @@ class StreamCollection():
         """
         """
         return self[id].get(starttime, endtime)
-
-    @property
-    def ids(self):
-        """
-        """
-        return [stream.id for stream in self.stream]
-
-    def _idx(self, id):
-        """
-        """
-        idl = self.ids
-        if id in idl:
-            return idl.index(id)
-        else:
-            print('Id not found.')
-            return None
 
     def merge(self, stream_collection):
         """

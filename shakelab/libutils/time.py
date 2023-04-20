@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2023, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -35,7 +35,7 @@ class Date(object):
     Note: error is in seconds
     """
 
-    def __init__(self, date=None, format='calendar', error=0.):
+    def __init__(self, date=None, format='calendar', error=0., timezone='UTC'):
         self.year = None
         self.month = None
         self.day = None
