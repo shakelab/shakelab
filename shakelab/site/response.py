@@ -1,67 +1,54 @@
-# =============================================================================
+# ****************************************************************************
 #
-# Copyright (C) 2010-2017 GEM Foundation
+# Copyright (C) 2019-2022, ShakeLab Developers.
+# This file is part of ShakeLab.
 #
-# This file is part of the OpenQuake's Site Response Toolkit (OQ-SRTK)
+# ShakeLab is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
 #
-# OQ-SRTK is free software: you can redistribute it and/or modify it
-# under the terms of the GNU Affero General Public License as published
-# by the Free Software Foundation, either version 3 of the License,
-# or (at your option) any later version.
-#
-# OQ-SRTK is distributed in the hope that it will be useful,
+# ShakeLab is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
 #
-# You should have received a copy of the GNU Affero General Public License
+# You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
-# Author: Valerio Poggi
-#
-# =============================================================================
+# ****************************************************************************
 """
-Collection of methods to compute seismic amplification from a
+Collection of algorithms to compute seismic amplification from a
 one-dimensional soil column.
 """
 
 import numpy as _np
 
+from shakelab.site.psvq.psvqlib import psvq_soil_response
+from shakelab.signals.fourier import Spectrum
 
-# =============================================================================
 
-def frequency_axis(fmin, fmax, fnum, log=True):
+def soil_response(freq, model1d, iwave='sh', iangle=0., elastic=False):
     """
-    Compute a linear or logarithmic frequency axis
-
-    :param float fmin:
-        Minimum frequency
-
-    :param float fmax:
-        Maximum frequency
-
-    :param int fnum:
-        Number of frequencies
-
-    :param boolean log:
-        Switch between linear or logarithmic spacing
-        (default is logarithmic)
-
-    :return numpy.array freq:
-        The frequency axis
     """
+    hl = _np.array(model1d.hl)
+    vp = _np.array(model1d.vp)
+    vs = _np.array(model1d.vs)
+    dn = _np.array(model1d.dn)
 
-    if log:
-        freq = _np.logspace(_np.log10(fmin), _np.log10(fmax), fnum)
+    if elastic:
+        qp = None
+        qs = None
     else:
-        freq = _np.linspace(fmin, fmax, fnum)
+        qp = _np.array(model1d.qp)
+        qs = _np.array(model1d.qs)
 
-    return freq
+    out = psvq_soil_response(freq, hl, vp, vs, dn, qp, qs,
+                             iwave=iwave, iangle=iangle)
 
+    return out
 
-# =============================================================================
-
-def impedance_amplification(top_vs, top_dn, ref_vs=[], ref_dn=[], inc_ang=0.):
+def impedance_amplification(top_vs, top_dn, ref_vs=[], ref_dn=[], iang=0.):
     """
     This function calculates the amplification due to a single seismic
     impedance contrast as formalized in Joyner et al. (1981) and
@@ -84,7 +71,7 @@ def impedance_amplification(top_vs, top_dn, ref_vs=[], ref_dn=[], inc_ang=0.):
     :param float or numpy.array ref_dn:
         lowermost (reference) density in kg/m3
 
-    :param float inc_ang:
+    :param float iang:
         angle of incidence in degrees, relative to the vertical
         (default is vertical incidence)
 
@@ -102,20 +89,18 @@ def impedance_amplification(top_vs, top_dn, ref_vs=[], ref_dn=[], inc_ang=0.):
     # Computing square-root impedance amplification
     imp_amp = _np.sqrt((ref_dn*ref_vs)/(top_dn*top_vs))
 
-    if inc_ang > 0.:
+    if iang > 0.:
         # Converting incident angle from degrees to radiants
-        inc_ang *= _np.pi/180.
+        iang *= _np.pi/180.
 
         # Effective angle of incidence computed using Snell's law
-        eff_ang = _np.arcsin((top_vs/ref_vs)*_np.sin(inc_ang))
+        eff_ang = _np.arcsin((top_vs/ref_vs)*_np.sin(iang))
 
         # Correcting for non-vertical incidence
-        imp_amp *= _np.sqrt(_np.cos(inc_ang)/_np.cos(eff_ang))
+        imp_amp *= _np.sqrt(_np.cos(iang)/_np.cos(eff_ang))
 
     return imp_amp
 
-
-# =============================================================================
 
 def attenuation_decay(freq, kappa):
     """
@@ -137,17 +122,14 @@ def attenuation_decay(freq, kappa):
 
     return att_fun
 
-
-# =============================================================================
-
-def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
+def sh_transfer_function(freq, hl, vs, dn, qs=None, iang=0., depth=0.):
     """
     Compute the SH-wave transfer function using Knopoff formalism
     (implicit layer matrix scheme). Calculation can be done for an
     arbitrary angle of incidence (0-90), with or without anelastic
     attenuation (qs is optional).
 
-    It return the displacements computed at arbitrary depth.
+    It returns the displacements computed at arbitrary depth.
     If depth = -1, calculation is done at each layer interface
     of the profile.
 
@@ -170,7 +152,7 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
     :param numpy.array qs:
         array of layer's shear-wave quality factors (adimensional)
 
-    :param float inc_ang:
+    :param float iang:
         angle of incidence in degrees, relative to the vertical
         (default is vertical incidence)
 
@@ -217,13 +199,12 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
             depth = _np.array([depth])
     znum = len(depth)
 
-    # -------------------------------------------------------------------------
     # Computing angle of propagation within layers
 
     iD = _np.zeros(lnum, dtype=CTP)
     iM = _np.zeros((lnum, lnum), dtype=CTP)
 
-    iD[0] = _np.sin(inc_ang)
+    iD[0] = _np.sin(iang)
     iM[0, -1] = 1.
 
     for nl in range(lnum-1):
@@ -233,7 +214,6 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
     iA = _np.linalg.solve(iM, iD)
     iS = _np.arcsin(iA)
 
-    # -------------------------------------------------------------------------
     # Elastic parameters
 
     # Lame Parameters : shear modulus
@@ -242,10 +222,9 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
     # Horizontal slowness
     ns = _np.cos(iS)/vs
 
-    # -------------------------------------------------------------------------
     # Data vector initialisation
 
-    # Layer's amplitude vector (incognita term)
+    # Layer's amplitude vector (unknown term)
     amp_vec = _np.zeros(lnum*2, dtype=CTP)
 
     # Layer matrix
@@ -258,7 +237,6 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
     # Output layer's displacement matrix
     dis_mat = _np.zeros((znum, fnum), dtype=CTP)
 
-    # -------------------------------------------------------------------------
     # Loop over frequencies
 
     for nf in range(fnum):
@@ -299,9 +277,7 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
         except:
             amp_vec[:] = _np.nan
 
-        # ---------------------------------------------------------------------
         # Solving displacements at depth
-
         for nz in range(znum):
 
             # Check in which layer falls the calculation depth
@@ -312,8 +288,9 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
                 nl = lnum-1
                 dh = depth[nz] - bounds[-1]
             else:
-                # There might be a more python way to do that...
-                nl = map(lambda x: x >= depth[nz], bounds).index(True) - 1
+                # There might be a more pythonic way to do that...
+                zlim = lambda x: x >= depth[nz]
+                nl = list(map(zlim, bounds)).index(True) - 1
                 dh = depth[nz] - bounds[nl]
 
             # Displacement of the up-going and down-going waves
@@ -327,8 +304,6 @@ def sh_transfer_function(freq, hl, vs, dn, qs=None, inc_ang=0., depth=0.):
 
     return dis_mat
 
-
-# =============================================================================
 
 def interface_depth(hl, dtype='float64'):
     """
@@ -350,8 +325,6 @@ def interface_depth(hl, dtype='float64'):
 
     return depth
 
-
-# =============================================================================
 
 def resonance_frequency(freq, spec):
     """

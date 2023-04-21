@@ -9,5 +9,8 @@ dist
 *.egg-info
 *.whl
 
+# Travis configuration
+#.travis.yml
+
 # Mac stuff
 .DS_Store
