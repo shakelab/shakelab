@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2022, ShakeLab Developers.
+# Copyright (C) 2019-2023, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -20,80 +20,37 @@
 """
 An simple Python library for MiniSeeed file manipulation
 """
-
-from io import BytesIO
-from struct import pack, unpack
+import numpy as np
 
 from shakelab.libutils.time import Date
+from shakelab.signals.io import ByteStream
+from shakelab.signals import base
 
 
-class MiniSeed(object):
+def msread(byte_stream, byte_order='be', stream_collection=None):
     """
     """
-    def __init__(self, byte_stream=None, byte_order='be'):
+    if stream_collection is None:
+        stream_collection = base.StreamCollection()
 
-        # Stream database
-        self.stream = {}
+    if not isinstance(byte_stream, ByteStream):
+        byte_stream = ByteStream(byte_stream, byte_order=byte_order)
 
-        # Import data
-        if byte_stream is not None:
-            self.read(byte_stream, byte_order)
+    # Loop over records
+    while True:
+        record = MSRecord(byte_stream)
+        stream_collection.add(record.to_shakelab())
 
-    def read(self, byte_stream, byte_order='be'):
-        """
-        """
-        if not isinstance(byte_stream, ByteStream):
-            byte_stream = ByteStream(byte_stream, byte_order=byte_order)
+        # Check if end of stream, otherwise exit
+        if byte_stream.offset >= byte_stream.length:
+            break
 
-        # Loop over records
-        while True:
-            #try:
-            record = Record(byte_stream)
-            self.add_record(record)
+    byte_stream.close()
 
-            #except:
-            #    raise ValueError('Not a valid record. Skip...')
+    return stream_collection
 
-            # Check if end of stream, otherwise exit
-            if byte_stream.offset >= byte_stream.length:
-                break
 
-        byte_stream.close()
-
-    def write(self, file_name, byte_order=None):
-        """
-        TO DO
-        """
-        pass
-
-    def add_record(self, record):
-        """
-        """
-        if record.code not in self.stream:
-            # Create a new stream
-            self.stream[record.code] = [record]
-        else:
-            # Append to existing stream, accounting for data gaps
-            #sn0 = self.stream[record.code][-1].seqn
-            #sn1 = record.seqn
-
-            #if sn1 == (sn0 % 999999) + 1:
-            #    self.stream[record.code][-1].append(record)
-            #else:
-            #    self.stream[record.code].append(record)
-
-            d0 = self.stream[record.code][-1].time.seconds
-            dt = self.stream[record.code][-1].duration
-            d1 = record.time.seconds
-
-            # Due to numerical rounding problems, time must
-            # be rounded a posteriori to millisecond precision
-            if round(d0 + dt, 4) == round(d1, 4):
-                self.stream[record.code][-1].append(record)
-            else:
-                self.stream[record.code].append(record)
-
-class Record(object):
+class MSRecord(object):
     """
     MiniSeed record class
     """
@@ -298,7 +255,7 @@ class Record(object):
     def duration(self):
         """
         """
-        return self.nsamp * self.delta
+        return (self.nsamp - 1) * self.delta
 
     @property
     def code(self):
@@ -330,70 +287,18 @@ class Record(object):
         self.header['NUMBER_OF_SAMPLES'] += record.header['NUMBER_OF_SAMPLES']
         self.data += record.data
 
-
-class ByteStream(object):
-    """
-    This class allows reading binary data from a file or from a
-    byte buffer using the same format.
-    Useful in combination with seedlink data.
-    """
-    def __init__(self, byte_stream, byte_order='be'):
-
-        if isinstance(byte_stream, bytes):
-            self.code = BytesIO(byte_stream)
-        else:
-            self.code = open(byte_stream, 'rb')
-
-        self.byte_order = byte_order
-
-        self.goto(0, 2)
-        self.length = self.offset
-        self.goto(0)
-
-    def goto(self, offset, whence=0):
+    def to_shakelab(self):
         """
-        offset − position of the read/write pointer within the file.
-        whence − 0 for absolute file positioning, 1 for relative to
-        the current position and 2 seek relative to the file's end.
+        Convert MiniSeed record to Shakelab record object
         """
-        self.code.seek(offset, whence)
+        record = base.Record()
 
-    def shift(self, places):
-        """
-        """
-        self.goto(places, 1)
+        record.head.sid = self.code
+        record.head.delta = self.delta
+        record.head.time = self.time
+        record.data = np.array(self.data)
 
-    @property
-    def offset(self):
-        """
-        """
-        return self.code.tell()
-
-    def get(self, byte_format, byte_num=1, offset=None):
-        """
-        """
-        if offset is not None:
-            self.goto(offset)
-
-        byte_buffer = self.code.read(byte_num)
-
-        if byte_format == 's':
-            byte_format = str(byte_num) + byte_format
-
-        byte_map = {'be': '>', 'le': '<'}
-        byte_format = byte_map[self.byte_order] + byte_format
-
-        value = unpack(byte_format, byte_buffer)[0]
-
-        if isinstance(value, bytes):
-            value = value.decode()
-
-        return value
-
-    def close(self):
-        """
-        """
-        self.code.close()
+        return record
 
 
 def _binmask(word, bits, position):
