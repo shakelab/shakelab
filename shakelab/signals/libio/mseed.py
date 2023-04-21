@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2023, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -20,85 +20,56 @@
 """
 An simple Python library for MiniSeeed file manipulation
 """
+import numpy as np
 
-from io import BytesIO
-from struct import pack, unpack
+from shakelab.libutils.time import Date
+from shakelab.signals.io import ByteStream
+from shakelab.signals import base
 
 
-class MiniSeed(object):
+def msread(byte_stream, byte_order='be', stream_collection=None):
     """
     """
+    if stream_collection is None:
+        stream_collection = base.StreamCollection()
 
-    def __init__(self, file=None, byte_order='le'):
+    if not isinstance(byte_stream, ByteStream):
+        byte_stream = ByteStream(byte_stream, byte_order=byte_order)
 
-        # Set byte order
-        self._byte_order = byte_order
+    # Loop over records
+    while True:
+        record = MSRecord(byte_stream)
+        stream_collection.add(record.to_shakelab())
 
-        # Record list initialisation
-        self.stream = {}
+        # Check if end of stream, otherwise exit
+        if byte_stream.offset >= byte_stream.length:
+            break
 
-        # Import miniSEED file
-        if file is not None:
-            self.read(file)
+    byte_stream.close()
 
-    def read(self, file, byte_order=None):
-        """
-        """
-        # Set byte order
-        if byte_order is not None:
-            self._byte_order = byte_order
-
-        # Initialise stream object
-        byte_stream = ByteStream(file, byte_order=self._byte_order)
-
-        # Loop over records
-        while True:
-
-            #try:
-            record = Record(byte_stream)
-
-            if record.sid not in self.stream:
-                # Create a new stream
-                self.stream[record.sid] = [record]
-            else:
-                # Append to existing stream, accounting for data gaps
-                sn0 = self.stream[record.sid][-1].seq
-                sn1 = record.seq
-
-                if sn1 == (sn0 % 999999) + 1:
-                    self.stream[record.sid][-1].append(record)
-                else:
-                    self.stream[record.sid].append(record)
-
-            #except:
-            #    raise ValueError('Not a valid record. Skip...')
-
-            # Check if end of stream, otherwise exit
-            if byte_stream.offset >= byte_stream.length:
-                break
-
-        byte_stream.close()
-
-    def write(self, file, byte_order=None):
-        """
-        TO DO
-        """
-        pass
+    return stream_collection
 
 
-class Record(object):
+class MSRecord(object):
     """
     MiniSeed record class
     """
-
-    def __init__(self, byte_stream=None):
+    def __init__(self, byte_stream=None, **kwargs):
 
         self._header_init()
         self._blockette_init()
         self.data = []
 
+        for k,v in kwargs.items():
+            if k in self.header:
+                self.header.update({k : v})
+
         if byte_stream is not None:
             self.read(byte_stream)
+
+    def __len__(self):
+
+        return self.nsamp
 
     def _header_init(self):
         """
@@ -133,7 +104,6 @@ class Record(object):
         """
         Importing header structure
         """
-
         self.header = {}
         for hs in head_struc:
             self.header[hs[0]] = byte_stream.get(hs[1], hs[2])
@@ -142,7 +112,6 @@ class Record(object):
         """
         Importing blockettes
         """
-
         block_offset = self.header['OFFSET_TO_BEGINNING_OF_BLOCKETTE']
 
         for nb in range(self.header['NUMBER_OF_BLOCKETTES_TO_FOLLOW']):
@@ -171,7 +140,6 @@ class Record(object):
         """
         Importing data
         """
-
         data_struc = {0: ('s', 1),
                       1: ('h', 2),
                       3: ('i', 4),
@@ -187,7 +155,7 @@ class Record(object):
 
         if enc in [0, 1, 3, 4]:
 
-            bnum = self.length()//data_struc[enc][1]
+            bnum = self._bytelen//data_struc[enc][1]
             data = [None] * bnum
 
             # Reading all data bytes, including zeros
@@ -201,10 +169,13 @@ class Record(object):
 
         elif enc in [10, 11]:
 
+            if byte_stream.byte_order == 'le':
+                raise ValueError('STEIM1/2 only defined for Big-Endian')
+
             cnt = 0
             data = [None] * nos
 
-            for fn in range(self.length//64):
+            for fn in range(self._bytelen//64):
 
                 word = [None] * 16
                 for wn in range(16):
@@ -240,6 +211,13 @@ class Record(object):
         self.data = data[:nos]
 
     @property
+    def _bytelen(self):
+        """
+        """
+        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
+                self.header['OFFSET_TO_BEGINNING_OF_DATA'])
+
+    @property
     def delta(self):
         """
         """
@@ -255,13 +233,6 @@ class Record(object):
         return 1./srate
 
     @property
-    def length(self):
-        """
-        """
-        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
-                self.header['OFFSET_TO_BEGINNING_OF_DATA'])
-
-    @property
     def time(self):
         """
         """
@@ -272,12 +243,24 @@ class Record(object):
         date += '{0:02d}.'.format(self.header['SECONDS'])
         date += '{0:04d}'.format(self.header['MSECONDS'])
 
-        return date
+        return Date(date, format='ordinal')
 
     @property
-    def sid(self):
+    def nsamp(self):
         """
-        Stream identifier (FSDN code)
+        """
+        return self.header['NUMBER_OF_SAMPLES']
+
+    @property
+    def duration(self):
+        """
+        """
+        return (self.nsamp - 1) * self.delta
+
+    @property
+    def code(self):
+        """
+        Stream identifier (FDSN code)
         """
         net = self.header['NETWORK_CODE'].strip()
         sta = self.header['STATION_CODE'].strip()
@@ -287,7 +270,7 @@ class Record(object):
         return '{0}.{1}.{2}.{3}'.format(net, sta, loc, chn)
 
     @property
-    def seq(self):
+    def seqn(self):
         """
         Sequence number
         """
@@ -297,75 +280,25 @@ class Record(object):
         """
         Append the data from a recording to the current.
         Note that sequence number is updated.
+
+        TODO: add header consistency check
         """
         self.header['SEQUENCE_NUMBER'] = record.header['SEQUENCE_NUMBER']
+        self.header['NUMBER_OF_SAMPLES'] += record.header['NUMBER_OF_SAMPLES']
         self.data += record.data
 
-
-class ByteStream(object):
-    """
-    This class allows reading binary data from a file or from a
-    byte buffer using the same format.
-    Useful in combination with seedlink data.
-    """
-
-    def __init__(self, byte_stream, byte_order='le'):
-
-        if isinstance(byte_stream, bytes):
-            self.sid = BytesIO(byte_stream)
-        else:
-            self.sid = open(byte_stream, 'rb')
-
-        self.byte_order = byte_order
-
-        self.goto(0, 2)
-        self.length = self.offset
-        self.goto(0)
-
-    def goto(self, offset, whence=0):
+    def to_shakelab(self):
         """
-        offset − position of the read/write pointer within the file.
-        whence − 0 for absolute file positioning, 1 for relative to
-        the current position and 2 seek relative to the file's end.
+        Convert MiniSeed record to Shakelab record object
         """
-        self.sid.seek(offset, whence)
+        record = base.Record()
 
-    def shift(self, places):
-        """
-        """
-        self.goto(places, 1)
+        record.head.sid = self.code
+        record.head.delta = self.delta
+        record.head.time = self.time
+        record.data = np.array(self.data)
 
-    @property
-    def offset(self):
-        """
-        """
-        return self.sid.tell()
-
-    def get(self, byte_format, byte_num=1, offset=None):
-        """
-        """
-        if offset is not None:
-            self.goto(offset)
-
-        byte_buffer = self.sid.read(byte_num)
-
-        if byte_format == 's':
-            byte_format = str(byte_num) + byte_format
-
-        byte_map = {'be': '>', 'le': '<'}
-        byte_format = byte_map[self.byte_order] + byte_format
-
-        value = unpack(byte_format, byte_buffer)[0]
-
-        if isinstance(value, bytes):
-            value = value.decode()
-
-        return value
-
-    def close(self):
-        """
-        """
-        self.sid.close()
+        return record
 
 
 def _binmask(word, bits, position):

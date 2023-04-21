@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2022, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -26,84 +26,130 @@ from copy import deepcopy
 
 import shakelab.signals.base as base
 
-def _halflen(snum):
+def _fnum(tnum):
     """
-    Computing half-length of FFT, accounting for
-    odd/even number of samples
+    Computing the length of RFFT (positive) frequency axis,
+    accounting for odd/even number of samples
     """
-    return np.rint(snum/2)
+    if (tnum % 2) == 0:
+        return int((tnum/2)+1)
+    else:
+        return int((tnum+1)/2)
 
-def fft(data):
+def _tnum(delta, dfreq):
     """
-    Amplitude scaling should be optional...
     """
-    return np.fft.rfft(data) * 2 / len(data)
+    return int((1 / dfreq) / delta)
 
-def ifft(data):
+def delta_to_dfreq(delta, tnum):
     """
     """
-    return np.fft.irfft(data) * len(data)
+    return 1 / (delta * tnum)
 
-def frequency(snum, delta):
+def dfreq_to_delta(dfreq, tnum):
     """
     """
-    return np.fft.rfftfreq(snum, delta)
+    return 1 / (dfreq * tnum)
+
+def fft(data, nsamp):
+    """
+    wrapper
+    """
+    return np.fft.rfft(data, nsamp)
+
+def ifft(data, nsamp):
+    """
+    wrapper
+    """
+    return np.fft.irfft(data, nsamp)
+
+def frequency_axis(delta, tnum):
+    """
+    """
+    return np.fft.rfftfreq(tnum, delta)
+
+def frequency_range(fmin, fmax, fnum, log=True):
+    """
+    Compute a linear or logarithmic frequency range
+
+    :param float fmin:
+        Minimum frequency
+
+    :param float fmax:
+        Maximum frequency
+
+    :param int fnum:
+        Number of frequencies
+
+    :param boolean log:
+        Select between linear or logarithmic spacing
+        (default is logarithmic)
+
+    :return numpy.array freq:
+        The frequency axis
+    """
+
+    if log:
+        freq = np.logspace(np.log10(fmin), np.log10(fmax), fnum)
+    else:
+        freq = np.linspace(fmin, fmax, fnum)
+
+    return freq
+
+def _to_complex(amplitude, phase):
+    """
+    """
+    return amplitude * np.exp(1j * phase)
 
 def shift_time(signal, delta, shift):
     """
     Shift a signal in time by using fft-based circular convolution.
     No zero-padding is assumed.
     """
-    freq = frequency(len(signal), delta)
+    nsamp = len(signal)
+    freq = frequency_axis(delta, len(signal))
     expt = np.exp(-2*1j*np.pi*shift*freq)
 
-    return ifft(fft(signal)*expt)
+    return ifft(fft(signal, nsamp)*expt, nsamp)
 
 
 class Spectrum():
     """
-    Discrete Fourier spectrum class in FFT format
+    Discrete Fourier spectrum class in RFFT format (one sided positive)
     """
 
-    def __init__(self, record=None):
-        self.head = base.Header()
+    def __init__(self, record=None, delta=None, nsamp=None, data=None):
+
+        self.head = base.Header(self)
         self.data = np.array([], dtype="complex")
 
         if record is not None:
             self.fft(record)
+        else:
+            if delta is not None:
+                self.head.delta = delta
+
+            if nsamp is not None:
+                self.head.nsamp = nsamp
+
+            if data is not None:
+                self.data = data        
 
     def __len__(self):
-        return len(self.data)
+        return self.nfreq
 
     def __getitem__(self, sliced):
         return self.data[sliced]
 
-    def fft(self, record, norm=False):
-        """
-        """
-        self.head = deepcopy(record.head)
-        self.data = fft(record.data)
-
-        if norm:
-            self.data = self.data / record.dt
-
-    def ifft(self, norm=False):
-        """
-        """
-        record = base.Record()
-        record.head = deepcopy(self.head)
-        record.data = ifft(self.data)
-
-        if norm:
-            record.data = record.data / self.df
-
-        return record
+    @property
+    def nfreq(self):
+        return _fnum(self.head.nsamp)
 
     @property
     def df(self):
         """
         """
-        return 1/(self.head.delta * (len(self)-1))
+        return delta_to_dfreq(self.head.delta, self.head.nsamp)
 
     @property
     def amplitude(self):
@@ -118,7 +164,7 @@ class Spectrum():
         phase = np.angle(self.data)
 
     @property
-    def unwrap(self):
+    def phase_unwrap(self):
         """
         """
         return np.unwrap(self.phase)
@@ -127,7 +173,30 @@ class Spectrum():
     def frequency(self):
         """
         """
-        return frequency(2*len(self)-1, self.head.delta)
+        return frequency_axis(self.head.delta, self.head.nsamp)
+
+    def fft(self, record, norm=False):
+        """
+        """
+        self.head = deepcopy(record.head)
+        self.data = fft(record.data, self.head.nsamp)
+
+        if norm:
+            # to check
+            self.data =  self.data / record.dt / len(self.head.nsamp)
+
+    def ifft(self, norm=False):
+        """
+        """
+        record = base.Record()
+        record.head = deepcopy(self.head)
+        record.data = ifft(self.data, self.head.nsamp)
+
+        if norm:
+            # to check
+            record.data = record.data / self.df * len(self.head.nsamp)
+
+        return record
 
     def filter(self, highpass=None, lowpass=None):
         """
@@ -145,36 +214,38 @@ class Spectrum():
         f = interpolate.interp1d(self.frequency, self.data)
         return f(frequency)
 
-    def logsmooth(self, sigma, memsafe=False):
+    def logsmooth(self, sigma=0.2, memsafe=False):
         """
         Logarithm smoothing of (complex) spectra.
         Note: 0-frequency is preserved
         TO-DO: algorithm is slow and memory consuming, must be optimized.
         """
-        slen = len(self)
-        freq = np.log(self.frequency[1:])
+        slen = len(self) - 1
+        freq = np.log(self.frequency[1:]) / (np.sqrt(2) * sigma)
         data = np.log(self.data[1:])
         s0 = self.data[0]
 
         if not memsafe:
             # Fast vectorial version, although memory consuming
-            fmat = np.tile(freq, (slen - 1, 1))
 
             # Gaussian weighting window
-            g = np.exp(-np.power((fmat - fmat.T)/sigma, 2.)/2.)
-            sumg = np.matmul(g, np.ones(slen-1))
-            del(fmat)
+            g = np.exp(-(np.tile(freq, slen) - np.repeat(freq, slen))**2)
+            g = g.reshape(slen, slen)
+            
+            sumg = np.matmul(g, np.ones(slen))
             smat = g / sumg
 
             return np.insert(np.exp(np.matmul(data, smat)), 0, s0)
 
         else:
-            # Slower version, but memory saving for large arrays.
-            sdata = np.zeros(slen-1, dtype='complex')
+            # Slower version, but memory saving for large time series.
+            sdata = np.zeros(slen, dtype='complex')
 
             for i,f0 in enumerate(freq):
                 # Gaussian weighting window
-                g = np.exp(-np.power((freq - f0)/sigma, 2.)/2.)
+                g = np.exp(-(freq - f0)**2)
+
                 sdata[i]= np.matmul(data, g/sum(g))
 
             return np.insert(np.exp(sdata), 0, s0)
+

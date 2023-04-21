@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2021, ShakeLab Developers.
+# Copyright (C) 2019-2022, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -23,12 +23,22 @@
 import numpy as np
 
 from shakelab.site import engpar
+from shakelab.site.cps.surf96 import surf96
+from shakelab.site.response import soil_response
+from shakelab.site.engpar import compute_site_kappa
+from shakelab.signals.fourier import frequency_axis, Spectrum
+from shakelab.libutils import utils
 
+# Precision for decimal rounding
+DECIMALS = 6
 
+# Map of soil parameters
 _KEYMAP = ['hl', 'vp', 'vs', 'dn', 'qp', 'qs']
 
 
 class Layer():
+    """
+    """
 
     def __init__(self, data=None):
 
@@ -38,6 +48,9 @@ class Layer():
 
         if data is not None:
             self.set(data)
+
+    def __repr__(self):
+        return repr(self.get())
 
     def __setitem__(self, key, value):
 
@@ -55,15 +68,20 @@ class Layer():
 
     def set(self, data):
         """
+        Import data in dictionary or list format.
         """
         if isinstance(data, dict):
             for (key, value) in data.items():
+                self[key] = value
+        elif isinstance(data, list):
+            for (key, value) in zip(_KEYMAP, data):
                 self[key] = value
         else:
             raise ValueError('not a valid data format')
 
     def get(self):
         """
+        Export data in dictionary format.
         """
         data = {}
         for key in self.keys:
@@ -74,6 +92,7 @@ class Layer():
     def keys(self):
         return _KEYMAP
 
+
 class Model1D():
 
     def __init__(self, ascii_file=None):
@@ -81,6 +100,14 @@ class Model1D():
 
         if ascii_file is not None:
             self.read(ascii_file)
+
+    def __setitem__(self, key, data):
+
+        if key in _KEYMAP:
+            for i, value in enumerate(data):
+                exec('self.layer[{0}].{1}=float({2})'.format(i, key, value))
+        else:
+            raise KeyError('{0}'.format(key))
 
     def __getitem__(self, key):
 
@@ -121,54 +148,54 @@ class Model1D():
         """
         del self.layer[idx]
 
-    def set(self, key, data):
-        print('set')
+    def set_key(self, key, data):
+        self[key] = data
 
-    def get(self, key):
+    def get_key(self, key):
         return self[key]
 
-    def __set_hl(self, data):
-        self.set('hl', data)
+    def _set_hl(self, data):
+        self.set_key('hl', data)
 
-    def __get_hl(self):
-        return self.get('hl')
+    def _get_hl(self):
+        return self.get_key('hl')
 
-    def __set_vp(self, data):
-        self.set('vp', data)
+    def _set_vp(self, data):
+        self.set_key('vp', data)
 
-    def __get_vp(self):
-        return self.get('vp')
+    def _get_vp(self):
+        return self.get_key('vp')
 
-    def __set_vs(self, data):
-        self.set('vs', data)
+    def _set_vs(self, data):
+        self.set_key('vs', data)
 
-    def __get_vs(self):
-        return self.get('vs')
+    def _get_vs(self):
+        return self.get_key('vs')
 
-    def __set_dn(self, data):
-        self.set('dn', data)
+    def _set_dn(self, data):
+        self.set_key('dn', data)
 
-    def __get_dn(self):
-        return self.get('dn')
+    def _get_dn(self):
+        return self.get_key('dn')
 
-    def __set_qp(self, data):
-        self.set('qp', data)
+    def _set_qp(self, data):
+        self.set_key('qp', data)
 
-    def __get_qp(self):
-        return self.get('qp')
+    def _get_qp(self):
+        return self.get_key('qp')
 
-    def __set_qs(self, data):
-        self.set('qs', data)
+    def _set_qs(self, data):
+        self.set_key('qs', data)
 
-    def __get_qs(self):
-        return self.get('qs')
+    def _get_qs(self):
+        return self.get_key('qs')
 
-    hl = property(__get_hl, __set_hl)
-    vp = property(__get_vp, __set_vp)
-    vs = property(__get_vs, __set_vs)
-    dn = property(__get_dn, __set_dn)
-    qp = property(__get_qp, __set_qp)
-    qs = property(__get_qs, __set_qs)
+    hl = property(_get_hl, _set_hl)
+    vp = property(_get_vp, _set_vp)
+    vs = property(_get_vs, _set_vs)
+    dn = property(_get_dn, _set_dn)
+    qp = property(_get_qp, _set_qp)
+    qs = property(_get_qs, _set_qs)
 
     def read(self, ascii_file, header=None, skipline=0,
                    comment='#', delimiter=','):
@@ -225,6 +252,11 @@ class Model1D():
 
         print('Error: Wrong file or file path')
 
+    def write(self, ascii_file):
+        """
+        """
+        pass
+
     def traveltime_velocity(self, key='vs', depth=30.):
         """
         Compute and store travel-time average velocity at a given depth.
@@ -250,3 +282,89 @@ class Model1D():
         """
         """
         return self.traveltime_velocity('vs', 30)
+
+    def _dispersion(self, frequency, mode, itype, ifunc):
+        """
+        """
+        hl = np.array(self.hl) / 1e3
+        vp = np.array(self.vp) / 1e3
+        vs = np.array(self.vs) / 1e3
+        dn = np.array(self.dn) / 1e3
+
+        return surf96(1./frequency, hl, vp, vs, dn,
+                      mode=mode, itype=itype, ifunc=ifunc,
+                      dc=0.0001, dt=0.025)
+
+    def love_phase_dispersion(self, frequency, mode=0):
+        """
+        """
+        return self._dispersion(frequency, mode, 0, 1)
+
+    def rayleigh_phase_dispersion(self, frequency, mode=0):
+        """
+        """
+        return self._dispersion(frequency, mode, 0, 2)
+
+    def love_group_dispersion(self, frequency, mode=0):
+        """
+        """
+        return self._dispersion(frequency, mode, 1, 1)
+
+    def rayleigh_group_dispersion(self, frequency, mode=0):
+        """
+        """
+        return self._dispersion(frequency, mode, 1, 2)
+
+    def soil_response(self, delta, nsamp, iwave='sh', iangle=0.,
+                      ilayer=0, elastic=False):
+        """
+        Compute the soil (complex) response at the
+        surface for outcropping rock reference conditions.
+        Calculation can be done for an arbitrary angle of
+        incidence (0-90), elastic or anelastic.
+
+        ilayer = measuring layer
+        """
+        freq = frequency_axis(delta, nsamp)
+        out = soil_response(freq, self, iwave=iwave,
+                            iangle=iangle, elastic=elastic)
+
+        if iwave == 'sh':
+            sp_h = Spectrum(delta=delta, nsamp=nsamp, data=out[ilayer])
+            return sp_h
+
+        else:
+            sp_h = Spectrum(delta=delta, nsamp=nsamp, data=out[0][ilayer])
+            sp_v = Spectrum(delta=delta, nsamp=nsamp, data=out[1][ilayer])
+            return sp_h, sp_v
+
+
+    def site_kappa(self, depth=None):
+        """
+        Compute the Kappa parameter directly from the site model
+        using harmonic averaging. Caculation depth can be specified,
+        otherwise depth of the last layer interface is assumed.
+
+        :param float depth:
+            averaging depth in meters (optional)
+        """
+
+        # Compute kappa attenuation
+        kappa = compute_site_kappa(np.array(self.hl),
+                                   np.array(self.vs),
+                                   np.array(self.qs),
+                                   depth)
+
+        return utils.a_round(kappa, DECIMALS)
+
+    def soil_class(self, code='EC8'):
+        """
+        Compute geotechnical classification according to specified
+        building code. Default is EC8 (missing special classes).
+
+        :param string code:
+            the reference building code for the classification
+            (default EC8)
+        """
+
+        return engpar.soil_class(self.vs30, code)

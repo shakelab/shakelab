@@ -93,7 +93,7 @@ def traveltime_velocity(thickness, s_velocity, depth=30):
     return mean_velocity
 
 
-def compute_site_kappa(thickness, s_velocity, s_quality, depth=[]):
+def compute_site_kappa(thickness, s_velocity, s_quality, depth=None):
     """
     This function calucalte the site attenuation parameter Kappa(0)
     for a given soil profile at arbitrary depth.
@@ -116,7 +116,7 @@ def compute_site_kappa(thickness, s_velocity, s_quality, depth=[]):
     """
 
     # If depth not given, using the whole profile
-    if not depth:
+    if depth is None:
         depth = _np.sum(thickness)
 
     # Kappa vector
@@ -202,7 +202,7 @@ def _qwl_fit_func(search_depth, thickness, slowness, frequency):
     return misfit
 
 
-def gt_soil_class(vs30, code='EC8'):
+def soil_class(vs30, code='EC8'):
     """
     Compute geotechnical soil class from a given vs30 according
     to a specified building code.
