@@ -256,7 +256,6 @@ class Date(object):
 
         self.from_seconds(self.to_seconds() + seconds)
 
-
 def leap_check(year):
     """
     Check if leap year.
