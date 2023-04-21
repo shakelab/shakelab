@@ -1,0 +1,116 @@
+# ****************************************************************************
+#
+# Copyright (C) 2019-2023, ShakeLab Developers.
+# This file is part of ShakeLab.
+#
+# ShakeLab is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# ShakeLab is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# with this download. If not, see <http://www.gnu.org/licenses/>
+#
+# ****************************************************************************
+
+TIMEZONE = {
+"ABST" : {"label" : "(UTC+03:00) Kuwait, Riyadh", "delay" : 3.0},
+"ACST" : {"label" : "(UTC+09:30) Darwin", "delay" : 9.5},
+"AEST" : {"label" : "(UTC+10:00) Canberra, Melbourne, Sydney", "delay" : 10.0},
+"AFT" : {"label" : "(UTC+04:30) Kabul", "delay" : 4.5},
+"AK" : {"label" : "(UTC-09:00) Alaska", "delay" : -9.0},
+"AMT" : {"label" : "(UTC+04:00) Yerevan", "delay" : 4.0},
+"ARBST" : {"label" : "(UTC+04:00) Abu Dhabi, Muscat", "delay" : 4.0},
+"ARST" : {"label" : "(UTC+03:00) Baghdad", "delay" : 3.0},
+"ART" : {"label" : "(UTC-03:00) Buenos Aires", "delay" : -3.0},
+"AST" : {"label" : "(UTC-04:00) Atlantic Time (Canada)", "delay" : -4.0},
+"AWST" : {"label" : "(UTC+08:00) Perth", "delay" : 8.0},
+"AZOST" : {"label" : "(UTC-01:00) Azores", "delay" : -1.0},
+"AZT" : {"label" : "(UTC+04:00) Baku", "delay" : 4.0},
+"BIT" : {"label" : "(UTC-12:00) International Date Line West", "delay" : -12.0},
+"BST" : {"label" : "(UTC+06:00) Dhaka", "delay" : 6.0},
+"BTT" : {"label" : "(UTC+06:00) Astana", "delay" : 6.0},
+"CAST" : {"label" : "(UTC-06:00) Central America", "delay" : -6.0},
+"CAUST" : {"label" : "(UTC+09:30) Adelaide", "delay" : 9.5},
+"CBST" : {"label" : "(UTC-04:00) Cuiaba", "delay" : -4.0},
+"CCST" : {"label" : "(UTC-06:00) Saskatchewan", "delay" : -6.0},
+"CEST" : {"label" : "(UTC+01:00) Sarajevo, Skopje, Warsaw, Zagreb", "delay" : 1.0},
+"CET" : {"label" : "(UTC+01:00) Belgrade, Bratislava, Budapest, Ljubljana, Prague", "delay" : 1.0},
+"CHN" : {"label" : "(UTC+08:00) Beijing, Chongqing, Hong Kong, Urumqi", "delay" : 8.0},
+"CST" : {"label" : "(UTC-06:00) Guadalajara, Mexico City, Monterrey", "delay" : -6.0},
+"CT" : {"label" : "(UTC-06:00) Central Time (US & Canada)", "delay" : -6.0},
+"CVT" : {"label" : "(UTC-01:00) Cape Verde Is.", "delay" : -1.0},
+"EAST" : {"label" : "(UTC+10:00) Brisbane", "delay" : +10.0},
+"EAT" : {"label" : "(UTC+03:00) Nairobi", "delay" : 3.0},
+"ECT" : {"label" : "(UTC+01:00) West Central Africa", "delay" : 1.0},
+"EEST" : {"label" : "(UTC+02:00) Minsk", "delay" : 2.0},
+"EET" : {"label" : "(UTC+02:00) Helsinki, Kyiv, Riga, Sofia, Tallinn, Vilnius", "delay" : 2.0},
+"EGST" : {"label" : "EGST (UTC+02:00) Cairo", "delay" : 2.0},
+"ESAST" : {"label" : "(UTC-03:00) Brasilia America/Sao_Paulo", "delay" : -3.0},
+"EST" : {"label" : "(UTC-05:00) Indiana (East)", "delay" : -5.0},
+"ET" : {"label" : "(UTC-05:00) Eastern Time (US & Canada)", "delay" : -5.0},
+"FJT" : {"label" : "(UTC+12:00) Fiji", "delay" : 12.0},
+"GET" : {"label" : "(UTC+04:00) Tbilisi", "delay" : 4.0},
+"GMT" : {"label" : "(UTC) Dublin, Edinburgh, Lisbon, London", "delay" : 0.0},
+"GNST" : {"label" : "(UTC-03:00) Greenland", "delay" : -3.0},
+"GST" : {"label" : "(UTC) Monrovia, Reykjavik", "delay" : 0.0},
+"GTBST" : {"label" : "(UTC+02:00) Athens, Bucharest, Istanbul", "delay" : 2.0},
+"HAST" : {"label" : "(UTC-10:00) Hawaii", "delay" : -10.0},
+"IRKT" : {"label" : "(UTC+08:00) Irkutsk", "delay" : 8.0},
+"IRST" : {"label" : "(UTC+03:30) Tehran", "delay" : 3.5},
+"ISST" : {"label" : "(UTC+02:00) Jerusalem", "delay" : 2.0},
+"IST" : {"label" : "(UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi", "delay" : 5.5},
+"JST" : {"label" : "(UTC+02:00) Amman", "delay" : 2.0},
+"KRAT" : {"label" : "(UTC+07:00) Krasnoyarsk", "delay" : 7.0},
+"KST" : {"label" : "(UTC+09:00) Seoul", "delay" : 9.0},
+"MEST" : {"label" : "MEST (UTC+02:00) Beirut", "delay" : 2.0},
+"MOST" : {"label" : "(UTC) Casablanca", "delay" : 0.0},
+"MSK" : {"label" : "(UTC+03:00) Moscow, St. Petersburg, Volgograd", "delay" : 3.0},
+"MST" : {"label" : "(UTC-07:00) Arizona", "delay" : -7.0},
+"MSTM" : {"label" : "(UTC-07:00) Chihuahua, La Paz, Mazatlan", "delay" : -7.0},
+"MT" : {"label" : "(UTC-07:00) Mountain Time (US & Canada)", "delay" : -7.0},
+"MUT" : {"label" : "(UTC+04:00) Port Louis", "delay" : 4.0},
+"MVST" : {"label" : "(UTC-03:00) Montevideo", "delay" : -3.0},
+"MYST" : {"label" : "(UTC+06:30) Yangon (Rangoon)", "delay" : 6.5},
+"NCAST" : {"label" : "(UTC+06:00) Novosibirsk", "delay" : 6.0},
+"NMST" : {"label" : "(UTC+02:00) Windhoek", "delay" : 2.0},
+"NPT" : {"label" : "(UTC+05:45) Kathmandu", "delay" : 5.75},
+"NST" : {"label" : "(UTC-03:30) Newfoundland", "delay" :  -3.5 },
+"NZST" : {"label" : "(UTC+12:00) Auckland, Wellington", "delay" : 12.0},
+"PETT" : {"label" : "(UTC+12:00) Petropavlovsk-Kamchatsky - Old", "delay" : 12.0},
+"PHOT" : {"label" : "(UTC+13:00) Nuku'alofa", "delay" : 13.0},
+"PKT" : {"label" : "(UTC+05:00) Islamabad, Karachi", "delay" : 5.0},
+"PRST" : {"label" : "(UTC-04:00) Asuncion", "delay" : -4.0},
+"PSAST" : {"label" : "(UTC-04:00) Santiago", "delay" : -4.0},
+"PST" : {"label" : "(UTC-08:00) Baja California", "delay" : -8.0},
+"PT" : {"label" : "(UTC-08:00) Pacific Time (US & Canada)", "delay" : -8.0},
+"RST" : {"label" : "(UTC+01:00) Brussels, Copenhagen, Madrid, Paris", "delay" : 1.0},
+"SAEST" : {"label" : "(UTC-03:00) Cayenne, Fortaleza", "delay" : -3.0},
+"SAPST" : {"label" : "(UTC-05:00) Bogota, Lima, Quito", "delay" : -5.0},
+"SAST" : {"label" : "(UTC+02:00) Harare, Pretoria", "delay" : 2.0},
+"SAWST" : {"label" : "(UTC-04:00) Georgetown, La Paz, Manaus, San Juan", "delay" : -4.0},
+"SBT" : {"label" : "(UTC+11:00) Magadan, Solomon Is., New Caledonia", "delay" : 11.0},
+"SLT" : {"label" : "(UTC+05:30) Sri Jayawardenepura", "delay" : 5.5},
+"SMST" : {"label" : "(UTC-11:00) Samoa", "delay" : -11.0},
+"SNST" : {"label" : "(UTC+08:00) Kuala Lumpur, Singapore", "delay" : 8.0},
+"SST" : {"label" : "(UTC+02:00) Damascus", "delay" : 2.0},
+"TAST" : {"label" : "(UTC+10:00) Hobart", "delay" : 10.0},
+"THA" : {"label" : "(UTC+07:00) Bangkok, Hanoi, Jakarta", "delay" : 7.0},
+"TIST" : {"label" : "(UTC+08:00) Taipei", "delay" : 8.0},
+"TST" : {"label" : "(UTC+09:00) Osaka, Sapporo, Tokyo", "delay" : 9.0},
+"UST" : {"label" : "(UTC+08:00) Ulaanbaatar", "delay" : 8.0},
+"UTC" : {"label" : "(UTC) Coordinated Universal Time", "delay" : 0.0},
+"UTC12" : {"label" : "(UTC+12:00) Coordinated Universal Time+12", "delay" : 12.0},
+"VLAT" : {"label" : "(UTC+10:00) Vladivostok", "delay" : 10.0},
+"VST" : {"label" : "(UTC-04:30) Caracas", "delay" :  -4.5 },
+"WAST" : {"label" : "(UTC+05:00) Tashkent", "delay" : 5.0},
+"WET" : {"label" : "(UTC+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna", "delay" : 1.0},
+"WPST" : {"label" : "(UTC+10:00) Guam, Port Moresby", "delay" : 10.0},
+"YAKT" : {"label" : "(UTC+09:00) Yakutsk", "delay" : 9.0},
+"YEKT" : {"label" : "(UTC+05:00) Ekaterinburg", "delay" : 5.0}
+}
