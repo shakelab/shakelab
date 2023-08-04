@@ -1,0 +1,15 @@
+README - save_fullwave_spectra
+-----------------------------------
+main function: create_spectralpkl()
+
+This folder contains the parser used to create the input pickle databases, 
+starting from pickles containing a StreamCollection object with all of the 
+available Streams relative to each event.
+
+It does NOT cover the creation of the pickle files.
+
+It allows to set different specifications for the MODELS choices (which source
+model to be used - TO BE IMPLEMENTED; which motion component to model (a/v/d);
+which frequency point to use in the calulations) and to specify custom
+reference paths (home folder, location of input pickle files, location of 
+parameter files, name of the database to be used...).

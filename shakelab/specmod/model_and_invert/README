@@ -1,0 +1,23 @@
+README - modelling and inversion tools
+---------------------------------------
+
+This is the core of the package:
+
+- create_synth_pars = create one or more synthetic parameter sets in the
+                      form of Params() objects and save them as pickle files
+
+- fas_log = tools for calculating the forwards FAS model and the corresponding
+            cost function, given a dataset for comparison
+
+- inversion = tools to perform parametric spectral inversion on the chosen
+              signal component
+
+- jacobian_module = calculate the explicit jacobian associated to the chosen
+                    forward model, to be used for inversion calculations
+
+- wrap_function = utilities for calling to the scipy.optimize.minimize tool
+
+
+The sample databases are provided as .pkl files, both for the signal and noise 
+components. The path for database to be used can be modified inside the
+"config" module (config.REFS['REFERENCE_DB']).

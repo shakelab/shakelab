@@ -1,0 +1,14 @@
+README - inversion and modelling tools for Shakelab
+
+"fas_modelling" branch - New batch of changes in order to integrate 
+it with ShakeLab (04/08/23)
+
+This is the attempt to build a version of the spectral inversion software 
+to be compatible with the Shakelab package.
+
+(Note: source.py is a prototype and is external to the rest of the package)
+
+An actual minimal usage manual is under implementation and will be uploaded ASAP.
+
+All licenses are the same as for the Shakelab project.
+All codes were written by Laura Cataldi. 
