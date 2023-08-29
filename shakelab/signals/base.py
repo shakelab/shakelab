@@ -613,7 +613,7 @@ class StreamCollection():
     def remove(self):
         pass
 
-    def get(self, id=None, starttime=None, endtime=None):
+    def get(self, id, starttime=None, endtime=None):
         """
         """
         return self[id].get(starttime, endtime)

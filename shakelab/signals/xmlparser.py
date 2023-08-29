@@ -35,7 +35,6 @@ msg_missingreq = "Element %s lacks required FDSN attribute or tag and thus " \
                  "inventory object."
 
 
-
 def _get_fdsn_info(xmldoc):
     """
     Return StationXML namespace and version string if the namespace corresponds 

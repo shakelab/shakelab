@@ -24,7 +24,7 @@ import os as _os
 import json as _json
 import numpy as np
 
-from shakelab.signals.fourier import fft, ifft, fft_axis
+#from shakelab.signals.fourier import fft, ifft, fft_axis
 
 
 paz_map = {

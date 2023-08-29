@@ -279,14 +279,14 @@ def load_metadata(mdfile, format='stationxml', sid=None, time=None,
     """
 
     if format == 'stationxml':
-        try:
-            mdata = read_stationxml(mdfile, level=level)
-            if sid is not None:
-                mdata = select_nslc(mdata, sid, time)
-            return mdata
-        except:
-            warnings.warn("Warning: read_stationxml failed ",  UserWarning)
-            pass
+        #try:
+        mdata = read_stationxml(mdfile, level=level)
+        if sid is not None:
+            mdata = select_nslc(mdata, sid, time)
+        return mdata
+        #except:
+        #    warnings.warn("Warning: read_stationxml failed ",  UserWarning)
+        #    pass
     else:
         warnings.warn("Warning: chosen format is not implemented yet; "
                       "available formats are: 'stationxml' ",  UserWarning)

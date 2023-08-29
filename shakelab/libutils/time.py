@@ -339,7 +339,7 @@ def sec_to_date(second):
         secy = YDAYS * DSEC
         if leap_check(year):
             secy += DSEC
-        if second > secy:
+        if second >= secy:
             second -= secy
         else:
             break
