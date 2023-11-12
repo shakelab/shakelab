@@ -23,11 +23,11 @@ An simple Python library for MiniSeeed file manipulation
 import numpy as np
 
 from shakelab.libutils.time import Date
-from shakelab.signals.io import ByteStream
+from shakelab.signals.binutils import ByteStream
 from shakelab.signals import base
 
 
-def msread(byte_stream, byte_order='be', stream_collection=None):
+def msread(byte_stream, stream_collection=None, byte_order='be'):
     """
     """
     if stream_collection is None:

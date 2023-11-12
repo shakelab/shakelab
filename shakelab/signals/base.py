@@ -27,6 +27,7 @@ from scipy import signal, fftpack, integrate
 from copy import deepcopy
 
 from shakelab.signals import fourier
+from shakelab.signals import response
 from shakelab.signals.libio import mseed
 from shakelab.libutils.time import Date
 from shakelab.libutils.constants import PI, GRAVITY
@@ -35,7 +36,6 @@ from shakelab.structures.response import (sdof_response_spectrum,
                                           sdof_interdrift,
                                           newmark_integration)
 
-
 class Header(object):
     """
     """
@@ -43,7 +43,7 @@ class Header(object):
 
         self._rate = None
         self._delta = None
-        self._nsamp = None
+        #self._nsamp = None
 
         self.sid = None
         self.eid = None
@@ -78,11 +78,11 @@ class Header(object):
         self._delta = 1./value
 
     @property
-    def nsamp(self):
-        if self._parent is not None:
-            return self._parent.nsamp
-        else:
-            return None
+    #def nsamp(self):
+    #    if self._parent is not None:
+    #        return self._parent.nsamp
+    #    else:
+    #        return None
 
     def copy(self):
         return deepcopy(self)
@@ -110,15 +110,55 @@ class Record(object):
     def __getitem__(self, sliced):
         return self.data[sliced]
 
-    def __sum__(self, value):
+    def __add__(self, value):
+        """
+        """
+        rec_mod = self.copy()
         if isinstance(value, (int, float)):
             self.data += value
         elif isinstance(value, Record):
             self.append(value)
+        else:
+            raise TypeError('unsupported operand type(s) for +')
+
+        return rec_mod
+
+    def __sub__(self, value):
+        """
+        """
+        rec_mod = self.copy()
+        if isinstance(value, (int, float)):
+            self.data -= value
+        else:
+            raise TypeError('unsupported operand type(s) for -')
+
+        return rec_mod
 
     def __mul__(self, value):
+        """
+        """
+        rec_mod = self.copy()
         if isinstance(value, (int, float)):
-            self.data *= value
+            rec_mod.data *= value
+        elif isinstance(value, (response.StageReponse)):
+            rec_mod.add_response(value)
+        else:
+            raise TypeError('unsupported operand type(s) for *')
+
+        return rec_mod
+
+    def __truediv__(self, value):
+        """
+        """
+        rec_mod = self.copy()
+        if isinstance(value, (int, float)):
+            rec_mod.data = rec_mod.data / value
+        elif isinstance(value, (response.StageReponse)):
+            rec_mod.remove_response(value)
+        else:
+            raise TypeError('unsupported operand type(s) for /')
+
+        return rec_mod
 
     @property
     def nsamp(self):
@@ -294,7 +334,7 @@ class Record(object):
             alpha = 1
         else:
             alpha = min(2 * float(time)/(self.head.delta * tnum), 1)
-        self.data = (self.data * signal.tukey(tnum, alpha))
+        self.data *= signal.tukey(tnum, alpha)
 
     def zero_padding(self, time):
         """
@@ -315,15 +355,15 @@ class Record(object):
         data = fourier.shift_time(data, self.head.delta, time)
         self.data = data[0:len(self.data)]
 
-    def fft(self):
+    def to_spectrum(self):
         """
         """
         return fourier.Spectrum(self)
 
-    def ifft(self, spectrum):
+    def from_spectrum(self, spectrum):
         """
         """
-        record = spectrum.ifft()
+        record = spectrum.to_record()
         self.head = record.head
         self.data = record.data
 
@@ -351,17 +391,40 @@ class Record(object):
         else:
             raise NotImplementedError('method not implemented')
 
-    def convolve(self, record, mode='full', method='fft'):
+    def convolve(self, data, mode='full', method='fft'):
         """
         """
-        self.data = signal.convolve(self.data, record.data,
+        if isinstance(data, Record):
+            signal = signal.data
+            
+        self.data = signal.convolve(self.data, data,
                                     mode=mode, method=method)
+
+    def deconvolve(self, data):
+        """
+        """
+        if isinstance(data, Record):
+            signal = signal.data
+
+        self.data, remainder = signal.deconvolve(self.data, data)
 
     def correlate(self, record, mode='full', method='fft'):
         """
         """
         self.data = signal.correlate(self.data, record.data,
                                      mode=mode, method=method)
+
+    def add_responese(self, response):
+        """
+        """
+        corrected_record = response.convolve_record(self)
+        self.data = corrected_record.data
+
+    def remove_response(self, response):
+        """
+        """
+        corrected_record = response.deconvolve_record(self)
+        self.data = corrected_record.data
 
     @property
     def analytic_signal(self):
@@ -390,6 +453,7 @@ class Record(object):
         """
         return np.diff(self.instantaneous_phase) / (2*PI) * self.head.rate
 
+    @property
     def peak_amplitude(self):
         """
         """
@@ -504,6 +568,7 @@ class Stream(object):
 
     def _idx(self, id):
         """
+        Record can be extracted by event ID.
         """
         eid_list = self.eid
         if id in eid_list:
@@ -551,7 +616,6 @@ class Stream(object):
                     else:
                         out.append(sel, enforce=True)
             return out
-        
 
     def sort(self):
         """
@@ -563,7 +627,7 @@ class Stream(object):
 
     def fix(self):
         """
-        Utility to fix gaps and overlaps between records
+        Utility to fix gaps and overlaps between records (TO DO)
         """
         pass
 
@@ -601,8 +665,10 @@ class StreamCollection():
         """
         return [stream.sid for stream in self.stream]
 
-    def add(self, record):
+    def append(self, record):
         """
+        TO DO: Must differentiate if input is record or stream
+            (presently is only for record)
         """
         sid = record.head.sid
         if sid not in self.sid:

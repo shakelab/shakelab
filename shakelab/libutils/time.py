@@ -28,6 +28,18 @@ DSEC = 86400.
 YDAYS = 365.
 
 from decimal import Decimal
+import time as systime
+
+
+def _to_decimal(value):
+    """
+    """
+    if isinstance(value, Date):
+        t0 = value.to_seconds(decimal=True)
+    else:
+        t0 = Decimal(value)
+
+    return t0
 
 
 class Date(object):
@@ -36,6 +48,8 @@ class Date(object):
     """
 
     def __init__(self, date=None, format='calendar', error=0., timezone='UTC'):
+        """
+        """
         self.year = None
         self.month = None
         self.day = None
@@ -43,18 +57,23 @@ class Date(object):
         self.minute = None
         self.second = None
         self.error = error
+        self.offset = 0.
+
+        if timezone != 'UTC':
+            # self.offset = set_offset_from_timezone(timezone)
+            pass
 
         if date is not None:
-            self.set_date(date, format=format)
+            if date == 'now':
+                self.set_date(now())
+            else:
+                self.set_date(date, format=format)
 
     def __eq__(self, value):
         """
         """
         t0 = self.to_seconds(decimal=True)
-        if isinstance(value, Date):
-            t1 = value.to_seconds(decimal=True)
-        else:
-            t1 = Decimal(value)
+        t1 = _to_decimal(value)
 
         return (t0 == t1)
 
@@ -62,14 +81,27 @@ class Date(object):
         """
         """
         t0 = self.to_seconds(decimal=True)
-        if isinstance(value, Date):
-            t1 = value.to_seconds(decimal=True)
-        else:
-            t1 = Decimal(value)
+        t1 = _to_decimal(value)
 
         return (t0 < t1)
 
+    def __le__(self, value):
+        """
+        """
+        t0 = self.to_seconds(decimal=True)
+        t1 = _to_decimal(value)
+
+        return (t0 <= t1)
+
     def __gt__(self, value):
+        """
+        """
+        t0 = self.to_seconds(decimal=True)
+        t1 = _to_decimal(value)
+
+        return (t0 > t1)
+
+    def __ge__(self, value):
         """
         """
         t0 = self.to_seconds(decimal=True)
@@ -78,7 +110,7 @@ class Date(object):
         else:
             t1 = Decimal(value)
 
-        return (t0 > t1)
+        return (t0 >= t1)
 
     def __add__(self, value):
         """
@@ -171,6 +203,7 @@ class Date(object):
 
         elif isinstance(date, str):
 
+            """
             date = date.replace('-', '')
             date = date.replace(':', '')
             date = date.replace('T', '')
@@ -192,6 +225,16 @@ class Date(object):
 
                 # Convert total days to month/day
                 (self.month, self.day) = days_to_month(self.year, julian_day)
+            """
+
+            dbuf = read_iso8601_date(date)
+            self.year = dbuf[0]
+            self.month = dbuf[1]
+            self.day = dbuf[2]
+            self.hour = dbuf[3]
+            self.minute = dbuf[4]
+            self.second = dbuf[5]
+            self.offset = dbuf[6]
 
         elif isinstance(date, (int, float, Decimal)):
 
@@ -370,3 +413,103 @@ def sec_to_date(second):
     return [int(year), int(month), int(day),
             int(hour), int(minute), second]
 
+def read_iso8601_date(date_str):
+    """
+    Parses a date string in ISO 8601 format and returns individual components.
+
+    Args:
+        date_str (str): A string representing a date in ISO 8601 format.
+
+    Returns:
+        tuple: A tuple containing the year, month, day, hour, minute, second,
+               and time offset (for time zone).
+
+    Note:
+        The ISO 8601 format supported by this function is
+        'YYYY-MM-DDTHH:MM:SS.sssZ' or 'YYYY-MM-DDTHH:MM:SS.sss±HH:MM',
+        where 'Z' indicates UTC and '±HH:MM' represents the time offset
+        from UTC.
+    """
+    [date_part, time_part] = date_str.split('T')
+
+    # Extract date part
+    date_len = len(date_part.split('-'))
+
+    if date_len == 3:
+        year, month, day = map(int, date_part.split('-'))
+
+    if date_len == 2:
+        year, day = map(int, date_part.split('-'))
+        (month, day) = days_to_month(year, day)
+
+    time_offset = 0
+
+    # Extract time part
+    if 'Z' in time_part:
+        time_part = time_part.strip('Z')
+
+    elif '+' in time_part:
+        [time_part, offset_part] = time_part.split('+')
+        offsets = offset_part.split(':')
+        time_offset = int(offsets[0]) * HSEC
+        if len(offsets) > 1:
+            time_offset = time_offset + int(offsets[1]) * MSEC
+        if len(offsets) > 2:
+            time_offset = time_offset + int(offsets[2])
+
+    elif '-' in time_part:
+        [time_part, offset_part] = time_part.split('-')
+        offsets = offset_part.split(':')
+        time_offset = - int(offsets[0]) * HSEC
+        if len(offsets) > 1:
+            time_offset = time_offset - int(offsets[1]) * MSEC
+        if len(offsets) > 2:
+            time_offset = time_offset - int(offsets[2])
+
+    if '.' in time_part:
+        [time_part, msecond] = time_part.split('.')
+        mslen = len(msecond)
+        msecond = int(msecond)
+
+    else:
+        mslen = 0
+        msecond = 0
+
+    hour, minute, second = map(int, time_part.split(':'))
+
+    # Add decimal part to seconds
+    second = msecond * 10**(-mslen)
+
+    return year, month, day, hour, minute, second, time_offset
+
+def write_iso8601_date(year, month, day, hour, minute, second, timezone='Z'):
+    """
+    Converts year, month, day, hour, minute, and second to ISO 8601 format.
+
+    Args:
+        year (int): The year.
+        month (int): The month (1-12).
+        day (int): The day of the month (1-31).
+        hour (int): The hour (0-23).
+        minute (int): The minute (0-59).
+        second (float or int): The second (including fractions of a second).
+        timezone (str) : Local time zone (Z is UTC default)
+
+    Returns:
+        str: ISO 8601 formatted string.
+    """
+    iso8601_str = "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:09.6f}{:s}".format(
+        year, month, day, hour, minute, second, timezone
+    )
+    return iso8601_str
+
+def now():
+    """
+    Get the current UTC date and time in ISO 8601 format.
+
+    Returns:
+        str: ISO 8601 formatted string of current UTC date and time.
+    """
+    dbuf = systime.gmtime(systime.time())
+    return write_iso8601_date(dbuf[0], dbuf[1], dbuf[2],
+                              dbuf[3], dbuf[4], dbuf[5])
