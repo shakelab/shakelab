@@ -42,7 +42,7 @@ def reader(file, ftype=None, stream_collection=None, byte_order='be'):
             ftype = 'sac'
 
         else:
-            raise NotImplementedError('extension format not recognized')
+            raise NotImplementedError('file tyep not recognized')
 
     # Import recordings
     if ftype == 'mseed':
@@ -57,7 +57,7 @@ def reader(file, ftype=None, stream_collection=None, byte_order='be'):
         #record.head.delta= sc.delta
         #record.head.time = Date(sc.time, format='julian')
         #record.data = np.array(sc.data[0])
-        #rec_list.append(record)
+        #rec_list.append(record)_getattrib
         pass
 
     elif ftype == 'itaca':

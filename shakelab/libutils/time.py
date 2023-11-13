@@ -31,23 +31,12 @@ from decimal import Decimal
 import time as systime
 
 
-def _to_decimal(value):
-    """
-    """
-    if isinstance(value, Date):
-        t0 = value.to_seconds(decimal=True)
-    else:
-        t0 = Decimal(value)
-
-    return t0
-
-
 class Date(object):
     """
     Note: error is in seconds
     """
 
-    def __init__(self, date=None, format='calendar', error=0., timezone='UTC'):
+    def __init__(self, date=None, error=0., timezone='UTC'):
         """
         """
         self.year = None
@@ -67,13 +56,13 @@ class Date(object):
             if date == 'now':
                 self.set_date(now())
             else:
-                self.set_date(date, format=format)
+                self.set_date(date)
 
     def __eq__(self, value):
         """
         """
         t0 = self.to_seconds(decimal=True)
-        t1 = _to_decimal(value)
+        t1 = to_decimal(value)
 
         return (t0 == t1)
 
@@ -81,7 +70,7 @@ class Date(object):
         """
         """
         t0 = self.to_seconds(decimal=True)
-        t1 = _to_decimal(value)
+        t1 = to_decimal(value)
 
         return (t0 < t1)
 
@@ -89,7 +78,7 @@ class Date(object):
         """
         """
         t0 = self.to_seconds(decimal=True)
-        t1 = _to_decimal(value)
+        t1 = to_decimal(value)
 
         return (t0 <= t1)
 
@@ -97,7 +86,7 @@ class Date(object):
         """
         """
         t0 = self.to_seconds(decimal=True)
-        t1 = _to_decimal(value)
+        t1 = to_decimal(value)
 
         return (t0 > t1)
 
@@ -105,10 +94,7 @@ class Date(object):
         """
         """
         t0 = self.to_seconds(decimal=True)
-        if isinstance(value, Date):
-            t1 = value.to_seconds(decimal=True)
-        else:
-            t1 = Decimal(value)
+        t1 = to_decimal(value)
 
         return (t0 >= t1)
 
@@ -151,42 +137,27 @@ class Date(object):
         """
         return self.get_date(dtype='string')
 
-    def set_date(self, date, format='calendar'):
+    def set_date(self, date):
         """
-        TO DO: parse date as ISO8601 string (calendar and ordinal)
-        TO DO: create an external syntax parser
+        Ordinal format is automatically recognized.
         """
         if isinstance(date, (list, tuple)):
 
-            if date[0] >= 1:
+            if len(date) == 6:
                 self.year = int(date[0])
-            else:
-                raise ValueError('Year must be > 1')
-
-            if date[1] >= 1 and date[1] <= 12:
                 self.month = int(date[1])
-            else:
-                raise ValueError('Month must be between 1 and 12')
-
-            if date[2] >= 1 and date[2] <= 31:
                 self.day = int(date[2])
-            else:
-                raise ValueError('Day must be between 1 and 31')
-
-            if date[3] >= 0 and date[3] <= 23:
                 self.hour = int(date[3])
-            else:
-                raise ValueError('Hours must be between 0 and 23')
-
-            if date[4] >= 0 and date[4] <= 59:
                 self.minute = int(date[4])
-            else:
-                raise ValueError('Minutes must be between 0 and 59')
-
-            if date[5] >= 0 and date[5] < 60:
                 self.second = float(date[5])
-            else:
-                raise ValueError('Seconds must be between 0 and 60')
+
+            elif len(date) == 5:
+                self.year = int(date[0])
+                self.day = int(date[1])
+                self.hour = int(date[2])
+                self.minute = int(date[3])
+                self.second = float(date[4])
+                (self.month, self.day) = days_to_month(self.year, self.day)
 
         elif isinstance(date, dict):
 
@@ -196,36 +167,13 @@ class Date(object):
             self.minute = date['minute']
             self.second = date['second']
 
-            if format in ('ordinal', 'julian'):
-                (self.month, self.day) = days_to_month(self.year, self.day)
-            else:
+            if 'month' in dict:
                 self.month = date['month']
+            else:
+                # Assuming ordinal format
+                (self.month, self.day) = days_to_month(self.year, self.day)
 
         elif isinstance(date, str):
-
-            """
-            date = date.replace('-', '')
-            date = date.replace(':', '')
-            date = date.replace('T', '')
-
-            if format in ('calendar', 'gregorian'):
-                self.year = int(date[0:4])
-                self.month = int(date[4:6])
-                self.day = int(date[6:8])
-                self.hour = int(date[8:10])
-                self.minute = int(date[10:12])
-                self.second = float(date[12:])
-
-            if format in ('ordinal', 'julian'):
-                self.year = int(date[0:4])
-                julian_day = int(date[4:7])
-                self.hour = int(date[7:9])
-                self.minute = int(date[9:11])
-                self.second = float(date[11:])
-
-                # Convert total days to month/day
-                (self.month, self.day) = days_to_month(self.year, julian_day)
-            """
 
             dbuf = read_iso8601_date(date)
             self.year = dbuf[0]
@@ -243,16 +191,19 @@ class Date(object):
         else:
             raise ValueError('Format not recognized')
 
+        self._selfcheck()
+
     def get_date(self, dtype='list', format='calendar'):
         """
+        NOTE: ordinal format not yet implemented in output
         """
         if dtype in ('l', 'list'):
 
             date = [self.year, self.month, self.day,
                     self.hour, self.minute, self.second]
 
-        elif dtype in ('s', 'str', 'string'):
-
+        elif dtype in ('s', 'str', 'string', 'iso8601'):
+            """
             # ISO-8601 format
             date = '{0:04d}-'.format(self.year)
             date += '{0:02d}-'.format(self.month)
@@ -260,11 +211,35 @@ class Date(object):
             date += '{0:02d}:'.format(self.hour)
             date += '{0:02d}:'.format(self.minute)
             date += '{0:07.4f}'.format(self.second)
+            """
+            date = write_iso8601_date(self.year, self.month, self.day,
+                                      self.hour, self.minute, self.second)
 
         else:
             raise ValueError('Format not recognized')
 
         return date
+
+    def _selfcheck(self):
+        """
+        """
+        if self.year < 1:
+            raise ValueError('Year must be >= 1')
+
+        if self.month < 1 or self.month > 12:
+            raise ValueError('Month must be between 1 and 12')
+
+        if self.day < 1 or self.day > 31:
+            raise ValueError('Day must be between 1 and 31')
+
+        if self.hour < 0 or self.hour > 23:
+            raise ValueError('Hours must be between 0 and 23')
+
+        if self.minute < 0 or self.minute > 59:
+            raise ValueError('Minutes must be between 0 and 59')
+
+        if self.second < 0 or self.second > 60:
+            raise ValueError('Seconds must be between 0 and 60')
 
     def to_seconds(self, decimal=False):
         """
@@ -478,7 +453,7 @@ def read_iso8601_date(date_str):
     hour, minute, second = map(int, time_part.split(':'))
 
     # Add decimal part to seconds
-    second = msecond * 10**(-mslen)
+    second += msecond * 10**(-mslen)
 
     return year, month, day, hour, minute, second, time_offset
 
@@ -513,3 +488,15 @@ def now():
     dbuf = systime.gmtime(systime.time())
     return write_iso8601_date(dbuf[0], dbuf[1], dbuf[2],
                               dbuf[3], dbuf[4], dbuf[5])
+
+def to_decimal(value):
+    """
+    """
+    if isinstance(value, Date):
+        t0 = value.to_seconds(decimal=True)
+    elif isinstance(value, (int, float)):
+        t0 = Decimal(value)
+    else:
+        raise ValueError('Not a valid time format')
+
+    return t0

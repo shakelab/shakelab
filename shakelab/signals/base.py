@@ -695,7 +695,9 @@ class StreamCollection():
         """
         """
         if ftype == 'mseed':
-            mseed.msread(byte_stream, byte_order, self)
+            mseed.msread(byte_stream,
+                         stream_collection=self,
+                         byte_order=byte_order)
 
     def write(self, file):
         """

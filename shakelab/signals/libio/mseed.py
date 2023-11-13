@@ -39,7 +39,7 @@ def msread(byte_stream, stream_collection=None, byte_order='be'):
     # Loop over records
     while True:
         record = MSRecord(byte_stream)
-        stream_collection.add(record.to_shakelab())
+        stream_collection.append(record.to_shakelab())
 
         # Check if end of stream, otherwise exit
         if byte_stream.offset >= byte_stream.length:
@@ -243,7 +243,7 @@ class MSRecord(object):
         date += '{0:02d}.'.format(self.header['SECONDS'])
         date += '{0:04d}'.format(self.header['MSECONDS'])
 
-        return Date(date, format='ordinal')
+        return Date(date)
 
     @property
     def nsamp(self):
