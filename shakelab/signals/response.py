@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2023, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -23,11 +23,13 @@
 import os as _os
 import json as _json
 import numpy as np
+from copy import deepcopy
 
 #from shakelab.signals.fourier import Spectrum, fft, ifft, frequency_axis
 from shakelab.libutils.utils import cast_value
 from shakelab.signals import fourier
 from shakelab.signals import base
+from shakelab.signals import stationxml
 from shakelab.libutils.time import Date
 
 
@@ -87,11 +89,16 @@ class ResponseCollection():
             out = out.get(stage_number)
         return out
 
-    def read(self, response_file, ftype='sjson'):
+    def read(self, byte_stream, ftype='sxml'):
         """
         """
         if ftype == 'sjson':
             pass
+
+        if ftype == 'sxml':
+            # TO IMPROVE: should not replace but append
+            buf = stationxml.parse_sxml(byte_stream)
+            self.stream = buf.stream
 
     def write(self, file):
         """
@@ -159,7 +166,7 @@ class StageRecord():
         """
         """
         if isinstance(idx, int):
-            return self.get(idx)
+            return self.select_stage(idx)
         else:
             raise NotImplementedError('Not a valid stage number')
 
@@ -195,29 +202,59 @@ class StageRecord():
         else:
             return False
 
-    def get(self, stage_number=None):
+    def select_stage(self, stage_number):
         """
-        Select specific stage sequence numbers
         """
-        if stage_number is not None:
-            return [s for s in self.stage if s.stage_number==stage_number+1]
+        srec = StageRecord()
+        srec.starttime = self.starttime
+        srec.endtime = self.endttime
+
+        for stage in self.stage:
+            if stage.stage_number == stage_number:
+                srec.stage.append(stage)
+
+    #def get(self, stage_number=None):
+    #    """
+    #    Select specific stage sequence numbers
+    #    """
+    #    if stage_number is not None:
+    #        return [s for s in self.stage if s.stage_number==stage_number+1]
 
     def convolve_record(self, record):
         """
         """
-        rec_mod = record.copy()
-        for s in s in self.stage:
-            rec_mod = s.convolve_record(rec_mod)
-        return rec_mode
+        if isinstance(record, base.Record):
+            rec_mod = record.copy()
+            for s in s in self.stage:
+                rec_mod = s.convolve_record(rec_mod)
+            return rec_mode
+
+        elif isinstance(record, base.Stream):
+            pass
+
+        elif isinstance(record, base.StreamCollection):
+            pass
 
     def deconvolve_record(self, record):
         """
         """
-        rec_mod = record.copy()
-        for s in s in self.stage:
-            rec_mod = s.deconvolve_record(rec_mod)
-        return rec_mode
+        if isinstance(record, base.Record):
+            rec_mod = record.copy()
+            for s in s in self.stage:
+                rec_mod = s.deconvolve_record(rec_mod)
+            return rec_mode
 
+        elif isinstance(record, base.Stream):
+            pass
+
+        elif isinstance(record, base.StreamCollection):
+            pass
+
+
+    def copy(self):
+        """
+        """
+        return deepcopy(self)
 
 class StageResponse():
     """

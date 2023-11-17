@@ -280,6 +280,7 @@ class Record(object):
     def cut(self, starttime=None, endtime=None, inplace=True):
         """
         Cut the signal in place to the nearest time sample.
+        NOTE: Include the duration option
         """
         i0 = 0
         t0 = 0.
@@ -414,17 +415,55 @@ class Record(object):
         self.data = signal.correlate(self.data, record.data,
                                      mode=mode, method=method)
 
-    def add_responese(self, response):
+    def convolve_response(self, resp):
         """
+        TO DO: include also the dictionary format and list
+               of stages.
         """
-        corrected_record = response.convolve_record(self)
-        self.data = corrected_record.data
+        if isinstance(resp, response.StageResponse):
+            corrected_record = resp.convolve_record(self)
+            self.data = corrected_record.data
 
-    def remove_response(self, response):
+        elif isinstance(resp, response.StageRecord):
+            for stage in resp.stage:
+                self.convolve_response(stage)
+
+        elif isinstance(resp, response.StreamResponse):
+            self.convolve_response(resp[self.head.time])
+
+        elif isinstance(resp, response.ResponseCollection):
+            sid = self.head.sid
+            if sid in resp.sid:
+                self.convolve_response(resp[sid][self.head.time])
+            else:
+                print('Station not in database. Not correcting.')
+
+        else:
+            raise ValueError('Not a valid reponse object')
+
+    def deconvolve_response(self, resp):
         """
         """
-        corrected_record = response.deconvolve_record(self)
-        self.data = corrected_record.data
+        if isinstance(resp, response.StageResponse):
+            corrected_record = resp.deconvolve_record(self)
+            self.data = corrected_record.data
+
+        elif isinstance(resp, response.StageRecord):
+            for stage in resp.stage:
+                self.deconvolve_response(stage)
+
+        elif isinstance(resp, response.StreamResponse):
+            self.deconvolve_response(resp[time])
+
+        elif isinstance(resp, response.ResponseCollection):
+            sid = self.head.sid
+            if sid in resp.sid:
+                self.deconvolve_response(resp[sid][self.head.time])
+            else:
+                print('Station not in database. Not correcting.')
+
+        else:
+            raise ValueError('Not a valid reponse object')
 
     @property
     def analytic_signal(self):
@@ -631,6 +670,22 @@ class Stream(object):
         """
         pass
 
+    def copy(self):
+        """
+        """
+        return deepcopy(self)
+
+    def convolve_response(self, resp):
+        """
+        """
+        for rec in self.record:
+            rec.convolve_response(resp)
+
+    def deconvolve_response(self, resp):
+        """
+        """
+        for rec in self.record:
+            rec.deconvolve_response(resp)
 
 class StreamCollection():
     """
@@ -691,6 +746,18 @@ class StreamCollection():
             for record in stream.record:
                 self.add(record)
 
+    def convolve_response(self, resp):
+        """
+        """
+        for stream in self.stream:
+            stream.convolve_response(resp)
+
+    def deconvolve_response(self, resp):
+        """
+        """
+        for stream in self.stream:
+            stream.deconvolve_response(resp)
+
     def read(self, byte_stream, ftype='mseed', byte_order='be'):
         """
         """
@@ -704,6 +771,10 @@ class StreamCollection():
         """
         pass
 
+    def copy(self):
+        """
+        """
+        return deepcopy(self)
 
 # ---------------------
 """

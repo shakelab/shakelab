@@ -23,14 +23,10 @@ import numpy as np
 import xml.etree.ElementTree as ET
 import io, os, re
 
-from shakelab.signals.response import (ResponseCollection,
-                                       StreamResponse,
-                                       StageRecord,
-                                       StageGain,
-                                       StagePoleZero)
+import shakelab.signals.response as rspm
 
 
-def parse_stationxml(xml):
+def parse_sxml(xml):
 
     if os.path.isfile(xml):
         with open(xml, 'r') as f:
@@ -50,7 +46,7 @@ def parse_stationxml(xml):
     if 'FDSNStationXML'not in root.tag:
         raise ValueError('Not a valid FDSN StationXML')
 
-    rcoll = ResponseCollection()
+    rcoll = rspm.ResponseCollection()
 
     for network in root.findall('.//Network'):
         network_code = _getattrib(network, 'code')
@@ -70,10 +66,10 @@ def parse_stationxml(xml):
                                                      channel_code)
 
                 if fdsn_code not in rcoll.sid:
-                    strmr = StreamResponse(fdsn_code)
+                    strmr = rspm.StreamResponse(fdsn_code)
                     rcoll.append(strmr)
 
-                srec = StageRecord(starttime, endtime)
+                srec = rspm.StageRecord(starttime, endtime)
                 srec.append(parse_response(channel))
 
                 rcoll[fdsn_code].append(srec)
@@ -114,7 +110,7 @@ def parse_gain(element):
     value = element.find('Value').text
     frequency = element.find('Frequency').text
 
-    stage = StageGain()
+    stage = rspm.StageGain()
     stage.sensitivity = float(value)
 
     return stage
@@ -139,7 +135,7 @@ def parse_polezero(element):
         imag = float(pole.find('Imaginary').text)
         poles.append(real + imag*1j)
 
-    stage = StagePoleZero()
+    stage = rspm.StagePoleZero()
     stage.input_units = input_units
     stage.output_units = output_units
     stage.normalization_factor = float(normalization_factor)

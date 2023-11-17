@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2022, ShakeLab Developers.
+# Copyright (C) 2019-2023, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -22,6 +22,7 @@
 
 from shakelab.libutils.time import Date
 from shakelab.signals.base import StreamCollection
+from shakelab.signals.stationxml import parse_sxml
 
 from copy import deepcopy
 import requests
@@ -69,7 +70,7 @@ STATION_DEFAULTS = {
     "startafter" : None,
     "endbefore" : None,
     "endafter" : None,
-    "level" : "station",
+    "level" : "response",
     "includerestricted" : "true",
     "includeavailability" : "false",
     "updateafter" : None,
@@ -113,8 +114,25 @@ class FDSNClient(object):
         """
         self.url = _init_data_center(data_center)
 
-    def query_station(self, params={}, box_bounds=None,
-                            rad_bounds=None, file_name=None, **kwargs):
+    def get_waveform(self, fdsn_code, starttime, endtime,
+                     correct=False, file_name=None):
+        """
+        """
+        fc = FDSNCode(fdsn_code)
+
+        sc = self.query_data(fc.get('dict'),
+                             starttime=starttime, endtime=endtime)
+
+        if correct:
+            xml = self.query_station(fc.get('dict'), level='response')
+            rc = parse_sxml(xml)
+            sc.deconvolve_response(rc)
+
+        if file_name is None:
+            return sc
+
+    def query_station(self, params={}, box_bounds=None, rad_bounds=None,
+                            file_name=None, **kwargs):
         """
         """
         # Initiale and update query parameters
@@ -185,7 +203,7 @@ class FDSNClient(object):
                         sc.read(resp.content)
                         return sc
                     else:
-                        raise ValueError('Output file name must be specified')
+                        raise ValueError('Format not supported')
                 else:
                     with open(file_name, 'wb') as f:
                         f.write(resp.content)
@@ -193,12 +211,12 @@ class FDSNClient(object):
         else:
             print('No data available')
 
-    def get_event(self):
+    def query_event(self):
         """
         """
         pass
 
-    def get_info(self):
+    def query_info(self):
         """
         """
         pass
@@ -288,23 +306,40 @@ class FDSNCode(object):
             self.location = code[2]
             self.channel = code[3]
 
-        if isinstance(code, str):
+        elif isinstance(code, str):
             code = code.split('.')
             self.network = code[0]
             self.station = code[1]
             self.location = code[2]
             self.channel = code[3]
 
-        if isinstance(code, dict):
+        elif isinstance(code, dict):
             self.network = code['network']
             self.station = code['station']
             self.location = code['location']
             self.channel = code['channel']
 
-    def get(self):
+        else:
+            raise TypeError('Not a supported input type')
+
+    def get(self, dtype='str'):
         """
         """
-        return '{0}.{1}.{2}.{3}'.format(self.network,
-                                        self.station,
-                                        self.location,
-                                        self.channel)
+        if dtype == 'list':
+            return [self.network, self.station,
+                    self.location, self.channel]
+
+        elif dtype == 'str':
+            return '{0}.{1}.{2}.{3}'.format(self.network,
+                                            self.station,
+                                            self.location,
+                                            self.channel)
+
+        elif dtype == 'dict':
+            return {'network' : self.network,
+                    'station' : self.station,
+                    'location' : self.location,
+                    'channel' : self.channel}
+
+        else:
+            raise TypeError('Not a supported output type')

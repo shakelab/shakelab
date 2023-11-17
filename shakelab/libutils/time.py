@@ -49,7 +49,7 @@ class Date(object):
         self.offset = 0.
 
         if timezone != 'UTC':
-            # self.offset = set_offset_from_timezone(timezone)
+            # self.offset = offset_from_timezone(timezone)
             pass
 
         if date is not None:
