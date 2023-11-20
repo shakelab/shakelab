@@ -36,6 +36,12 @@ from shakelab.structures.response import (sdof_response_spectrum,
                                           sdof_interdrift,
                                           newmark_integration)
 
+def truncate(n, decimals=9):
+    """
+    """
+    multiplier = 10**decimals
+    return int(n * multiplier) / multiplier
+
 class Header(object):
     """
     """
@@ -173,11 +179,11 @@ class Record(object):
         return self.head.delta
 
     @property
-    def duration(self, precision=9):
+    def duration(self):
         """
+        TO CHECK: Rounding might be needed.
         """
-        d = (len(self) - 1) * self.head.delta
-        return round(d, precision)
+        return (len(self) - 1) * self.head.delta
 
     @property
     def time(self):
@@ -194,6 +200,8 @@ class Record(object):
     def time_axis(self, reference='relative', shift=0.):
         """
         to do: add reference
+        TO DO: check the precision required to consider records
+               as continuous.
         """
         tax = np.arange(0., len(self)) * self.head.delta
         if reference in ['a', 'absolute']:
@@ -214,7 +222,8 @@ class Record(object):
         d0 = round(self.duration + self.delta, precision)
         d1 = round(record.time - self.time, precision)
 
-        if (d1 == d0):
+        #if (d1 - d0) <= 10**(-precision):
+        if (d1 - d0) <= self.delta/10:
             self.data = np.concatenate((self.data, record.data))
             return True
 
@@ -242,6 +251,7 @@ class Record(object):
 
             else:
                 print('Not contiguous data')
+                print(d0, d1)
                 return False
 
     def remove_mean(self):
@@ -279,6 +289,8 @@ class Record(object):
 
     def cut(self, starttime=None, endtime=None, inplace=True):
         """
+        TO BE VERIFIED!        
+        Time can be absolute time or seconds from beginning of the trace.
         Cut the signal in place to the nearest time sample.
         NOTE: Include the duration option
         """
@@ -290,29 +302,37 @@ class Record(object):
         if (starttime is not None):
             if isinstance(starttime, Date):
                 t0 = starttime - self.head.time
+            elif isinstance(starttime, str):
+                t0 = Date(starttime) - self.head.time
             elif isinstance(starttime, (int, float)):
                 t0 = starttime
 
         if (endtime is not None):
             if isinstance(endtime, Date):
                 t1 = endtime - self.head.time
+            elif isinstance(endtime, str):
+                t1 = Date(endtime) - self.head.time
             elif isinstance(endtime, (int, float)):
                 t1 = endtime
 
+        # TO CHECK!
+        t0 -= self.delta
+        t1 += self.delta
+
         if (0. < t0 < self.duration):
-            i0 = int(np.argwhere(self.time_axis() >= t0)[0])
+            i0 = int(np.argwhere(self.time_axis() > t0)[0])
 
         if (0. < t1 < self.duration):
-            i1 = int(np.argwhere(self.time_axis() <= t1)[-1])
+            i1 = int(np.argwhere(self.time_axis() < t1)[-1])
 
         if (i1 > i0):
             if inplace:
                 self.data = self.data[i0:i1+1]
-                self.head.time += t0
+                self.head.time += t0 + self.delta
             else:
                 rec = self.copy()
                 rec.data = self.data[i0:i1+1]
-                rec.head.time += t0
+                rec.head.time += t0 + self.delta
                 return rec
 
         else:

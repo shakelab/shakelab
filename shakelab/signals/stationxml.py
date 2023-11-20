@@ -25,6 +25,11 @@ import io, os, re
 
 import shakelab.signals.response as rspm
 
+PZTYPEMAP = ["LAPLACE (RADIANS/SECOND)",
+             "LAPLACE (HERTZ)",
+             "DIGITAL (Z-TRANSFORM)"]
+
+UNITSMAP = [""]
 
 def parse_sxml(xml):
 
@@ -100,7 +105,11 @@ def parse_response(channel):
             if child.tag == 'PolesZeros':
                 stage_list.append(parse_polezero(child))
 
-            stage_list[-1].stage_number = stage_number
+            if child.tag == 'Coefficients':
+                pass
+
+            if stage_list:
+                stage_list[-1].stage_number = stage_number
 
     return stage_list
 

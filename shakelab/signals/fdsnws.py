@@ -123,13 +123,14 @@ class FDSNClient(object):
         sc = self.query_data(fc.get('dict'),
                              starttime=starttime, endtime=endtime)
 
-        if correct:
-            xml = self.query_station(fc.get('dict'), level='response')
-            rc = parse_sxml(xml)
-            sc.deconvolve_response(rc)
+        if sc is not None:
+            if correct:
+                xml = self.query_station(fc.get('dict'), level='response')
+                rc = parse_sxml(xml)
+                sc.deconvolve_response(rc)
 
-        if file_name is None:
-            return sc
+            if file_name is None:
+                return sc
 
     def query_station(self, params={}, box_bounds=None, rad_bounds=None,
                             file_name=None, **kwargs):
@@ -201,6 +202,10 @@ class FDSNClient(object):
                     if params['format'] == 'miniseed':
                         sc = StreamCollection()
                         sc.read(resp.content)
+                        # Cut waveform to propert time window (TO CHECK)
+                        for stream in sc:
+                            for record in stream:
+                                record.cut(starttime, endtime, True)
                         return sc
                     else:
                         raise ValueError('Format not supported')
@@ -210,6 +215,7 @@ class FDSNClient(object):
 
         else:
             print('No data available')
+            return None
 
     def query_event(self):
         """

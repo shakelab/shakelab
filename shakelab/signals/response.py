@@ -325,14 +325,14 @@ class StageGain(StageResponse):
         """
         """
         rec_mod = record.copy()
-        rec_mod.data *= self.sensitivity
+        rec_mod.data = rec_mod.data * self.sensitivity
         return rec_mod
 
     def deconvolve_record(self, record):
         """
         """
         rec_mod = record.copy()
-        rec_mod.data /= self.sensitivity
+        rec_mod.data = rec_mod.data / self.sensitivity
         return rec_mod
 
 
@@ -370,12 +370,10 @@ class StagePoleZero(StageResponse):
         """
         frequency = fourier.frequency_axis(delta, nsamp)
 
-        tf = self.response_function(frequency)
-
         sp = fourier.Spectrum()
         sp.head.delta = delta
         sp.dfreq = fourier._dfreq(delta, nsamp)
-        sp.data = tf
+        sp.data = self.response_function(frequency)
 
         return sp
 
@@ -500,7 +498,7 @@ def polynomial_transfer_function(omega, ncoeff, dcoeff):
 
     return num/den
 
-def inverse_spectrum(spectrum, waterlevel=80, method='smooth'):
+def inverse_spectrum(spectrum, waterlevel=100, method='smooth'):
     """
     """
     abs_spec = np.abs(spectrum)
