@@ -23,7 +23,7 @@
 import numpy as np
 
 from shakelab.libutils.constants import PI
-from shakelab.signals import fourier
+#from shakelab.signals import fourier
 
 
 def sdof_response_spectrum(accg, delta, periods, zeta=0.05, method='newmark'):

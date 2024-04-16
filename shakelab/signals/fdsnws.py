@@ -27,6 +27,7 @@ from shakelab.signals.stationxml import parse_sxml
 from copy import deepcopy
 import requests
 import json
+import io
 
 DATA_CENTER_REGISTRY = {
     'AUSPASS' : ' http://auspass.edu.au:8080',
@@ -131,6 +132,18 @@ class FDSNClient(object):
 
             if file_name is None:
                 return sc
+
+    def get_response(self, fdsn_code, starttime, endtime, file_name=None):
+        """
+        """
+        fc = FDSNCode(fdsn_code)
+        xml = self.query_station(fc.get('dict'), level='response')
+
+        if file_name is None:
+            return parse_sxml(xml)
+        else:
+            with open(file_name, 'w') as f:
+                f.write(xml)
 
     def query_station(self, params={}, box_bounds=None, rad_bounds=None,
                             file_name=None, **kwargs):
@@ -291,51 +304,75 @@ def get_fdsn_data_center_registry():
 class FDSNCode(object):
     """
     """
-    def __init__(self, code=None):
-        self.network = ''
-        self.station = ''
-        self.location = ''
-        self.channel = ''
+    _KEYMAP = {
+        'network' : '',
+        'station' : '',
+        'location' : '',
+        'channel' : ''}
 
+    def __init__(self, code=None, **kwargs):
+
+        # Initialise attributes to default value
+        for key in self._KEYMAP:
+            self._update_attribute(key, self._KEYMAP[key])
+
+        # Update attributes as a unique block argument
         if code is not None:
             self.set(code)
 
+        # Update attributes as individual arguments
+        for key in kwargs:
+            self._update_attribute(key, kwargs[key])
+
     def __repr__(self):
-        self.get()
+        return self.get('str')
 
-    def set(self, code):
-        """
-        """
+    def __eq__(self, code):
+
+        if isinstance(code, str):
+            return self.get('str') == code
+
+        if isinstance(code, dict):
+            return self.get('dict') == code
+
         if isinstance(code, (list, tuple)):
-            self.network = code[0]
-            self.station = code[1]
-            self.location = code[2]
-            self.channel = code[3]
-
-        elif isinstance(code, str):
-            code = code.split('.')
-            self.network = code[0]
-            self.station = code[1]
-            self.location = code[2]
-            self.channel = code[3]
-
-        elif isinstance(code, dict):
-            self.network = code['network']
-            self.station = code['station']
-            self.location = code['location']
-            self.channel = code['channel']
+            return self.get('list') == code
 
         else:
-            raise TypeError('Not a supported input type')
+            return False
+
+    def _update_attribute(self, key, value):
+        """
+        """
+        if key in self._KEYMAP:
+            exec('self.{0}={1}[0]'.format(key, [value]))
+
+    def _get_attribute(self, key):
+        """
+        """
+        return eval('self.{0}'.format(key))
+
+    def set(self, code=None):
+        """
+        """
+        if code is not None:
+            if isinstance(code, str):
+                self.set(dict(zip(self._KEYMAP.keys(), code.split('.'))))
+
+            elif isinstance(code, dict):
+                for key in code:
+                    self._update_attribute(key, code[key])
+
+            elif isinstance(code, (list, tuple)):
+                self.set(dict(zip(self._KEYMAP.keys(), code)))
+
+            else:
+                raise TypeError('Not a supported input type')
 
     def get(self, dtype='str'):
         """
         """
-        if dtype == 'list':
-            return [self.network, self.station,
-                    self.location, self.channel]
-
-        elif dtype == 'str':
+        if dtype == 'str':
             return '{0}.{1}.{2}.{3}'.format(self.network,
                                             self.station,
                                             self.location,
@@ -347,5 +384,12 @@ class FDSNCode(object):
                     'location' : self.location,
                     'channel' : self.channel}
 
+        elif dtype == 'list':
+            return [self.network,
+                    self.station,
+                    self.location,
+                    self.channel]
+
         else:
             raise TypeError('Not a supported output type')
+

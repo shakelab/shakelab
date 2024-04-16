@@ -25,7 +25,6 @@ import json as _json
 import numpy as np
 from copy import deepcopy
 
-#from shakelab.signals.fourier import Spectrum, fft, ifft, frequency_axis
 from shakelab.libutils.utils import cast_value
 from shakelab.signals import fourier
 from shakelab.signals import base
@@ -360,21 +359,18 @@ class StagePoleZero(StageResponse):
     def response_function(self, frequency):
         """
         """
-        return paz_transfer_function(2*np.pi*frequency,
-                                     self.normalization_factor,
-                                     self.poles,
-                                     self.zeros)
+        return paz_transfer_function(self.normalization_factor,
+                                     self.poles, self.zeros,
+                                     frequency)
 
     def to_spectrum(self, delta, nsamp):
         """
         """
         frequency = fourier.frequency_axis(delta, nsamp)
+        rf = self.response_function(frequency)
 
         sp = fourier.Spectrum()
-        sp.head.delta = delta
-        sp.dfreq = fourier._dfreq(delta, nsamp)
-        sp.data = self.response_function(frequency)
-
+        sp.set_data(rf, delta, nsamp)
         return sp
 
     def convolve_record(self, record):
@@ -429,23 +425,42 @@ class StageFIR(StageResponse):
         'output_units': (str, None),
         'simmetry' : (str, None),
         'normalization' : (str, None),
-        'coefficients': (np.array, None),
+        'numerator': (np.array, 1),
+        'denominator': (np.array, 1),
         'stage_number' : (int, None)
         }
+
+    def to_spectrum(self, delta, nsamp):
+        """
+        """
+        nsamp_half = fourier.rfft_length(nsamp)
+
+        h, w = fir_transfer_function(self.numerator,
+                                     self.denominator,
+                                     nsamp_half, delta)
+
+        sp = fourier.Spectrum()
+        sp.set_data(h, delta, nsamp)
+        return sp
 
     def convolve_record(self, record):
         """
         """
-        rec_mod = record.copy()
-        rec_mod.convolve(record, self.coefficients, mode='full')
-        return rec_mod
+        spec = record.to_spectrum()
+        resp = self.to_spectrum(record.head.delta, record.nsamp)
+        spec.data *= resp
 
-    def deconvolve_record(self, record):
+        return spec.to_record()
+
+    def deconvolve_record(self, record, waterlevel=100):
         """
         """
-        rec_mod = record.copy()
-        rec_mod.deconvolve(record, self.coefficients)
-        return rec_mod
+        spec = record.to_spectrum()
+        resp = self.to_spectrum(record.head.delta, record.nsamp)
+        iresp = inverse_spectrum(resp.data, waterlevel)
+        spec.data *= iresp
+
+        return spec.to_record()
 
 
 #class StageDecimation(StageResponse):
@@ -468,43 +483,85 @@ def load_paz_from_file(sensor_id, paz_file=None):
 
     return paz[sensor_id]
 
-def paz_transfer_function(omega, a0, poles, zeros):
+def paz_transfer_function(a0, poles, zeros, freq):
     """
     Note: poles and zeros must be in radians/seconds
 
     a0 = normalisation factor
     """
-    zo = 1.
+    omega = 2*np.pi*freq
+
+    zo = np.ones_like(omega, dtype=np.complex128)
+    po = np.ones_like(omega, dtype=np.complex128)
+
     for zn in zeros:
         zo *= (1j*omega - zn)
 
-    po = 1.
     for pn in poles:
         po *= (1j*omega - pn)
 
     return a0 * (zo/po)
 
-def polynomial_transfer_function(omega, ncoeff, dcoeff):
+def polynomial_transfer_function(ncoeff, dcoeff, freq):
     """
     TO CHECK!
     """
-    num = 0.
-    for n, nc in enumerate(ncoeff):
-        num += (nc*1j*omega**n)
+    omega = 2*np.pi*freq
 
-    den = 0.
+    if isinstance(ncoeff, (int, float)):
+        ncoeff = [ncoeff]
+
+    if isinstance(dcoeff, (int, float)):
+        dcoeff = [dcoeff]
+
+    nlen = len(ncoeff)
+    dlen = len(dcoeff)
+
+    num = np.zeros_like(omega, dtype=np.complex128)
+    den = np.zeros_like(omega, dtype=np.complex128)
+
+    for n, nc in enumerate(ncoeff):
+        num += (nc*(1j*omega)**(nlen-n))
+
     for n, dc in enumerate(dcoeff):
-        den += (dc*1j*omega**n)
+        den += (dc*(1j*omega)**(dlen-n))
 
     return num/den
 
+def fir_transfer_function(ncoeff, dcoeff, nsamp, delta=1):
+    """
+    """
+    if isinstance(ncoeff, (int, float)):
+        ncoeff = [ncoeff]
+
+    if isinstance(dcoeff, (int, float)):
+        dcoeff = [dcoeff]
+
+    omega = np.linspace(0, np.pi, nsamp)
+    
+    num = np.zeros_like(omega, dtype=np.complex128)
+    den = np.zeros_like(omega, dtype=np.complex128)
+    
+    for n, nc in enumerate(ncoeff):
+        num += nc * np.exp(-1j * omega * n)
+
+    for n, dc in enumerate(dcoeff):
+        den += dc * np.exp(-1j * omega * n)
+
+    return num / den, omega / (2*np.pi*delta)
+
 def inverse_spectrum(spectrum, waterlevel=100, method='smooth'):
     """
+    THIS COULD BE MOVED TO FOURIER MODULE
     """
+    if not isinstance(spectrum, np.ndarray):
+        spectrum = np.array(spectrum)
+
     abs_spec = np.abs(spectrum)
 
     # Conversion from Db to actual spectrum level (to check!)
-    wlev_db = abs_spec.max() * 10.0 ** (-waterlevel / 20.0)
+    #wlev_db = abs_spec.max() * 10.0 ** (-waterlevel / 20.0)
+    wlev_db = 10.0 ** (-waterlevel / 20.0)
 
     match method:
         case 'sharp':
@@ -518,6 +575,10 @@ def inverse_spectrum(spectrum, waterlevel=100, method='smooth'):
 
         case 'smooth':
             inv_spec = spectrum.conj()/(spectrum*spectrum.conj() + wlev_db)
+
+            # Removing values below waterlevel (to check!)
+            i0 = (abs_spec <= wlev_db)
+            inv_spec[i0] = 0.
 
         case _:
             raise ValueError('Not a valid method')

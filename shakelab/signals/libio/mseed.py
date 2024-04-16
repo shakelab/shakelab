@@ -21,25 +21,49 @@
 An simple Python library for MiniSeeed file manipulation
 """
 import numpy as np
+from copy import deepcopy
 
 from shakelab.libutils.time import Date
 from shakelab.signals.binutils import ByteStream
 from shakelab.signals import base
 
+DEFAULT_BYTE_ORDER = 'be'
+ADMITTED_RECORD_LENGTH = [256, 1024, 2048, 4096]
+ADMITTED_ENCODING = [0, 1, 3, 4, 10, 11]
 
-def msread(byte_stream, stream_collection=None, byte_order='be'):
+def msread(input_data_source, stream_collection=None,
+           byte_order=DEFAULT_BYTE_ORDER):
     """
     """
     if stream_collection is None:
         stream_collection = base.StreamCollection()
 
-    if not isinstance(byte_stream, ByteStream):
-        byte_stream = ByteStream(byte_stream, byte_order=byte_order)
+    record_list = msrawread(input_data_source, byte_order=byte_order)
+    for record in record_list:
+        stream_collection.append(record.to_shakelab())
+
+    return stream_collection
+
+def msrawread(input_data_source, byte_order=DEFAULT_BYTE_ORDER):
+    """
+    """
+    if isinstance(input_data_source, ByteStream):
+        byte_stream = input_data_source
+    else:
+        byte_stream = ByteStream(byte_order=byte_order)
+        byte_stream.ropen(input_data_source)
+
+    record_list = []
 
     # Loop over records
     while True:
-        record = MSRecord(byte_stream)
-        stream_collection.append(record.to_shakelab())
+        try:
+            record = MSRecord()
+            record.read(byte_stream)
+            record_list.append(record)
+        except:
+            print('Invalid record found. Stop reading.')
+            break
 
         # Check if end of stream, otherwise exit
         if byte_stream.offset >= byte_stream.length:
@@ -47,7 +71,22 @@ def msread(byte_stream, stream_collection=None, byte_order='be'):
 
     byte_stream.close()
 
-    return stream_collection
+    return record_list
+
+def msrawwrite(record_list, output_data_source,
+               byte_order=DEFAULT_BYTE_ORDER):
+    """
+    """
+    if isinstance(output_data_source, ByteStream):
+        byte_stream = output_data_source
+    else:
+        byte_stream = ByteStream(byte_order=byte_order)
+        byte_stream.wopen(output_data_source)
+
+    for record in record_list:
+        record.write(byte_stream)
+
+    byte_stream.close()
 
 
 class MSRecord(object):
@@ -85,6 +124,169 @@ class MSRecord(object):
         for bs in block_struc[1000]:
             self.blockette[1000][bs[0]] = None
 
+    @property
+    def nsamp(self):
+        """
+        """
+        return self.header['NUMBER_OF_SAMPLES']
+
+    @property
+    def delta(self):
+        """
+        """
+        srate = self.header['SAMPLE_RATE_FACTOR']
+        rmult = self.header['SAMPLE_RATE_MULTIPLIER']
+
+        if srate < 0:
+            srate = -1./srate
+        if rmult < 0:
+            rmult = 1./rmult
+        srate *= rmult
+
+        return 1./srate
+
+    @property
+    def seqn(self):
+        """
+        Sequence number
+        """
+        return int(self.header['SEQUENCE_NUMBER'])
+
+    @property
+    def time(self):
+        """
+        """
+        date = '{0:04d}-'.format(self.header['YEAR'])
+        date += '{0:03d}T'.format(self.header['DAY'])
+        date += '{0:02d}:'.format(self.header['HOURS'])
+        date += '{0:02d}:'.format(self.header['MINUTES'])
+        date += '{0:02d}.'.format(self.header['SECONDS'])
+        date += '{0:04d}'.format(self.header['MSECONDS'])
+
+        return Date(date)
+
+    @property
+    def code(self):
+        """
+        Stream identifier (FDSN code)
+        """
+        net = self.header['NETWORK_CODE'].strip()
+        sta = self.header['STATION_CODE'].strip()
+        loc = self.header['LOCATION_IDENTIFIER'].strip()
+        chn = self.header['CHANNEL_IDENTIFIER'].strip()
+
+        return '{0}.{1}.{2}.{3}'.format(net, sta, loc, chn)
+
+    @property
+    def duration(self):
+        """
+        """
+        return (self.nsamp - 1) * self.delta
+
+    @property
+    def _bytelen(self):
+        """
+        """
+        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
+                self.header['OFFSET_TO_BEGINNING_OF_DATA'])
+
+    def write(self, byte_stream, sequence_number, 
+                    record_length=None, encoding=None):
+        """
+        Write the MSRecord information to the given byte stream.
+        Note: Data length might not fill exactly in one binary record,
+              therefore two options are possible:
+              1) last record is filled with zeros for the remaining bytes
+              2) exceeding data is returned to a record for subsequent use
+        """
+        rec = MSRecord()
+        rec.header = deepcopy(self.header)
+        rec.blockette = deepcopy(self.blockette)
+
+        if record_length is None:
+            record_length = 2**rec.blockette[1000]['DATA_RECORD_LENGTH']
+        else:
+            base2len = int(np.log2(record_length))
+            rec.blockette[1000]['DATA_RECORD_LENGTH'] = base2len        
+
+        if encoding is None:
+            encoding = rec.blockette[1000]['ENCODING_FORMAT']
+        else:
+            if encoding in ADMITTED_ENCODING:
+                rec.blockette[1000]['ENCODING_FORMAT'] = int(encoding)
+            else:
+                raise ValueError('Encoding format not recognized')
+
+        header_size = 48
+
+        total_blockette_size = 0
+        for block_type in rec.blockette:
+            total_blockette_size += blockette_size(block_type)
+
+        data_offset = header_size + total_blockette_size
+        rec.header['OFFSET_TO_BEGINNING_OF_DATA'] = data_offset
+
+        data_length = record_length - data_offset
+
+        record_offset = byte_stream.offset
+
+        data_struc = {0: ('s', 1),
+                      1: ('h', 2),
+                      3: ('i', 4),
+                      4: ('f', 4)}
+
+        if encoding in [0, 1, 3, 4]:
+            bnum = data_length//data_struc[encoding][1]
+            print(bnum)
+            #if bnum > len(self.data):
+            #    bnum = len(self.data)
+            bnum_left = max([len(self.data)-bnum, 0])
+            rec.header['NUMBER_OF_SAMPLES'] = bnum
+
+        # Write header information
+        for hs in head_struc:
+            byte_stream.put(rec.header[hs[0]], hs[1], hs[2])
+
+        # Absolute offset should be added
+        block_offset = rec.header['OFFSET_TO_BEGINNING_OF_BLOCKETTE']
+
+        # Write blockette information
+        for block_type, blockette in rec.blockette.items():
+
+            byte_stream.goto(record_offset + block_offset)
+
+            block_offset += blockette_size(block_type)
+
+            # Blockette code
+            byte_stream.put(block_type, 'H', 2)
+
+            # Offset to the beginning of the next blockette
+            byte_stream.put(block_offset, 'H', 2)
+
+            for bs in block_struc[block_type]:
+                byte_stream.put(blockette[bs[0]], bs[1], bs[2])
+
+        # Write data
+        if encoding in [0, 1, 3, 4]:
+
+            for data in self.data[0:bnum]:
+                byte_stream.put(data,
+                                data_struc[encoding][0],
+                                data_struc[encoding][1])
+
+            for data in range(0, bnum_left):
+                byte_stream.put(0.,
+                                data_struc[encoding][0],
+                                data_struc[encoding][1])
+
+        elif encoding in [10, 11]:
+            # Handle STEIM1/2 encoding
+            # Your implementation for STEIM1/2 encoding goes here
+            pass
+
+        else:
+            raise ValueError('Not recognized data format: ', encoding)
+
     def read(self, byte_stream):
         """
         """
@@ -120,6 +322,7 @@ class MSRecord(object):
 
             # Blockette code
             block_type = byte_stream.get('H', 2)
+            print(block_type)
 
             # Offset to the beginning of the next blockette
             block_offset = byte_stream.get('H', 2)
@@ -162,6 +365,7 @@ class MSRecord(object):
             for ds in range(bnum):
                 data[ds] = byte_stream.get(data_struc[enc][0],
                                            data_struc[enc][1])
+                print(data[ds])
 
             # Decode ASCII data (e.g. logs)
             if enc == 0:
@@ -209,72 +413,6 @@ class MSRecord(object):
 
         # Store data
         self.data = data[:nos]
-
-    @property
-    def _bytelen(self):
-        """
-        """
-        return (2**self.blockette[1000]['DATA_RECORD_LENGTH'] -
-                self.header['OFFSET_TO_BEGINNING_OF_DATA'])
-
-    @property
-    def delta(self):
-        """
-        """
-        srate = self.header['SAMPLE_RATE_FACTOR']
-        rmult = self.header['SAMPLE_RATE_MULTIPLIER']
-
-        if srate < 0:
-            srate = -1./srate
-        if rmult < 0:
-            rmult = 1./rmult
-        srate *= rmult
-
-        return 1./srate
-
-    @property
-    def time(self):
-        """
-        """
-        date = '{0:04d}-'.format(self.header['YEAR'])
-        date += '{0:03d}T'.format(self.header['DAY'])
-        date += '{0:02d}:'.format(self.header['HOURS'])
-        date += '{0:02d}:'.format(self.header['MINUTES'])
-        date += '{0:02d}.'.format(self.header['SECONDS'])
-        date += '{0:04d}'.format(self.header['MSECONDS'])
-
-        return Date(date)
-
-    @property
-    def nsamp(self):
-        """
-        """
-        return self.header['NUMBER_OF_SAMPLES']
-
-    @property
-    def duration(self):
-        """
-        """
-        return (self.nsamp - 1) * self.delta
-
-    @property
-    def code(self):
-        """
-        Stream identifier (FDSN code)
-        """
-        net = self.header['NETWORK_CODE'].strip()
-        sta = self.header['STATION_CODE'].strip()
-        loc = self.header['LOCATION_IDENTIFIER'].strip()
-        chn = self.header['CHANNEL_IDENTIFIER'].strip()
-
-        return '{0}.{1}.{2}.{3}'.format(net, sta, loc, chn)
-
-    @property
-    def seqn(self):
-        """
-        Sequence number
-        """
-        return int(self.header['SEQUENCE_NUMBER'])
 
     def append(self, record):
         """
@@ -366,6 +504,21 @@ def _w32split(word, order, scheme):
                 raise ValueError('Nibble not recognized')
 
     return out
+
+def blockette_size(block_type):
+    """
+    Return the size a specific blockette type by summing
+    the size of individual variables
+    """
+    if block_type in block_struc:
+        size = sum([i[2] for i in block_struc[block_type]])
+    else:
+        raise ValueError('Not a valid blockette type')
+
+    # Add standard four bytes common to all blockettes.
+    size += 4
+
+    return size
 
 
 head_struc = [('SEQUENCE_NUMBER', 's', 6),

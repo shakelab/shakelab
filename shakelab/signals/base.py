@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2023, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -35,6 +35,10 @@ from shakelab.libutils.geodetic import WgsPoint
 from shakelab.structures.response import (sdof_response_spectrum,
                                           sdof_interdrift,
                                           newmark_integration)
+
+numeric_type = (int, float, complex,
+                np.int8, np.int16, np.int32, np.int64,
+                np.uint8, np.uint16, np.uint32, np.uint64)
 
 def truncate(n, decimals=9):
     """
@@ -83,7 +87,7 @@ class Header(object):
         self._rate = value
         self._delta = 1./value
 
-    @property
+    #@property
     #def nsamp(self):
     #    if self._parent is not None:
     #        return self._parent.nsamp
@@ -144,9 +148,9 @@ class Record(object):
         """
         """
         rec_mod = self.copy()
-        if isinstance(value, (int, float)):
+        if isinstance(value, numeric_type):
             rec_mod.data *= value
-        elif isinstance(value, (response.StageReponse)):
+        elif isinstance(value, (response.StageResponse)):
             rec_mod.add_response(value)
         else:
             raise TypeError('unsupported operand type(s) for *')
@@ -157,9 +161,9 @@ class Record(object):
         """
         """
         rec_mod = self.copy()
-        if isinstance(value, (int, float)):
+        if isinstance(value, numeric_type):
             rec_mod.data = rec_mod.data / value
-        elif isinstance(value, (response.StageReponse)):
+        elif isinstance(value, (response.StageResponse)):
             rec_mod.remove_response(value)
         else:
             raise TypeError('unsupported operand type(s) for /')
@@ -259,7 +263,7 @@ class Record(object):
         """
         self.data = self.data - np.mean(self.data)
 
-    def filter(self, highpass=None, lowpass=None, order=2, minphase=False):
+    def filter(self, highpass=None, lowpass=None, order=4, minphase=False):
         """
         zero-phase and min-phase are allowed
         """
@@ -316,7 +320,7 @@ class Record(object):
                 t1 = endtime
 
         # TO CHECK!
-        t0 -= self.delta
+        #t0 -= self.delta
         t1 += self.delta
 
         if (0. < t0 < self.duration):
@@ -328,7 +332,8 @@ class Record(object):
         if (i1 > i0):
             if inplace:
                 self.data = self.data[i0:i1+1]
-                self.head.time += t0 + self.delta
+                #self.head.time += t0 + self.delta
+                self.head.time += t0 # TO CHECK
             else:
                 rec = self.copy()
                 rec.data = self.data[i0:i1+1]
@@ -355,7 +360,7 @@ class Record(object):
             alpha = 1
         else:
             alpha = min(2 * float(time)/(self.head.delta * tnum), 1)
-        self.data *= signal.tukey(tnum, alpha)
+        self.data = self.data * signal.tukey(tnum, alpha)
 
     def zero_padding(self, time):
         """
@@ -415,8 +420,9 @@ class Record(object):
     def convolve(self, data, mode='full', method='fft'):
         """
         """
+        #DA CONTROLLARE!!!!
         if isinstance(data, Record):
-            signal = signal.data
+            data = data.data
             
         self.data = signal.convolve(self.data, data,
                                     mode=mode, method=method)
@@ -424,8 +430,9 @@ class Record(object):
     def deconvolve(self, data):
         """
         """
+        #DA CONTROLLARE!!!!
         if isinstance(data, Record):
-            signal = signal.data
+            data = data.data
 
         self.data, remainder = signal.deconvolve(self.data, data)
 

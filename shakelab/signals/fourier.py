@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2022, ShakeLab Developers.
+# Copyright (C) 2019-2023, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -25,6 +25,7 @@ from scipy import interpolate
 from copy import deepcopy
 
 import shakelab.signals.base as base
+from shakelab.signals import response
 
 
 class Spectrum():
@@ -59,7 +60,7 @@ class Spectrum():
             Logarithm smoothing of (complex) spectra.
     """
 
-    def __init__(self, record=None):
+    def __init__(self, data=None, delta=None, nsamp=None):
         """
         Initialize a Spectrum object.
 
@@ -71,8 +72,14 @@ class Spectrum():
         self.data = np.array([], dtype="complex")
         self.dfreq = None
 
-        if record is not None:
-            self.from_record(record)
+        if isinstance(data, base.Record):
+            self.from_record(data)
+
+        elif isinstance(data, (list, np.ndarray)):
+            if delta is None:
+                raise ValueError('Delta must be provided')
+            else:
+                self._fft(data, delta)
 
     def __len__(self):
         return self.nfreq
@@ -123,7 +130,17 @@ class Spectrum():
         """
         return frequency_axis(self.head.delta, self.nsamp)
 
-    def fft(self, data, delta=None, norm=False):
+    def set_data(self, data, delta, nsamp=None):
+        """
+        """
+        if nsamp is None:
+            nsamp = (len(data)-1) * 2
+
+        self.data = data
+        self.head.delta = delta
+        self.dfreq = _dfreq(delta, nsamp)
+
+    def fft(self, data, delta=None, nsamp=None, norm=False):
         """
         Compute the FFT spectrum from real value input data.
 
@@ -136,20 +153,21 @@ class Spectrum():
         Returns:
             None
         """
-        nsamp = len(data)
+        if nsamp is None:
+            nsamp = len(data)
 
         if delta is not None:
             self.head.delta = delta
 
         self.dfreq = _dfreq(self.head.delta, nsamp)
 
-        self.data = _fft(data)
+        self.data = _fft(data, nsamp)
 
         if norm:
             # to check
             self.data =  self.data / self.head.delta / self.nsamp
 
-    def ifft(self, norm=False):
+    def ifft(self, nsamp=None, norm=False):
         """
         Compute the IFFT of the spectrum.
 
@@ -159,13 +177,23 @@ class Spectrum():
         Returns:
             array-like: The inverse FFT result.
         """
-        data = _ifft(self.data, self.nsamp)
+        if nsamp is None:
+            nsamp = self.nsamp
+
+        data = _ifft(self.data, nsamp)
 
         if norm:
             # to check
             data = data / self.dfreq * self.nfreq
 
         return data
+
+    def invert(self, waterlevel=100, method='smooth'):
+        """
+        """
+        self.data = response.inverse_spectrum(self.data,
+                                              waterlevel=waterlevel,
+                                              method=method)
 
     def from_record(self, record, norm=False):
         """
@@ -197,7 +225,7 @@ class Spectrum():
 
         return record
 
-    def filter(self, highpass=None, lowpass=None):
+    def filter(self, highpass=None, lowpass=None, order=4, filt_type='bw'):
         """
         In-place highpass and lowpass filtering to the spectrum.
 
@@ -205,11 +233,24 @@ class Spectrum():
             highpass (float, optional): The highpass frequency cutoff.
             lowpass (float, optional): The lowpass frequency cutoff.
         """
-        if (highpass is not None):
-            self.data[self.frequency_axis < highpass] = 0.
+        freq = self.frequency_axis
 
-        if (lowpass is not None):
-            self.data[self.frequency_axis > lowpass] = 0.
+        if filt_type == 'sharp':
+            if (highpass is not None):
+                self.data[freq < highpass] = 0.
+
+            if (lowpass is not None):
+                self.data[freq > lowpass] = 0.
+
+        elif filt_type == 'bw':
+            if (highpass is not None):
+                self.data *= butterworth(freq, highpass, order=-order)
+
+            if (lowpass is not None):
+                self.data *= butterworth(freq, lowpass, order=order)
+
+        else:
+            assert TypeError('Not implemented filter type')
 
     def resample(self, frequency):
         """
@@ -265,7 +306,7 @@ class Spectrum():
             return np.insert(np.exp(sdata), 0, s0)
 
 
-def calculate_spectrum_length(nsamp):
+def rfft_length(nsamp):
     """
     Calculate the length of the Real Fast Fourier Transform (RFFT) positive
     frequency axis, accounting for odd/even numbers of samples.
@@ -277,7 +318,7 @@ def calculate_spectrum_length(nsamp):
     - int: The length of the positive frequency axis in the RFFT.
 
     Example:
-    >>> calculate_spectrum_length(10)
+    >>> rfft_length(10)
     6
     """
     if nsamp % 2 == 1:
@@ -285,10 +326,10 @@ def calculate_spectrum_length(nsamp):
     else:
         return nsamp // 2 + 1
 
-def calculate_number_of_samples(delta, dfreq):
+def irfft_length(delta, dfreq):
     """
-    Calculate the number of samples required for a given time spacing (delta) and
-    frequency spacing (dfreq) in a discretized signal.
+    Calculate the length of the time series corresponding to a rfft
+    spectrum of given time spacing (delta) and frequency spacing (dfreq).
 
     Parameters:
     - delta (float): Time spacing between samples.
@@ -298,23 +339,22 @@ def calculate_number_of_samples(delta, dfreq):
     - int: The number of samples needed to satisfy the specified spacing.
 
     Example:
-    >>> calculate_number_of_samples(0.01, 10)
+    >>> irfft_length(0.01, 10)
     100
     """
-    #return round(1 / (dfreq * delta))
     return round(1 / (dfreq * delta))
 
 def _fnum(nsamp):
     """
     Wrapper function to compute the length of the expected RFFT spectrum.
     """
-    return calculate_rfft_length(nsamp)
+    return rfft_length(nsamp)
 
 def _nsamp(delta, dfreq):
     """
     Wrapper function to comnpute the length of the time series from a RFFT spectrum.
     """
-    return calculate_number_of_samples(delta, dfreq)
+    return irfft_length(delta, dfreq)
 
 def _dfreq(delta, nsamp):
     """
@@ -386,3 +426,23 @@ def shift_time(signal, delta, shift):
     expt = np.exp(-2*1j*np.pi*shift*freq)
 
     return ifft(fft(signal, nsamp)*expt, nsamp)
+
+def butterworth(freq, corner_freq, order=4, minimum_phase=False):
+    """
+    Note: if order is negative, the filter is highpass
+    """
+    hf = np.zeros(len(freq), dtype=np.complex_)
+
+    for i, f in enumerate(freq):
+        if f > 0 or order > 0:
+            hf_mag = 1/(1+(1j*f/corner_freq)**(2*order))
+
+            if minimum_phase:
+                # Convert to minimum phase by taking
+                # the negative square root
+                hf_phase = -np.sqrt(1-np.abs(hf_mag)**2)
+                hf[i] = np.exp(1j*hf_phase) * np.abs(hf_mag)
+            else:
+                hf[i] = hf_mag
+
+    return hf

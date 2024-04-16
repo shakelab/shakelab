@@ -32,6 +32,9 @@ PZTYPEMAP = ["LAPLACE (RADIANS/SECOND)",
 UNITSMAP = [""]
 
 def parse_sxml(xml):
+    """
+    xml can be a file or string
+    """
 
     if os.path.isfile(xml):
         with open(xml, 'r') as f:
@@ -99,14 +102,37 @@ def parse_response(channel):
         stage_number = int(stage.attrib['number'])
 
         for child in stage:
-            if child.tag == 'StageGain':
-                stage_list.append(parse_gain(child))
 
-            if child.tag == 'PolesZeros':
-                stage_list.append(parse_polezero(child))
+            match child.tag:
 
-            if child.tag == 'Coefficients':
-                pass
+                case 'StageGain':
+                    stage_list.append(parse_gain(child))
+
+                case 'PolesZeros':
+                    stage_list.append(parse_polezero(child))
+
+                case 'Coefficients':
+                    stage_list.append(parse_coefficients(child))
+                    pass
+
+                case 'FIR':
+                    #stage_list.append(parse_fir(child))
+                    print('Stage FIR not yet implemented')
+
+                case 'Polynomial':
+                    #stage_list.append(parse_polynomial(child))
+                    print('Stage Polynomial not yet implemented')
+
+                case 'ResponseList':
+                    #stage_list.append(parse_response_list(child))
+                    print('Stage ResponseList not yet implemented')
+
+                case 'Decimation':
+                    #stage_list.append(parse_decimation(child))
+                    print('Stage Decimation not yet implemented')
+
+                case '_':
+                    print('Stage {0} not recognized'.format(child.tag))
 
             if stage_list:
                 stage_list[-1].stage_number = stage_number
@@ -128,7 +154,7 @@ def parse_polezero(element):
     """
     """
     input_units = element.find('InputUnits').find('Name').text
-    output_units = element.find('InputUnits').find('Name').text
+    output_units = element.find('OutputUnits').find('Name').text
     normalization_factor = element.find('NormalizationFactor').text
     normalization_frequency = element.find('NormalizationFrequency').text
 
@@ -154,10 +180,63 @@ def parse_polezero(element):
 
     return stage
 
-def parse_coefficients():
+def parse_coefficients(element):
+    """
+    """
+    input_units = element.find('InputUnits').find('Name').text
+    output_units = element.find('OutputUnits').find('Name').text
+    tf_type = element.find('CfTransferFunctionType').text
+
+    numerator = []
+    for num in element.findall('.//Numerator'):
+        numerator.append(float(num.text))
+
+    denominator = []
+    for den in element.findall('.//Denominator'):
+        denominator.append(float(num.text))
+
+    if not numerator:
+        numerator = [1]
+
+    if not denominator:
+        denominator = [1]
+
+    if tf_type == 'DIGITAL':
+
+        stage = rspm.StageFIR()
+        stage.input_units = input_units
+        stage.output_units = output_units
+        stage.numerator = np.array(numerator)
+        stage.denominator = np.array(denominator)
+
+        return stage
+
+    else:
+
+        raise NotImplementedError('{0} type not supported'.format(tf_type))
+
+
+def parse_polynomial(element):
     """
     """
     pass
+
+def parse_fir(element):
+    """
+    """
+    input_units = element.find('InputUnits').find('Name').text
+    output_units = element.find('OutputUnits').find('Name').text
+
+    coefficients = []
+    for coeff in element.findall('.//Numerator'):
+        coefficients.append(float(coeff.text))
+
+    stage = rspm.StageFIR()
+    stage.input_units = input_units
+    stage.output_units = output_units
+    stage.coefficients = np.array(coefficients)
+
+    return stage
 
 def stationxml_to_dict(xml):
     """

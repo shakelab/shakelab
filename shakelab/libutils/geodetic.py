@@ -25,6 +25,7 @@ This modules includes a set of tools for geographical data manipulation.
 __all__ = ['read_geometry', 'write_geometry',
            'WgsPoint', 'WgsPolygon']
 
+import re
 import numpy as np
 import json
 
@@ -639,6 +640,61 @@ def wgs_to_azimuth(lat1, lon1, lat2, lon2):
         azimuth += 360.
 
     return azimuth
+
+# ----------------------------------------------------------------------------
+# TO CHECK!!!!
+
+def wgs_dms2dec(dms_string):
+    """
+    Convert a WGS84 string with degrees, minutes and seconds to decimal
+    """
+    [deg, min, sec] = map(float, re.split('[°\'"]', dms_string))
+    sec += 60 * min
+
+    return deg + sec / 3600.0
+
+def wgs_to_utm(latitude, longitude, utm_zone=None):
+    """
+    """
+    # WGS84 ellipsoid parameters
+    a = 6378137.0  # semi-major axis in meters
+    f_inv = 298.257223563  # inverse flattening
+
+    f = 1.0 / f_inv
+    e_sq = 2.0 * f - f**2
+
+    # Convert latitude and longitude to radians
+    lat_rad = np.radians(latitude)
+    lon_rad = np.radians(longitude)
+
+    if utm_zone is None:
+        # Calculate UTM zone based on the provided longitude
+        utm_zone = int((longitude + 180.0) / 6) + 1
+
+    # Longitude of central meridian for the zone
+    lon0 = (utm_zone - 1) * 6 - 180 + 3
+
+    # UTM parameters
+    k0 = 0.9996  # scale factor
+    e_prime_sq = e_sq / (1 - e_sq)  # eccentricity prime squared
+
+    # Calculate UTM parameters
+    N = a / np.sqrt(1 - e_sq * np.sin(lat_rad)**2)
+    T = np.tan(lat_rad)**2
+    C = e_prime_sq * np.cos(lat_rad)**2
+    A = np.cos(lat_rad) * (lon_rad - np.radians(lon0))
+    M = a * (
+        (1 - e_sq / 4 - 3 * e_sq**2 / 64 - 5 * e_sq**3 / 256) * lat_rad -
+        (3 * e_sq / 8 + 3 * e_sq**2 / 32 + 45 * e_sq**3 / 1024) * np.sin(2 * lat_rad) +
+        (15 * e_sq**2 / 256 + 45 * e_sq**3 / 1024) * np.sin(4 * lat_rad) -
+        (35 * e_sq**3 / 3072) * np.sin(6 * lat_rad)
+    )
+
+    # UTM coordinates
+    easting = k0 * N * (A + (1 - T + C) * A**3 / 6 + (5 - 18 * T + T**2 + 72 * C - 58 * e_prime_sq) * A**5 / 120) + 500000.0
+    northing = k0 * (M + N * np.tan(lat_rad) * (A**2 / 2 + (5 - T + 9 * C + 4 * C**2) * A**4 / 24 + (61 - 58 * T + T**2 + 600 * C - 330 * e_prime_sq) * A**6 / 720))
+
+    return easting, northing, utm_zone
 
 # ----------------------------------------------------------------------------
 
