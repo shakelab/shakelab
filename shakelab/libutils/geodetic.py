@@ -22,14 +22,17 @@
 This modules includes a set of tools for geographical data manipulation.
 """
 
-__all__ = ['read_geometry', 'write_geometry',
-           'WgsPoint', 'WgsPolygon']
+__all__ = ['read_geometry',
+           'write_geometry',
+           'WgsPoint',
+           'WgsPolygon']
 
 import re
 import numpy as np
 import json
 
 import matplotlib as _mat
+from scipy.spatial import Delaunay
 
 # GEODETIC CONSTANTS
 MEAN_EARTH_RADIUS = 6371008.8
@@ -778,3 +781,51 @@ def cartesian_mesh(delta, meters=False,
         lon = np.append(lon, lon0)
 
     return np.round(lat, NDIGITS), np.round(lon, NDIGITS)
+
+# ----------------------------------------------------------------------------
+# Spatial sampling (TO CHECK)
+
+def sample_point_in_triangle(v1, v2, v3):
+    """
+    Uniformly sample a point within the given triangle (v1, v2, v3)
+    """
+    r1 = np.sqrt(np.random.random())
+    r2 = np.random.random()
+    return (1 - r1) * v1 + (r1 * (1 - r2)) * v2 + (r1 * r2) * v3
+
+def compute_area(v1, v2, v3):
+    """
+    Compute the area of a triangle given its vertices
+    """
+    return 0.5 * np.abs(np.cross(v2 - v1, v3 - v1))
+
+def random_sample_polygon(polygon, num_samples):
+    """
+    Uniformly sample points within the given polygon
+    """
+    polygon = np.array(polygon)
+
+    # Perform Delaunay triangulation
+    delaunay = Delaunay(polygon)
+    
+    # Extract the vertices of the triangles
+    triangles = polygon[delaunay.simplices]
+    
+    # Calculate the areas of each triangle
+    areas = [compute_area(tri[0], tri[1], tri[2]) for tri in triangles]
+    cumulative_areas = np.cumsum(np.array(areas))
+    total_area = cumulative_areas[-1]
+
+    samples = []
+    for _ in range(num_samples):
+        # Choose a triangle based on its area
+        random_value = np.random.uniform(0, total_area)
+        triangle_index = np.searchsorted(cumulative_areas, random_value)
+        chosen_triangle = triangles[triangle_index]
+        
+        # Sample a point within the chosen triangle
+        v1, v2, v3 = chosen_triangle
+        sample_point = sample_point_in_triangle(v1, v2, v3)
+        samples.append(sample_point)
+    
+    return samples
