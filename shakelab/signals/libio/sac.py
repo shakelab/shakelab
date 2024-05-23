@@ -21,8 +21,29 @@
 An simple Python library for SAC file manipulation
 """
 
+import numpy as np
 from struct import pack, unpack
 from os.path import isfile
+
+from shakelab.libutils.time import Date
+from shakelab.signals import base
+
+DEFAULT_BYTE_ORDER = 'be'
+
+def sacread(input_file, byte_order=DEFAULT_BYTE_ORDER):
+    """
+    """
+    sc = Sac(input_file, byte_order=byte_order)
+
+    record = base.Record()
+    record.head.delta= sc.delta
+    record.head.time = Date(sc.time)
+    record.data = np.array(sc.data[0])
+
+    record.head.sid = '{0}.{1}..{2}'.format(sc.head['KNETWK'],
+                                            sc.head['KSTNM'],
+                                            sc.head['KCMPNM'])
+    return record
 
 
 class Sac(object):
@@ -193,6 +214,12 @@ def _fread(fid, bnum, bkey, bord):
         bkey = '<' + bkey
 
     data = unpack(bkey, hex)[0]
+
+    if isinstance(data, bytes):
+        data = data.decode().split('\x00', 1)[0]
+
+    if isinstance(data, str):
+        data = data.strip()
 
     return data
 

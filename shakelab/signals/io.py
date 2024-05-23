@@ -23,7 +23,7 @@ Module to import / export data formats
 
 import os
 
-#from shakelab.signals.base
+from shakelab.signals import base
 from shakelab.signals.libio import mseed, sac, smdb
 from shakelab.libutils.time import Date
 
@@ -44,21 +44,19 @@ def reader(file, ftype=None, stream_collection=None, byte_order='be'):
         else:
             raise NotImplementedError('file tyep not recognized')
 
+    if stream_collection is None:
+        stream_collection = base.StreamCollection()
+
     # Import recordings
     if ftype == 'mseed':
-        sc = mseed.msread(file,
-                          stream_collection=stream_collection,
-                          byte_order=byte_order)
+        stream_collection = mseed.msread(file,
+                                         stream_collection=stream_collection,
+                                         byte_order=byte_order)
 
     elif ftype == 'sac':
 
-        #sc = sac.Sac(file, byte_order=byte_order)
-        #record = Record()
-        #record.head.delta= sc.delta
-        #record.head.time = Date(sc.time, format='julian')
-        #record.data = np.array(sc.data[0])
-        #rec_list.append(record)_getattrib
-        pass
+        record = sac.sacread(file, byte_order=byte_order)
+        stream_collection.append(record)
 
     elif ftype == 'itaca':
 
@@ -91,5 +89,5 @@ def reader(file, ftype=None, stream_collection=None, byte_order='be'):
     else:
         pass
 
-    return sc
+    return stream_collection
 
