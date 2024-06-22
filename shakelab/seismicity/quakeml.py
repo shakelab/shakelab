@@ -65,7 +65,6 @@ def read_quakeml(xml):
 
     return event
 
-
 def parse_magnitude(event):
     """
     """

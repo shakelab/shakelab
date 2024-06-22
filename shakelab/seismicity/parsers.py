@@ -56,6 +56,9 @@ def read(file_name, type=None):
     elif type in ['ndk', 'gcmt']:
         pass
 
+    elif type in ['qml']:
+        pass
+
     else:
         raise ValueError('type not recognized')
 
@@ -79,11 +82,23 @@ def write(edb, file_name, type=None):
     elif type in ['bin', 'pickle']:
         edb.dump(file_name)
 
-    elif type == 'json':
+    elif type in ['json']:
         data = edb.export_to_dict()
 
         with open(file_name, 'w') as f:
             json.dump(data, f, indent=True)
+
+    elif type in ['csv']:
+        pass
+
+    elif type in ['isf', 'isc']:
+        pass
+
+    elif type in ['ndk', 'gcmt']:
+        pass
+
+    elif type in ['qml']:
+        pass
 
     else:
         raise ValueError('type not recognized')

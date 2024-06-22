@@ -22,72 +22,81 @@ Module to import / export data formats
 """
 
 import os
+from glob import glob
 
 from shakelab.signals import base
 from shakelab.signals.libio import mseed, sac, smdb
 from shakelab.libutils.time import Date
 
 
-def reader(file, ftype=None, stream_collection=None, byte_order='be'):
+def reader(file_path, ftype=None, stream_collection=None, byte_order='be'):
     """
     """
-    if ftype is None:
-        # Try to identify file from extension
-        fext = os.path.splitext(file)[1]
+    if os.path.isdir(file_path):
+       file_path = os.path.join(file_path, '*')
 
-        if fext in ['.ms', '.mseed', '.miniseed', '.seed']:
-            ftype = 'mseed'
-
-        elif fext in ['.sac', '.SAC']:
-            ftype = 'sac'
-
-        else:
-            raise NotImplementedError('file tyep not recognized')
+    file_list = glob(file_path, recursive=False)
 
     if stream_collection is None:
         stream_collection = base.StreamCollection()
 
-    # Import recordings
-    if ftype == 'mseed':
-        stream_collection = mseed.msread(file,
-                                         stream_collection=stream_collection,
-                                         byte_order=byte_order)
+    for file in file_list:
 
-    elif ftype == 'sac':
-
-        record = sac.sacread(file, byte_order=byte_order)
-        stream_collection.append(record)
-
-    elif ftype == 'itaca':
-
-        #it = smdb.Itaca(file)
-        #record = Record()
-        #record.head.rate = it.sampling_rate()
-        #record.head.time = Date(it.time)
-        #record.data = np.array(it.data)
-        #rec_list.append(record)
-        pass
-
-    elif ftype == 'ascii':
-        raise NotImplementedError('format not yet implemented')
-
-    elif ftype == 'seisan':
-        raise NotImplementedError('format not yet implemented')
-
-    elif ftype == 'seg2':
-        raise NotImplementedError('format not yet implemented')
-
-    elif ftype == 'dat':
-        raise NotImplementedError('format not yet implemented')
-
-    elif ftype == 'gse':
-        raise NotImplementedError('format not yet implemented')
-
-    elif ftype == 'reftek':
-        raise NotImplementedError('format not yet implemented')
-
-    else:
-        pass
+        if ftype is None:
+            # Try to identify file from extension
+            fext = os.path.splitext(file)[1]
+    
+            if fext in ['.ms', '.mseed', '.miniseed', '.seed']:
+                ftype = 'mseed'
+    
+            elif fext in ['.sac', '.SAC']:
+                ftype = 'sac'
+    
+            else:
+                #raise NotImplementedError('file type not recognized')
+                print('file type not recognized')
+                ftype = None
+    
+        # Import recordings
+        if ftype == 'mseed':
+            stream_collection = mseed.msread(file,
+                                     stream_collection=stream_collection,
+                                     byte_order=byte_order)
+    
+        elif ftype == 'sac':
+            record = sac.sacread(file, byte_order=byte_order)
+            stream_collection.append(record)
+    
+        elif ftype == 'itaca':
+    
+            #it = smdb.Itaca(file)
+            #record = Record()
+            #record.head.rate = it.sampling_rate()
+            #record.head.time = Date(it.time)
+            #record.data = np.array(it.data)
+            #rec_list.append(record)
+            pass
+    
+        elif ftype == 'ascii':
+            raise NotImplementedError('format not yet implemented')
+    
+        elif ftype == 'seisan':
+            raise NotImplementedError('format not yet implemented')
+    
+        elif ftype == 'seg2':
+            raise NotImplementedError('format not yet implemented')
+    
+        elif ftype == 'dat':
+            raise NotImplementedError('format not yet implemented')
+    
+        elif ftype == 'gse':
+            raise NotImplementedError('format not yet implemented')
+    
+        elif ftype == 'reftek':
+            raise NotImplementedError('format not yet implemented')
+    
+        else:
+            pass
 
     return stream_collection
 

@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2023, ShakeLab Developers.
+# Copyright (C) 2019-2024, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -28,7 +28,7 @@ from copy import deepcopy
 
 from shakelab.signals import fourier
 from shakelab.signals import response
-from shakelab.signals.libio import mseed
+from shakelab.signals.io import reader
 from shakelab.libutils.time import Date
 from shakelab.libutils.constants import PI, GRAVITY
 from shakelab.libutils.geodetic import WgsPoint
@@ -49,25 +49,49 @@ def truncate(n, decimals=9):
 class Header(object):
     """
     """
-    def __init__(self, parent_record=None):
+    def __init__(self, delta=None, time=None, location=None,
+                       sid=None, eid=None, units=None, parent=None):
 
         self._rate = None
         self._delta = None
-        #self._nsamp = None
+        self._time = None
+        self._location = None
 
-        self.sid = None
+        if delta is not None:
+            self.delta = delta
+
+        if time is not None:
+            self.time = time
+
+        if location is not None:
+            self.location = location
+
+        self.sid = sid
         self.eid = None
-        self.time = Date()
-        self.location = WgsPoint(None, None)
-
         self.units = None
+
         self.response = None
         self.meta = {}
 
         # Reference to the host record is passed to access
         # record's methods and data within the header
         # (e.g. the recording length)
-        self._parent = parent_record
+        self._parent = parent
+
+    def __str__(self):
+        msg = ''
+        msg += 'sampling interval: {0}\n'.format(self.delta)
+        msg += 'starting time: {0}\n'.format(self.time)
+        msg += 'station id: {0}\n'.format(self.sid)
+        msg += 'event id: {0}\n'.format(self.eid)
+        msg += 'location: {0}\n'.format(self.location)
+        msg += 'units: {0}\n'.format(self.units)
+        return msg
+
+    def info(self):
+        """
+        """
+        print(self)
 
     @property
     def delta(self):
@@ -87,22 +111,53 @@ class Header(object):
         self._rate = value
         self._delta = 1./value
 
+    @property
+    def time(self):
+        return self._time
+
+    @time.setter
+    def time(self, value):
+        if isinstance(value, str):
+            self._time = Date(value)
+        elif isinstance(value, Date):
+            self._time = value
+        else:
+            raise TypeError('unsupported time format')
+
+    @property
+    def location(self):
+        return self._location
+
+    @location.setter
+    def location(self, value):
+        if isinstance(value, [tuple, list]):
+            self._location = WgsPoint(value[0], value[1])
+        elif isinstance(value, WgsPoint):
+            self._location = value
+        else:
+            raise TypeError('unsupported location format')
+
     #@property
-    #def nsamp(self):
-    #    if self._parent is not None:
-    #        return self._parent.nsamp
-    #    else:
-    #        return None
+    def nsamp(self):
+        if isinstance(self._parent, Record):
+            return self._parent.nsamp
+        elif isinstance(self._parent, Spectrum):
+            return None
+        else:
+            return None
 
     def copy(self):
         return deepcopy(self)
+
 
 class Record(object):
     """
     Individual (continuos) recording block.
     """
-    def __init__(self, time=None, delta=None, data=None):
-        self.head = Header(self)
+    def __init__(self, data=None, delta=None, time=None, location=None,
+                       sid=None, eid=None):
+
+        self.head = Header(parent=self)
         self.data = np.array([])
 
         if data is not None:
@@ -114,11 +169,29 @@ class Record(object):
         if time is not None:
             self.head.time = time
 
+        if location is not None:
+            self.head.location = location
+
+        if sid is not None:
+            self.head.sid = sid
+
+        if eid is not None:
+            self.head.eid = eid
+
     def __len__(self):
         return self.nsamp
 
     def __getitem__(self, sliced):
         return self.data[sliced]
+
+    def __str__(self):
+        msg = ''
+        msg += 'starttime {0}, '.format(self.starttime)
+        msg += 'duration {0}s, '.format(self.duration)
+        msg += 'sampling rate {0}, '.format(self.delta)
+        msg += '{0} samples'.format(self.nsamp)
+        msg += '\n'
+        return msg
 
     def __add__(self, value):
         """
@@ -183,15 +256,26 @@ class Record(object):
         return self.head.delta
 
     @property
-    def duration(self):
+    def rate(self):
         """
-        TO CHECK: Rounding might be needed.
         """
-        return (len(self) - 1) * self.head.delta
+        return self.head.rate
+
+    @delta.setter
+    def delta(self, value):
+        self.head.delta = value
+
+    @rate.setter
+    def rate(self, value):
+        self.head.rate = value
 
     @property
     def time(self):
         return self.head.time
+
+    @time.setter
+    def time(self, value):
+        self.head.time = value
 
     @property
     def starttime(self):
@@ -200,6 +284,18 @@ class Record(object):
     @property
     def endtime(self):
         return self.head.time + self.duration
+
+    @property
+    def duration(self):
+        """
+        TO CHECK: Rounding might be needed.
+        """
+        return (len(self) - 1) * self.head.delta
+
+    def info(self):
+        """
+        """
+        print(self)
 
     def time_axis(self, reference='relative', shift=0.):
         """
@@ -643,11 +739,24 @@ class Stream(object):
             print('Id not found.')
             return None
 
+    def __str__(self):
+        msg = ''
+        for idx, rec in enumerate(self.record):
+            msg += 'Record {0}: '.format(idx)
+            msg += rec.__str__()
+            msg += '\n'
+        return msg
+
     @property
     def eid(self):
         """
         """
         return [record.head.eid for record in self.record]
+
+    def info(self):
+        """
+        """
+        print(self)
 
     def append(self, record, enforce=False):
         """
@@ -741,6 +850,18 @@ class StreamCollection():
             print('Id not found.')
             return None
 
+    def __str__(self):
+        msg = ''
+        for idx, st in enumerate(self.stream):
+            msg += 'Stream {0}: code {1}\n'.format(idx, st.sid)
+            msg += st.__str__()
+        return msg
+
+    def info(self):
+        """
+        """
+        print(self)
+
     @property
     def sid(self):
         """
@@ -785,13 +906,12 @@ class StreamCollection():
         for stream in self.stream:
             stream.deconvolve_response(resp)
 
-    def read(self, byte_stream, ftype='mseed', byte_order='be'):
+    def read(self, file_path, ftype=None, byte_order='be'):
         """
         """
-        if ftype == 'mseed':
-            mseed.msread(byte_stream,
-                         stream_collection=self,
-                         byte_order=byte_order)
+        reader(file_path, ftype=ftype,
+                          stream_collection=self,
+                          byte_order=byte_order)
 
     def write(self, file):
         """
@@ -802,63 +922,3 @@ class StreamCollection():
         """
         """
         return deepcopy(self)
-
-# ---------------------
-"""
-
-class Location(object):
-    def __init__(self, id):
-        self.id = id
-        self.channel = {}
-
-    def __len__(self):
-        return len(self.channel)
-
-    def __getitem__(self, item):
-        return self.channel[item]
-
-    def add(self):
-        pass
-
-    def remove(self):
-        pass
-
-class Station(object):
-
-    def __init__(self, id):
-        self.id = id
-        self.location = {}
-
-    def __len__(self):
-        return len(self.location)
-
-    def __getitem__(self, item):
-        return self.location[item]
-
-    def add(self):
-        pass
-
-    def remove(self):
-        pass
-
-class StationCollection(object):
-
-    def __init__(self):
-        self.id = None
-        self.station = {}  # Must be list! implement iterators
-
-    def __len__(self):
-        return len(self.station)
-
-    def __getitem__(self, sliced):
-        return self.station[sliced]
-
-    def add(self):
-        pass
-
-    def remove(self):
-        pass
-
-    def filter(self, streamid=None, station=None, channel=None):
-        pass
-"""

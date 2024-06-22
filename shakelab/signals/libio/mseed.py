@@ -322,7 +322,6 @@ class MSRecord(object):
 
             # Blockette code
             block_type = byte_stream.get('H', 2)
-            print(block_type)
 
             # Offset to the beginning of the next blockette
             block_offset = byte_stream.get('H', 2)
@@ -365,7 +364,6 @@ class MSRecord(object):
             for ds in range(bnum):
                 data[ds] = byte_stream.get(data_struc[enc][0],
                                            data_struc[enc][1])
-                print(data[ds])
 
             # Decode ASCII data (e.g. logs)
             if enc == 0:

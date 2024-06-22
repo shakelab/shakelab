@@ -31,7 +31,6 @@ import re
 import numpy as np
 import json
 
-import matplotlib as _mat
 from scipy.spatial import Delaunay
 
 # GEODETIC CONSTANTS
@@ -194,6 +193,13 @@ class WgsPoint():
         """
         if isinstance(point, WgsPoint):
             return self.tunnel_distance(point)
+
+    def __str__(self):
+        msg = ''
+        msg += 'latitude: {0}, '.format(self.latitude)
+        msg += 'longitude: {0}, '.format(self.longitude)
+        msg += 'elevation: {0})\n'.format(self.elevation)
+        return msg
 
     def circle_distance(self, point):
         """
