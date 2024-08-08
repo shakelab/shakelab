@@ -20,16 +20,23 @@
 """
 Module to import / export data formats
 """
+USE_LIBMSEED = 1
 
 import os
 from glob import glob
 
 from shakelab.signals import base
-from shakelab.signals.libio import mseed, sac, smdb
+from shakelab.signals.libio import sac, smdb
+
 from shakelab.libutils.time import Date
 
+if USE_LIBMSEED:
+    from shakelab.signals.libio.cython import mseed
+else
+    from shakelab.signals.libio import mseed
 
-def reader(file_path, ftype=None, stream_collection=None, byte_order='be'):
+
+def reader(file_path, stream_collection=None, ftype=None, byte_order='be'):
     """
     """
     if os.path.isdir(file_path):
@@ -58,10 +65,9 @@ def reader(file_path, ftype=None, stream_collection=None, byte_order='be'):
                 ftype = None
     
         # Import recordings
-        if ftype == 'mseed':
+        if ftype in ['miniseed', 'mseed', 'ms']:
             stream_collection = mseed.msread(file,
-                                     stream_collection=stream_collection,
-                                     byte_order=byte_order)
+                                     stream_collection=stream_collection)
     
         elif ftype == 'sac':
             record = sac.sacread(file, byte_order=byte_order)
@@ -100,3 +106,36 @@ def reader(file_path, ftype=None, stream_collection=None, byte_order='be'):
 
     return stream_collection
 
+
+def write(file_path, stream_collection, ftype='mseed', byte_order='be'):
+    """
+    """
+    if ftype in ['miniseed', 'mseed', 'ms']:
+        mseed.msread(file_path, stream_collection)
+
+    elif ftype == 'sac':
+        pass
+
+    elif ftype == 'itaca':
+        pass
+
+    elif ftype == 'ascii':
+        raise NotImplementedError('format not yet implemented')
+
+    elif ftype == 'seisan':
+        raise NotImplementedError('format not yet implemented')
+
+    elif ftype == 'seg2':
+        raise NotImplementedError('format not yet implemented')
+
+    elif ftype == 'dat':
+        raise NotImplementedError('format not yet implemented')
+
+    elif ftype == 'gse':
+        raise NotImplementedError('format not yet implemented')
+
+    elif ftype == 'reftek':
+        raise NotImplementedError('format not yet implemented')
+
+    else:
+        pass
