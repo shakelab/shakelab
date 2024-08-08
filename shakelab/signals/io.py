@@ -32,7 +32,7 @@ from shakelab.libutils.time import Date
 
 if USE_LIBMSEED:
     from shakelab.signals.libio.cython import mseed
-else
+else:
     from shakelab.signals.libio import mseed
 
 
@@ -61,8 +61,8 @@ def reader(file_path, stream_collection=None, ftype=None, byte_order='be'):
     
             else:
                 #raise NotImplementedError('file type not recognized')
-                print('file type not recognized')
-                ftype = None
+                print('File type not recognized. Defualt to mseed')
+                ftype = 'mseed'
     
         # Import recordings
         if ftype in ['miniseed', 'mseed', 'ms']:
@@ -107,11 +107,26 @@ def reader(file_path, stream_collection=None, ftype=None, byte_order='be'):
     return stream_collection
 
 
-def write(file_path, stream_collection, ftype='mseed', byte_order='be'):
+def writer(file_path, stream_collection, ftype=None, byte_order='be'):
     """
     """
+    if ftype is None:
+        # Try to identify file from extension
+        fext = os.path.splitext(file_path)[1]
+
+        if fext in ['.ms', '.mseed', '.miniseed', '.seed']:
+            ftype = 'mseed'
+
+        elif fext in ['.sac', '.SAC']:
+            ftype = 'sac'
+
+        else:
+            #raise NotImplementedError('file type not recognized')
+            print('File type not recognized. Defualt to mseed')
+            ftype = 'mseed'
+
     if ftype in ['miniseed', 'mseed', 'ms']:
-        mseed.msread(file_path, stream_collection)
+        mseed.mswrite(file_path, stream_collection)
 
     elif ftype == 'sac':
         pass

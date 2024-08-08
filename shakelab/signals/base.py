@@ -28,7 +28,7 @@ from copy import deepcopy
 
 from shakelab.signals import fourier
 from shakelab.signals import response
-from shakelab.signals.io import reader
+from shakelab.signals import io
 from shakelab.libutils.time import Date
 from shakelab.libutils.constants import PI, GRAVITY
 from shakelab.libutils.geodetic import WgsPoint
@@ -909,7 +909,7 @@ class StreamCollection():
     def read(self, file_path, ftype=None, byte_order='be'):
         """
         """
-        reader(file_path, ftype=ftype,
+        io.reader(file_path, ftype=ftype,
                           stream_collection=self,
                           byte_order=byte_order)
 
