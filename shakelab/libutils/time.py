@@ -20,15 +20,14 @@
 """
 Time and date functionalities
 """
+from decimal import Decimal
+import time as systime
 
 # CONSTANTS
 MSEC = 60.
 HSEC = 3600.
 DSEC = 86400.
 YDAYS = 365.
-
-from decimal import Decimal
-import time as systime
 
 
 class Date(object):
@@ -54,7 +53,7 @@ class Date(object):
 
         if date is not None:
             if date == 'now':
-                self.set_date(now())
+                self.set_date(utc_now())
             else:
                 self.set_date(date)
 
@@ -137,9 +136,21 @@ class Date(object):
         """
         return self.get_date(dtype='string')
 
+    @property
+    def ordinal_day(self):
+        """
+        """
+        return to_ordinal_day(self.year, self.month, self.day)
+
+    @ordinal_day.setter
+    def ordinal_day(self, value):
+        """
+        """
+        (self.month, self.day) = from_ordinal_day(self.year, value)
+
     def set_date(self, date):
         """
-        Ordinal format is automatically recognized.
+        Ordinal format is recognized from 
         """
         if isinstance(date, (list, tuple)):
 
@@ -157,21 +168,21 @@ class Date(object):
                 self.hour = int(date[2])
                 self.minute = int(date[3])
                 self.second = float(date[4])
-                (self.month, self.day) = days_to_month(self.year, self.day)
+                (self.month, self.day) = from_ordinal_day(self.year, self.day)
 
         elif isinstance(date, dict):
 
             self.year = date['year']
-            self.day = date['day']
             self.hour = date['hour']
             self.minute = date['minute']
             self.second = date['second']
 
             if 'month' in dict:
                 self.month = date['month']
+                self.day = date['day']
             else:
                 # Assuming ordinal format
-                (self.month, self.day) = days_to_month(self.year, self.day)
+                (self.month, self.day) = from_ordinal_day(self.year, self.day)
 
         elif isinstance(date, str):
 
@@ -244,19 +255,26 @@ class Date(object):
     def to_seconds(self, decimal=False):
         """
         """
-        return date_to_sec(self.year, self.month, self.day,
-                           self.hour, self.minute, self.second,
-                           decimal=decimal)
+        return date_to_second(self.year, self.month, self.day,
+                              self.hour, self.minute, self.second,
+                              decimal=decimal)
+
+    def from_seconds(self, second):
+        """
+        """
+        self.set_date(second_to_date(float(second)))
+
     @property
     def seconds(self):
         """
         """
         return self.to_seconds()
 
-    def from_seconds(self, second):
+    @seconds.setter
+    def seconds(self, value):
         """
         """
-        self.set_date(sec_to_date(float(second)))
+        self.from_seconds(value)
 
     def shift_time(self, time, units='s'):
         """
@@ -305,7 +323,7 @@ def days_in_month(year):
 
     return mdays
 
-def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0,
+def date_to_second(year=1, month=1, day=1, hour=0, minute=0, second=0.0,
                 decimal=False):
     """
     Convert a date to seconds.
@@ -331,8 +349,17 @@ def date_to_sec(year=1, month=1, day=1, hour=0, minute=0, second=0.0,
     else:
         return sec + second
 
-def days_to_month(year, day):
+def from_ordinal_day(year, day):
     """
+    Converts a ordinal day of the year to the corresponding month and day.
+
+    Parameters:
+        year (int): The year to consider for leap year calculations.
+        day (int): The ordinal day of the year.
+
+    Returns:
+        tuple: A tuple (month, day) where 'month' is the month and 'day'
+               is the day of the month.
     """
     MDAYS = days_in_month(year)
 
@@ -345,7 +372,26 @@ def days_to_month(year, day):
 
     return (month, day)
 
-def sec_to_date(second):
+def to_ordinal_day(year, month, day):
+    """
+    Converts a given month and day to the ordinal day of the year.
+    
+    Parameters:
+        year (int): The year to consider for leap year calculations.
+        month (int): The month (1 for January, 2 for February, etc.).
+        day (int): The day of the month.
+    
+    Returns:
+        int: The ordinal day of the year.
+    """
+    MDAYS = days_in_month(year)
+    
+    if month == 1:
+        return day
+    else:
+        return MDAYS[month - 2] + day
+
+def second_to_date(second):
     """
     Implemented using a direct search approach
     (it would be nicer to use a more elengant algorithm).
@@ -415,7 +461,7 @@ def read_iso8601_date(date_str):
 
     if date_len == 2:
         year, day = map(int, date_part.split('-'))
-        (month, day) = days_to_month(year, day)
+        (month, day) = from_ordinal_day(year, day)
 
     time_offset = 0
 
@@ -478,7 +524,7 @@ def write_iso8601_date(year, month, day, hour, minute, second, timezone='Z'):
     )
     return iso8601_str
 
-def now():
+def utc_now():
     """
     Get the current UTC date and time in ISO 8601 format.
 

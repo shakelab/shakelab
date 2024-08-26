@@ -46,6 +46,7 @@ def truncate(n, decimals=9):
     multiplier = 10**decimals
     return int(n * multiplier) / multiplier
 
+
 class Header(object):
     """
     """
@@ -307,6 +308,13 @@ class Record(object):
         if reference in ['a', 'absolute']:
             tax += self.head.time.to_seconds()
         return tax + shift
+
+    @property
+    def taxis(self):
+        """
+        Short to generate time axis in seconds.
+        """
+        return self.time_axis()
 
     def append(self, record, enforce=False, fillvalue=0., precision=9):
         """

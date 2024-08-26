@@ -27,6 +27,8 @@ from shakelab.signals.fdsnws import FDSNCode
 import numpy as np
 from io import BytesIO
 
+MSEED_VERSION = 2
+
 
 def msread(input_data_source, stream_collection=None):
     """
@@ -89,7 +91,8 @@ def msread(input_data_source, stream_collection=None):
 
     return stream_collection
 
-def mswrite(output_data_source, stream_collection, encoding=11, reclen=512):
+def mswrite(output_data_source, stream_collection,
+            encoding=11, reclen=512, msformat=None):
     """
     Write a StreamCollection to a MiniSEED file.
 
@@ -104,10 +107,16 @@ def mswrite(output_data_source, stream_collection, encoding=11, reclen=512):
         reclen (int, optional):
             The record length to use for the MiniSEED data.
             Default is 512 bytes.
+        msformat (int, optional):
+            The miniseed format version of the output file (2 or 3).
+            Default is 2.
 
     Returns:
         None
     """
+    if msformat is None:
+        msformat = MSEED_VERSION
+
     # Initialize a new MiniSeed object
     ms = libmseed.MiniSeed()
 
@@ -131,7 +140,7 @@ def mswrite(output_data_source, stream_collection, encoding=11, reclen=512):
             ms.import_record(record_dict, encoding=encoding, reclen=reclen)
 
     # Write the MiniSEED data to a byte buffer
-    buffer = ms.write()
+    buffer = ms.write(msformat, reclen, encoding)
 
     # Write the buffer to the specified output file
     with open(output_data_source, 'wb') as fid:

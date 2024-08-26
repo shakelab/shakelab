@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2023, ShakeLab Developers.
+# Copyright (C) 2019-2024, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -20,6 +20,14 @@
 """
 WX Widget to draw 2D data
 """
+try:
+    from IPython import get_ipython
+    ipython = get_ipython()
+
+    if ipython:
+        ipython.run_line_magic('gui', 'wx')
+except:
+    print('Cannot activate wx event loop integration in IPython')
 
 import wx
 import numpy as np
@@ -27,13 +35,43 @@ from copy import deepcopy
 from numpy.random import randn
 
 from shakelab.gui.bounds import lin_ticks, logb_ticks
+from shakelab.signals.io import reader
 
+# Platform specific settings
+if wx.Platform == '__WXGTK__':
+    pass
+elif wx.Platform == '__WXMAC__':
+    pass
+elif wx.Platform == '__WXMSW__':
+    pass
+
+
+DATA_STRUCT = {
+    'x': None,
+    'y': None,
+    'z': None,
+    'colour': 'black',
+    'width': 1,
+    'style': 'solid',
+    'label': None
+}
+
+WXSTYLE = {
+    'solid' : wx.PENSTYLE_SOLID,
+    'dot' : wx.PENSTYLE_DOT,
+    '*' : wx.PENSTYLE_DOT,
+    'long_dash' : wx.PENSTYLE_LONG_DASH,
+    '--' : wx.PENSTYLE_LONG_DASH,
+    'short_dash' : wx.PENSTYLE_SHORT_DASH,
+    '-' : wx.PENSTYLE_SHORT_DASH,
+    'dot_dash' : wx.PENSTYLE_DOT_DASH,
+    '*-' : wx.PENSTYLE_DOT_DASH}
 
 DEFAULT_PARAMS = {
-    'top_margin' : 25,
+    'top_margin' : 20,
     'bottom_margin' : 60,
-    'left_margin' : 60,
-    'right_margin' : 25,
+    'left_margin' : 80,
+    'right_margin' : 20,
     'background_colour' : 'white',
     'logx' : False,
     'logy' : False,
@@ -64,272 +102,248 @@ DEFAULT_PARAMS = {
     'label_size' : 16,
     'ticks_outside' : True}
 
-DATA_STRUCT = {
-    'id' : None,
-    'x' : None,
-    'y' : None,
-    'z' : None,
-    'colour' : 'black',
-    'width' : 1,
-    'style' : 'solid',
-    'label' : None}
 
-WXSTYLE = {
-    'solid' : wx.SOLID,
-    'dot' : wx.DOT,
-    '*' : wx.DOT,
-    'long_dash' : wx.LONG_DASH,
-    '--' : wx.LONG_DASH,
-    'short_dash' : wx.SHORT_DASH,
-    '-' : wx.SHORT_DASH,
-    'dot_dash' : wx.DOT_DASH,
-    '*-' : wx.DOT_DASH}
-
-
-class DataStore():
+class DataStore:
     """
-    Create an internal archive to store data
-    and related plot settings.
-    Note: data are plotted following the storage order.
+    Manages storage and retrieval of plot data and related settings.
+
+    This class provides a way to store, retrieve, and manage 2D plot data,
+    including the ability to add new data sets, remove them, and access
+    properties like the minimum and maximum values for both axes.
+
+    Attributes:
+        db (dict): A dictionary storing plot data, keyed by unique IDs.
+
+    Key Methods:
+        add(x, y, **kwargs): Adds a new data entry to the store.
+        remove(id): Removes a data entry by its ID.
+        __getitem__(idx): Retrieves a data entry by its ID.
+        __len__(): Returns the number of data entries.
+        xlim: Property that returns the min and max x-values.
+        ylim: Property that returns the min and max y-values.
+
+    Example Usage:
+        >>> store = DataStore()
+        >>> store.add([1, 2, 3], [4, 5, 6], colour='blue')
+        >>> print(store.xlim)  # Outputs: (1, 3)
+        >>> print(store.ylim)  # Outputs: (4, 6)
+        >>> print(len(store))  # Outputs: 1
+        >>> store.remove(0)
+        >>> print(len(store))  # Outputs: 0
     """
+
     def __init__(self):
-        self.db = []
+        """
+        Initializes an empty DataStore object.
+        """
+        self.db = {}
+        self._next_id = 0
+        self._cached_xmin = None
+        self._cached_xmax = None
+        self._cached_ymin = None
+        self._cached_ymax = None
 
     def __iter__(self):
-        self._i = 0
-        return self
+        """
+        Iterates over the stored data entries.
 
-    def __next__(self):
-        try:
-            item = self.db[self._i]
-            self._i += 1
-        except IndexError:
-            raise StopIteration
-        return item
+        Returns:
+            Iterator of the values in the database.
+        """
+        return iter(self.db.values())
 
     def __getitem__(self, idx):
-        if idx < len(self.db):
-            return self.db[idx]
-        else:
-            raise ValueError('No data set found')
+        """
+        Retrieves a data entry by its ID.
 
-    def __len__ (self):
+        Args:
+            idx (int): The ID of the data entry to retrieve.
+
+        Returns:
+            dict: The data entry associated with the given ID.
+
+        Raises:
+            ValueError: If no data entry with the given ID exists.
+        """
+        try:
+            return self.db[idx]
+        except KeyError:
+            raise ValueError(f"No data set found with id {idx}")
+
+    def __len__(self):
+        """
+        Returns the number of data entries stored.
+
+        Returns:
+            int: The number of data entries.
+        """
         return len(self.db)
 
     def add(self, x, y, **kwargs):
+        """
+        Adds a new data entry to the DataStore.
 
+        Args:
+            x (array-like): The x-values of the data.
+            y (array-like): The y-values of the data.
+            **kwargs: Additional properties to set for the data entry.
+
+        Raises:
+            ValueError: If x and y do not have the same shape.
+        """
+        # Validate and convert inputs
+        x = np.array(x)
+        y = np.array(y)
+        if x.shape != y.shape:
+            raise ValueError("x and y must have the same shape")
+
+        # Create a new data entry
         item = deepcopy(DATA_STRUCT)
-
-        id = -1
-        while True:
-            id += 1
-            if id not in self.ids:
-                item['id'] = id
-                break
-
-        item['x'] = np.array(x)
-        item['y'] = np.array(y)
-
+        item['x'] = x
+        item['y'] = y
         for k, v in kwargs.items():
-            if k in DATA_STRUCT.keys():
+            if k in item:
                 item[k] = v
 
-        self.db.append(item)
+        # Add to the database
+        self.db[self._next_id] = item
+        self._next_id += 1
+
+        # Invalidate cache
+        self._invalidate_cache()
 
     def remove(self, id):
-        pass
+        """
+        Removes a data entry from the DataStore.
+
+        Args:
+            id (int): The ID of the data entry to remove.
+
+        Raises:
+            ValueError: If no data entry with the given ID exists.
+        """
+        if id in self.db:
+            del self.db[id]
+            self._invalidate_cache()
+        else:
+            raise ValueError(f"No data set found with id {id}")
 
     @property
     def ids(self):
-        return [i['id'] for i in self.db]
+        """
+        Returns the list of IDs for all stored data entries.
+
+        Returns:
+            list: A list of IDs.
+        """
+        return list(self.db.keys())
 
     @property
     def xmin(self):
-        if not self.db:
-            return 0
-        else:
-            return min([min(i['x']) for i in self.db])
+        """
+        Returns the minimum x-value across all data entries.
+
+        Returns:
+            float: The minimum x-value.
+        """
+        if self._cached_xmin is None:
+            self._cached_xmin = min(
+                (min(item['x']) for item in self.db.values()), default=0
+            )
+        return self._cached_xmin
 
     @property
     def xmax(self):
-        if not self.db:
-            return 1
-        else:
-            return max([max(i['x']) for i in self.db])
+        """
+        Returns the maximum x-value across all data entries.
+
+        Returns:
+            float: The maximum x-value.
+        """
+        if self._cached_xmax is None:
+            self._cached_xmax = max(
+                (max(item['x']) for item in self.db.values()), default=1
+            )
+        return self._cached_xmax
 
     @property
     def ymin(self):
-        if not self.db:
-            return 0
-        else:
-            return min([min(i['y']) for i in self.db])
+        """
+        Returns the minimum y-value across all data entries.
+
+        Returns:
+            float: The minimum y-value.
+        """
+        if self._cached_ymin is None:
+            self._cached_ymin = min(
+                (min(item['y']) for item in self.db.values()), default=0
+            )
+        return self._cached_ymin
 
     @property
     def ymax(self):
-        if not self.db:
-            return 1
-        else:
-            return max([max(i['y']) for i in self.db])
+        """
+        Returns the maximum y-value across all data entries.
 
+        Returns:
+            float: The maximum y-value.
+        """
+        if self._cached_ymax is None:
+            self._cached_ymax = max(
+                (max(item['y']) for item in self.db.values()), default=1
+            )
+        return self._cached_ymax
+
+    @property
     def xlim(self):
+        """
+        Returns the minimum and maximum x-values as a tuple.
+
+        Returns:
+            tuple: (xmin, xmax)
+        """
         return self.xmin, self.xmax
 
+    @property
     def ylim(self):
+        """
+        Returns the minimum and maximum y-values as a tuple.
+
+        Returns:
+            tuple: (ymin, ymax)
+        """
         return self.ymin, self.ymax
 
-
-class BasePlot(wx.Panel):
-
-    def __init__(self, parent, tile_grid=(1,1), params={}, **kwargs):
-
-        # Platform specific settings
-        if wx.Platform == '__WXGTK__':
-            pass
-        elif wx.Platform == '__WXMAC__':
-            pass
-        elif wx.Platform == '__WXMSW__':
-            pass
-
-        # Initialise grid
-        rows, cols = tile_grid
-        self.graph = [[Graph()]*cols]*rows
-
-        self.CTRL = False
-
-        wx.Panel.__init__(self, parent, size=(-1, -1))
-        self.parent = parent
-
-        self.Bind(wx.EVT_PAINT, self.OnPaint)
-        # self.Bind(wx.EVT_SIZE, self.OnSize)
-
-        self.Bind(wx.EVT_MOUSE_EVENTS, self.OnMouseEvent)
-        self.Bind(wx.EVT_MOTION, self.OnMouseEvent)
-
-        self.Bind(wx.EVT_LEFT_DOWN, self.OnMouseLeftClick)
-
-        self.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown)
-        self.Bind(wx.EVT_KEY_UP, self.OnKeyUp)
-
-    def Plot(self, x, y, tile=(0,0), params={}, **kwargs):
+    def _invalidate_cache(self):
         """
+        Invalidates the cached min/max values.
         """
-        self.data[tile[0]][tile[1]].add(x, y, *args, **kwargs)
-
-    def SetProperty(self, tile=(0,0), params={}, **kwargs):
-        """
-        """
-        params = {**params, **kwargs}
-
-        for key, value in params.items():
-            if key in DEFAULT_PARAM.keys():
-                self.params[tile[0]][tile[1]][key] = value
-
-    def ExportImage(self, file_name):
-        """
-        """
-        if self._bitmap is not None:
-            self._bitmap.SaveFile(file_name, wx.BITMAP_TYPE_PNG)
-
-    def DrawGraph(self):
-
-        size = self.GetClientSize()
-
-        panel_width = max(size[0], 1)
-        panel_height = max(size[1], 1)
-
-        i_margin = self.params['left_margin'] + self.params['right_margin']
-        j_margin = self.params['top_margin'] + self.params['bottom_margin']
-
-        # Plot area width and height
-        axis_width = max(panel_width - i_margin, 0)
-        axis_height = max(panel_height - j_margin, 0)
-
-        i0 = self.params['left_margin'] + 1
-        j0 = self.params['top_margin'] + axis_height
-
-        # Background canvas
-        self._bitmap = wx.Bitmap(panel_width, panel_height, 32)
-
-        with wx.BufferedPaintDC(self, self._bitmap) as dc:
-
-            dc.SetBackground(wx.Brush(self.params['background_colour']))
-            dc.Clear()
-
-            #gcdc = wx.GCDC(dc)
-            #gc = gcdc.GetGraphicsContext()
-            #gc = wx.GraphicsContext.Create(dc)
-
-            #dc.SetBackgroundMode(wx.TRANSPARENT)
-
-            graph.Draw()
-
-    def OnPaint(self, event):
-
-        self.DrawGraph()
-        self.Refresh()
-
-    def OnSize(self, event):
-
-        self.DrawGraph()
-        self.Refresh()
-
-    def OnMouseEvent(self, event):
-
-        if event.LeftDown():
-            if self.CTRL:
-                print(pos.x, pos.y)
-            else:
-                print('Not active')
-        else:
-            pass
-
-    def OnMouseLeftClick(self, event):
-
-        if self.CTRL:
-            pos = event.GetPosition()
-            print(pos.x, pos.y)
-        else:
-            print('Not active')
-
-    def OnKeyDown(self, event):
-
-        #key = event.GetKeyCode()
-        #if chr(key).upper() == 'A':
-        #    self.CTRL = True
-
-        if event.ControlDown():
-            self.CTRL = True
-
-        event.Skip()
-
-    def OnKeyUp(self, event):
-
-        self.CTRL = False
-        event.Skip()
+        self._cached_xmin = None
+        self._cached_xmax = None
+        self._cached_ymin = None
+        self._cached_ymax = None
 
 
-# ---------------------------------------------------------------------------
-
-class Graph():
+class Registry():
     """
+    Collection of hidden variables used internally
     """
-    def __init__(self, origin, params={}, **kwargs):
-        """
-        """
-        self.data = DataStore()
+    def __init__(self):
+        self.pw = 1
+        self.ph = 1
+        self.aw = 1
+        self.ah = 1
+        self.i0 = None
+        self.j0 = None
+        self.i1 = None
+        self.j1 = None
 
-        self.i0 = origin[0]       # axis origin's i index
-        self.j0 = origin[1]       # axis origin's j index
+        self.bitmap = None
 
-        # Override default properties
-        self.params = deepcopy(DEFAULT_PARAMS)
-        self.SetProperty(params, **kwargs)
-
-        self.xmin = 0
-        self.xmax = 1
-
-        self.ymin = 0
-        self.ymax = 1
+        self.xmin = None
+        self.xmax = None
+        self.ymin = None
+        self.ymax = None
 
         self.xtick = np.array([])
         self.ytick = np.array([])
@@ -337,262 +351,450 @@ class Graph():
         self.lx = 0
         self.ly = 0
 
-    def Draw(self, dc):
-        """
-        """
-        self.SetDataBounds()
+# ---------------------------------------------------------------------------
 
-        self.SetAxisTicks()
+class TracePlot(wx.Panel):
+    def __init__(self, parent, params={}, **kwargs):
+        super(TracePlot, self).__init__(parent, size=(-1, -1))
 
-        self.DrawBackground(dc)
+        self.data = DataStore()
+        self.params = deepcopy(DEFAULT_PARAMS)
 
-        self.DrawGrid(dc)
+        # Override default properties
+        if params:
+            self.SetProperty(params, **kwargs)
 
-        self.DrawData(dc)
+        # Collector for internal variables
+        self._ = Registry()
 
-        self.DrawAxis(dc)
+        self.CTRL = False
 
-        self.DrawLabels(dc)
+        self.Bind(wx.EVT_PAINT, self.OnPaint)
+        self.Bind(wx.EVT_MOUSE_EVENTS, self.OnMouseEvent)
+        self.Bind(wx.EVT_MOTION, self.OnMouseEvent)
+        self.Bind(wx.EVT_LEFT_DOWN, self.OnMouseLeftClick)
+        self.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown)
+        self.Bind(wx.EVT_KEY_UP, self.OnKeyUp)
 
-        self.DrawBox(dc)
+        # Bind the mouse wheel event to the handler
+        self.Bind(wx.EVT_MOUSEWHEEL, self.OnMouseWheel)
+
+        # Bring the window to the front and set focus
+        wx.CallAfter(self.Raise)
+        wx.CallAfter(self.SetFocus)
 
     def SetProperty(self, params={}, **kwargs):
-        """
-        Override default settings
-        with user-defined properties
-        """
         params = {**params, **kwargs}
-
         for key, value in params.items():
             if key in self.params.keys():
                 self.params[key] = value
 
     def GetProperty(self, key):
-        """
-        """
         if key in self.params.keys():
             return self.params[key]
         else:
             print('Property not found')
 
-    def AddData(self, x, y, **kwargs):
-        """
-        """
-        self.data.add(x, y, *args, **kwargs)
+    def Plot(self, x, y, **kwargs):
+        self.data.add(x, y, **kwargs)
 
-    def SetCanvasSize(self, size):
+    def ExportBitmap(self, scale=2):
         """
+        Export the current plot to a bitmap.
+        
+        Parameters:
+        - scale: The scaling factor to increase resolution.
+        
+        Returns:
+        - A wx.Bitmap containing the exported plot.
         """
-        self.aw = max(size[0], 1)  # axis width
-        self.ah = max(size[1], 1)  # axis height
+        self._SetSize()
+        self._SetDataBounds()
 
-        self.i1 = self.i0 + self.aw - 1
-        self.j1 = self.j0 - self.ah + 1
+        # Calculate the scaled width and height
+        width = self._.pw * scale
+        height = self._.ph * scale
+    
+        # Create a bitmap with the scaled size
+        bitmap = wx.Bitmap(width, height, 32)
+    
+        # Create a memory-based device context for the bitmap
+        dc = wx.MemoryDC(bitmap)
+    
+        # Create a graphics context from the device context
+        gc = wx.GraphicsContext.Create(dc)
+    
+        # Scale the graphics context to increase resolution
+        gc.Scale(scale, scale)
+    
+        # Draw the plot to the graphics context
+        self._DrawContent(gc)
+    
+        return bitmap
 
-    def SetDataBounds(self):
+    def ExportImage(self, file_name, scale=2):
         """
+        Export the current plot to an image file with improved resolution.
+        
+        Parameters:
+        - file_name: The file name to save the image.
+        - scale: The scaling factor to increase resolution.
         """
+        bitmap = self.ExportBitmap()
+    
+        # Save the bitmap as a PNG file
+        bitmap.SaveFile(file_name, wx.BITMAP_TYPE_PNG)
+
+    def OnPaint(self, event):
+        self._SetSize()
+        self._SetDataBounds()
+
+        dc = wx.PaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+
+        # Draw content on the panel
+        self._DrawContent(gc)
+
+    def _DrawContent(self, gc):
+        """
+        Encapsulate drawing logic to use in both OnPaint and ExportImage.
+        """
+        gc.SetAntialiasMode(wx.ANTIALIAS_DEFAULT)
+        gc.SetInterpolationQuality(wx.INTERPOLATION_GOOD)
+
+        self._DrawBackground(gc)
+        self._GenTicks()
+        self._DrawGrid(gc)
+
+        if self._.aw > 0 and self._.ah > 0:
+            self._DrawData(gc)
+
+        self._DrawTicks(gc)
+        self._DrawBox(gc)
+        self._DrawLabels(gc)
+
+    def _SetSize(self):
+        (w, h) = self.GetClientSize()
+
+        # Canvas width and height
+        self._.pw = max(w, 1)
+        self._.ph = max(h, 1)
+
+        im = self.params['left_margin'] + self.params['right_margin']
+        jm = self.params['top_margin'] + self.params['bottom_margin']
+
+        # Plot area width and height
+        self._.aw = max(self._.pw - im, 0)
+        self._.ah = max(self._.ph - jm, 0)
+
+        self._.i0 = self.params['left_margin'] + 1
+        self._.i1 = self.params['left_margin'] + self._.aw
+        self._.j0 = self.params['top_margin'] + self._.ah
+        self._.j1 = self.params['top_margin'] + 1
+
+    def _SetDataBounds(self):
         if self.params['xlim'] == 'auto':
-            xmin, xmax = self.data.xlim()
+            xmin, xmax = self.data.xlim
         else:
             xmin, xmax = self.params['xlim']
 
         if self.params['ylim'] == 'auto':
-            ymin, ymax = self.data.ylim()
+            ymin, ymax = self.data.ylim
         else:
             ymin, ymax = self.params['ylim']
 
-        self.xmin = xmin
-        self.xmax = xmax
+        self._.xmin = xmin
+        self._.xmax = xmax
+        self._.ymin = ymin
+        self._.ymax = ymax
 
-        self.ymin = ymin
-        self.ymax = ymax
-
-    def SetAxisTicks(self):
-        """
-        """
-        xnum = round(self.aw / self.params['xtick_spacing'])
-        ynum = round(self.ah / self.params['ytick_spacing'])
+    def _GenTicks(self):
+        xnum = round(self._.aw / self.params['xtick_spacing'])
+        ynum = round(self._.ah / self.params['ytick_spacing'])
 
         if xnum > 0:
             if self.params['logx']:
-                self.xtick = logb_ticks(self.xmin, self.xmax)
+                self._.xtick = logb_ticks(self._.xmin, self._.xmax)
             else:
-                self.xtick = lin_ticks(self.xmin, self.xmax, xnum)
+                self._.xtick = lin_ticks(self._.xmin, self._.xmax, xnum)
 
         if ynum > 0:
             if self.params['logy']:
-                self.ytick = logb_ticks(self.ymin, self.ymax)
+                self._.ytick = logb_ticks(self._.ymin, self._.ymax)
             else:
-                self.ytick = lin_ticks(self.ymin, self.ymax, ynum)
+                self._.ytick = lin_ticks(self._.ymin, self._.ymax, ynum)
 
-    def DrawBackground(self, dc):
-        """
-        """
-        bg_colour = self.params['axis_bg_colour']
+    def _DrawBackground(self, gc):
+        gc.SetBrush(wx.Brush(self.params['background_colour']))
+        gc.DrawRectangle(0, 0, self._.pw, self._.ph)
 
-        if bg_colour is not None:
+        if self.params['axis_bg_colour'] is not None:
+            gc.SetPen(wx.Pen(self.params['axis_bg_colour'], 1))
+            gc.SetBrush(wx.Brush(self.params['axis_bg_colour']))
+            gc.DrawRectangle(self._.i0, self._.j1, self._.aw, self._.ah)
 
-            dc.SetPen(wx.Pen(bg_colour, 1))
-            dc.SetBrush(wx.Brush(bg_colour))
-            dc.DrawRectangle(self.i0, self.j1, self.aw, self.ah)
-
-    def DrawGrid(self, dc):
-        """
-        """
-        self.dc.SetPen(wx.Pen(self.params['grid_colour'],
-                              self.params['grid_line_width'],
-                              WXSTYLE[self.params['grid_line_style']]))
+    def _DrawGrid(self, gc):
+        gc.SetPen(wx.Pen(self.params['grid_colour'],
+                         int(self.params['grid_line_width']),
+                         WXSTYLE[self.params['grid_line_style']]))
 
         if self.params['xgrid']:
-            for xtick in self.xtick:
+            for xtick in self._.xtick:
+                if self.params['logx']:
+                    xi = XToPix(xtick, self._, True)
+                else:
+                    xi = XToPix(xtick, self._, False)
 
-                xi = self.XToPix(xtick)
-
-                if self.i0 < xi < self.i1:
-                    dc.DrawLine(xi, self.j0, xi, self.j1)
+                if xi > self._.i0 and xi < self._.i1:
+                    gc.StrokeLine(xi, self._.j0, xi, self._.j1)
 
         if self.params['ygrid']:
-            for ytick in self.ytick:
+            for ytick in self._.ytick:
+                if self.params['logy']:
+                    yi = YToPix(ytick, self._, True)
+                else:
+                    yi = YToPix(ytick, self._, False)
 
-                yi = self.YToPix(ytick)
+                if yi > self._.j1 and yi < self._.j0:
+                    gc.StrokeLine(self._.i0, yi, self._.i1, yi)
 
-                if self.j1 < yi < self.j0:
-                    dc.DrawLine(self.i0, yi, self.i1, yi)
+    def _DrawData(self, gc):
+        # Set clipping region
+        gc.Clip(self._.i0, self._.j1, self._.aw, self._.ah)
 
-    def DrawData(self, dc):
-        """
-        """
-        if (self.aw * self.ah) > 0:
+        for d in self.data:
+            if self.params['logx']:
+                xi = XToPix(d['x'], self._, True)
+            else:
+                xi = XToPix(d['x'], self._, False)
 
-            polygon = wx.Rect(self.i0, self.j1, self.aw, self.ah)
-            dc.SetClippingRegion(polygon)
+            if self.params['logy']:
+                yi = YToPix(d['y'], self._, True)
+            else:
+                yi = YToPix(d['y'], self._, False)
 
-            for d in self.data:
+            path = gc.CreatePath()
+            path.MoveToPoint(xi[0], yi[0])
+            for x, y in zip(xi[1:], yi[1:]):
+                path.AddLineToPoint(x, y)
 
-                style = WXSTYLE.get(d['style'], 'solid')
-                dc.SetPen(wx.Pen(d['colour'], d['width'], style))
+            style = WXSTYLE.get(d['style'], 'solid')
+            gc.SetPen(wx.Pen(d['colour'], d['width'], style))
+            gc.StrokePath(path)
 
-                xi = self.XToPix(d['x'])
-                yi = self.YToPix(d['y'])
+        # Reset clipping region
+        gc.ResetClip()
 
-                dc.DrawLines([xy for xy in zip(xi, yi)])
-
-            dc.DestroyClippingRegion()
-
-    def DrawAxis(self, dc):
-        """
-        """
-        dc.SetPen(wx.Pen(self.params['axis_line_colour'],
+    def _DrawTicks(self, gc):
+        gc.SetPen(wx.Pen(self.params['axis_line_colour'],
                          self.params['axis_line_width']))
 
-        font = dc.GetFont()
-        font.SetPointSize(self.params['font_size'])
-        dc.SetFont(font)
+        font = gc.CreateFont(wx.Font(pointSize=self.params['font_size'],
+                                     family=wx.FONTFAMILY_DEFAULT,
+                                     style=wx.FONTSTYLE_NORMAL,
+                                     weight=wx.FONTWEIGHT_NORMAL,
+                                     faceName='',
+                                     encoding=wx.FONTENCODING_DEFAULT),
+                             self.params['axis_line_colour'])
+        gc.SetFont(font)
 
         tdir = -1 if self.params['ticks_outside'] else 1
 
-        for xtick in self.xtick:
+        for xtick in self._.xtick:
+            if self.params['logx']:
+                xi = XToPix(xtick, self._, True)
+            else:
+                xi = XToPix(xtick, self._, False)
 
-            xi = self.XToPix(xtick)
-            yi = self.YToPix(self.ymin)
+            yi = YToPix(self._.ymin, self._, False)
             dyi = tdir * self.params['xtick_length']
-
-            dc.DrawLine(xi, yi, xi, yi - dyi)
+            gc.StrokeLine(xi, yi, xi, yi - dyi)
 
             xtick_label = '{}'.format(round(xtick, 15))
-            label_width, label_height = dc.GetTextExtent(xtick_label)
+            label_width, label_height = gc.GetTextExtent(xtick_label)
 
-            dxi = rint(label_width / 2)
+            dxi = round(label_width / 2)
             dyi = 5 - (dyi if tdir < 0 else 0)
 
-            self.ly = max(self.ly, label_height + dyi)
+            self._.ly = max(self._.ly, label_height + dyi)
 
-            dc.DrawText(xtick_label, xi - dxi, yi + dyi)
+            gc.DrawText(xtick_label, xi - dxi, yi + dyi)
 
-        for ytick in self.ytick:
+        for ytick in self._.ytick:
+            xi = XToPix(self._.xmin, self._, False)
 
-            xi = self.XToPix(self.xmin)
-            yi = self.YToPix(ytick)
+            if self.params['logy']:
+                yi = YToPix(ytick, self._, True)
+            else:
+                yi = YToPix(ytick, self._, False)
+
             dxi = tdir * self.params['ytick_length']
-
-            dc.DrawLine(xi, yi, xi + dxi, yi)
+            gc.StrokeLine(xi, yi, xi + dxi, yi)
 
             ytick_label = '{}'.format(round(ytick, 15))
-            label_width, label_height = dc.GetTextExtent(ytick_label)
+            label_width, label_height = gc.GetTextExtent(ytick_label)
 
-            dxi = rint(label_width) + 5 - (dxi if tdir < 0 else 0)
-            dyi = rint(label_height / 2)
+            dxi = round(label_width) + 5 - (dxi if tdir < 0 else 0)
+            dyi = round(label_height / 2)
 
-            self.lx = max(self.lx, dxi)
+            self._.lx = max(self._.lx, dxi)
 
-            dc.DrawText(ytick_label, xi - dxi, yi - dyi)
+            gc.DrawText(ytick_label, xi - dxi, yi - dyi)
 
-    def DrawLabels(self, dc):
-        """
-        """
-        #font = dc.GetFont()
-        #font.SetPointSize(self.params['label_size'])
-
-        font = wx.Font(pointSize=self.params['label_size'],
-                       family=wx.FONTFAMILY_DEFAULT,
-                       style=wx.FONTSTYLE_NORMAL,
-                       weight = wx.FONTWEIGHT_NORMAL,
-                       faceName = '',
-                       encoding = wx.FONTENCODING_DEFAULT)
-
-        dc.SetFont(font)
+    def _DrawLabels(self, gc):
+        font = gc.CreateFont(wx.Font(pointSize=self.params['label_size'],
+                                     family=wx.FONTFAMILY_DEFAULT,
+                                     style=wx.FONTSTYLE_NORMAL,
+                                     weight=wx.FONTWEIGHT_NORMAL,
+                                     faceName='',
+                                     encoding=wx.FONTENCODING_DEFAULT),
+                             self.params['axis_line_colour'])
+        gc.SetFont(font)
 
         xlabel = self.params['xlabel']
         ylabel = self.params['ylabel']
 
         if xlabel is not None:
+            lw, lh = gc.GetTextExtent(xlabel)
+            xl = round(self._.i0 + self._.aw / 2 - lw / 2)
+            yl = round(self._.j0 + self._.ly)
 
-            lw, lh = dc.GetTextExtent(xlabel)
-            xl = rint(self.i0 + self.aw/2 - lw/2)
-            yl = rint(self.j0 + self.ly)
-
-            dc.DrawRotatedText(xlabel, xl, yl, 0)
+            gc.DrawText(xlabel, xl, yl)
 
         if ylabel is not None:
+            lw, lh = gc.GetTextExtent(ylabel)
+            xl = round(self._.i0 - self._.lx - lh)
+            yl = round(self._.j0 - self._.ah / 2 + lw / 2)
 
-            lw, lh = dc.GetTextExtent(ylabel)
-            xl = rint(self.i0 - self.lx - lh)
-            yl = rint(self.j0 - self.ah/2 + lw/2)
+            # Save the current state
+            gc.PushState()
 
-            dc.DrawRotatedText(ylabel, xl, yl, 90)
+            # Rotate the context by 90 degrees around the label's position
+            gc.Translate(xl, yl)
+            gc.Rotate(-np.pi / 2)  # 90 degrees in radians
 
-    def DrawBox(self, dc):
-        """
-        """
-        dc.SetPen(wx.Pen(self.params['axis_line_colour'],
+            # Draw the text at the origin of the rotated context
+            gc.DrawText(ylabel, 0, 0)
+
+            # Restore the original state
+            gc.PopState()
+
+    def _DrawBox(self, gc):
+        gc.SetPen(wx.Pen(self.params['axis_line_colour'],
                          self.params['axis_line_width']))
 
         if self.params['box']:
-            dc.DrawLine(self.i0, self.j0, self.i1, self.j0)
-            dc.DrawLine(self.i0, self.j1, self.i1, self.j1)
-            dc.DrawLine(self.i0, self.j0, self.i0, self.j1)
-            dc.DrawLine(self.i1, self.j0, self.i1, self.j1)
+            gc.StrokeLine(self._.i0, self._.j0, self._.i1, self._.j0)
+            gc.StrokeLine(self._.i0, self._.j1, self._.i1, self._.j1)
+            gc.StrokeLine(self._.i0, self._.j0, self._.i0, self._.j1)
+            gc.StrokeLine(self._.i1, self._.j0, self._.i1, self._.j1)
 
-    def XToPix(self, x):
-        """
-        """
-        if self.params['logx']:
-            xn = np.log10(x / self.xmin) / np.log10(self.xmax / self.xmin)
+    def OnSize(self, event):
+        self.OnPaint(event)
+        self.Refresh()
+
+    def OnMouseEvent(self, event):
+        if event.LeftDown():
+            if self.CTRL:
+                pos = event.GetPosition()
+                print(pos.x, pos.y)
+            else:
+                print('Not active')
         else:
-            xn = (x - self.xmin) / (self.xmax - self.xmin)
+            pass
 
-        return rint(xn * (self.aw - 1)) + self.i0
-
-    def YToPix(self, y):
-        """
-        """
-        if self.params['logy']:
-            yn = np.log10(self.ymax / y) / np.log10(self.ymax / self.ymin)
+    def OnMouseLeftClick(self, event):
+        if self.CTRL:
+            pos = event.GetPosition()
+            print(pos.x, pos.y)
         else:
-            yn = (self.ymax - y) / (self.ymax - self.ymin)
+            print('Not active')
 
-        return rint(yn * (self.ah - 1)) + self.j1
+    def OnKeyDown(self, event):
+        """
+        Set the CTRL variable when the CTRL key is pressed.
+        """
+        # Check if the CTRL key is pressed
+        if event.GetKeyCode() == wx.WXK_SHIFT:
+            self.CTRL = True
+    
+        # Check if the 'A' key is pressed
+        if event.GetKeyCode() == ord('A'):
+            print('A')
+    
+        # Skip the event to allow further processing if necessary
+        event.Skip()
+
+    def OnKeyUp(self, event):
+        """
+        Unset the CTRL variable when the CTRL key is released.
+        """
+        # Check if the CTRL key is released
+        if event.GetKeyCode() == wx.WXK_SHIFT:
+            self.CTRL = False
+    
+        # Skip the event to allow further processing if necessary
+        event.Skip()
+
+    def OnMouseWheel(self, event):
+        """
+        Adjust a numerical parameter based on the mouse wheel scroll.
+        """
+        # Get the wheel rotation
+        rotation = event.GetWheelRotation()
+    
+        # Check if the control key is pressed to increase or
+        # decrease sensitivity
+        if self.CTRL:
+            increment = 5
+        else:
+            increment = 1
+    
+        num_param = 0
+    
+        # Adjust the numerical parameter based on the wheel rotation
+        if rotation > 0:
+            # Scrolled up
+            num_param += increment
+        else:
+            # Scrolled down
+            num_param -= increment
+    
+        # Ensure the parameter remains within a desired range if necessary
+        # Example: prevent negative values
+        num_param = max(0, num_param) 
+    
+        # Redraw or refresh the panel if needed
+        self.Refresh()
+    
+        # Optionally print or log the new value
+        print(f"Numerical Parameter Adjusted: {increment}")
+
+# ---------------------------------------------------------------------------
+
+def XToPix(x, par, logscale=False):
+    """
+    Convert data x-coordinate to pixel x-coordinate.
+    """
+    if logscale:
+        xn = np.log10(x / par.xmin) / np.log10(par.xmax / par.xmin)
+    else:
+        xn = (x - par.xmin) / (par.xmax - par.xmin)
+
+    # Return float value for precise pixel position
+    return xn * (par.aw - 1) + par.i0
+
+def YToPix(y, par, logscale=False):
+    """
+    Convert data y-coordinate to pixel y-coordinate.
+    """
+    if logscale:
+        yn = np.log10(par.ymax / y) / np.log10(par.ymax / par.ymin)
+    else:
+        yn = (par.ymax - y) / (par.ymax - par.ymin)
+
+    # Return float value for precise pixel position
+    return yn * (par.ah - 1) + par.j1
 
 def rint(value):
     """
@@ -606,3 +808,153 @@ def unique(x, y):
     """
     i = [0] + [n for n in range(1, len(x)) if x[n] != x[n-1]]
     return x[i], y[i]
+
+def generate_test_data(data_length):
+
+        if 1:
+            x = np.linspace(0, 1, data_length)
+            y = np.random.randn(1, data_length)[0]
+
+        if 0:
+            x = np.array([1,2,3,4])
+            y = np.array([0, 10, -30, 0])
+
+        if 0:
+            freq = 10
+            x = np.linspace(0, 1, data_length)
+            y = np.sin(2*np.pi*x*freq)
+        return x, y
+
+# ---------------------------------------------------------------------------
+
+class MainWindow(wx.Frame):
+
+    DEFAULT_SIZE = (800, 800)
+
+    def __init__(self, num_plots=1, *args, **kwargs):
+        super(MainWindow, self).__init__(*args, **kwargs)
+
+        self.SetSize(self.DEFAULT_SIZE)
+
+        panel = wx.Panel(self)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Create and add the specified number of TracePlot instances
+        self.trace_plots = []
+        for _ in range(num_plots):
+            tp = TracePlot(panel)
+            self.trace_plots.append(tp)
+            sizer.Add(tp, 1, wx.EXPAND | wx.ALL, 0)  # Set border to 0
+
+        panel.SetSizer(sizer)
+
+        self.SetTitle("Trace Plot Example")
+        self.Centre()
+        self.Show()
+
+    def Plot(self, plot_index, stream_collection, **kwargs):
+        """
+        Plots data from the stream_collection on a specified TracePlot.
+        
+        Parameters:
+            stream_collection: The collection of streams to plot.
+            plot_index (int): Index of the TracePlot to draw on. Defaults to 0.
+        """
+        if plot_index >= len(self.trace_plots):
+            print(f"Error: plot_index {plot_index} is out of range.")
+            return
+
+        tp = self.trace_plots[plot_index]
+        for stream in stream_collection:
+            for record in stream:
+                x = record.taxis
+                y = record.data
+                #x, y = generate_test_data(100)
+                tp.Plot(x, y, **kwargs)
+
+        self.Show()
+        self.Raise()  # Bring the frame to the front
+
+    def SetProperty(self, plot_index, params={}, **kwargs):
+        """
+        Set properties for a specific TracePlot.
+        
+        Parameters:
+            plot_index (int): Index of the TracePlot to set properties for.
+            params (dict): A dictionary of properties to set for the TracePlot.
+        """
+        if plot_index >= len(self.trace_plots):
+            print(f"Error: plot_index {plot_index} is out of range.")
+            return
+
+        tp = self.trace_plots[plot_index]
+        tp.SetProperty(params, **kwargs)
+
+    def ExportImage(self, file_name):
+        """
+        """
+        if not self.trace_plots:
+            raise ValueError("No bitmaps to export.")
+
+        bitmaps = [tp.ExportBitmap() for tp in self.trace_plots]
+    
+        # Assume all bitmaps have the same width; use the first bitmap
+        # to get dimensions
+        width = bitmaps[0].GetWidth()
+        total_height = sum(bitmap.GetHeight() for bitmap in bitmaps)
+    
+        # Create a composite bitmap with the total height and width
+        composite_bitmap = wx.Bitmap(width, total_height)
+    
+        # Create a memory-based device context for the composite bitmap
+        dc = wx.MemoryDC(composite_bitmap)
+    
+        current_y = 0
+        for bitmap in bitmaps:
+            # Draw each bitmap onto the composite bitmap at the current 
+            # vertical position
+            dc.DrawBitmap(bitmap, 0, current_y, useMask=False)
+            current_y += bitmap.GetHeight()
+    
+        composite_bitmap.SaveFile(file_name, wx.BITMAP_TYPE_PNG)
+
+    def OnQuit(self, event):
+        self.Close(True)
+
+
+def main(stream_collection=None):
+
+    app = wx.App(False)
+
+    ex = MainWindow(3, None)
+
+    sc = reader('emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.ACC.MP.mseed')
+    ex.Plot(0, sc, colour='black', width=2)
+
+    sc = reader('emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.VEL.MP.mseed')
+    ex.Plot(1, sc, colour='black', width=2)
+
+    sc = reader('emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.DIS.MP.mseed')
+    ex.Plot(2, sc, colour='black', width=2)
+
+    params = {'xlim': 'auto',
+              'ylim': 'auto',
+              'axis_bg_colour': 'white',
+              'grid_colour': 'light grey',
+              'grid_line_width': 2}
+
+    ex.SetProperty(0, params)
+    ex.SetProperty(1, params)
+    ex.SetProperty(2, params)
+
+    ex.SetProperty(0, xlabel='Time (s)', ylabel='Acc.')
+    ex.SetProperty(1, xlabel='Time (s)', ylabel='Vel.')
+    ex.SetProperty(2, xlabel='Time (s)', ylabel='Disp.')
+
+    ex.ExportImage('merged_output.png')
+
+    app.MainLoop()
+
+
+if __name__ == '__main__':
+    main()

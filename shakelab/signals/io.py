@@ -129,7 +129,10 @@ def writer(file_path, stream_collection, ftype=None, byte_order='be'):
         mseed.mswrite(file_path, stream_collection)
 
     elif ftype == 'sac':
-        pass
+        for stream in stream_collection:
+            for record in stream:
+                # TO CHANGE THE FILE NAME
+                sac.sacwrite(file, record, byte_order=byte_order)
 
     elif ftype == 'itaca':
         pass

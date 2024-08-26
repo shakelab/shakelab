@@ -45,6 +45,29 @@ def sacread(input_file, byte_order=DEFAULT_BYTE_ORDER):
                                             sc.head['KCMPNM'])
     return record
 
+def sacwrite(output_file, record, byte_order=DEFAULT_BYTE_ORDER, owrite=False):
+    """
+    """
+    sc = Sac(byte_order=byte_order)
+
+    # Fill in the header from the Record object
+    sc.head['DELTA'] = record.head.delta
+    sc.head['NPTS'] = record.nsamp
+    sc.head['NZYEAR'] = record.head.time.year
+    sc.head['NZJDAY'] = record.head.time.ordinal_day
+    sc.head['NZHOUR'] = record.head.time.hour
+    sc.head['NZMIN'] = record.head.time.minute
+    sc.head['NZSEC'] = record.head.time.second
+    sc.head['NZMSEC'] = record.head.time.microsecond // 1000
+    sc.head['KNETWK'] = record.head.sid.split('.')[0]
+    sc.head['KSTNM'] = record.head.sid.split('.')[1]
+    sc.head['KCMPNM'] = record.head.sid.split('.')[2]
+
+    # Set the data
+    sc.data[0] = [d for d in record.data]
+
+    # Write to file
+    sc.write(output_file, byte_order=byte_order, owrite=owrite)
 
 class Sac(object):
 
@@ -171,7 +194,6 @@ class Sac(object):
         Usage:
             s.print()
         """
-
         print('------------')
         for H in _HdrStruc:
             data = self.head[H[0]]
