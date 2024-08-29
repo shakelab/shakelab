@@ -563,24 +563,24 @@ def inverse_spectrum(spectrum, waterlevel=100, method='smooth'):
     #wlev_db = abs_spec.max() * 10.0 ** (-waterlevel / 20.0)
     wlev_db = 10.0 ** (-waterlevel / 20.0)
 
-    match method:
-        case 'sharp':
-            # Preallocation of the inverse spectrum
-            inv_spec = np.array([0+1j*0] * len(spectrum))
+    if method == 'sharp':
+        # Preallocation of the inverse spectrum
+        inv_spec = np.array([0+1j*0] * len(spectrum))
 
-            # Identification of the spectrum above waterlevel
-            i0 = (abs_spec >= wlev_db)
+        # Identification of the spectrum above waterlevel
+        i0 = (abs_spec >= wlev_db)
 
-            inv_spec[i0] = 1/spectrum[i0]
+        inv_spec[i0] = 1/spectrum[i0]
 
-        case 'smooth':
-            inv_spec = spectrum.conj()/(spectrum*spectrum.conj() + wlev_db)
+    elif method == 'smooth':
+        inv_spec = spectrum.conj()/(spectrum*spectrum.conj() + wlev_db)
 
-            # Removing values below waterlevel (to check!)
-            i0 = (abs_spec <= wlev_db)
-            inv_spec[i0] = 0.
+        # Removing values below waterlevel (to check!)
+        i0 = (abs_spec <= wlev_db)
+        inv_spec[i0] = 0.
 
-        case _:
-            raise ValueError('Not a valid method')
+    else:
+        raise ValueError('Not a valid method')
 
     return inv_spec
+

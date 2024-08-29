@@ -827,12 +827,12 @@ def generate_test_data(data_length):
 
 # ---------------------------------------------------------------------------
 
-class MainWindow(wx.Frame):
+class MultiPlotWindow(wx.Frame):
 
     DEFAULT_SIZE = (800, 800)
 
     def __init__(self, num_plots=1, *args, **kwargs):
-        super(MainWindow, self).__init__(*args, **kwargs)
+        super(MultiPlotWindow, self).__init__(*args, **kwargs)
 
         self.SetSize(self.DEFAULT_SIZE)
 
@@ -922,20 +922,20 @@ class MainWindow(wx.Frame):
         self.Close(True)
 
 
-def main(stream_collection=None):
+def streamplot(stream_collection=None):
 
     app = wx.App(False)
 
-    ex = MainWindow(3, None)
+    mp = MultiPlotWindow(3, None)
 
     sc = reader('emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.ACC.MP.mseed')
-    ex.Plot(0, sc, colour='black', width=2)
+    mp.Plot(0, sc, colour='black', width=2)
 
     sc = reader('emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.VEL.MP.mseed')
-    ex.Plot(1, sc, colour='black', width=2)
+    mp.Plot(1, sc, colour='black', width=2)
 
     sc = reader('emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.DIS.MP.mseed')
-    ex.Plot(2, sc, colour='black', width=2)
+    mp.Plot(2, sc, colour='black', width=2)
 
     params = {'xlim': 'auto',
               'ylim': 'auto',
@@ -943,18 +943,18 @@ def main(stream_collection=None):
               'grid_colour': 'light grey',
               'grid_line_width': 2}
 
-    ex.SetProperty(0, params)
-    ex.SetProperty(1, params)
-    ex.SetProperty(2, params)
+    mp.SetProperty(0, params)
+    mp.SetProperty(1, params)
+    mp.SetProperty(2, params)
 
-    ex.SetProperty(0, xlabel='Time (s)', ylabel='Acc.')
-    ex.SetProperty(1, xlabel='Time (s)', ylabel='Vel.')
-    ex.SetProperty(2, xlabel='Time (s)', ylabel='Disp.')
+    mp.SetProperty(0, xlabel='Time (s)', ylabel='Acc.')
+    mp.SetProperty(1, xlabel='Time (s)', ylabel='Vel.')
+    mp.SetProperty(2, xlabel='Time (s)', ylabel='Disp.')
 
-    ex.ExportImage('merged_output.png')
+    #mp.ExportImage('merged_output.png')
 
     app.MainLoop()
 
 
 if __name__ == '__main__':
-    main()
+    streamplot()

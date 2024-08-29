@@ -11,6 +11,8 @@ MAJOR_VER = $(shell grep LIBMSEED_VERSION libmseed.h | grep -Eo '[0-9]+.[0-9]+.[
 FULL_VER = $(shell grep LIBMSEED_VERSION libmseed.h | grep -Eo '[0-9]+.[0-9]+.[0-9]+')
 COMPAT_VER = $(MAJOR_VER).1.0
 
+# CFLAGS += -fPIC
+
 # Default settings for install target
 PREFIX ?= /usr/local
 EXEC_PREFIX ?= $(PREFIX)

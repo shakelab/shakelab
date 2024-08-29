@@ -102,37 +102,33 @@ def parse_response(channel):
         stage_number = int(stage.attrib['number'])
 
         for child in stage:
+            if child.tag == 'StageGain':
+                stage_list.append(parse_gain(child))
 
-            match child.tag:
+            elif child.tag == 'PolesZeros':
+                stage_list.append(parse_polezero(child))
 
-                case 'StageGain':
-                    stage_list.append(parse_gain(child))
+            elif child.tag == 'Coefficients':
+                stage_list.append(parse_coefficients(child))
 
-                case 'PolesZeros':
-                    stage_list.append(parse_polezero(child))
+            elif child.tag == 'FIR':
+                # stage_list.append(parse_fir(child))
+                print('Stage FIR not yet implemented')
 
-                case 'Coefficients':
-                    stage_list.append(parse_coefficients(child))
-                    pass
+            elif child.tag == 'Polynomial':
+                # stage_list.append(parse_polynomial(child))
+                print('Stage Polynomial not yet implemented')
 
-                case 'FIR':
-                    #stage_list.append(parse_fir(child))
-                    print('Stage FIR not yet implemented')
+            elif child.tag == 'ResponseList':
+                # stage_list.append(parse_response_list(child))
+                print('Stage ResponseList not yet implemented')
 
-                case 'Polynomial':
-                    #stage_list.append(parse_polynomial(child))
-                    print('Stage Polynomial not yet implemented')
+            elif child.tag == 'Decimation':
+                # stage_list.append(parse_decimation(child))
+                print('Stage Decimation not yet implemented')
 
-                case 'ResponseList':
-                    #stage_list.append(parse_response_list(child))
-                    print('Stage ResponseList not yet implemented')
-
-                case 'Decimation':
-                    #stage_list.append(parse_decimation(child))
-                    print('Stage Decimation not yet implemented')
-
-                case '_':
-                    print('Stage {0} not recognized'.format(child.tag))
+            else:
+                print('Stage {0} not recognized'.format(child.tag))
 
             if stage_list:
                 stage_list[-1].stage_number = stage_number
