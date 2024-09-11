@@ -95,7 +95,6 @@ class Sac(object):
             S.copy - Create copy of SAC object
             S.print - Print header information
         """
-
         # Variable initialisation
         # To do: initialise header with empty fields
         self.head = {}
@@ -121,7 +120,6 @@ class Sac(object):
             s.read('MyFile.sac')
             s.read('MyFile.sac', byte_order='be')
         """
-
         # Set byte order
         self.byte = byte_order
 
@@ -156,7 +154,6 @@ class Sac(object):
             s.write('MyFile.sac', byte_order='be')
             s.write('MyFile.sac', owrite=True)
         """
-
         if isfile(file) and not owrite:
             print('Error: file exists, not overwriting....')
             return
@@ -225,7 +222,6 @@ def _fread(fid, bnum, bkey, bord):
     """
     Bytewise read.
     """
-
     hex = fid.read(bnum)
 
     if bkey == 's':
@@ -239,7 +235,6 @@ def _fread(fid, bnum, bkey, bord):
 
     if isinstance(data, bytes):
         data = data.decode().split('\x00', 1)[0]
-
     if isinstance(data, str):
         data = data.strip()
 
@@ -250,9 +245,9 @@ def _fwrite(fid, data, bnum, bkey, bord):
     """
     Bytewise write.
     """
-
     if bkey == 's':
         bkey = str(bnum) + bkey
+        data = data.encode()
     if bord == 'be':
         bkey = '>' + bkey
     if bord == 'le':

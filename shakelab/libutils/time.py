@@ -231,6 +231,12 @@ class Date(object):
 
         return date
 
+    @property
+    def iso8601(self):
+        """
+        """
+        return self.get_date(dtype='iso8601')
+
     def _selfcheck(self):
         """
         """

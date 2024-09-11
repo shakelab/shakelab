@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shakelab"
+version = "0.0.2"
+description = "Python tools for engineering seismology"
+keywords = [
+    "Engineering Seismology",
+    "Seismic Hazard",
+    "Signal Processing"
+]
+authors = [
+    { name = "Valerio Poggi", email = "vpoggi@ogs.it" }
+]
+maintainers = [{ name = "shakelab contributors" }]
+license = { text = "GNU General Public License v3" }
+readme = "README.md"
+
+
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "shapely>=2.0.0",
+    "requests>=2.32.0",
+    "cymseed3>=0.1.4"
+]
+requires-python = ">=3.8"
+
+classifiers=[
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Geophysics",
+    "Natural Language :: English"
+]
+
+[project.urls]
+homepage = "http://shakelab.org"
+source = "https://github.com/shakelab/shakelab"
+
+[project.optional-dependencies]
+all = ["wx>=4.0.7"]
+dev = ["pytest>=4.6"]
+
+[project.scripts]
+fdsnclient = "fdsnclient:main"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+norecursedirs = ".git"
+python_files = [
+    "test*.py"
+]
+testpaths = [
+    "test"
+]

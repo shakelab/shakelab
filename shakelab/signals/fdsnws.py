@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2023, ShakeLab Developers.
+# Copyright (C) 2019-2024, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -19,15 +19,33 @@
 # ****************************************************************************
 """
 """
-
-from shakelab.libutils.time import Date
-from shakelab.signals.base import StreamCollection
-from shakelab.signals.stationxml import parse_sxml
-
 from copy import deepcopy
-import requests
+
+import logging
 import json
 import io
+
+import requests
+from requests.exceptions import RequestException, Timeout
+
+import shakelab.signals.base as base
+from shakelab.libutils.time import Date
+from shakelab.signals.stationxml import parse_sxml
+from shakelab.signals.io import writer
+
+USE_LIBMSEED = True
+
+def get_mseed_module(use_libmseed=USE_LIBMSEED):
+    """
+    Load the appropriate module conditionally.
+    """
+    if use_libmseed:
+        from shakelab.signals.libio import cymseed as mseed
+    else:
+        from shakelab.signals.libio import mseed
+    return mseed
+
+FDSN_VERSION = 1
 
 DATA_CENTER_REGISTRY = {
     'AUSPASS' : ' http://auspass.edu.au:8080',
@@ -57,8 +75,6 @@ DATA_CENTER_REGISTRY = {
     'OGS-SCP' : 'http://158.110.30.85:8080',
     'OGS-ANT' : 'http://158.110.30.202:5600'
 }
-
-FDSN_VERSION = 1
 
 STATION_DEFAULTS = {
     "network" : "*",
@@ -106,6 +122,10 @@ DATASELECT_DEFAULTS = {
     "format" : "miniseed"
 }
 
+# Set up logging configuration
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
+
 
 class FDSNClient(object):
     """
@@ -116,7 +136,7 @@ class FDSNClient(object):
         self.url = _init_data_center(data_center)
 
     def get_waveform(self, fdsn_code, starttime, endtime,
-                     correct=False, file_name=None):
+                     correct=False, output=None, format='mseed'):
         """
         """
         fc = FDSNCode(fdsn_code)
@@ -130,8 +150,11 @@ class FDSNClient(object):
                 rc = parse_sxml(xml)
                 sc.deconvolve_response(rc)
 
-            if file_name is None:
+            if output is None:
                 return sc
+            else:
+                writer(output, sc, format)
+                return True
 
     def get_response(self, fdsn_code, starttime, endtime, file_name=None):
         """
@@ -142,6 +165,7 @@ class FDSNClient(object):
         if file_name is None:
             return parse_sxml(xml)
         else:
+            logger.info("Writing response to file.")
             with open(file_name, 'w') as f:
                 f.write(xml)
 
@@ -155,18 +179,28 @@ class FDSNClient(object):
         # Check for non standard values
         params = _params_check(params)
 
-        resp = _fdsn_query(self.url, 'station', params)
-
-        if resp.content:
-
-            if b'Error' in resp.content:
-                print(resp.content.decode())
-
-            else:
-                return resp.content.decode()
-
+        # Fetch data using the _fdsn_query function
+        resp_data, content_type, error = _fdsn_query(
+            self.url, 'station', params
+            )
+        
+        # Check for errors
+        if error:
+            print(f"Error occurred: {error}")
         else:
-            print('No station available')
+            if resp_data:  # Check if there is any data
+                if isinstance(resp_data, bytes) and b'Error' in resp_data:
+                    # Decode bytes and print the error message
+                    print(resp_data.decode()) 
+                else:
+                    # Return the decoded content if it's not an error
+                    if isinstance(resp_data, bytes):
+                        return resp_data.decode()
+                    else:
+                        return resp_data
+            else:
+                print('No station available')
+                return None
 
 
     def query_data(self, params={}, file_name=None, **kwargs):
@@ -192,43 +226,54 @@ class FDSNClient(object):
         # Updating parameters
         params = _params_update(params, DATASELECT_DEFAULTS, **kwargs)
 
+
+        # Convert time objects to iso8601 strings
+        starttime = params['starttime']
+        if isinstance(starttime, Date):
+            params['starttime'] = starttime.iso8601
+    
+        endtime = params['endtime']
+        if isinstance(endtime, Date):
+            params['endtime'] = endtime.iso8601
+
         # Check for non standard values
         params = _params_check(params)
 
-        # Date conversion
-        starttime = params['starttime']
-        if isinstance(starttime, Date):
-            params['starttime'] = starttime.get_date(dtype='s')
-
-        endtime = params['endtime']
-        if isinstance(endtime, Date):
-            params['endtime'] = endtime.get_date(dtype='s')
-
-        resp = _fdsn_query(self.url, 'dataselect', params)
-
-        if resp.content:
-            if b'Error' in resp.content:
-                print(resp.content.decode())
-
-            else:
-                if file_name is None:
-                    if params['format'] == 'miniseed':
-                        sc = StreamCollection()
-                        sc.read(resp.content)
-                        # Cut waveform to propert time window (TO CHECK)
-                        for stream in sc:
-                            for record in stream:
-                                record.cut(starttime, endtime, True)
-                        return sc
-                    else:
-                        raise ValueError('Format not supported')
-                else:
-                    with open(file_name, 'wb') as f:
-                        f.write(resp.content)
-
-        else:
-            print('No data available')
+        resp_data, content_type, error = _fdsn_query(
+            self.url, 'dataselect', params
+            )
+        
+        if error:
+            print(f"Error occurred: {error}")
             return None
+        else:
+            if resp_data:  # Check if there is data
+                if content_type == 'bytes' and b'Error' in resp_data:
+                    print(resp_data.decode())
+                else:
+                    if file_name is None:
+                        if params['format'] == 'miniseed':
+                            sc = base.StreamCollection()
+        
+                            mseed = get_mseed_module(USE_LIBMSEED)
+        
+                            # Import data from miniseed binary buffer
+                            mseed.msread(resp_data, stream_collection=sc)
+        
+                            # Cut waveform to proper time window (TO CHECK)
+                            for stream in sc:
+                                for record in stream:
+                                    record.cut(starttime, endtime, True)
+                            return sc
+                        else:
+                            raise ValueError('Format not supported')
+                    else:
+                        with open(file_name, 'wb') as f:
+                            f.write(resp_data)
+        
+            else:
+                print('No data available')
+                return None
 
     def query_event(self):
         """
@@ -278,13 +323,72 @@ def _params_check(params):
 
     return params
 
-def _fdsn_query(data_center_url, interface, params):
+def _fdsn_query(
+        url: str, service: str, params: dict,
+        retries: int = 3, timeout: int = 10
+        ) -> tuple:
     """
+    Queries the FDSN service with robust error handling and retry mechanism.
+    
+    Args:
+        url (str): Base URL of the FDSN service.
+        service (str): The specific service being queried ('station', 'event', etc.).
+        params (dict): Query parameters.
+        retries (int): Number of retry attempts in case of failure (default is 3).
+        timeout (int): Timeout duration in seconds for each request.
+    
+    Returns:
+        tuple: (response_data, content_type, error_message)
+               - response_data: The content of the response (JSON, text, or bytes).
+               - content_type: Type of the response ('json', 'text', 'bytes').
+               - error_message: Error message if applicable, otherwise None.
     """
-    query = "/fdsnws/{0}/{1}/query".format(interface, FDSN_VERSION)
-    resp = requests.get(data_center_url + query, params=params)
+    full_url = f"{url}/fdsnws/{service}/{FDSN_VERSION}/query"
+    logger.info(
+        f"Querying {service} service at {full_url} with params: {params}"
+        )
 
-    return resp
+    for attempt in range(retries):
+        try:
+            response = requests.get(full_url, params=params, timeout=timeout)
+
+            # Raises HTTPError for bad HTTP codes
+            response.raise_for_status()
+            
+            content_type = response.headers.get('Content-Type', '').lower()
+            logger.info(f"Received response with content type: {content_type}")
+            
+            if 'application/json' in content_type:
+                return response.json(), 'json', None
+            elif 'text/' in content_type:
+                return response.text, 'text', None
+            return response.content, 'bytes', None
+
+        except Timeout:
+            logger.warning(
+                f"Timeout on attempt {attempt}/{retries} for URL: {full_url}"
+                )
+            if attempt == retries:
+                return None, None, "Timeout occurred after multiple attempts"
+
+        except requests.HTTPError as e:
+            logger.error(
+                f"HTTP error: {e} on attempt {attempt}/{retries}"
+                )
+            if attempt == retries:
+                return None, None, f"HTTP error: {e}"
+
+        except requests.RequestException as e:
+            logger.error(
+                f"Request exception: {e} on attempt {attempt}/{retries}"
+                )
+            if attempt == retries:
+                return None, None, f"Request exception: {e}"
+
+    logger.error(
+        f"Failed to fetch data from {full_url} after {retries} attempts."
+        )
+    return None, None, f"Failed after {retries} attempts"
 
 def get_fdsn_data_center_registry():
     """

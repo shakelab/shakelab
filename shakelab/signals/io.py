@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2021, ShakeLab Developers.
+# Copyright (C) 2019-2024, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -20,8 +20,6 @@
 """
 Module to import / export data formats
 """
-USE_LIBMSEED = 1
-
 import os
 from glob import glob
 
@@ -30,13 +28,20 @@ from shakelab.signals.libio import sac, smdb
 
 from shakelab.libutils.time import Date
 
-if USE_LIBMSEED:
-    from shakelab.signals.libio.cython import mseed
-else:
-    from shakelab.signals.libio import mseed
+USE_LIBMSEED = True
+
+def get_mseed_module(use_libmseed=USE_LIBMSEED):
+    """
+    Load the appropriate module conditionally.
+    """
+    if use_libmseed:
+        from shakelab.signals.libio import cymseed as mseed
+    else:
+        from shakelab.signals.libio import mseed
+    return mseed
 
 
-def reader(file_path, stream_collection=None, ftype=None, byte_order='be'):
+def reader(file_path, stream_collection=None, format=None, byte_order='be'):
     """
     """
     if os.path.isdir(file_path):
@@ -49,31 +54,32 @@ def reader(file_path, stream_collection=None, ftype=None, byte_order='be'):
 
     for file in file_list:
 
-        if ftype is None:
+        if format is None:
             # Try to identify file from extension
             fext = os.path.splitext(file)[1]
     
             if fext in ['.ms', '.mseed', '.miniseed', '.seed']:
-                ftype = 'mseed'
+                format = 'mseed'
     
             elif fext in ['.sac', '.SAC']:
-                ftype = 'sac'
+                format = 'sac'
     
             else:
                 #raise NotImplementedError('file type not recognized')
                 print('File type not recognized. Defualt to mseed')
-                ftype = 'mseed'
+                format = 'mseed'
     
         # Import recordings
-        if ftype in ['miniseed', 'mseed', 'ms']:
+        if format in ['miniseed', 'mseed', 'ms']:
+            mseed = get_mseed_module(USE_LIBMSEED)
             stream_collection = mseed.msread(file,
                                      stream_collection=stream_collection)
     
-        elif ftype == 'sac':
+        elif format == 'sac':
             record = sac.sacread(file, byte_order=byte_order)
             stream_collection.append(record)
     
-        elif ftype == 'itaca':
+        elif format == 'itaca':
     
             #it = smdb.Itaca(file)
             #record = Record()
@@ -83,77 +89,78 @@ def reader(file_path, stream_collection=None, ftype=None, byte_order='be'):
             #rec_list.append(record)
             pass
     
-        elif ftype == 'ascii':
-            raise NotImplementedError('format not yet implemented')
+        elif format == 'ascii':
+            raise NotImplementedError(f'{format}: format not yet implemented')
     
-        elif ftype == 'seisan':
-            raise NotImplementedError('format not yet implemented')
+        elif format == 'seisan':
+            raise NotImplementedError(f'{format}: format not yet implemented')
     
-        elif ftype == 'seg2':
-            raise NotImplementedError('format not yet implemented')
+        elif format == 'seg2':
+            raise NotImplementedError(f'{format}: format not yet implemented')
     
-        elif ftype == 'dat':
-            raise NotImplementedError('format not yet implemented')
+        elif format == 'dat':
+            raise NotImplementedError(f'{format}: format not yet implemented')
     
-        elif ftype == 'gse':
-            raise NotImplementedError('format not yet implemented')
+        elif format == 'gse':
+            raise NotImplementedError(f'{format}: format not yet implemented')
     
-        elif ftype == 'reftek':
-            raise NotImplementedError('format not yet implemented')
+        elif format == 'reftek':
+            raise NotImplementedError(f'{format}: format not yet implemented')
     
         else:
-            pass
+            raise ValueError(f'{format}: format not recognized')
 
     return stream_collection
 
 
-def writer(file_path, stream_collection, ftype=None, byte_order='be'):
+def writer(file_path, stream_collection, format=None, byte_order='be'):
     """
     """
-    if ftype is None:
+    if format is None:
         # Try to identify file from extension
         fext = os.path.splitext(file_path)[1]
 
         if fext in ['.ms', '.mseed', '.miniseed', '.seed']:
-            ftype = 'mseed'
+            format = 'mseed'
 
         elif fext in ['.sac', '.SAC']:
-            ftype = 'sac'
+            format = 'sac'
 
         else:
             #raise NotImplementedError('file type not recognized')
             print('File type not recognized. Defualt to mseed')
-            ftype = 'mseed'
+            format = 'mseed'
 
-    if ftype in ['miniseed', 'mseed', 'ms']:
+    if format in ['miniseed', 'mseed', 'ms']:
+        mseed = get_mseed_module(USE_LIBMSEED)
         mseed.mswrite(file_path, stream_collection)
 
-    elif ftype == 'sac':
+    elif format == 'sac':
         for stream in stream_collection:
             for record in stream:
                 # TO CHANGE THE FILE NAME
                 sac.sacwrite(file, record, byte_order=byte_order)
 
-    elif ftype == 'itaca':
+    elif format == 'itaca':
         pass
 
-    elif ftype == 'ascii':
-        raise NotImplementedError('format not yet implemented')
+    elif format == 'ascii':
+        raise NotImplementedError(f'{format}: format not yet implemented')
 
-    elif ftype == 'seisan':
-        raise NotImplementedError('format not yet implemented')
+    elif format == 'seisan':
+        raise NotImplementedError(f'{format}: format not yet implemented')
 
-    elif ftype == 'seg2':
-        raise NotImplementedError('format not yet implemented')
+    elif format == 'seg2':
+        raise NotImplementedError(f'{format}: format not yet implemented')
 
-    elif ftype == 'dat':
-        raise NotImplementedError('format not yet implemented')
+    elif format == 'dat':
+        raise NotImplementedError(f'{format}: format not yet implemented')
 
-    elif ftype == 'gse':
-        raise NotImplementedError('format not yet implemented')
+    elif format == 'gse':
+        raise NotImplementedError(f'{format}: format not yet implemented')
 
-    elif ftype == 'reftek':
-        raise NotImplementedError('format not yet implemented')
+    elif format == 'reftek':
+        raise NotImplementedError(f'{format}: format not yet implemented')
 
     else:
-        pass
+        raise ValueError(f'{format}: format not recognized')

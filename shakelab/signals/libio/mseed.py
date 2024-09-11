@@ -25,18 +25,19 @@ from copy import deepcopy
 
 from shakelab.libutils.time import Date
 from shakelab.signals.binutils import ByteStream
-from shakelab.signals import base
+from shakelab.signals.base import Record, StreamCollection
 
 DEFAULT_BYTE_ORDER = 'be'
 ADMITTED_RECORD_LENGTH = [256, 1024, 2048, 4096]
 ADMITTED_ENCODING = [0, 1, 3, 4, 10, 11]
+
 
 def msread(input_data_source, stream_collection=None,
            byte_order=DEFAULT_BYTE_ORDER):
     """
     """
     if stream_collection is None:
-        stream_collection = base.StreamCollection()
+        stream_collection = StreamCollection()
 
     record_list = msrawread(input_data_source, byte_order=byte_order)
     for record in record_list:
@@ -354,6 +355,7 @@ class MSRecord(object):
 
         nos = self.header['NUMBER_OF_SAMPLES']
         enc = self.blockette[1000]['ENCODING_FORMAT']
+        print(f"Encoding: {enc}, Data Structure: {data_struc[enc]}")
 
         if enc in [0, 1, 3, 4]:
 
@@ -427,7 +429,7 @@ class MSRecord(object):
         """
         Convert MiniSeed record to Shakelab record object
         """
-        record = base.Record()
+        record = Record()
 
         record.head.sid = self.code
         record.head.delta = self.delta

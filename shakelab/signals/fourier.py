@@ -68,7 +68,7 @@ class Spectrum():
             record (base.Record, optional): A record object to initialize the
                 spectrum from.
         """
-        self.head = base.Header(self)
+        self.head = base.Header()
         self.data = np.array([], dtype="complex")
         self.dfreq = None
 

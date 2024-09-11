@@ -849,8 +849,12 @@ class MultiPlotWindow(wx.Frame):
         panel.SetSizer(sizer)
 
         self.SetTitle("Trace Plot Example")
+
         self.Centre()
         self.Show()
+
+        self.Raise()  # Bring the frame to the front
+        self.SetFocus()  # Requests focus for the window
 
     def Plot(self, plot_index, stream_collection, **kwargs):
         """
@@ -873,7 +877,7 @@ class MultiPlotWindow(wx.Frame):
                 tp.Plot(x, y, **kwargs)
 
         self.Show()
-        self.Raise()  # Bring the frame to the front
+
 
     def SetProperty(self, plot_index, params={}, **kwargs):
         """
@@ -924,7 +928,11 @@ class MultiPlotWindow(wx.Frame):
 
 def streamplot(stream_collection=None):
 
-    app = wx.App(False)
+    # Check if a wx.App instance already exists
+    if not wx.App.IsMainLoopRunning():
+        app = wx.App(False)
+    else:
+        app = wx.GetApp()
 
     mp = MultiPlotWindow(3, None)
 
