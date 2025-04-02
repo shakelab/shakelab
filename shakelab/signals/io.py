@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2024, ShakeLab Developers.
+# Copyright (C) 2019-2025, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -24,11 +24,10 @@ import os
 from glob import glob
 
 from shakelab.signals import base
-from shakelab.signals.libio import sac, smdb
-
-from shakelab.libutils.time import Date
+from shakelab.signals.libio import sac, dyna
 
 USE_LIBMSEED = True
+
 
 def get_mseed_module(use_libmseed=USE_LIBMSEED):
     """
@@ -79,15 +78,9 @@ def reader(file_path, stream_collection=None, format=None, byte_order='be'):
             record = sac.sacread(file, byte_order=byte_order)
             stream_collection.append(record)
     
-        elif format == 'itaca':
-    
-            #it = smdb.Itaca(file)
-            #record = Record()
-            #record.head.rate = it.sampling_rate()
-            #record.head.time = Date(it.time)
-            #record.data = np.array(it.data)
-            #rec_list.append(record)
-            pass
+        elif format == 'dyna':
+            record = dyna.dynaread(file)
+            stream_collection.append(record)
     
         elif format == 'ascii':
             raise NotImplementedError(f'{format}: format not yet implemented')
@@ -113,7 +106,7 @@ def reader(file_path, stream_collection=None, format=None, byte_order='be'):
     return stream_collection
 
 
-def writer(file_path, stream_collection, format=None, byte_order='be'):
+def writer(stream_collection, file_path, format=None, byte_order='be'):
     """
     """
     if format is None:

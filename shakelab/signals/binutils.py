@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2021, ShakeLab Developers.
+# Copyright (C) 2019-2025, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 """
 Utilities for binary file handling
 """
-
 import numpy as np
 from io import BytesIO
 from struct import pack, unpack

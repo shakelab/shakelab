@@ -23,7 +23,7 @@
 import numpy as _np
 from scipy.constants import g
 
-from shakelab.modeling.gmpe.base import GMPE
+from shakelab.gmpe.base import GMPE
 
 class BragatoSlejko2005(GMPE):
     """
@@ -35,6 +35,8 @@ class BragatoSlejko2005(GMPE):
         Vol. 95, No. 1, pp. 252–276,
 
     Distance: epicentral
+
+    Output is in g (PGA) and m/s (PGV)
     """
 
     REFERENCE_VELOCITY = 800.

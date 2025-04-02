@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2024, ShakeLab Developers.
+# Copyright (C) 2019-2025, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 """
 Module to parse catalogues in quakeml format.
 """
-
 import xml.etree.ElementTree as ET
 import io, os, re
 

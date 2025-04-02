@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2023, ShakeLab Developers.
+# Copyright (C) 2019-2025, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -19,13 +19,16 @@
 # ****************************************************************************
 """
 """
-
 import numpy as np
 from scipy import interpolate
 from copy import deepcopy
 
 import shakelab.signals.base as base
 from shakelab.signals import response
+
+numeric_type = (int, float, complex,
+                np.int8, np.int16, np.int32, np.int64,
+                np.uint8, np.uint16, np.uint32, np.uint64)
 
 
 class Spectrum():
@@ -86,6 +89,19 @@ class Spectrum():
 
     def __getitem__(self, sliced):
         return self.data[sliced]
+
+    def __truediv__(self, value):
+        """
+        """
+        spec_mod = self.copy()
+        if isinstance(value, numeric_type):
+            spec_mod.data = spec_mod.data / value
+        elif isinstance(value, Spectrum):
+            spec_mod.data /= value.data
+        else:
+            raise TypeError('unsupported operand type(s) for /')
+
+        return spec_mod
 
     @property
     def nfreq(self):
@@ -224,6 +240,11 @@ class Spectrum():
         record.data = self.ifft(norm=norm)
 
         return record
+
+    def copy(self):
+        """
+        """
+        return deepcopy(self)
 
     def filter(self, highpass=None, lowpass=None, order=4, filt_type='bw'):
         """
@@ -425,7 +446,7 @@ def shift_time(signal, delta, shift):
     freq = frequency_axis(delta, len(signal))
     expt = np.exp(-2*1j*np.pi*shift*freq)
 
-    return ifft(fft(signal, nsamp)*expt, nsamp)
+    return _ifft(_fft(signal, nsamp)*expt, nsamp)
 
 def butterworth(freq, corner_freq, order=4, minimum_phase=False):
     """

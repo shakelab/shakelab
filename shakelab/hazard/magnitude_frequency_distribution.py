@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2025, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -17,10 +17,8 @@
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
 # ****************************************************************************
-
 """
 """
-
 import numpy as np
 
 
@@ -104,8 +102,3 @@ class BoundedGutembergRichter():
         um = np.random.rand(snum)
         cf = 1.-(10.**(-self.b_value*(self.max_mag-self.min_mag)))
         return self.min_mag-np.log10(1.-(um*cf))/self.b_value
-
-
-
-
-

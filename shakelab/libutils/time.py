@@ -237,6 +237,109 @@ class Date(object):
         """
         return self.get_date(dtype='iso8601')
 
+    def strformat(self, fmt, precision=4):
+        """
+        Format the date and time according to the provided format string.
+        
+        Args:
+            fmt (str): Format string where the following placeholders are 
+                       supported:
+                - %Y: Four-digit year (e.g., 2024)
+                - %m: Two-digit month (e.g., 09)
+                - %d: Two-digit day (e.g., 12)
+                - %H: Two-digit hour (e.g., 02)
+                - %M: Two-digit minute (e.g., 03)
+                - %S: Seconds with a two-digit integer part and a fractional 
+                      part with the specified number of decimal places
+            precision (int, optional): Number of decimal places for the 
+                                       fractional part of the seconds. 
+                                       Default is 4.
+        
+        Returns:
+            str: Formatted date string.
+        """
+        # Handling standard date components
+        fmt = fmt.replace('%Y', f'{self.year:04d}')
+        fmt = fmt.replace('%m', f'{self.month:02d}')
+        fmt = fmt.replace('%d', f'{self.day:02d}')
+        fmt = fmt.replace('%H', f'{self.hour:02d}')
+        fmt = fmt.replace('%M', f'{self.minute:02d}')
+
+        # Format the seconds with two digits for integer part
+        # and the specified number of decimal places
+        seconds_int = int(self.second)
+        seconds_frac = self.second - seconds_int
+        frac_part = round(seconds_frac * (10 ** precision))
+
+        # Build formatted seconds string
+        seconds_str = f'{seconds_int:02d}.{frac_part:0{precision}d}'
+
+        # Replace %S with the formatted seconds string
+        fmt = fmt.replace('%S', seconds_str)
+
+        return fmt
+
+    def strparse(self, date_str, fmt):
+        """
+        Parses a date string according to the provided format. The year, 
+        month, day, hour, and minute components are parsed as integers, 
+        while the seconds component can be parsed as a float if it 
+        contains a decimal part.
+
+        Args:
+            date_str (str): The date string to be parsed.
+            fmt (str): The format string to match the date_str, using 
+                standard format specifiers like %Y, %m, %d, %H, %M, %S.
+
+        Raises:
+            ValueError: If the input string cannot be parsed correctly.
+        """
+        # Mapping of format specifiers to their respective slice lengths
+        format_map = {
+            '%Y': 4,  # Year is 4 digits
+            '%m': 2,  # Month is 2 digits
+            '%d': 2,  # Day is 2 digits
+            '%H': 2,  # Hour is 2 digits
+            '%M': 2,  # Minute is 2 digits
+            '%S': 2   # Second is 2 digits (can include fractional part)
+        }
+        
+        # Initial index to start slicing the date_str
+        index = 0
+        
+        # Iterate over the format specifiers and extract values from date_str
+        for spec in ['%Y', '%m', '%d', '%H', '%M', '%S']:
+            if spec in fmt:
+                length = format_map[spec]
+                value = date_str[index:index + length]
+                
+                # Skip over any separator characters (like '_')
+                if not value.isdigit():
+                    index += 1
+                    value = date_str[index:index + length]
+                
+                index += length
+                
+                # Assign the extracted values to the corresponding components
+                if spec == '%Y':
+                    self.year = int(value)
+                elif spec == '%m':
+                    self.month = int(value)
+                elif spec == '%d':
+                    self.day = int(value)
+                elif spec == '%H':
+                    self.hour = int(value)
+                elif spec == '%M':
+                    self.minute = int(value)
+                elif spec == '%S':
+                    # Handle fractional part for seconds, if present
+                    second_part = date_str[index-length:]
+                    if '.' in second_part:
+                        sec_value, frac_part = second_part.split('.', 1)
+                        self.second = int(sec_value) + float(f'0.{frac_part}')
+                    else:
+                        self.second = int(second_part)
+
     def _selfcheck(self):
         """
         """
