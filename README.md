@@ -66,12 +66,11 @@ This will install the package in "editable mode", so any changes to the source c
 
 ShakeLab relies on the following Python packages:
 
-- [NumPy](https://numpy.org/)
-- [SciPy](https://scipy.org/)
-- [Matplotlib](https://matplotlib.org/)
-- [Shapely](https://pypi.org/project/Shapely/)
-
-These are automatically installed with `pip`, but you can also inspect `requirements.txt` for optional or development dependencies.
+- [NumPy](https://numpy.org/) >= 1.24.0
+- [SciPy](https://scipy.org/) >= 1.10.0
+- [Shapely](https://pypi.org/project/Shapely/) >= 2.0.0
+- [Requests](https://pypi.org/project/requests/) >= 2.32.0
+- [cymseed3](https://pypi.org/project/cymseed3/) >= 0.1.4
 
 ##  License
 
@@ -82,8 +81,6 @@ See <https://www.gnu.org/licenses/agpl-3.0.html> for full details.
 
 ## ⚠️ Disclaimer
 
-ShakeLab is distributed in the hope that it will be useful,  
-but **without any warranty**, including the implied warranty of merchantability or fitness for a particular purpose.
+ShakeLab is distributed in the hope that it will be useful, but **without any warranty**, including the implied warranty of merchantability or fitness for a particular purpose.
 
 The authors assume no liability for any use of the software.
-
