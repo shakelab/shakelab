@@ -10,9 +10,9 @@
 **ShakeLab** is an open-source Python library that provides tools for engineering seismology.  
 It is designed to assist researchers and practitioners in the analysis and interpretation of ground motion data, generation of shakemaps, site response calculations, and rapid seismic impact assessment.
 
-> ⚠️ **Note:** The project is under active development and some functionalities may change.
+⚠️ **Note:** The project is under active development and some functionalities may change.
 
----
+--
 
 ##  Installation
 
