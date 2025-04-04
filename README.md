@@ -18,6 +18,8 @@ You can install ShakeLab in different ways depending on your needs.
 
 ### 1️⃣ Standard Installation from PyPI
 
+**Note:** The version available on PyPI may not include the latest features and fixes as the code is under active development. If you want the most up-to-date version, consider using one of the installation methods below.
+
 Install the latest stable version from [PyPI](https://pypi.org/project/shakelab/):
 
 ```bash
