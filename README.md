@@ -12,8 +12,6 @@ It is designed to assist researchers and practitioners in the analysis and inter
 
 ⚠️ **Note:** The project is under active development and some functionalities may change.
 
---
-
 ##  Installation
 
 You can install ShakeLab in different ways depending on your needs.
@@ -32,8 +30,6 @@ or explicitly with Python 3:
 pip3 install shakelab
 ```
 
----
-
 ### 2️⃣ Installation from GitHub (latest code)
 
 To install the most recent version directly from the GitHub repository:
@@ -47,8 +43,6 @@ To upgrade an existing installation:
 ```bash
 pip install --upgrade git+https://github.com/shakelab/shakelab.git
 ```
-
----
 
 ### 3️⃣ Developer Installation from a Local Repository
 
@@ -68,8 +62,6 @@ This will install the package in "editable mode", so any changes to the source c
 > source venv/bin/activate  # On Windows: venv\Scripts\activate
 > ```
 
----
-
 ##  Dependencies
 
 ShakeLab relies on the following Python packages:
@@ -81,8 +73,6 @@ ShakeLab relies on the following Python packages:
 
 These are automatically installed with `pip`, but you can also inspect `requirements.txt` for optional or development dependencies.
 
----
-
 ##  License
 
 ShakeLab is free software, released under the **GNU Affero General Public License v3.0**.  
@@ -90,14 +80,10 @@ You can redistribute it and/or modify it under the terms of the license.
 
 See <https://www.gnu.org/licenses/agpl-3.0.html> for full details.
 
----
-
 ## ⚠️ Disclaimer
 
 ShakeLab is distributed in the hope that it will be useful,  
 but **without any warranty**, including the implied warranty of merchantability or fitness for a particular purpose.
 
 The authors assume no liability for any use of the software.
-
----
 
