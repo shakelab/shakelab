@@ -74,6 +74,11 @@ ShakeLab relies on the following Python packages:
 - [Requests](https://pypi.org/project/requests/) >= 2.32.0
 - [cymseed3](https://pypi.org/project/cymseed3/) >= 0.1.4
 
+
+## Documentation
+
+Official documentation is available at: [shakelab.org](http://shakelab.org)
+
 ##  License
 
 ShakeLab is free software, released under the **GNU Affero General Public License v3.0**.  
