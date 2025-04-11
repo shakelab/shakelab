@@ -390,6 +390,7 @@ def _fdsn_query(
         )
     return None, None, f"Failed after {retries} attempts"
 
+
 def get_fdsn_data_center_registry():
     """
     Data centers from the FDSN registry

@@ -875,16 +875,20 @@ class StreamCollection():
         """
         return [stream.sid for stream in self.stream]
 
-    def append(self, record):
+    def append(self, data):
         """
         TO DO: Must differentiate if input is record or stream
             (presently is only for record)
         """
-        sid = record.head.sid
-        if sid not in self.sid:
-            self.stream.append(Stream(sid))
+        if isinstance(data, Record):
+            sid = data.head.sid
+            if sid not in self.sid:
+                self.stream.append(Stream(sid))    
+            self[sid].append(data)
 
-        self[sid].append(record)
+        elif isinstance(data, Stream):
+            print('WARNING: not yet implemented...')
+            pass
 
     def remove(self):
         pass

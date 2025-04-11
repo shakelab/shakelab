@@ -57,11 +57,11 @@ def sacwrite(output_file, record, byte_order=DEFAULT_BYTE_ORDER, owrite=False):
     sc.head['NZJDAY'] = record.head.time.ordinal_day
     sc.head['NZHOUR'] = record.head.time.hour
     sc.head['NZMIN'] = record.head.time.minute
-    sc.head['NZSEC'] = record.head.time.second
-    sc.head['NZMSEC'] = record.head.time.microsecond // 1000
+    sc.head['NZSEC'] = int(record.head.time.second)
+    sc.head['NZMSEC'] = int(round((record.head.time.second % 1) * 1000))
     sc.head['KNETWK'] = record.head.sid.split('.')[0]
     sc.head['KSTNM'] = record.head.sid.split('.')[1]
-    sc.head['KCMPNM'] = record.head.sid.split('.')[2]
+    sc.head['KCMPNM'] = record.head.sid.split('.')[3]
 
     # Set the data
     sc.data[0] = [d for d in record.data]
@@ -71,7 +71,7 @@ def sacwrite(output_file, record, byte_order=DEFAULT_BYTE_ORDER, owrite=False):
 
 class Sac(object):
 
-    def __init__(self, file=[], byte_order='le'):
+    def __init__(self, file=[], byte_order=DEFAULT_BYTE_ORDER):
         """
         Base class for sac file I/O
 
@@ -105,14 +105,14 @@ class Sac(object):
 
         if file:
             # Import SAC file
-            self.read(file)
+            self.read(file, byte_order=byte_order)
 
         else:
             # Set header defaults
             for H in _HdrStruc:
                 self.head[H[0]] = H[3]
 
-    def read(self, file, byte_order='le'):
+    def read(self, file, byte_order=DEFAULT_BYTE_ORDER):
         """
         Read SAC file from disk
 
