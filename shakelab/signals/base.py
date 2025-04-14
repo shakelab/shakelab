@@ -51,7 +51,9 @@ class Header(object):
     """
     def __init__(self, delta=None, time=None, location=None,
                        sid=None, eid=None, units=None, parent=None):
-
+        """
+        NOTE: to decide how to handle sid, as FDSN code or generic....
+        """
         self._rate = None
         self._delta = None
         self._time = None
@@ -242,6 +244,14 @@ class Record(object):
             raise TypeError('unsupported operand type(s) for /')
 
         return rec_mod
+
+    @property
+    def sid(self):
+        return self.head.sid
+
+    @sid.setter
+    def sid(self, value):
+        self.head.sid = value
 
     @property
     def nsamp(self):
@@ -720,7 +730,7 @@ class Stream(object):
     Representation of a single stream (or channel), which could be 
     continuos or with gaps.
     """
-    def __init__(self, id):
+    def __init__(self, id=None):
         self.sid = id
         self.record = []
 
@@ -768,14 +778,17 @@ class Stream(object):
     def append(self, record, enforce=False):
         """
         """
-        if record.head.sid != self.sid:
-            assert ValueError('Record ID mismatching')
+        if self.sid == None:
+            self.sid = record.sid
 
-        if not self.record:
-            self.record = [record]
+        if self.sid == record.sid:
+            if not self.record:
+                self.record = [record]
+            else:
+                if not self.record[-1].append(record, enforce=enforce):
+                    self.record.append(record)
         else:
-            if not self.record[-1].append(record, enforce=enforce):
-                self.record.append(record)
+            raise ValueError('Record ID mismatching')
 
     def remove(self):
         pass
@@ -877,18 +890,11 @@ class StreamCollection():
 
     def append(self, data):
         """
-        TO DO: Must differentiate if input is record or stream
-            (presently is only for record)
         """
-        if isinstance(data, Record):
-            sid = data.head.sid
-            if sid not in self.sid:
-                self.stream.append(Stream(sid))    
-            self[sid].append(data)
-
-        elif isinstance(data, Stream):
-            print('WARNING: not yet implemented...')
-            pass
+        sid = data.sid
+        if sid not in self.sid:
+            self.stream.append(Stream(sid))    
+        self[sid].append(data)
 
     def remove(self):
         pass
