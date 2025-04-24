@@ -226,7 +226,7 @@ class Record(object):
         if isinstance(value, numeric_type):
             rec_mod.data *= value
         elif isinstance(value, (response.StageResponse)):
-            rec_mod.add_response(value)
+            rec_mod.convolve_response(value)
         else:
             raise TypeError('unsupported operand type(s) for *')
 
@@ -239,7 +239,7 @@ class Record(object):
         if isinstance(value, numeric_type):
             rec_mod.data = rec_mod.data / value
         elif isinstance(value, (response.StageResponse)):
-            rec_mod.remove_response(value)
+            rec_mod.deconvolve_response(value)
         else:
             raise TypeError('unsupported operand type(s) for /')
 
@@ -252,6 +252,14 @@ class Record(object):
     @sid.setter
     def sid(self, value):
         self.head.sid = value
+
+    @property
+    def eid(self):
+        return self.head.eid
+
+    @eid.setter
+    def eid(self, value):
+        self.head.eid = value
 
     @property
     def nsamp(self):
@@ -588,7 +596,7 @@ class Record(object):
             corrected_record = resp.deconvolve_record(self)
             self.data = corrected_record.data
 
-        elif isinstance(resp, response.StageRecord):
+        elif isinstance(resp, response.StageSet):
             for stage in resp.stage:
                 self.deconvolve_response(stage)
 
@@ -741,6 +749,7 @@ class Stream(object):
         """
         """
         if isinstance(id, str):
+            # Extracting record by event id
             return self.record[self._idx(id)]
         else:
             return self.record[id]
@@ -793,7 +802,7 @@ class Stream(object):
     def remove(self):
         pass
 
-    def get(self, eid=None, starttime=None, endtime=None):
+    def extract(self, starttime=None, endtime=None, eid=None):
         """
         Return selected record, force merge if record
         not contiguous.
@@ -877,6 +886,28 @@ class StreamCollection():
             msg += st.__str__()
         return msg
 
+    def __mul__(self, value):
+        """
+        """
+        sc_mod = self.copy()
+        if isinstance(value, (response.ResponseCollection)):
+            sc_mod.convolve_response(value)
+        else:
+            raise TypeError('unsupported operand type(s) for *')
+
+        return sc_mod
+
+    def __truediv__(self, value):
+        """
+        """
+        sc_mod = self.copy()
+        if isinstance(value, (response.ResponseCollection)):
+            sc_mod.deconvolve_response(value)
+        else:
+            raise TypeError('unsupported operand type(s) for /')
+
+        return sc_mod
+
     def info(self):
         """
         """
@@ -899,10 +930,10 @@ class StreamCollection():
     def remove(self):
         pass
 
-    def get(self, id, starttime=None, endtime=None):
+    def extract(self, id, starttime=None, endtime=None):
         """
         """
-        return self[id].get(starttime, endtime)
+        return self[id].extract(starttime, endtime)
 
     def merge(self, stream_collection):
         """
@@ -923,12 +954,16 @@ class StreamCollection():
         for stream in self.stream:
             stream.deconvolve_response(resp)
 
-    def read(self, file_path, ftype=None, byte_order='be'):
+    def read(self, file_path, format=None, byte_order='be', is_db=False):
         """
         """
-        io.reader(file_path, ftype=ftype,
-                          stream_collection=self,
-                          byte_order=byte_order)
+        io.reader(
+            file_path,
+            stream_collection=self,
+            format=format,
+            byte_order=byte_order,
+            is_db=is_db
+            )
 
     def write(self, file):
         """

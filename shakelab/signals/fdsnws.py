@@ -136,7 +136,7 @@ class FDSNClient(object):
         self.url = _init_data_center(data_center)
 
     def get_waveform(self, fdsn_code, starttime, endtime,
-                     correct=False, output=None, format='mseed'):
+                     correct=False, file_name=None, format='mseed'):
         """
         """
         fc = FDSNCode(fdsn_code)
@@ -150,10 +150,10 @@ class FDSNClient(object):
                 rc = parse_sxml(xml)
                 sc.deconvolve_response(rc)
 
-            if output is None:
+            if file_name is None:
                 return sc
             else:
-                writer(output, sc, format)
+                writer(sc, file_name, format)
                 return True
 
     def get_response(self, fdsn_code, starttime, endtime, file_name=None):

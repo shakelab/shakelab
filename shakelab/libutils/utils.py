@@ -23,14 +23,56 @@
 import numpy as _np
 
 
+import numpy as np
+
 def cast_value(value, dtype, default=None):
     """
+    Cast a value to the specified data type, handling both scalars and
+    sequences.
+
+    Parameters
+    ----------
+    value : any
+        The input value to cast. It can be a scalar, list, or NumPy array.
+    dtype : type
+        The target data type (e.g., int, float, complex). Applied directly
+        to scalars or element-wise to sequences.
+    default : any, optional
+        The value to return if `value` is considered empty (None, '', etc.).
+
+    Returns
+    -------
+    casted : dtype or np.ndarray
+        A scalar or NumPy array with all elements cast to the target dtype.
+
+    Examples
+    --------
+    >>> cast_value("3.14", float)
+    3.14
+    >>> cast_value([1, 2, 3], float)
+    array([1., 2., 3.])
+    >>> cast_value([1+2j, 3-4j], complex)
+    array([1.+2.j, 3.-4.j])
+    >>> cast_value(None, float, default=0.0)
+    0.0
     """
-    if value not in [None, 'None', 'none', 'NaN', 'nan', '', []]:
-        value =  dtype(value)
-    else:
-        value = default
-    return value
+    # Handle null-like values
+    if value in [None, 'None', 'none', 'NaN', 'nan', '', []]:
+        return default
+
+    # If already of target type, return as-is
+    if isinstance(value, dtype):
+        return value
+
+    # Scalar casting
+    if np.isscalar(value):
+        return dtype(value)
+
+    # Sequence casting (element-wise)
+    if isinstance(value, (list, tuple, np.ndarray)):
+        return np.array([dtype(v) for v in value])
+
+    raise TypeError(f"Cannot cast value of type {type(value)}")
 
 
 def a_round(number, decimals=3):
@@ -47,7 +89,6 @@ def a_round(number, decimals=3):
     :return [float, list, tuple, numpy.ndarray] number:
         Rounded output
     """
-
     if isinstance(number, (list, tuple, _np.ndarray)):
         for i, n in enumerate(number):
             number[i] = round(n, decimals)
@@ -68,7 +109,6 @@ def lin_stat(data):
     :return float (mn, sd):
         Mean and standard deviation
     """
-
     mn = _np.mean(data, axis=0)
     sd = _np.std(data, axis=0)
 
@@ -87,7 +127,6 @@ def log_stat(data):
         Mean and standard deviation
 
     """
-
     mn = _np.exp(_np.mean(_np.log(data), axis=0))
     sd = _np.exp(_np.std(_np.log(data), axis=0))
 
@@ -107,7 +146,6 @@ def slice(data, index=[]):
     :return list data_slice:
         List with the sliced data
     """
-
     if is_empty(index):
         return data
     else:
@@ -128,7 +166,6 @@ def is_empty(value):
     :return boolean empty:
         True if no or empty value is given
     """
-
     C0 = (value == [])
     C1 = (value == '')
     C2 = (value == None)
@@ -144,7 +181,33 @@ def none_check(number):
     """
     Replace with none if empty.
     """
-
     number = None if is_empty(number) else number
 
     return number
+
+def serialize_ndarray(obj):
+    """
+    Recursively convert NumPy arrays and complex numbers
+    for JSON serialization.
+    """
+    if isinstance(obj, dict):
+        return {k: serialize_ndarray(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_ndarray(v) for v in obj]
+    elif isinstance(obj, np.ndarray):
+        return serialize_ndarray(obj.tolist())
+    elif isinstance(obj, complex):
+        return {'real': obj.real, 'imag': obj.imag}
+    return obj
+
+def deserialize_complex(obj):
+    """
+    Recursively convert {'real': x, 'imag': y} back to complex numbers.
+    """
+    if isinstance(obj, dict):
+        if 'real' in obj and 'imag' in obj and len(obj) == 2:
+            return complex(obj['real'], obj['imag'])
+        return {k: deserialize_complex(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [deserialize_complex(v) for v in obj]
+    return obj

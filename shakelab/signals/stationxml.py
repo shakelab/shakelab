@@ -22,8 +22,11 @@
 import numpy as np
 import xml.etree.ElementTree as ET
 import io, os, re
+from pathlib import Path
 
 import shakelab.signals.response as rspm
+from shakelab.libutils.utils import cast_value
+
 
 PZTYPEMAP = ["LAPLACE (RADIANS/SECOND)",
              "LAPLACE (HERTZ)",
@@ -31,208 +34,256 @@ PZTYPEMAP = ["LAPLACE (RADIANS/SECOND)",
 
 UNITSMAP = [""]
 
+
 def parse_sxml(xml):
     """
-    xml can be a file or string
+    Parse a StationXML string or file and return a ResponseCollection.
     """
+    is_str_or_path = isinstance(xml, (str, Path))
+    is_xml = xml.lstrip().startswith('<?xml')
+    
+    if is_str_or_path and not is_xml:
+        path = Path(xml)
+        if path.is_file():
+            with open(path, 'r') as f:
+                xml = f.read()
 
-    if os.path.isfile(xml):
-        with open(xml, 'r') as f:
-            xml = f.read()
-
-    # Preliminarily clean xml
     xml = xml_strip(xml)
-
     it = ET.iterparse(io.StringIO(xml))
 
-    # Strip namespaces
+    # Remove namespaces
     for _, el in it:
         el.tag = re.sub(r'\{.*\}', '', el.tag)
 
     root = it.root
 
-    if 'FDSNStationXML'not in root.tag:
-        raise ValueError('Not a valid FDSN StationXML')
+    if 'FDSNStationXML' not in root.tag:
+        raise ValueError('Not a valid FDSN StationXML document')
 
     rcoll = rspm.ResponseCollection()
 
     for network in root.findall('.//Network'):
-        network_code = _getattrib(network, 'code')
+        net = network.attrib.get('code')
 
         for station in network.findall('.//Station'):
-            station_code = _getattrib(station, 'code')
+            sta = station.attrib.get('code')
 
             for channel in station.findall('.//Channel'):
-                channel_code = _getattrib(channel, 'code')
-                location_code = _getattrib(channel, 'locationCode')
-                starttime = _getattrib(channel, 'startDate')
-                endtime = _getattrib(channel, 'endDate')
+                cha = channel.attrib.get('code')
+                loc = channel.attrib.get('locationCode')
+                start = channel.attrib.get('startDate')
+                end = channel.attrib.get('endDate')
 
-                fdsn_code = '{0}.{1}.{2}.{3}'.format(network_code,
-                                                     station_code,
-                                                     location_code,
-                                                     channel_code)
+                sid = f"{net}.{sta}.{loc}.{cha}"
 
-                if fdsn_code not in rcoll.sid:
-                    strmr = rspm.StreamResponse(fdsn_code)
-                    rcoll.append(strmr)
+                if sid not in rcoll:
+                    rcoll.append(rspm.StreamResponse(sid))
 
-                srec = rspm.StageRecord(starttime, endtime)
-                srec.append(parse_response(channel))
-
-                rcoll[fdsn_code].append(srec)
+                stage_set = rspm.StageSet(start, end)
+                stage_set.append(parse_response(channel))
+                rcoll[sid].append(stage_set)
 
     return rcoll
 
-def _getattrib(element, key):
-    """
-    """
-    if key in element.attrib:
-        return element.attrib[key]
-    else:
-        return None
 
 def parse_response(channel):
     """
+    Parse all response stages of a channel and return a list of Stage objects.
     """
     stage_list = []
     response = channel.find('Response')
 
-    for stage in response.findall(".//Stage"):
-        stage_number = int(stage.attrib['number'])
+    for stage in response.findall('Stage'):
+        stage_number = int(stage.get('number'))
+
+        parsed = None
 
         for child in stage:
-            if child.tag == 'StageGain':
-                stage_list.append(parse_gain(child))
+            tag = child.tag.split('}')[-1]  # Handle possible namespace
 
-            elif child.tag == 'PolesZeros':
-                stage_list.append(parse_polezero(child))
+            if tag == 'StageGain':
+                parsed = parse_gain(child)
 
-            elif child.tag == 'Coefficients':
-                stage_list.append(parse_coefficients(child))
+            elif tag == 'PolesZeros':
+                parsed = parse_paz(child)
 
-            elif child.tag == 'FIR':
-                # stage_list.append(parse_fir(child))
-                print('Stage FIR not yet implemented')
+            elif tag == 'Coefficients':
+                #parsed = parse_coefficients(child)
+                pass
 
-            elif child.tag == 'Polynomial':
-                # stage_list.append(parse_polynomial(child))
-                print('Stage Polynomial not yet implemented')
+            elif tag == 'FIR':
+                #parsed = parse_fir(child)
+                pass
 
-            elif child.tag == 'ResponseList':
-                # stage_list.append(parse_response_list(child))
-                print('Stage ResponseList not yet implemented')
+            elif tag == 'Polynomial':
+                #parsed = parse_polynomial(child)
+                pass
 
-            elif child.tag == 'Decimation':
-                # stage_list.append(parse_decimation(child))
-                print('Stage Decimation not yet implemented')
+            elif tag in ['Decimation', 'ResponseList']:
+                continue  # Not handled as separate Stage objects
 
             else:
-                print('Stage {0} not recognized'.format(child.tag))
+                print(f'Unrecognized stage element: {tag}')
 
-            if stage_list:
-                stage_list[-1].stage_number = stage_number
+            if parsed:
+                parsed.stage_number = stage_number
+                stage_list.append(parsed)
+                parsed = None  # Reset for safety
 
     return stage_list
 
+
 def parse_gain(element):
     """
+    Parse a StageGain from XML and return a StageGain object.
     """
-    value = element.find('Value').text
-    frequency = element.find('Frequency').text
+    data = {
+        'description': None,
+        'sensitivity': None,
+        'frequency': None,
+        'stage_number': None
+    }
 
-    stage = rspm.StageGain()
-    stage.sensitivity = float(value)
+    data['sensitivity'] = cast_value(element.findtext('Value'), float)
+    data['frequency'] = cast_value(element.findtext('Frequency'), float)
+    data['description'] = element.get('description')
+    data['stage_number'] = cast_value(element.get('stage_number'), int)
 
-    return stage
+    return rspm.StageGain(data)
 
-def parse_polezero(element):
+
+def parse_paz(element):
     """
+    Parse a PAZ stage from StationXML and return a StagePoleZero object.
     """
-    input_units = element.find('InputUnits').find('Name').text
-    output_units = element.find('OutputUnits').find('Name').text
-    normalization_factor = element.find('NormalizationFactor').text
-    normalization_frequency = element.find('NormalizationFrequency').text
+    data = {
+        'description': None,
+        'input_units': None,
+        'output_units': None,
+        'pz_type': None,
+        'normalization_factor': None,
+        'normalization_frequency': None,
+        'poles': [],
+        'zeros': [],
+        'stage_number': None
+    }
 
-    zeros = []
-    for zero in element.findall('.//Zero'):
-        real = float(zero.find('Real').text)
-        imag = float(zero.find('Imaginary').text)
-        zeros.append(real + imag*1j)
+    # Input/output units
+    data['input_units'] = element.findtext('./InputUnits/Name')
+    data['output_units'] = element.findtext('./OutputUnits/Name')
+    data['pz_type'] = element.findtext('PzTransferFunctionType')
 
-    poles = []
+    # Normalization
+    data['normalization_factor'] = cast_value(
+        element.findtext('NormalizationFactor'), float
+    )
+    data['normalization_frequency'] = cast_value(
+        element.findtext('NormalizationFrequency'), float
+    )
+
+    # Poles
     for pole in element.findall('.//Pole'):
-        real = float(pole.find('Real').text)
-        imag = float(pole.find('Imaginary').text)
-        poles.append(real + imag*1j)
+        re = cast_value(pole.findtext('Real'), float)
+        im = cast_value(pole.findtext('Imaginary'), float)
+        data['poles'].append(complex(re, im))
 
-    stage = rspm.StagePoleZero()
-    stage.input_units = input_units
-    stage.output_units = output_units
-    stage.normalization_factor = float(normalization_factor)
-    stage.normalization_frequency = float(normalization_frequency)
-    stage.poles = np.array(poles)
-    stage.zeros = np.array(zeros)
+    # Zeros
+    for zero in element.findall('.//Zero'):
+        re = cast_value(zero.findtext('Real'), float)
+        im = cast_value(zero.findtext('Imaginary'), float)
+        data['zeros'].append(complex(re, im))
 
-    return stage
+    return rspm.StagePoleZero(data)
+
 
 def parse_coefficients(element):
     """
+    Parse a digital coefficient stage and return a StageFIR object.
     """
-    input_units = element.find('InputUnits').find('Name').text
-    output_units = element.find('OutputUnits').find('Name').text
-    tf_type = element.find('CfTransferFunctionType').text
+    tf_type = element.findtext('CfTransferFunctionType')
 
-    numerator = []
-    for num in element.findall('.//Numerator'):
-        numerator.append(float(num.text))
+    # Common fields
+    input_units = element.findtext('InputUnits/Name')
+    output_units = element.findtext('OutputUnits/Name')
 
-    denominator = []
-    for den in element.findall('.//Denominator'):
-        denominator.append(float(num.text))
+    # Numerator
+    numerator = [
+        cast_value(num.text, float)
+        for num in element.findall('.//Numerator')
+        if num.text is not None
+    ]
+
+    # Denominator (may be optional)
+    denominator = [
+        cast_value(den.text, float)
+        for den in element.findall('.//Denominator')
+        if den.text is not None
+    ]
 
     if not numerator:
-        numerator = [1]
+        numerator = [1.0]
 
     if not denominator:
-        denominator = [1]
+        denominator = [1.0]
 
     if tf_type == 'DIGITAL':
+        data = {
+            'input_units': input_units,
+            'output_units': output_units,
+            'numerator': numerator,
+            'denominator': denominator,
+            'stage_number': cast_value(element.get('stage_number'), int)
+        }
+        return rspm.StageFIR(data)
 
-        stage = rspm.StageFIR()
-        stage.input_units = input_units
-        stage.output_units = output_units
-        stage.numerator = np.array(numerator)
-        stage.denominator = np.array(denominator)
-
-        return stage
-
-    else:
-
-        raise NotImplementedError('{0} type not supported'.format(tf_type))
+    raise NotImplementedError(f"TF type {tf_type} not supported.")
 
 
 def parse_polynomial(element):
     """
+    Parse a Polynomial stage from StationXML and return a StagePolynomial
+    object.
     """
-    pass
+    data = {
+        'description': element.get('description'),
+        'input_units': element.findtext('InputUnits/Name'),
+        'output_units': element.findtext('OutputUnits/Name'),
+        'numerator': [],
+        'denominator': [1.0],
+        'stage_number': cast_value(element.get('stage_number'), int)
+    }
+
+    for coeff in element.findall('Coefficient'):
+        val = cast_value(coeff.text, float)
+        data['numerator'].append(val)
+
+    if not data['numerator']:
+        data['numerator'] = [1.0]
+
+    return rspm.StagePolynomial(data)
+
 
 def parse_fir(element):
     """
+    Parse an FIR filter stage from StationXML and return a StageFIR object.
     """
-    input_units = element.find('InputUnits').find('Name').text
-    output_units = element.find('OutputUnits').find('Name').text
+    data = {
+        'input_units': element.findtext('InputUnits/Name'),
+        'output_units': element.findtext('OutputUnits/Name'),
+        'numerator': [],
+        'denominator': [1.0],  # Default for FIR
+        'stage_number': cast_value(element.get('stage_number'), int)
+    }
 
-    coefficients = []
     for coeff in element.findall('.//Numerator'):
-        coefficients.append(float(coeff.text))
+        if coeff.text is not None:
+            data['numerator'].append(cast_value(coeff.text, float))
 
-    stage = rspm.StageFIR()
-    stage.input_units = input_units
-    stage.output_units = output_units
-    stage.coefficients = np.array(coefficients)
+    if not data['numerator']:
+        data['numerator'] = [1.0]
 
-    return stage
+    return rspm.StageFIR(data)
+
 
 def stationxml_to_dict(xml):
     """
@@ -257,6 +308,7 @@ def stationxml_to_dict(xml):
         el.tag = re.sub(r'\{.*\}', '', el.tag)
 
     return {it.root.tag : node_to_dict(it.root)}
+
 
 def node_to_dict(node):
     """
@@ -283,6 +335,7 @@ def node_to_dict(node):
 
     return xml_dict
 
+
 def xml_strip(xml):
     """
     Remove white spaces and new lines from an XML string.
@@ -300,6 +353,7 @@ def xml_strip(xml):
         if y: buffer.append(y)
     buffer = ''.join(buffer)
     return buffer
+
 
 def _convert(string):
     """

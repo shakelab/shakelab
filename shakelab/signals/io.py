@@ -184,7 +184,7 @@ def writer(input_data, file_path, format=None,
         stream_collection = base.StreamCollection()
         stream_collection.append(input_data)
 
-    elif isinstance(data, base.StreamCollection):
+    elif isinstance(input_data, base.StreamCollection):
         stream_collection = input_data
 
     if format is None:
