@@ -112,12 +112,10 @@ def parse_response(channel):
                 pass
 
             elif tag == 'FIR':
-                #parsed = parse_fir(child)
-                pass
+                parsed = parse_fir(child)
 
             elif tag == 'Polynomial':
-                #parsed = parse_polynomial(child)
-                pass
+                parsed = parse_polynomial(child)
 
             elif tag in ['Decimation', 'ResponseList']:
                 continue  # Not handled as separate Stage objects

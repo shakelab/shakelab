@@ -32,12 +32,18 @@ from shakelab.signals import base
 from shakelab.signals import stationxml
 from shakelab.libutils.time import Date
 
+ACTIVE_STAGES = {
+    'gain' : True,
+    'paz' : True,
+    'polynomial' : False,
+    'fir' : False
+    }
+
 
 class ResponseCollection:
     """
     A container of StreamResponse objects indexed by FDSN codes.
     """
-
     def __init__(self, byte_stream=None, ftype='sxml'):
         self.response = []
         if byte_stream is not None:
@@ -224,7 +230,6 @@ class StageSet():
     """
     A time-bound set of stage responses valid between starttime and endtime.
     """
-
     def __init__(self, starttime=None, endtime=None):
         if starttime is not None and not isinstance(starttime, Date):
             starttime = Date(starttime)
@@ -301,7 +306,8 @@ class StageSet():
         if isinstance(record, base.Record):
             rec_mod = record.copy()
             for stage in self.stage:
-                rec_mod = stage.convolve_record(rec_mod)
+                if ACTIVE_STAGES(stage.stage_type):
+                    rec_mod = stage.convolve_record(rec_mod)
             return rec_mod
         raise NotImplementedError('Unsupported record type')
 
@@ -312,7 +318,8 @@ class StageSet():
         if isinstance(record, base.Record):
             rec_mod = record.copy()
             for stage in self.stage:
-                rec_mod = stage.deconvolve_record(rec_mod)
+                if ACTIVE_STAGES(stage.stage_type):
+                    rec_mod = stage.deconvolve_record(rec_mod)
             return rec_mod
         raise NotImplementedError('Unsupported record type')
 
@@ -520,7 +527,6 @@ class StagePolynomial(StageResponse):
     Stage representing a polynomial transfer function of the form:
     H(jω) = (sum n_k * (jω)^k) / (sum d_k * (jω)^k)
     """
-
     _KEYMAP = {
         'description': (str, None),
         'input_units': (str, None),
