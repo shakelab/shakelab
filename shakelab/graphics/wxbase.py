@@ -37,6 +37,9 @@ from numpy.random import randn
 from shakelab.graphics.bounds import lin_ticks, logb_ticks
 from shakelab.signals.io import reader
 
+from shakelab.signals.base import Record, Stream
+
+
 # Platform specific settings
 if wx.Platform == '__WXGTK__':
     pass
@@ -865,30 +868,41 @@ class MultiPlotWindow(wx.Frame):
         self.Raise()  # Bring the frame to the front
         self.SetFocus()  # Requests focus for the window
 
-    def Plot(self, plot_index, stream_collection, **kwargs):
+    def Plot(self, data, plot_index=0, **kwargs):
         """
         Plots data from the stream_collection on a specified TracePlot.
         
         Parameters:
-            stream_collection: The collection of streams to plot.
+            data
             plot_index (int): Index of the TracePlot to draw on. Defaults to 0.
         """
         if plot_index >= len(self.trace_plots):
             print(f"Error: plot_index {plot_index} is out of range.")
             return
 
+        if isinstance(data, Record):
+            stream = Stream()
+            stream.append(data)
+        elif isinstance(data, list):
+            stream = Stream()
+            for record in data:
+                stream.append(record)
+        elif isinstance(data, Stream):
+            stream = data
+        else:
+            raise ValueError("Not supported data format")
+
         tp = self.trace_plots[plot_index]
-        for stream in stream_collection:
-            for record in stream:
-                x = record.taxis
-                y = record.data
-                #x, y = generate_test_data(100)
-                tp.Plot(x, y, **kwargs)
+        for record in stream:
+            x = record.taxis
+            y = record.data
+            #x, y = generate_test_data(100)
+            tp.Plot(x, y, **kwargs)
 
         self.Show()
 
 
-    def SetProperty(self, plot_index, params={}, **kwargs):
+    def SetProperty(self, params={}, plot_index=0, **kwargs):
         """
         Set properties for a specific TracePlot.
         
@@ -945,28 +959,16 @@ def streamplot(stream_collection=None):
 
     mp = MultiPlotWindow(3, None)
 
-    sc = reader('emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.ACC.MP.mseed')
-    mp.Plot(0, sc, colour='black', width=2)
-
-    sc = reader('emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.VEL.MP.mseed')
-    mp.Plot(1, sc, colour='black', width=2)
-
-    sc = reader('emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.DIS.MP.mseed')
-    mp.Plot(2, sc, colour='black', width=2)
-
     params = {'xlim': 'auto',
               'ylim': 'auto',
               'axis_bg_colour': 'white',
               'grid_colour': 'light grey',
               'grid_line_width': 2}
 
-    mp.SetProperty(0, params)
-    mp.SetProperty(1, params)
-    mp.SetProperty(2, params)
+    for i, stream in enumerate(stream_collection):
 
-    mp.SetProperty(0, xlabel='Time (s)', ylabel='Acc.')
-    mp.SetProperty(1, xlabel='Time (s)', ylabel='Vel.')
-    mp.SetProperty(2, xlabel='Time (s)', ylabel='Disp.')
+        mp.Plot(stream, plot_index=i, colour='black', width=2)
+        mp.SetProperty(params, plot_index=i)
 
     #mp.ExportImage('merged_output.png')
 

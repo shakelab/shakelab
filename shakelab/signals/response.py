@@ -35,6 +35,7 @@ from shakelab.libutils.time import Date
 ACTIVE_STAGES = {
     'gain' : True,
     'paz' : True,
+    'coefficients': False,
     'polynomial' : False,
     'fir' : False
     }

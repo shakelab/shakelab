@@ -18,6 +18,12 @@
 #
 # ****************************************************************************
 """
+Parsers for StationXML files to extract instrument response information.
+
+This module provides functions to parse FDSN-compliant StationXML files and
+convert the instrument response metadata into a ShakeLab ResponseCollection
+object. Supported response types include poles and zeros (PAZ), FIR filters,
+polynomials, and gain stages.
 """
 import numpy as np
 import xml.etree.ElementTree as ET
@@ -38,20 +44,36 @@ UNITSMAP = [""]
 def parse_sxml(xml):
     """
     Parse a StationXML string or file and return a ResponseCollection.
+
+    This function reads a StationXML document (either from a file path
+    or as a string) and extracts network, station, and channel
+    response information.
+    It builds a  ResponseCollection composed of StreamResponse objects,
+    each containing one or more StageSet entries representing the instrument 
+    response chain.
+
+    Args:
+        xml (str or Path): Path to a StationXML file or an XML string.
+
+    Returns:
+        ResponseCollection: A ShakeLab ResponseCollection object
+        containing parsed instrument responses.
     """
-    is_str_or_path = isinstance(xml, (str, Path))
-    is_xml = xml.lstrip().startswith('<?xml')
-    
-    if is_str_or_path and not is_xml:
-        path = Path(xml)
-        if path.is_file():
-            with open(path, 'r') as f:
-                xml = f.read()
+    if isinstance(xml, (str, Path)):
+        if not xml.lstrip().startswith("<?xml"):
+            path = Path(xml)
+            if path.is_file():
+                with open(path, "r", encoding="utf-8") as f:
+                    xml = f.read()
+            else:
+                raise ValueError(f"File not found: {path}")
+    else:
+        raise TypeError("Input must be a StationXML string or a file path.")
 
     xml = xml_strip(xml)
     it = ET.iterparse(io.StringIO(xml))
 
-    # Remove namespaces
+    # Strip namespaces for cleaner tag access
     for _, el in it:
         el.tag = re.sub(r'\{.*\}', '', el.tag)
 
@@ -88,7 +110,22 @@ def parse_sxml(xml):
 
 def parse_response(channel):
     """
-    Parse all response stages of a channel and return a list of Stage objects.
+    Parse all response stages of a Channel element and return a list 
+    of Stage objects.
+
+    This function inspects each <Stage> element under the given 
+    <Channel> element in the StationXML structure. It parses recognized 
+    stage types (StageGain, PolesZeros, FIR, Polynomial), converting 
+    them into corresponding ShakeLab Stage objects. Unsupported tags 
+    such as Decimation or ResponseList are ignored.
+
+    Args:
+        channel (xml.etree.ElementTree.Element): The <Channel> XML 
+            element containing one or more <Stage> definitions.
+
+    Returns:
+        list: A list of Stage objects, each representing a component 
+        of the instrument response chain for the given channel.
     """
     stage_list = []
     response = channel.find('Response')
@@ -133,7 +170,20 @@ def parse_response(channel):
 
 def parse_gain(element):
     """
-    Parse a StageGain from XML and return a StageGain object.
+    Parse a <StageGain> XML element and return a StageGain object.
+
+    Extracts the gain value, frequency, optional description, and 
+    stage number from the provided XML element, converting them into 
+    a ShakeLab StageGain object used to model amplification stages 
+    within an instrument response.
+
+    Args:
+        element (xml.etree.ElementTree.Element): The <StageGain> XML 
+            element to be parsed.
+
+    Returns:
+        StageGain: A ShakeLab StageGain object containing gain 
+        information for the corresponding stage.
     """
     data = {
         'description': None,
@@ -152,7 +202,20 @@ def parse_gain(element):
 
 def parse_paz(element):
     """
-    Parse a PAZ stage from StationXML and return a StagePoleZero object.
+    Parse a <PolesZeros> XML element and return a StagePoleZero object.
+
+    Extracts poles, zeros, normalization factor and frequency, units,
+    and transfer function type from the given StationXML element, and 
+    returns a ShakeLab StagePoleZero object representing a stage of the 
+    instrument response in the Laplace domain.
+
+    Args:
+        element (xml.etree.ElementTree.Element): The <PolesZeros> XML 
+            element to be parsed.
+
+    Returns:
+        StagePoleZero: A ShakeLab StagePoleZero object representing the
+        parsed response stage.
     """
     data = {
         'description': None,
@@ -196,7 +259,22 @@ def parse_paz(element):
 
 def parse_coefficients(element):
     """
-    Parse a digital coefficient stage and return a StageFIR object.
+    Parse a <Coefficients> XML element and return a StageFIR object.
+
+    This function extracts digital filter coefficients from a StationXML
+    <Coefficients> element. It parses the numerator and denominator arrays,
+    as well as input/output units and the stage number. If the transfer
+    function type is not 'DIGITAL', it raises an error.
+
+    Args:
+        element (xml.etree.ElementTree.Element): The <Coefficients> XML
+            element to parse.
+
+    Returns:
+        StageFIR: A ShakeLab FIR response stage with the parsed coefficients.
+
+    Raises:
+        [TO IMPROVE!!]
     """
     tf_type = element.findtext('CfTransferFunctionType')
 
@@ -239,8 +317,19 @@ def parse_coefficients(element):
 
 def parse_polynomial(element):
     """
-    Parse a Polynomial stage from StationXML and return a StagePolynomial
-    object.
+    Parse a <Polynomial> XML element and return a StagePolynomial object.
+
+    This function extracts a polynomial response stage from a StationXML
+    <Polynomial> element. It includes input/output units, numerator
+    coefficients, and stage number. Denominator is always set to [1.0],
+    as only feedforward coefficients are supported.
+
+    Args:
+        element (xml.etree.ElementTree.Element): The <Polynomial> XML
+            element to parse.
+
+    Returns:
+        StagePolynomial: A ShakeLab polynomial response stage.
     """
     data = {
         'description': element.get('description'),
@@ -263,7 +352,18 @@ def parse_polynomial(element):
 
 def parse_fir(element):
     """
-    Parse an FIR filter stage from StationXML and return a StageFIR object.
+    Parse an <FIR> XML element and return a StageFIR object.
+
+    This function reads an FIR (Finite Impulse Response) response stage from
+    a StationXML <FIR> element. It extracts the input/output units, stage
+    number, and numerator coefficients. The denominator is always set to [1.0],
+    as FIR filters are non-recursive.
+
+    Args:
+        element (xml.etree.ElementTree.Element): The <FIR> XML element to parse.
+
+    Returns:
+        StageFIR: A ShakeLab FIR filter response stage.
     """
     data = {
         'input_units': element.findtext('InputUnits/Name'),

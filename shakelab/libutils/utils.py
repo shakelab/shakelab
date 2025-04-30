@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2025, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -19,11 +19,8 @@
 # ****************************************************************************
 """
 """
-
 import numpy as _np
 
-
-import numpy as np
 
 def cast_value(value, dtype, default=None):
     """
@@ -65,12 +62,12 @@ def cast_value(value, dtype, default=None):
         return value
 
     # Scalar casting
-    if np.isscalar(value):
+    if _np.isscalar(value):
         return dtype(value)
 
     # Sequence casting (element-wise)
-    if isinstance(value, (list, tuple, np.ndarray)):
-        return np.array([dtype(v) for v in value])
+    if isinstance(value, (list, tuple, _np.ndarray)):
+        return _np.array([dtype(v) for v in value])
 
     raise TypeError(f"Cannot cast value of type {type(value)}")
 
@@ -194,7 +191,7 @@ def serialize_ndarray(obj):
         return {k: serialize_ndarray(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [serialize_ndarray(v) for v in obj]
-    elif isinstance(obj, np.ndarray):
+    elif isinstance(obj, _np.ndarray):
         return serialize_ndarray(obj.tolist())
     elif isinstance(obj, complex):
         return {'real': obj.real, 'imag': obj.imag}

@@ -1,5 +1,4 @@
 # ****************************************************************************
-#
 # Copyright (C) 2019-2025, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
@@ -15,29 +14,140 @@
 #
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
-"""
-"""
-from copy import deepcopy
 
-import logging
-import json
 import io
+import json
+import logging
+from collections import namedtuple
+from copy import deepcopy
 
 import requests
 from requests.exceptions import RequestException, Timeout
 
 import shakelab.signals.base as base
 from shakelab.libutils.time import Date
-from shakelab.signals.stationxml import parse_sxml
 from shakelab.signals.io import writer
+from shakelab.signals.stationxml import parse_sxml
+from shakelab.seismicity.quakeml import parse_quakeml
 
 USE_LIBMSEED = True
+FDSN_VERSION = 1
+FDSNResponse = namedtuple('FDSNResponse', ['data', 'content_type', 'error'])
 
+# Set up logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
+
+# Registry of known FDSN data centers
+DATA_CENTER_REGISTRY = {
+    'AUSPASS': 'http://auspass.edu.au:8080',
+    'BGR': 'https://eida.bgr.de',
+    'EMSC': 'https://www.seismicportal.eu',
+    'ETH': 'https://eida.ethz.ch',
+    'GEOFON': 'https://geofon.gfz-potsdam.de',
+    'GEONET': 'https://www.geonet.org.nz',
+    'ICGC': 'https://ws.icgc.cat',
+    'IESDMC': 'http://batsws.earth.sinica.edu.tw',
+    'IGN': 'http://www.ign.es',
+    'INGV': 'https://webservices.ingv.it',
+    'IPGP': 'http://ws.ipgp.fr',
+    'IRISDMC': 'https://service.iris.edu',
+    'ISC': 'http://www.isc.ac.uk',
+    'KAGSR': 'http://sdis.emsd.ru',
+    'KOERI': 'https://eida.koeri.boun.edu.tr',
+    'LMU': 'https://erde.geophysik.uni-muenchen.de',
+    'NCEDC': 'http://service.ncedc.org',
+    'NIEP': 'https://eida-sc3.infp.ro',
+    'NOA': 'http://eida.gein.noa.gr',
+    'ORFEUS': 'https://orfeus-eu.org',
+    'RASPISHAKE': 'https://fdsnws.raspberryshakedata.com',
+    'RESIF': 'https://ws.resif.fr',
+    'SCEDC': 'https://service.scedc.caltech.edu',
+    'UIB-NORSAR': 'http://eida.geo.uib.no',
+    'USGS': 'https://earthquake.usgs.gov',
+    'USP': 'http://seisrequest.iag.usp.br',
+    'OGS-SCP': 'http://158.110.30.85:8080',
+    'OGS-ANT': 'http://158.110.30.202:5600'
+}
+
+# Default parameters for station queries
+STATION_DEFAULTS = {
+    "network": "*",
+    "station": "*",
+    "location": "*",
+    "channel": "*",
+    "starttime": None,
+    "endtime": None,
+    "startbefore": None,
+    "startafter": None,
+    "endbefore": None,
+    "endafter": None,
+    "level": "response",
+    "includerestricted": "true",
+    "includeavailability": "false",
+    "updateafter": None,
+    "matchtimeseries": "false",
+    "format": "xml",
+    "nodata": "204"
+}
+
+# Default parameters for waveform data queries
+DATASELECT_DEFAULTS = {
+    "network": "*",
+    "station": "*",
+    "location": "*",
+    "channel": "*",
+    "starttime": None,
+    "endtime": None,
+    "quality": "B",
+    "minimumlength": None,
+    "longestonly": None,
+    "validate": None,
+    "nodata": "204",
+    "format": "miniseed"
+}
+
+# Default parameters for event data queries
+EVENT_DEFAULTS = {
+    "starttime": None,
+    "endtime": None,
+    "minlatitude": None,
+    "maxlatitude": None,
+    "minlongitude": None,
+    "maxlongitude": None,
+    "latitude": None,
+    "longitude": None,
+    "minradius": None,
+    "maxradius": None,
+    "mindepth": None,
+    "maxdepth": None,
+    "minmagnitude": None,
+    "maxmagnitude": None,
+    "magnitudetype": None,
+    "eventtype": None,
+    "catalog": None,
+    "contributor": None,
+    "eventid": None,
+    "limit": None,
+    "offset": None,
+    "format": "xml",
+    "nodata": "204"
+}
+ 
 def get_mseed_module(use_libmseed=USE_LIBMSEED):
     """
-    Load the appropriate module conditionally.
+    Dynamically import the MiniSEED module depending on configuration.
+
+    Parameters
+    ----------
+    use_libmseed : bool
+        If True, use cymseed (C-based), else pure Python mseed reader.
+
+    Returns
+    -------
+    module
+        The imported MiniSEED I/O module.
     """
     if use_libmseed:
         from shakelab.signals.libio import cymseed as mseed
@@ -45,456 +155,405 @@ def get_mseed_module(use_libmseed=USE_LIBMSEED):
         from shakelab.signals.libio import mseed
     return mseed
 
-FDSN_VERSION = 1
 
-DATA_CENTER_REGISTRY = {
-    'AUSPASS' : ' http://auspass.edu.au:8080',
-    'BGR' : 'https://eida.bgr.de',
-    'EMSC' : 'https://www.seismicportal.eu',
-    'ETH' : 'https://eida.ethz.ch',
-    'GEOFON' : 'https://geofon.gfz-potsdam.de',
-    'ICGC' : 'https://ws.icgc.cat',
-    'IESDMC' : 'http://batsws.earth.sinica.edu.tw',
-    'INGV' : 'https://webservices.ingv.it',
-    'IPGP' : 'http://ws.ipgp.fr',
-    'IRISDMC' : 'https://service.iris.edu',
-    'ISC' : 'http://www.isc.ac.uk',
-    'KAGSR' : 'http://sdis.emsd.ru',
-    'KOERI' : 'https://eida.koeri.boun.edu.tr',
-    'LMU' : 'https://erde.geophysik.uni-muenchen.de',
-    'NCEDC' : 'http://service.ncedc.org',
-    'NIEP' : 'https://eida-sc3.infp.ro',
-    'NOA' : 'http://eida.gein.noa.gr',
-    'ORFEUS' : 'https://orfeus-eu.org',
-    'RASPISHAKE' : 'https://fdsnws.raspberryshakedata.com',
-    'RESIF' : 'https://ws.resif.fr',
-    'SCEDC' : 'https://service.scedc.caltech.edu',
-    'UIB-NORSAR' : 'http://eida.geo.uib.no',
-    'USGS' : 'https://earthquake.usgs.gov',
-    'USP' : 'http://seisrequest.iag.usp.br',
-    'OGS-SCP' : 'http://158.110.30.85:8080',
-    'OGS-ANT' : 'http://158.110.30.202:5600'
-}
-
-STATION_DEFAULTS = {
-    "network" : "*",
-    "station" : "*",
-    "location" : "*",
-    "channel" : "*",
-    "starttime" : None,
-    "endtime" : None,
-    "startbefore" : None,
-    "startafter" : None,
-    "endbefore" : None,
-    "endafter" : None,
-    "level" : "response",
-    "includerestricted" : "true",
-    "includeavailability" : "false",
-    "updateafter" : None,
-    "matchtimeseries" : "false",
-    "format" : "xml",
-    "nodata" : "204"
-}
-
-BOX_SEARCH_DEFAULTS = {
-    "minlatitude" : -90,
-    "maxlatitude" : 90,
-    "minlongitude" : -180,
-    "maxlongitude" : 180,
-}
-
-RAD_SEARCH_DEFAULTS = {
-    "latitude" : 0,
-    "longitude" : 0,
-    "maxradius" : "180",
-    "minradius" : 0,
-}
-
-DATASELECT_DEFAULTS = {
-    "network" : "*",
-    "station" : "*",
-    "location" : "*",
-    "channel" : "*",
-    "starttime" : None,
-    "endtime" : None,
-    "quality" : "B",
-    "nodata" : "204",
-    "format" : "miniseed"
-}
-
-# Set up logging configuration
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
-
-
-class FDSNClient(object):
+class FDSNClient:
     """
+    Client to interact with FDSN web services.
     """
+
     def __init__(self, data_center='ORFEUS'):
         """
+        Initialize FDSN client with given data center.
         """
-        self.url = _init_data_center(data_center)
+        self.url = self._init_data_center(data_center)
 
     def get_waveform(self, fdsn_code, starttime, endtime,
                      correct=False, file_name=None, format='mseed'):
         """
+        Retrieve waveform data and optionally save to file.
+    
+        Parameters
+        ----------
+        fdsn_code : str
+            FDSN code (network.station.location.channel).
+        starttime : str
+            Start time of the waveform request (ISO8601 format).
+        endtime : str
+            End time of the waveform request (ISO8601 format).
+        correct : bool, optional
+            Apply instrument response correction (default is False).
+        file_name : str, optional
+            If given, save the waveform to this file.
+        format : str, optional
+            Output file format (default is 'mseed').
+    
+        Returns
+        -------
+        StreamCollection or bool
+            Waveform data as StreamCollection if file_name is None,
+            otherwise True if saved to file.
         """
         fc = FDSNCode(fdsn_code)
-
         sc = self.query_data(fc.get('dict'),
-                             starttime=starttime, endtime=endtime)
+                             starttime=starttime,
+                             endtime=endtime)
 
-        if sc is not None:
-            if correct:
-                xml = self.query_station(fc.get('dict'), level='response')
-                rc = parse_sxml(xml)
-                sc.deconvolve_response(rc)
+        if sc and correct:
+            xml = self.query_station(fc.get('dict'),
+                                     starttime=starttime,
+                                     endtime=endtime,
+                                     level='response')
+            rc = parse_sxml(xml)
+            sc.deconvolve_response(rc)
 
-            if file_name is None:
-                return sc
-            else:
-                writer(sc, file_name, format)
-                return True
+        if file_name:
+            writer(sc, file_name, format)
+            return True
+        else:
+            return sc
 
     def get_response(self, fdsn_code, starttime, endtime, file_name=None):
         """
+        Retrieve station metadata (including response) and
+        optionally save to file.
+    
+        Parameters
+        ----------
+        fdsn_code : str
+            FDSN code (network.station.location.channel).
+        starttime : str
+            Start time of the metadata request (ISO8601 format).
+        endtime : str
+            End time of the metadata request (ISO8601 format).
+        file_name : str, optional
+            If given, save the station metadata to this file.
+    
+        Returns
+        -------
+        dict or bool
+            Parsed station metadata as dictionary if file_name is None,
+            otherwise True if saved to file.
         """
         fc = FDSNCode(fdsn_code)
-        xml = self.query_station(fc.get('dict'), level='response')
+        xml = self.query_station(fc.get('dict'),
+                                 starttime=starttime,
+                                 endtime=endtime,
+                                 level='response')
 
-        if file_name is None:
-            return parse_sxml(xml)
-        else:
+        if file_name:
             logger.info("Writing response to file.")
             with open(file_name, 'w') as f:
                 f.write(xml)
-
-    def query_station(self, params={}, box_bounds=None, rad_bounds=None,
-                            file_name=None, **kwargs):
-        """
-        """
-        # Initiale and update query parameters
-        params = _params_update(params, STATION_DEFAULTS, **kwargs)
-
-        # Check for non standard values
-        params = _params_check(params)
-
-        # Fetch data using the _fdsn_query function
-        resp_data, content_type, error = _fdsn_query(
-            self.url, 'station', params
-            )
-        
-        # Check for errors
-        if error:
-            print(f"Error occurred: {error}")
+            return True
         else:
-            if resp_data:  # Check if there is any data
-                if isinstance(resp_data, bytes) and b'Error' in resp_data:
-                    # Decode bytes and print the error message
-                    print(resp_data.decode()) 
-                else:
-                    # Return the decoded content if it's not an error
-                    if isinstance(resp_data, bytes):
-                        return resp_data.decode()
-                    else:
-                        return resp_data
-            else:
-                print('No station available')
-                return None
+            return parse_sxml(xml)
 
-
-    def query_data(self, params={}, file_name=None, **kwargs):
+    def get_catalogue(self, starttime, endtime,
+                      magnitude=None, latitude=None, longitude=None,
+                      depth=None, file_name=None):
         """
-        """
-        if isinstance(params, (tuple, list)):
-            if '.' in params[0]:
-                net, sta, loc, chn = params[0].split(".")
-                params = {'network' : net,
-                          'station' : sta,
-                          'location' : loc,
-                          'channel' : chn,
-                          'starttime' : params[1],
-                          'endtime' : params[2]} 
-            else:
-                params = {'network' : params[0],
-                          'station' : params[1],
-                          'location' : params[2],
-                          'channel' : params[3],
-                          'starttime' : params[4],
-                          'endtime' : params[5]}
-
-        # Updating parameters
-        params = _params_update(params, DATASELECT_DEFAULTS, **kwargs)
-
-
-        # Convert time objects to iso8601 strings
-        starttime = params['starttime']
-        if isinstance(starttime, Date):
-            params['starttime'] = starttime.iso8601
+        Retrieve earthquake events catalogue and optionally save to file.
     
-        endtime = params['endtime']
-        if isinstance(endtime, Date):
-            params['endtime'] = endtime.iso8601
+        Parameters
+        ----------
+        starttime : str
+            Start time of the catalogue request (ISO8601 format).
+        endtime : str
+            End time of the catalogue request (ISO8601 format).
+        magnitude : list or tuple, optional
+            (min_magnitude, max_magnitude) bounds.
+        latitude : list or tuple, optional
+            (min_latitude, max_latitude) bounds.
+        longitude : list or tuple, optional
+            (min_longitude, max_longitude) bounds.
+        depth : list or tuple, optional
+            (min_depth, max_depth) bounds (in kilometers).
+        file_name : str, optional
+            If given, save the catalogue to this file.
+    
+        Returns
+        -------
+        str or bool
+            XML data as string, or True if saved to file.
+        """
+        params = {
+            'starttime': starttime,
+            'endtime': endtime,
+        }
+    
+        if magnitude is not None:
+            params['minmagnitude'] = magnitude[0]
+            params['maxmagnitude'] = magnitude[1]
+    
+        if latitude is not None:
+            params['minlatitude'] = latitude[0]
+            params['maxlatitude'] = latitude[1]
+    
+        if longitude is not None:
+            params['minlongitude'] = longitude[0]
+            params['maxlongitude'] = longitude[1]
+    
+        if depth is not None:
+            if depth[0] is not None:
+                params['mindepth'] = depth[0]
+            if depth[1] is not None:
+                params['maxdepth'] = depth[1]
+    
+        data = self.query_event(params)
+    
+        if file_name:
+            logger.info(f"Writing catalogue to {file_name}")
+            with open(file_name, 'w') as f:
+                f.write(data)
+            return True
 
-        # Check for non standard values
-        params = _params_check(params)
-
-        resp_data, content_type, error = _fdsn_query(
-            self.url, 'dataselect', params
-            )
-        
-        if error:
-            print(f"Error occurred: {error}")
+        if data:
+            return parse_quakeml(data)
+        else:
+            logger.warning("No catalogue data returned.")
             return None
-        else:
-            if resp_data:  # Check if there is data
-                if content_type == 'bytes' and b'Error' in resp_data:
-                    print(resp_data.decode())
-                else:
-                    if file_name is None:
-                        if params['format'] == 'miniseed':
-                            sc = base.StreamCollection()
-        
-                            mseed = get_mseed_module(USE_LIBMSEED)
-        
-                            # Import data from miniseed binary buffer
-                            mseed.msread(resp_data, stream_collection=sc)
-        
-                            # Cut waveform to proper time window (TO CHECK)
-                            for stream in sc:
-                                for record in stream:
-                                    record.cut(starttime, endtime, True)
-                            return sc
-                        else:
-                            raise ValueError('Format not supported')
-                    else:
-                        with open(file_name, 'wb') as f:
-                            f.write(resp_data)
-        
-            else:
-                print('No data available')
-                return None
 
-    def query_event(self):
+    def query_station(self, params=None, **kwargs):
         """
+        Query station metadata from the FDSN service.
         """
-        pass
+        params = _params_update(params or {}, STATION_DEFAULTS, **kwargs)
+        params = _params_check(params)
 
-    def query_info(self):
+        response = _fdsn_query(self.url, 'station', params)
+
+        if response.error:
+            logger.error(f"Error fetching station metadata: {response.error}")
+            return None
+
+        return (response.data.decode()
+                if isinstance(response.data, bytes) else response.data)
+
+    def query_data(self, params=None, file_name=None, **kwargs):
         """
+        Query waveform data from the FDSN service.
         """
-        pass
+        params = _params_update(params or {}, DATASELECT_DEFAULTS, **kwargs)
+        params = _params_check(params)
 
-def _init_data_center(data_center):
-    """
-    """
-    data_center_url = None
+        response = _fdsn_query(self.url, 'dataselect', params)
 
-    if data_center in DATA_CENTER_REGISTRY.keys():
-        data_center_url = DATA_CENTER_REGISTRY[data_center]
-    else:
-        if 'http' in data_center:
-            data_center_url = data_center
-        else:
-            raise ValueError('Not a valid data center')
+        if response.error:
+            logger.error(f"Error fetching waveform data: {response.error}")
+            return None
 
-    return data_center_url
+        if file_name:
+            with open(file_name, 'wb') as f:
+                f.write(response.data)
+            return True
 
-def _params_update(params, defaults, **kwargs):
-    """
-    Updating default parameters
-    """
-    params = {**defaults, **params}
+        if params['format'] == 'miniseed':
+            sc = base.StreamCollection()
+            mseed = get_mseed_module(USE_LIBMSEED)
+            mseed.msread(response.data, stream_collection=sc)
+            return sc
 
-    for key, value in kwargs.items():
-        if key in defaults.keys():
-            params[key] = value
+        raise ValueError(f"Unsupported format: {params['format']}")
 
-    return params
+    def query_event(self, params=None, **kwargs):
+        """
+        Query earthquake event data from the FDSN service.
+        """
+        params = _params_update(params or {}, EVENT_DEFAULTS, **kwargs)
+        params = _params_check(params)
 
-def _params_check(params):
-    """
-    """
-    # Checking for empty fields
-    params = {k: ("*" if v=="" else v) for (k,v) in params.items()}
+        response = _fdsn_query(self.url, 'event', params)
 
-    # Remove None entries
-    params = {k:v for (k,v) in params.items() if k is not None}
+        if response.error:
+            logger.error(f"Error fetching event data: {response.error}")
+            return None
 
-    return params
+        return (response.data.decode()
+                if isinstance(response.data, bytes) else response.data)
 
-def _fdsn_query(
-        url: str, service: str, params: dict,
-        retries: int = 3, timeout: int = 10
-        ) -> tuple:
-    """
-    Queries the FDSN service with robust error handling and retry mechanism.
-    
-    Args:
-        url (str): Base URL of the FDSN service.
-        service (str): The specific service being queried ('station', 'event', etc.).
-        params (dict): Query parameters.
-        retries (int): Number of retry attempts in case of failure (default is 3).
-        timeout (int): Timeout duration in seconds for each request.
-    
-    Returns:
-        tuple: (response_data, content_type, error_message)
-               - response_data: The content of the response (JSON, text, or bytes).
-               - content_type: Type of the response ('json', 'text', 'bytes').
-               - error_message: Error message if applicable, otherwise None.
-    """
-    full_url = f"{url}/fdsnws/{service}/{FDSN_VERSION}/query"
-    logger.info(
-        f"Querying {service} service at {full_url} with params: {params}"
-        )
+    def query_info(self, service='station'):
+        """
+        Query WADL service information for the specified service.
+        """
+        full_url = (f"{self.url}/fdsnws/{service}/{FDSN_VERSION}/"
+                    "application.wadl")
 
-    for attempt in range(retries):
         try:
-            response = requests.get(full_url, params=params, timeout=timeout)
-
-            # Raises HTTPError for bad HTTP codes
+            response = requests.get(full_url, timeout=5)
             response.raise_for_status()
-            
-            content_type = response.headers.get('Content-Type', '').lower()
-            logger.info(f"Received response with content type: {content_type}")
-            
-            if 'application/json' in content_type:
-                return response.json(), 'json', None
-            elif 'text/' in content_type:
-                return response.text, 'text', None
-            return response.content, 'bytes', None
+            return response.text
 
-        except Timeout:
-            logger.warning(
-                f"Timeout on attempt {attempt}/{retries} for URL: {full_url}"
-                )
-            if attempt == retries:
-                return None, None, "Timeout occurred after multiple attempts"
+        except RequestException as e:
+            logger.error(f"Error fetching service info: {e}")
+            return None
 
-        except requests.HTTPError as e:
-            logger.error(
-                f"HTTP error: {e} on attempt {attempt}/{retries}"
-                )
-            if attempt == retries:
-                return None, None, f"HTTP error: {e}"
+    def _init_data_center(self, data_center):
+        """
+        Resolve and return the URL for the specified data center.
+        """
+        if data_center in DATA_CENTER_REGISTRY:
+            return DATA_CENTER_REGISTRY[data_center]
 
-        except requests.RequestException as e:
-            logger.error(
-                f"Request exception: {e} on attempt {attempt}/{retries}"
-                )
-            if attempt == retries:
-                return None, None, f"Request exception: {e}"
+        if 'http' in data_center:
+            return data_center
 
-    logger.error(
-        f"Failed to fetch data from {full_url} after {retries} attempts."
-        )
-    return None, None, f"Failed after {retries} attempts"
+        raise ValueError(f"Invalid data center: {data_center}")
 
 
-def get_fdsn_data_center_registry():
+class FDSNCode:
     """
-    Data centers from the FDSN registry
+    Helper class to parse and format FDSN codes.
     """
-    url = "https://www.fdsn.org/ws/datacenters/1/query"
-
-    # Temporary patch of ssl problem, must be resolved
-    requests.packages.urllib3.disable_warnings()
-
-    resp = requests.get(url, verify=False)
-    data = json.loads(resp.content.decode())
-
-    return {dc['name'] : dc['website'] for dc in data["datacenters"]}
-
-
-class FDSNCode(object):
-    """
-    """
-    _KEYMAP = {
-        'network' : '',
-        'station' : '',
-        'location' : '',
-        'channel' : ''}
+    _KEYS = ('network', 'station', 'location', 'channel')
 
     def __init__(self, code=None, **kwargs):
+        """
+        Initialize FDSNCode instance.
+        """
+        for key in self._KEYS:
+            setattr(self, key, '')
 
-        # Initialise attributes to default value
-        for key in self._KEYMAP:
-            self._update_attribute(key, self._KEYMAP[key])
-
-        # Update attributes as a unique block argument
-        if code is not None:
+        if code:
             self.set(code)
 
-        # Update attributes as individual arguments
-        for key in kwargs:
-            self._update_attribute(key, kwargs[key])
+        for key, value in kwargs.items():
+            if key in self._KEYS:
+                setattr(self, key, value)
 
     def __repr__(self):
         return self.get('str')
 
-    def __eq__(self, code):
+    def __eq__(self, other):
+        """
+        Compare two FDSNCode objects.
+        """
+        if isinstance(other, str):
+            return self.get('str') == other
 
+        if isinstance(other, dict):
+            return self.get('dict') == other
+
+        if isinstance(other, (list, tuple)):
+            return self.get('list') == other
+
+        return False
+
+    def set(self, code):
+        """
+        Set code values from a string, dict or list.
+        """
         if isinstance(code, str):
-            return self.get('str') == code
+            parts = code.split('.')
+            for key, value in zip(self._KEYS, parts):
+                setattr(self, key, value)
 
-        if isinstance(code, dict):
-            return self.get('dict') == code
+        elif isinstance(code, dict):
+            for key, value in code.items():
+                setattr(self, key, value)
 
-        if isinstance(code, (list, tuple)):
-            return self.get('list') == code
-
-        else:
-            return False
-
-    def _update_attribute(self, key, value):
-        """
-        """
-        if key in self._KEYMAP:
-            exec('self.{0}={1}[0]'.format(key, [value]))
-
-    def _get_attribute(self, key):
-        """
-        """
-        return eval('self.{0}'.format(key))
-
-    def set(self, code=None):
-        """
-        """
-        if code is not None:
-            if isinstance(code, str):
-                self.set(dict(zip(self._KEYMAP.keys(), code.split('.'))))
-
-            elif isinstance(code, dict):
-                for key in code:
-                    self._update_attribute(key, code[key])
-
-            elif isinstance(code, (list, tuple)):
-                self.set(dict(zip(self._KEYMAP.keys(), code)))
-
-            else:
-                raise TypeError('Not a supported input type')
-
-    def get(self, dtype='str'):
-        """
-        """
-        if dtype == 'str':
-            return '{0}.{1}.{2}.{3}'.format(self.network,
-                                            self.station,
-                                            self.location,
-                                            self.channel)
-
-        elif dtype == 'dict':
-            return {'network' : self.network,
-                    'station' : self.station,
-                    'location' : self.location,
-                    'channel' : self.channel}
-
-        elif dtype == 'list':
-            return [self.network,
-                    self.station,
-                    self.location,
-                    self.channel]
+        elif isinstance(code, (list, tuple)):
+            for key, value in zip(self._KEYS, code):
+                setattr(self, key, value)
 
         else:
-            raise TypeError('Not a supported output type')
+            raise TypeError("Unsupported input type")
 
+    def get(self, format='str'):
+        """
+        Return code in specified format.
+        """
+        if format == 'str':
+            return (f"{self.network}.{self.station}."
+                    f"{self.location}.{self.channel}")
+
+        if format == 'dict':
+            return {key: getattr(self, key) for key in self._KEYS}
+
+        if format == 'list':
+            return [getattr(self, key) for key in self._KEYS]
+
+        raise TypeError("Unsupported output format")
+
+
+def _params_update(params, defaults, **kwargs):
+    """
+    Update parameters based on defaults and additional keyword arguments.
+    """
+    updated = {**defaults, **params, **kwargs}
+    return updated
+
+
+def _params_check(params):
+    """
+    Clean up parameters, replacing empty string fields with wildcard '*'.
+    """
+    if isinstance(params.get('starttime'), Date):
+        params['starttime'] = params['starttime'].iso8601
+
+    if isinstance(params.get('endtime'), Date):
+        params['endtime'] = params['endtime'].iso8601
+
+    param_clean = {}
+    for key, value in params.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and value == '':
+            param_clean[key] = '*'
+        else:
+            param_clean[key] = value
+    return param_clean
+
+
+def _fdsn_query(url, service, params, retries=3, timeout=10):
+    """
+    Perform a robust HTTP query to the specified FDSN service.
+    """
+    full_url = f"{url}/fdsnws/{service}/{FDSN_VERSION}/query"
+
+    logger.info(f"Querying {service} at {full_url} with params: {params}")
+
+    for attempt in range(1, retries + 1):
+        try:
+            response = requests.get(full_url, params=params, timeout=timeout)
+            response.raise_for_status()
+
+            content_type = response.headers.get('Content-Type', '').lower()
+
+            if 'application/json' in content_type:
+                return FDSNResponse(json.loads(response.content),
+                                    'json', None)
+
+            if 'application/xml' in content_type:
+                return FDSNResponse(response.text, 'text', None)
+
+            if 'text/' in content_type:
+                return FDSNResponse(response.text, 'text', None)
+
+            return FDSNResponse(response.content, 'bytes', None)
+
+        except Timeout:
+            logger.warning(f"Timeout attempt {attempt}/{retries} ",
+                           f"on {full_url}")
+
+        except RequestException as e:
+            logger.error(f"Request error: {e} on attempt ",
+                         f"{attempt}/{retries}")
+
+    return FDSNResponse(None, None, "Failed after retries")
+
+
+def get_fdsn_data_center_registry():
+    """
+    Fetch the current FDSN data center registry from official website.
+    """
+    url = "https://www.fdsn.org/ws/datacenters/1/query"
+    requests.packages.urllib3.disable_warnings()
+
+    try:
+        resp = requests.get(url, verify=False)
+        data = resp.json()
+        return {dc['name']: dc['website'] for dc in data['datacenters']}
+
+    except Exception as e:
+        logger.error(f"Failed to fetch FDSN datacenter registry: {e}")
+        return {}
