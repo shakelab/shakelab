@@ -177,11 +177,11 @@ class Spectrum():
 
         self.dfreq = _dfreq(self.head.delta, nsamp)
 
-        self.data = _fft(data, nsamp)
+        self.data = _fft(data, nsamp) * self.head.delta
 
         if norm:
             # to check
-            self.data =  self.data / self.head.delta / self.nsamp
+            self.data =  self.data / self.nsamp
 
     def ifft(self, nsamp=None, norm=False):
         """
@@ -196,11 +196,11 @@ class Spectrum():
         if nsamp is None:
             nsamp = self.nsamp
 
-        data = _ifft(self.data, nsamp)
+        data = _ifft(self.data, nsamp) / self.head.delta
 
         if norm:
             # to check
-            data = data / self.dfreq * self.nfreq
+            data = data * self.nsamp
 
         return data
 
@@ -280,51 +280,46 @@ class Spectrum():
         f = interpolate.interp1d(self.frequency, self.data)
         return f(frequency)
 
-    def logsmooth(self, sigma=0.2, memsafe=False):
+    def logsmooth(self, sigma=0.2, truncation=3):
         """
-        Logarithm smoothing of (complex) spectra.
-
+        Fast logarithmic smoothing using local Gaussian kernel
+        (sliding window).
+        
         Args:
-            sigma (float, optional): The smoothing parameter.
-            memsafe (bool, optional): If True, a memory-saving algorithm is
-            used.
-
-        Returns:
-            array-like: The smoothed spectrum.
-
-        Notes:
-            - 0-frequency is preserved
-            - algorithm is slow and memory consuming, must be optimized.
-        """
-
-        slen = len(self) - 1
-        freq = np.log(self.frequency[1:]) / (np.sqrt(2) * sigma)
-        data = np.log(self.data[1:])
-        s0 = self.data[0]
-
-        if not memsafe:
-            # Fast vectorial version, although memory consuming
-
-            # Gaussian weighting window
-            g = np.exp(-(np.tile(freq, slen) - np.repeat(freq, slen))**2)
-            g = g.reshape(slen, slen)
+            sigma (float): Gaussian std dev in log-frequency units.
+            truncation (int): Number of std devs to include in window.
             
-            sumg = np.matmul(g, np.ones(slen))
-            smat = g / sumg
+        Returns:
+            array-like: Smoothed complex spectrum.
+        """
+        freq = self.frequency_axis
+        spec = self.data
 
-            return np.insert(np.exp(np.matmul(data, smat)), 0, s0)
+        if freq[0] != 0:
+            raise ValueError("First frequency must be zero.")
 
-        else:
-            # Slower version, but memory saving for large time series.
-            sdata = np.zeros(slen, dtype='complex')
+        f = freq[1:]
+        s = spec[1:]
+        N = len(f)
+    
+        logf = np.log(f)
+        logs = np.log(s)
 
-            for i,f0 in enumerate(freq):
-                # Gaussian weighting window
-                g = np.exp(-(freq - f0)**2)
+        smoothed_log = np.empty(N, dtype=complex)
 
-                sdata[i]= np.matmul(data, g/sum(g))
+        for i in range(N):
+            center = logf[i]
+            dlog = logf - center
+            in_band = np.abs(dlog) <= truncation * sigma
+            if not np.any(in_band):
+                smoothed_log[i] = logs[i]
+                continue
+            weights = np.exp(-(dlog[in_band] / (np.sqrt(2) * sigma))**2)
+            weights /= np.sum(weights)
+            smoothed_log[i] = np.sum(weights * logs[in_band])
 
-            return np.insert(np.exp(sdata), 0, s0)
+        smoothed = np.exp(smoothed_log)
+        self.data = np.insert(smoothed, 0, spec[0])
 
 
 def rfft_length(nsamp):

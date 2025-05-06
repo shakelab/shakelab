@@ -198,6 +198,11 @@ class FDSNClient:
                              starttime=starttime,
                              endtime=endtime)
 
+        # Cut data precisely to defined time window
+        for stream in sc:
+            for record in stream:
+                record.cut(starttime, endtime)
+
         if sc and correct:
             xml = self.query_station(fc.get('dict'),
                                      starttime=starttime,

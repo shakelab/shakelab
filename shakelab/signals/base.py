@@ -865,7 +865,11 @@ class StreamCollection():
         """
         """
         if isinstance(id, str):
-            return self.stream[self._idx(id)]
+            code = self._idx(id)
+            if code is not None:
+                return self.stream[code]
+            else:
+                return None
         else:
             return self.stream[id]
 
