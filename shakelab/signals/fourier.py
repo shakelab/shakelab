@@ -59,7 +59,7 @@ class Spectrum():
             Apply highpass and lowpass filtering.
         resample(self, frequency):
             Extract spectrum samples at specific frequencies.
-        logsmooth(self, sigma=0.2, memsafe=False):
+        logsmooth(self, sigma=0.2, truncation=3):
             Logarithm smoothing of (complex) spectra.
     """
 

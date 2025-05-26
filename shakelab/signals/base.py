@@ -573,8 +573,8 @@ class Record(object):
             self.data = corrected_record.data
 
         elif isinstance(resp, response.StageRecord):
-            for stage in resp.stage:
-                self.convolve_response(stage)
+            corrected_record = resp.convolve_record(self)
+            self.data = corrected_record.data
 
         elif isinstance(resp, response.StreamResponse):
             self.convolve_response(resp[self.head.time])
@@ -597,8 +597,8 @@ class Record(object):
             self.data = corrected_record.data
 
         elif isinstance(resp, response.StageSet):
-            for stage in resp.stage:
-                self.deconvolve_response(stage)
+            corrected_record = resp.deconvolve_record(self)
+            self.data = corrected_record.data
 
         elif isinstance(resp, response.StreamResponse):
             self.deconvolve_response(resp[time])

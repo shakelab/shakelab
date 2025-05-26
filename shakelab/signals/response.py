@@ -307,7 +307,7 @@ class StageSet():
         if isinstance(record, base.Record):
             rec_mod = record.copy()
             for stage in self.stage:
-                if ACTIVE_STAGES(stage.stage_type):
+                if ACTIVE_STAGES[stage.stage_type]:
                     rec_mod = stage.convolve_record(rec_mod)
             return rec_mod
         raise NotImplementedError('Unsupported record type')
@@ -319,7 +319,7 @@ class StageSet():
         if isinstance(record, base.Record):
             rec_mod = record.copy()
             for stage in self.stage:
-                if ACTIVE_STAGES(stage.stage_type):
+                if ACTIVE_STAGES[stage.stage_type]:
                     rec_mod = stage.deconvolve_record(rec_mod)
             return rec_mod
         raise NotImplementedError('Unsupported record type')
@@ -512,7 +512,7 @@ class StagePoleZero(StageResponse):
         spec.data = spec.data.astype(complex) * resp.data
         return spec.to_record()
 
-    def deconvolve_record(self, record, waterlevel=100):
+    def deconvolve_record(self, record, waterlevel=120):
         """
         Remove the response from a record using spectral division.
         """
@@ -747,7 +747,7 @@ def fir_transfer_function(ncoeff, dcoeff, nsamp, delta=1.0):
     freqs = omega / (2 * np.pi * delta)  # Hz
     return num / den, freqs
 
-def inverse_spectrum(spectrum, waterlevel=100, method='smooth'):
+def inverse_spectrum(spectrum, waterlevel=120, method='smooth'):
     """
     THIS COULD BE MOVED TO FOURIER MODULE
     """

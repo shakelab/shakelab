@@ -167,7 +167,7 @@ class FDSNClient:
         """
         self.url = self._init_data_center(data_center)
 
-    def get_waveform(self, fdsn_code, starttime, endtime,
+    def get_waveform(self, fdsn_code, starttime, endtime, filter=None,
                      correct=False, file_name=None, format='mseed'):
         """
         Retrieve waveform data and optionally save to file.
@@ -202,6 +202,8 @@ class FDSNClient:
         for stream in sc:
             for record in stream:
                 record.cut(starttime, endtime)
+                if filter is not None:
+                    record.filter(filter[0], filter[1])
 
         if sc and correct:
             xml = self.query_station(fc.get('dict'),
