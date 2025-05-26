@@ -28,7 +28,7 @@ import csv
 import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union, Tuple
 from scipy.interpolate import griddata
 
 
@@ -98,6 +98,66 @@ class ShakeMapGMData:
 
     def __len__(self):
         return len(self.grid)
+
+    def get_ground_motion(
+        self,
+        sites: Union[Tuple[float, float], List[Tuple[float, float]]],
+        parameters: Optional[List[str]] = None,
+        nan_fill: Optional[float] = None
+        ) -> List[Dict[str, float]]:
+        """
+        Interpolate ground motion values at one or more site coordinates.
+    
+        Parameters
+        ----------
+        sites : tuple or list of tuples
+            Coordinates (longitude, latitude) of the site(s).
+        parameters : list of str, optional
+            Parameters to retrieve. If None, all available are returned.
+        nan_fill : float, optional
+            Value to replace NaNs. If None, NaNs are preserved.
+    
+        Returns
+        -------
+        list of dict
+            One dictionary per site with {parameter: value} pairs.
+        """
+        if isinstance(sites, tuple):
+            sites = [sites]
+    
+        x = [row["LON"] for row in self.grid]
+        y = [row["LAT"] for row in self.grid]
+    
+        if parameters is None:
+            parameters = [k for k in self.grid[0] if k not in ("LON", "LAT")]
+            if self.uncertainty:
+                parameters += [
+                    k for k in self.uncertainty[0]
+                    if k.startswith("STD") and k not in ("LON", "LAT")
+                ]
+    
+        output = [{} for _ in sites]
+    
+        for param in parameters:
+            if param.startswith("STD") and self.uncertainty:
+                z = [row.get(param, float("nan")) for row in self.uncertainty]
+            else:
+                z = [row.get(param, float("nan")) for row in self.grid]
+    
+            interp = griddata(
+                points=list(zip(x, y)),
+                values=z,
+                xi=sites,
+                method="linear"
+            )
+    
+            for i, val in enumerate(interp):
+                if nan_fill is not None and (val is None or str(val) == "nan"):
+                    output[i][param] = nan_fill
+                else:
+                    output[i][param] = float(val)
+    
+        return output
 
     def export_csv(self,
                    path,
@@ -369,6 +429,59 @@ class ShakeMapEvent:
             self.gm_data = gm_data
             self.stations = stations
 
+    @property
+    def event_id(self) -> str:
+        if not self.info:
+            return "N/A"
+        return self.info.get("input", {}).get(
+            "event_information", {}
+        ).get("event_id", "N/A")
+    
+    
+    @property
+    def magnitude(self) -> str:
+        if not self.info:
+            return "N/A"
+        return self.info.get("input", {}).get(
+            "event_information", {}
+        ).get("magnitude", "N/A")
+    
+    
+    @property
+    def origin_time(self) -> str:
+        if not self.info:
+            return "N/A"
+        return self.info.get("input", {}).get(
+            "event_information", {}
+        ).get("origin_time", "N/A")
+    
+    
+    @property
+    def latitude(self) -> str:
+        if not self.info:
+            return "N/A"
+        return self.info.get("input", {}).get(
+            "event_information", {}
+        ).get("latitude", "N/A")
+    
+    
+    @property
+    def longitude(self) -> str:
+        if not self.info:
+            return "N/A"
+        return self.info.get("input", {}).get(
+            "event_information", {}
+        ).get("longitude", "N/A")
+    
+    
+    @property
+    def depth(self) -> str:
+        if not self.info:
+            return "N/A"
+        return self.info.get("input", {}).get(
+            "event_information", {}
+        ).get("depth", "N/A")
+
     def load_folder(self,
                     folder: Path,
                     load_stations: bool = True,
@@ -412,6 +525,37 @@ class ShakeMapEvent:
     def load_stations(self, path: Path) -> None:
         """Load station observations from a stationlist.json file."""
         self.stations = _load_json(path)
+
+    def get_ground_motion(
+        self,
+        sites: Union[Tuple[float, float], List[Tuple[float, float]]],
+        parameters: Optional[List[str]] = None,
+        nan_fill: Optional[float] = None
+        ) -> List[Dict[str, float]]:
+        """
+        Get ground motion values at one or more sites via interpolation.
+    
+        Parameters
+        ----------
+        sites : tuple or list of tuples
+            Coordinates (longitude, latitude) of one or more sites.
+        parameters : list of str, optional
+            Parameters to retrieve. If None, all available are returned.
+        nan_fill : float, optional
+            Value to replace NaNs. If None, NaNs are preserved.
+    
+        Returns
+        -------
+        list of dict
+            One dictionary per site with {parameter: value} pairs.
+        """
+        if not self.gm_data:
+            raise RuntimeError("Grid data not loaded.")
+        return self.gm_data.get_ground_motion(
+            sites=sites,
+            parameters=parameters,
+            nan_fill=nan_fill
+        )
 
     def export(self,
                path,
