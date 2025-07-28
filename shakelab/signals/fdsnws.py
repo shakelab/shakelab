@@ -198,6 +198,9 @@ class FDSNClient:
                              starttime=starttime,
                              endtime=endtime)
 
+        if sc is None:
+            return None
+
         # Cut data precisely to defined time window
         for stream in sc:
             for record in stream:
@@ -347,6 +350,10 @@ class FDSNClient:
 
         if response.error:
             logger.error(f"Error fetching waveform data: {response.error}")
+            return None
+
+        if not response.data:
+            logger.warning(f"No data returned.")
             return None
 
         if file_name:

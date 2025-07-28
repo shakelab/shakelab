@@ -262,6 +262,8 @@ class ShakeMapGMData:
         """
         Internal: Load site list from CSV or GeoJSON, or use grid as fallback.
     
+        Supports flexible field names like 'lon', 'latitude', 'site_id'.
+    
         Parameters
         ----------
         site_file : str or Path or None
@@ -286,6 +288,19 @@ class ShakeMapGMData:
     
         site_file = Path(site_file)
     
+        id_keys = ["id", "site_id", "name"]
+        lon_keys = ["longitude", "lon"]
+        lat_keys = ["latitude", "lat"]
+    
+        def _get_first_key(d: Dict[str, str],
+                           keys: List[str],
+                           label: str) -> str:
+            for k in keys:
+                if k in d:
+                    return d[k]
+            raise ValueError(f"Missing required field '{label}' "
+                             f"(expected one of {keys})")
+    
         if fmt == "csv":
             with open(site_file, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
@@ -293,12 +308,14 @@ class ShakeMapGMData:
                 for row in reader:
                     try:
                         site = {
-                            "id": row["id"],
-                            "longitude": float(row["longitude"]),
-                            "latitude": float(row["latitude"])
+                            "id": _get_first_key(row, id_keys, "id"),
+                            "longitude": float(_get_first_key(
+                                row, lon_keys, "longitude")),
+                            "latitude": float(_get_first_key(
+                                row, lat_keys, "latitude"))
                         }
-                    except KeyError as e:
-                        raise ValueError(f"Missing field in CSV: {e}")
+                    except ValueError as e:
+                        raise ValueError(f"Error parsing site file: {e}")
                     sites.append(site)
                 return sites
     
@@ -315,11 +332,11 @@ class ShakeMapGMData:
                     props = feat["properties"]
                     coords = feat["geometry"]["coordinates"]
                     site = {
-                        "id": props["id"],
+                        "id": _get_first_key(props, id_keys, "id"),
                         "longitude": float(coords[0]),
                         "latitude": float(coords[1])
                     }
-                except (KeyError, TypeError, IndexError):
+                except (KeyError, TypeError, IndexError, ValueError) as e:
                     raise ValueError(
                         "GeoJSON feature must include 'properties.id' and "
                         "Point geometry with [lon, lat] coordinates."
@@ -481,6 +498,17 @@ class ShakeMapEvent:
         return self.info.get("input", {}).get(
             "event_information", {}
         ).get("depth", "N/A")
+
+    @property
+    def units(self) -> Dict[str, str]:
+        if not self.info:
+            return {}
+        return {
+            k: v.get("units", "unknown")
+            for k, v in self.info.get("output", {}).get(
+                "ground_motions", {}
+                ).items()
+        }
 
     def load_folder(self,
                     folder: Path,
@@ -664,6 +692,12 @@ class ShakeMapEvent:
         else:
             print("Stations loaded: No")
 
+        # Unit info
+        if self.info:
+            print("Units (from info.json):")
+            units = self.get_units()
+            for k, u in units.items():
+                print(f"  {k}: {u}")
 
 # -------------------------------------------------------------------------
 # Internal helper functions

@@ -24,16 +24,14 @@ import numpy as np
 
 from scipy import signal, fftpack, integrate
 from copy import deepcopy
+from collections import deque
 
 from shakelab.signals import fourier
 from shakelab.signals import response
 from shakelab.signals import io
 from shakelab.libutils.time import Date
-from shakelab.libutils.constants import PI, GRAVITY
 from shakelab.libutils.geodetic import WgsPoint
-from shakelab.structures.response import (sdof_response_spectrum,
-                                          sdof_interdrift,
-                                          newmark_integration)
+
 
 numeric_type = (int, float, complex,
                 np.int8, np.int16, np.int32, np.int64,
@@ -304,11 +302,25 @@ class Record(object):
         return self.head.time + self.duration
 
     @property
-    def duration(self):
+    def duration(self, decimals=None):
         """
-        TO CHECK: Rounding might be needed.
+        Duration of the Record in seconds.
         """
-        return (len(self) - 1) * self.head.delta
+        duration = (len(self) - 1) * self.head.delta
+        if decimals is None:
+            decimals = max(0, -int(np.floor(np.log10(self.head.delta))) + 4)
+        return round(duration, decimals)
+
+    @property
+    def peak(self):
+        """
+        """
+        return np.max(np.abs(self.data))
+
+    def copy(self):
+        """
+        """
+        return deepcopy(self)
 
     def info(self):
         """
@@ -412,58 +424,106 @@ class Record(object):
         else:
             self.data = signal.sosfiltfilt(sos, self.data)
 
+    def resample(self, new_delta, method='scipy', antialias=True):
+        """
+        Resample the record data to a new sampling interval.
+    
+        Args:
+            new_delta (float): New sampling interval (s).
+            method (str): Resampling method:
+                - 'scipy': uses scipy.signal.resample
+                - 'interp': linear interpolation
+            antialias (bool): Apply low-pass filter if downsampling.
+    
+        Raises:
+            ValueError: if unsupported method or invalid parameters.
+        """
+        if new_delta <= 0:
+            raise ValueError("new_delta must be positive.")
+    
+        factor = self.delta / new_delta
+        new_len = int(np.round(len(self.data) * factor))
+    
+        if antialias and new_delta > self.delta:
+            nyq = 0.5 / new_delta
+            sos = signal.butter(
+                4, nyq, btype='low', fs=1/self.delta, output='sos'
+            )
+            self.data = signal.sosfiltfilt(sos, self.data)
+    
+        if method == 'scipy':
+            self.data = signal.resample(self.data, new_len)
+        elif method == 'interp':
+            t_old = np.arange(len(self.data)) * self.delta
+            t_new = np.arange(new_len) * new_delta
+            self.data = np.interp(t_new, t_old, self.data)
+        else:
+            raise ValueError("Unsupported resampling method.")
+    
+        self.delta = new_delta
+
     def cut(self, starttime=None, endtime=None, inplace=True):
         """
-        TO BE VERIFIED!        
-        Time can be absolute time or seconds from beginning of the trace.
-        Cut the signal in place to the nearest time sample.
-        NOTE: Include the duration option
+        Cut the signal between starttime and endtime with sample precision.
+    
+        Parameters
+        ----------
+        starttime : Date, str, float, optional
+            Start time as Date, ISO string, or seconds from trace start.
+        endtime : Date, str, float, optional
+            End time as Date, ISO string, or seconds from trace start.
+        inplace : bool, default True
+            If True, modify the record in place. If False, return a new Record.
+    
+        Returns
+        -------
+        Record or None
+            New cut Record if inplace=False, otherwise None.
         """
-        i0 = 0
-        t0 = 0.
-        i1 = len(self) - 1
+        t0 = 0.0
         t1 = self.duration
-
-        if (starttime is not None):
+    
+        # Convert starttime
+        if starttime is not None:
             if isinstance(starttime, Date):
-                t0 = starttime - self.head.time
+                t0 = (starttime - self.head.time)
             elif isinstance(starttime, str):
-                t0 = Date(starttime) - self.head.time
+                t0 = (Date(starttime) - self.head.time)
             elif isinstance(starttime, (int, float)):
                 t0 = starttime
-
-        if (endtime is not None):
+    
+        # Convert endtime
+        if endtime is not None:
             if isinstance(endtime, Date):
-                t1 = endtime - self.head.time
+                t1 = (endtime - self.head.time)
             elif isinstance(endtime, str):
-                t1 = Date(endtime) - self.head.time
+                t1 = (Date(endtime) - self.head.time)
             elif isinstance(endtime, (int, float)):
                 t1 = endtime
-
-        # TO CHECK!
-        #t0 -= self.delta
-        t1 += self.delta
-
-        if (0. < t0 < self.duration):
-            i0 = int(np.argwhere(self.time_axis() > t0)[0])
-
-        if (0. < t1 < self.duration):
-            i1 = int(np.argwhere(self.time_axis() < t1)[-1])
-
-        if (i1 > i0):
-            if inplace:
-                self.data = self.data[i0:i1+1]
-                #self.head.time += t0 + self.delta
-                self.head.time += t0 # TO CHECK
-            else:
-                rec = self.copy()
-                rec.data = self.data[i0:i1+1]
-                rec.head.time += t0 + self.delta
-                return rec
-
-        else:
-            print('Warning: endtime before starttime')
+    
+        # Clamp to available data duration
+        t0 = max(t0, 0.0)
+        t1 = min(t1, self.duration)
+    
+        if t1 <= t0:
+            print("Warning: endtime <= starttime")
             return None
+    
+        # Calculate indices
+        i0 = int(round(t0 / self.delta))
+        i1 = int(round(t1 / self.delta))
+    
+        # Ensure i1 does not exceed data length (interval is [start, end))
+        i1 = min(i1, len(self.data))
+    
+        if inplace:
+            self.data = self.data[i0:i1]
+            self.head.time += i0 * self.delta
+        else:
+            rec = self.copy()
+            rec.data = self.data[i0:i1]
+            rec.head.time += i0 * self.delta
+            return rec
 
     def extract(self, starttime=None, endtime=None):
         """
@@ -481,7 +541,8 @@ class Record(object):
             alpha = 1
         else:
             alpha = min(2 * float(time)/(self.head.delta * tnum), 1)
-        self.data = self.data * signal.tukey(tnum, alpha)
+        #self.data = self.data * signal.tukey(tnum, alpha)
+        self.data = self.data * tukey_window(tnum, alpha)
 
     def zero_padding(self, time):
         """
@@ -613,125 +674,6 @@ class Record(object):
         else:
             raise ValueError('Not a valid reponse object')
 
-    @property
-    def analytic_signal(self):
-        """
-        Compute the analytic signal using the Hilbert transform.
-        The Hilbert transformed signal will be the imaginary part of
-        the analytical signal.
-        """
-        return signal.hilbert(self.data)
-
-    @property
-    def amplitude_envelope(self):
-        """
-        """
-        return np.abs(self.analytic_signal)
-
-    @property
-    def instantaneous_phase(self):
-        """
-        """
-        return np.unwrap(np.angle(self.analytic_signal))
-
-    @property
-    def instantaneous_frequency(self):
-        """
-        """
-        return np.diff(self.instantaneous_phase) / (2*PI) * self.head.rate
-
-    @property
-    def peak_amplitude(self):
-        """
-        """
-        return np.max(np.abs(self.data))
-
-    def arias_intesity(self):
-        """
-        """
-        integral = integrate.trapz(self.data**2, dx=self.head.delta)
-        return PI * integral / (2*GRAVITY)
-
-    def cumulative_absolute_velocity(self):
-        """
-        """
-        return integrate.trapz(np.abs(self.data), dx=self.head.delta)
-
-    def bracketed_duration(self, threshold=0.05):
-        """
-        """
-        data = np.argwhere(np.abs(self.data) >= threshold)
-
-        if data.size != 0:
-            i0 = data[0][0]
-            i1 = data[-1][0]
-
-            time = self.time_axis()
-            return time[i1] - time[i0]
-
-        else:
-            return None
-
-    def significant_duration(self, threshold=(0.05,0.95)):
-        """
-        """
-        num = integrate.cumtrapz(self.data**2, dx=self.head.delta)
-        den = integrate.trapz(self.data**2, dx=self.head.delta)
-        cum_arias = num/den
-
-        i0 = np.argwhere(cum_arias >= threshold[0])[0][0]
-        i1 = np.argwhere(cum_arias <= threshold[1])[-1][0]
-
-        time = self.time_axis()
-        return time[i1] - time[i0]
-
-    def root_mean_square(self):
-        """
-        """
-        integral = integrate.trapz(self.data**2, dx=self.head.delta)
-
-        return np.sqrt(integral/self.duration)
-
-    def sdof_response_spectrum(self, periods, zeta=0.05):
-        """
-        """
-        periods = np.array(periods, ndmin=1)
-
-        rssp = sdof_response_spectrum(self.data, self.head.delta,
-                                      periods, zeta=zeta)
-
-        return {'sd' : rssp[0],
-                'sv' : rssp[1],
-                'sa' : rssp[2],
-                'psv' : rssp[3],
-                'psa' : rssp[4]}
-
-    def sdof_convolve(self, period, zeta=0.05):
-        """
-        """
-        resp = newmark_integration(self.data, self.head.delta,
-                                   period, zeta=zeta)
-
-        return {'d' : resp[0],
-                'v' : resp[1],
-                'a' : resp[2]}
-
-    def sdof_interdrift(self, period, zeta=0.05):
-        """
-        """
-        return sdof_interdrift(self.data, self.head.delta,
-                               period, zeta=zeta)
-
-    def soil1d_convolve(self, model1d, component='sh', angle=0.):
-        """
-        """
-        pass
-
-    def copy(self):
-        """
-        """
-        return deepcopy(self)
-
 
 class Stream(object):
     """
@@ -852,10 +794,116 @@ class Stream(object):
         for rec in self.record:
             rec.deconvolve_response(resp)
 
+
+class CircularStream(Stream):
+    """
+    A time-limited circular buffer stream, compatible with disjoint records.
+    Stores only the most recent data within a time window (max_duration).
+    """
+
+    def __init__(self, id=None, max_duration=3600.0):
+        """
+        Initialize a CircularStream.
+
+        Parameters
+        ----------
+        id : str, optional
+            Station/channel ID.
+        max_duration : float
+            Maximum time window in seconds to retain data.
+        """
+        super().__init__(id=id)
+        self.record = deque()
+        self.max_duration = max_duration
+
+    def append(self, record, enforce=False):
+        """
+        Append a record to the stream and discard old data if needed.
+
+        Parameters
+        ----------
+        record : Record
+            The record to append.
+        enforce : bool, default False
+            If True, allows padding/discarding to enforce continuity.
+        """
+        if self.sid is None:
+            self.sid = record.sid
+
+        if self.sid != record.sid:
+            raise ValueError("Record ID mismatching")
+
+        if not self.record:
+            self.record.append(record)
+        else:
+            last = self.record[-1]
+            if not last.append(record, enforce=enforce):
+                self.record.append(record)
+
+        self._enforce_duration_limit()
+
+    def _enforce_duration_limit(self):
+        """
+        Enforce the circular buffer by discarding records or trimming
+        the oldest one to stay within max_duration.
+        """
+        if not self.record:
+            return
+
+        cutoff = self.record[-1].endtime - self.max_duration
+
+        while self.record and self.record[0].endtime <= cutoff:
+            self.record.popleft()
+
+        if self.record and self.record[0].starttime < cutoff:
+            trimmed = self.record[0].extract(cutoff,
+                                             self.record[0].endtime)
+            self.record[0] = trimmed
+
+    def extract(self, starttime=None, endtime=None, eid=None):
+        """
+        Extract a time window from all available records.
+
+        Parameters
+        ----------
+        starttime : Date, str, or float
+            Start time of the window.
+        endtime : Date, str, or float
+            End time of the window.
+        eid : str, optional
+            Event ID (not used in circular buffer).
+
+        Returns
+        -------
+        Record or None
+            A new Record containing the merged segment, or None.
+        """
+        out = None
+        for rec in self.record:
+            sel = rec.extract(starttime, endtime)
+            if sel is not None:
+                if out is None:
+                    out = sel
+                else:
+                    out.append(sel, enforce=True)
+        return out
+
+
 class StreamCollection():
     """
     """
-    def __init__(self):
+    def __init__(self, max_duration=None):
+        """
+        Initialize the collection.
+
+        Parameters
+        ----------
+        max_duration : float, optional
+            If provided, activates a circular buffer of given duration (s)
+            for each stream. Otherwise, standard Stream is used.
+        """
+        self.stream_class = CircularStream if max_duration else Stream
+        self.max_duration = max_duration
         self.stream = []
 
     def __len__(self):
@@ -865,21 +913,16 @@ class StreamCollection():
         """
         """
         if isinstance(id, str):
-            code = self._idx(id)
-            if code is not None:
-                return self.stream[code]
-            else:
-                return None
-        else:
-            return self.stream[id]
+            idx = self._idx(id)
+            return self.stream[idx] if idx is not None else None
+        return self.stream[id]
 
     def _idx(self, id):
         """
         """
-        sid_list = self.sid
-        if id in sid_list:
-            return sid_list.index(id)
-        else:
+        try:
+            return self.sid.index(id)
+        except ValueError:
             print('Id not found.')
             return None
 
@@ -925,10 +968,23 @@ class StreamCollection():
 
     def append(self, data):
         """
+        Append a Record or Stream to the collection.
+
+        Parameters
+        ----------
+        data : Record or Stream
+            The data to be added.
         """
         sid = data.sid
         if sid not in self.sid:
-            self.stream.append(Stream(sid))    
+            if self.max_duration:
+                new_stream = self.stream_class(
+                    id=sid,
+                    max_duration=self.max_duration
+                    )
+            else:
+                new_stream = self.stream_class(id=sid)
+            self.stream.append(new_stream)
         self[sid].append(data)
 
     def remove(self):
@@ -978,3 +1034,28 @@ class StreamCollection():
         """
         """
         return deepcopy(self)
+
+
+def tukey_window(N, alpha=0.5):
+    """
+    Replicates scipy.signal.tukey(N, alpha)
+    """
+    if alpha <= 0:
+        return np.ones(N)
+    elif alpha >= 1:
+        return np.hanning(N)
+
+    x = np.linspace(0, 1, N)
+    w = np.ones(x.shape)
+
+    # first condition 0 <= x < alpha/2
+    mask = x < alpha / 2
+    w[mask] = 0.5 * (1 + np.cos(
+        2 * np.pi / alpha * (x[mask] - alpha / 2)))
+
+    # second condition 1 - alpha/2 < x <= 1
+    mask = x > (1 - alpha / 2)
+    w[mask] = 0.5 * (1 + np.cos(
+        2 * np.pi / alpha * (x[mask] - 1 + alpha / 2)))
+
+    return w

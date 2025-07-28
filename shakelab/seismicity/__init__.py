@@ -1,1 +1,0 @@
-from .usgs import ShakeMapEvent, ShakeMapGMData
