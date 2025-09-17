@@ -418,21 +418,6 @@ class EqDatabase(object):
                 return event
         return None
 
-    def read(self):
-        """
-        """
-        pass
-
-    def write(self):
-        """
-        """
-        pass
-
-    def copy(self):
-        """
-        """
-        return deepcopy(self)
-
     def filter(self, key, operator, value, delete_empty=True):
         """
         Note: this method will filter solutions in place.
@@ -495,13 +480,16 @@ class EqDatabase(object):
             for ide in ide_list:
                 del self.event[ide]
 
-    def extract(self, key, remove_empty=True, any=False):
+    def list_values(self, key, remove_empty=True, any=False):
         """
         """
         values = []
 
-        if key == 'Id':
+        if key.lower() == 'id':
             return [e['Id'] for e in self]
+
+        elif key.lower() == 'date':
+            return [e.location.prime.date for e in self]
 
         elif key in _LOCMAP:
             for e in self:
@@ -528,24 +516,125 @@ class EqDatabase(object):
     def get_range(self, key):
         """
         """
-        values = self.extract(key, remove_empty=True)
+        values = self.list_values(key, remove_empty=True)
         return [min(values), max(values)]
 
-    def sort_by_date(self):
+    def sort(self, key='Date', reverse=False):
         """
-        Sorting is performed on prime location solutions
+        Sort the database events by a given key.
+    
+        Parameters
+        ----------
+        key : str
+            Field name to sort by. It can be:
+            - 'Id'
+            - 'Date' (prime location date)
+            - Any key from location (_LOCMAP)
+            - Any key from magnitude (_MAGMAP)
+        reverse : bool, default False
+            If True, sort in descending order.
         """
-        time = []
-        for event in self.event:
-            time.append(event.location.prime.date.to_seconds())
+        if key.lower() == 'id':
+            sort_values = [e.id for e in self.event]
+    
+        elif key.lower() == 'date':
+            # Sort by prime location date (converted to seconds)
+            sort_values = [
+                e.location.prime.date.to_seconds()
+                if e.location.prime else None
+                for e in self.event
+            ]
+    
+        elif key in _LOCMAP:
+            sort_values = [
+                e.location.prime[key] if e.location.prime else None
+                for e in self.event
+            ]
+    
+        elif key in _MAGMAP:
+            sort_values = [
+                e.magnitude.prime[key] if e.magnitude.prime else None
+                for e in self.event
+            ]
+    
+        else:
+            raise ValueError(f'Not a valid key: {key}')
+    
+        # Replace None with a placeholder that won't break sorting
+        sort_values = [
+            v if v is not None else float('-inf') for v in sort_values
+        ]
+    
+        idx = sorted(range(len(sort_values)),
+                     key=lambda i: sort_values[i],
+                     reverse=reverse)
+    
+        self.event = [self.event[i] for i in idx]
 
-        idx = sorted(range(len(time)), key=lambda k: time[k], reverse=False)
+    def sort_by_date(self, reverse=False):
+        """
+        Sort events by prime location date.
+        Wrapper for sort_by('Date').
+        """
+        self.sort('Date', reverse=reverse)
 
-        events = []
-        for i in idx:
-            events.append(self.event[i])
+    def sort_by_magnitude(self, reverse=True):
+        """
+        Sort events by prime magnitude size.
+        Wrapper for sort('MagSize').
+    
+        Parameters
+        ----------
+        reverse : bool, default False
+            If True, sort in descending order (largest first).
+        """
+        self.sort('MagSize', reverse=reverse)
 
-        self.event = events
+    def append(self, db):
+        """
+        Append another EqDatabase to the current one, avoiding duplicate ids.
+    
+        Events with IDs already present in the current catalogue are
+        skipped. These skipped events are collected into a new EqDatabase,
+        which is returned to the caller.
+    
+        Parameters
+        ----------
+        db : EqDatabase
+            The catalogue to append.
+    
+        Returns
+        -------
+        EqDatabase
+            A new EqDatabase containing only the events skipped because
+            their IDs were already present in this catalogue.
+        """
+        if not isinstance(db, EqDatabase):
+            raise ValueError("Input must be an EqDatabase")
+    
+        duplicates_db = EqDatabase(name="Duplicate Events")
+    
+        for event in db:
+            if self._get_index(event.id) is not None:
+                duplicates_db.add(event.copy())
+                continue
+            self.add(event.copy())
+    
+        if len(duplicates_db) > 0:
+            dup_ids = [ev.id for ev in duplicates_db]
+            print(f"[append] Skipped {len(duplicates_db)} duplicate events")
+    
+        return duplicates_db
+
+    def read(self):
+        """
+        """
+        pass
+
+    def write(self):
+        """
+        """
+        pass
 
     def load(self, file_name):
         """
@@ -566,3 +655,8 @@ class EqDatabase(object):
             pickle.dump(self, f, protocol=2)
             f.close()
             return
+
+    def copy(self):
+        """
+        """
+        return deepcopy(self)

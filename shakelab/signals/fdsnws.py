@@ -259,7 +259,7 @@ class FDSNClient:
             return parse_sxml(xml)
 
     def get_catalogue(self, starttime, endtime,
-                      magnitude=None, latitude=None, longitude=None,
+                      magnitude=None, longitude=None, latitude=None,
                       depth=None, file_name=None):
         """
         Retrieve earthquake events catalogue and optionally save to file.
@@ -272,14 +272,14 @@ class FDSNClient:
             End time of the catalogue request (ISO8601 format).
         magnitude : list or tuple, optional
             (min_magnitude, max_magnitude) bounds.
-        latitude : list or tuple, optional
-            (min_latitude, max_latitude) bounds.
         longitude : list or tuple, optional
             (min_longitude, max_longitude) bounds.
+        latitude : list or tuple, optional
+            (min_latitude, max_latitude) bounds.
         depth : list or tuple, optional
             (min_depth, max_depth) bounds (in kilometers).
         file_name : str, optional
-            If given, save the catalogue to this file.
+            If given, save the catalogue to xml file.
     
         Returns
         -------
@@ -294,31 +294,31 @@ class FDSNClient:
         if magnitude is not None:
             params['minmagnitude'] = magnitude[0]
             params['maxmagnitude'] = magnitude[1]
-    
-        if latitude is not None:
-            params['minlatitude'] = latitude[0]
-            params['maxlatitude'] = latitude[1]
-    
+
         if longitude is not None:
             params['minlongitude'] = longitude[0]
             params['maxlongitude'] = longitude[1]
-    
+
+        if latitude is not None:
+            params['minlatitude'] = latitude[0]
+            params['maxlatitude'] = latitude[1]
+
         if depth is not None:
             if depth[0] is not None:
                 params['mindepth'] = depth[0]
             if depth[1] is not None:
                 params['maxdepth'] = depth[1]
-    
+
         data = self.query_event(params)
-    
-        if file_name:
-            logger.info(f"Writing catalogue to {file_name}")
-            with open(file_name, 'w') as f:
-                f.write(data)
-            return True
 
         if data:
+            if file_name:
+                logger.info(f"Writing catalogue to {file_name}")
+                with open(file_name, 'w') as f:
+                    f.write(data)
+
             return parse_quakeml(data)
+
         else:
             logger.warning("No catalogue data returned.")
             return None
@@ -501,11 +501,15 @@ def _params_check(params):
     """
     Clean up parameters, replacing empty string fields with wildcard '*'.
     """
-    if isinstance(params.get('starttime'), Date):
-        params['starttime'] = params['starttime'].iso8601
+    starttime = params['starttime']
+    if not isinstance(starttime, Date):
+        starttime = Date(starttime)
+    params['starttime'] = starttime.strformat('%Y-%m-%dT%H:%M:%S')
 
-    if isinstance(params.get('endtime'), Date):
-        params['endtime'] = params['endtime'].iso8601
+    endtime = params['endtime']
+    if not isinstance(endtime, Date):
+        endtime = Date(endtime)
+    params['endtime'] = endtime.strformat('%Y-%m-%dT%H:%M:%S')
 
     param_clean = {}
     for key, value in params.items():

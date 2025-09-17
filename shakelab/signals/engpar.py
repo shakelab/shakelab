@@ -22,8 +22,10 @@ Engineering signal parameters and response functions.
 """
 
 import numpy as np
-from scipy import signal, integrate
-from shakelab.structures.response import (
+from scipy import signal
+from scipy.integrate import trapezoid, cumulative_trapezoid
+
+from shakelab.engineering.response import (
     sdof_response_spectrum,
     sdof_interdrift,
     newmark_integration
@@ -141,7 +143,7 @@ def instantaneous_frequency(record, method='gradient', pad=False):
     return freq
 
 
-def peak_amplitude(record, return_time=False):
+def peak_amplitude(record):
     """
     Compute the peak absolute amplitude of the signal.
 
@@ -149,23 +151,18 @@ def peak_amplitude(record, return_time=False):
     ----------
     record : Record
         Input signal record.
-    return_time : bool, default False
-        If True, also return the time of the peak.
 
     Returns
     -------
     float or tuple
-        Peak amplitude, or (peak, time) if return_time is True.
+        (Peak, time).
     """
     abs_data = np.abs(record.data)
     peak = np.max(abs_data)
 
-    if return_time:
-        index = np.argmax(abs_data)
-        time = record.starttime + index * record.delta
-        return peak, time
-
-    return peak
+    index = np.argmax(abs_data)
+    time = record.starttime + index * record.delta
+    return peak, time
 
 
 def arias_intensity(record, normalize=False):
@@ -185,8 +182,11 @@ def arias_intensity(record, normalize=False):
         Arias intensity (float), or normalized cumulative array if normalize.
     """
     acc_squared = record.data**2
-    cumulative = integrate.cumtrapz(acc_squared, dx=record.head.delta,
-                                    initial=0.0)
+    cumulative = cumulative_trapezoid(
+        acc_squared,
+        dx=record.head.delta,
+        initial=0.0
+        )
     total = cumulative[-1]
     scale = PI / (2 * GRAVITY)
 
@@ -213,8 +213,11 @@ def cumulative_absolute_velocity(record, normalize=False):
         CAV value (float) or normalized cumulative array if normalize=True.
     """
     abs_data = np.abs(record.data)
-    cumulative = integrate.cumtrapz(abs_data, dx=record.head.delta,
-                                    initial=0.0)
+    cumulative = cumulative_trapezoid(
+        abs_data,
+        dx=record.head.delta,
+        initial=0.0
+        )
 
     if normalize:
         return cumulative / cumulative[-1]
@@ -286,8 +289,11 @@ def significant_duration(record, threshold=(0.05, 0.95),
         Returns None if energy is zero or indices not found.
     """
     energy = record.data**2
-    cumulative = integrate.cumtrapz(energy, dx=record.head.delta,
-                                    initial=0.0)
+    cumulative = cumulative_trapezoid(
+        energy,
+        dx=record.head.delta,
+        initial=0.0
+        )
     total = cumulative[-1]
 
     if total == 0:
@@ -331,7 +337,7 @@ def root_mean_square(record, window=None):
     data_sq = record.data**2
 
     if window is None:
-        integral = integrate.trapz(data_sq, dx=record.head.delta)
+        integral = trapezoid(data_sq, dx=record.head.delta)
         return np.sqrt(integral / record.duration)
 
     else:
@@ -490,8 +496,6 @@ class ResponseSpectrum():
         periods : array_like
             List or array of oscillator periods [s].
         """
-        from shakelab.structures.response import sdof_response_spectrum
-
         self.periods = np.atleast_1d(periods)
 
         sd, sv, sa, psv, psa = sdof_response_spectrum(
@@ -565,7 +569,7 @@ class ResponseSpectrum():
         float
             Maximum absolute displacement by double integration.
         """
-        disp = integrate.cumtrapz(
+        disp = cumulative_trapezoid(
             self.record.data, dx=self.record.head.delta, initial=0.0
         )
         return np.max(np.abs(disp))

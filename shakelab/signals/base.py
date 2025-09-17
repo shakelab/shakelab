@@ -37,6 +37,7 @@ numeric_type = (int, float, complex,
                 np.int8, np.int16, np.int32, np.int64,
                 np.uint8, np.uint16, np.uint32, np.uint64)
 
+
 def truncate(n, decimals=9):
     """
     """
@@ -544,9 +545,11 @@ class Record(object):
         #self.data = self.data * signal.tukey(tnum, alpha)
         self.data = self.data * tukey_window(tnum, alpha)
 
-    def zero_padding(self, time):
+    def zero_padding(self, time=None):
         """
         """
+        if time is None:
+            time = self.duration
         zeros = np.zeros(round(time/self.head.delta))
         self.data = np.concatenate((self.data, zeros))
 
@@ -579,11 +582,17 @@ class Record(object):
         """
         """
         if method == 'cum':
-            self.data = integrate.cumtrapz(self.data, dx=self.head.delta,
-                                           initial=0)
+            self.data = integrate.cumulative_trapezoid(
+                self.data,
+                dx=self.head.delta,
+                initial=0
+                )
         elif method == 'fft':
-            self.data = fftpack.diff(self.data, order=-1,
-                                     period=self.duration)
+            self.data = fftpack.diff(
+                self.data,
+                order=-1,
+                period=self.duration
+                )
         else:
             raise NotImplementedError('method not implemented')
 
@@ -591,11 +600,17 @@ class Record(object):
         """
         """
         if method == 'grad':
-            self.data = np.gradient(self.data, self.head.delta)
+            self.data = np.gradient(
+                self.data,
+                self.head.delta
+                )
 
         elif method == 'fft':
-            self.data = fftpack.diff(self.data, order=1,
-                                     period=self.duration)
+            self.data = fftpack.diff(
+                self.data,
+                order=1,
+                period=self.duration
+                )
         else:
             raise NotImplementedError('method not implemented')
 
@@ -606,8 +621,12 @@ class Record(object):
         if isinstance(data, Record):
             data = data.data
             
-        self.data = signal.convolve(self.data, data,
-                                    mode=mode, method=method)
+        self.data = signal.convolve(
+            self.data,
+            data,
+            mode=mode,
+            method=method
+            )
 
     def deconvolve(self, data):
         """
@@ -621,8 +640,12 @@ class Record(object):
     def correlate(self, record, mode='full', method='fft'):
         """
         """
-        self.data = signal.correlate(self.data, record.data,
-                                     mode=mode, method=method)
+        self.data = signal.correlate(
+            self.data,
+            record.data,
+            mode=mode,
+            method=method
+            )
 
     def convolve_response(self, resp):
         """
@@ -771,7 +794,7 @@ class Stream(object):
 
         self.record.sort(key=get_time)
 
-    def fix(self):
+    def fix_gaps(self):
         """
         Utility to fix gaps and overlaps between records (TO DO)
         """
