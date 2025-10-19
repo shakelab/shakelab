@@ -1,0 +1,107 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              13.4521,
+              45.9479
+            ],
+            [
+              13.4538,
+              45.9479
+            ],
+            [
+              13.4538,
+              45.949
+            ],
+            [
+              13.4521,
+              45.949
+            ],
+            [
+              13.4521,
+              45.9479
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "parent_id": "AGG_001",
+        "typology_index": 0,
+        "name": "Zona residenziale A",
+        "aggregated": true,
+        "usage": "residential",
+        "critical": false,
+        "taxonomy": "MUR-URM-LOW",
+        "count": 20,
+        "avg_stories": 2,
+        "avg_area_m2": 80,
+        "total_value_eur": 2500000,
+        "avg_occupants": 2.8,
+        "fragility_set": "EMS98_D",
+        "retrofitted": false,
+        "building_type": "unreinforced masonry",
+        "code_level": "none",
+        "reference_longitude": 13.45295,
+        "reference_latitude": 45.94845,
+        "reference_elevation_m": 132.4
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              13.4521,
+              45.9479
+            ],
+            [
+              13.4538,
+              45.9479
+            ],
+            [
+              13.4538,
+              45.949
+            ],
+            [
+              13.4521,
+              45.949
+            ],
+            [
+              13.4521,
+              45.9479
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "parent_id": "AGG_001",
+        "typology_index": 1,
+        "name": "Zona residenziale A",
+        "aggregated": true,
+        "usage": "residential",
+        "critical": false,
+        "taxonomy": "RC-MID",
+        "count": 10,
+        "avg_stories": 4,
+        "avg_area_m2": 120,
+        "total_value_eur": 3750000,
+        "avg_occupants": 3.5,
+        "fragility_set": "EMS98_C",
+        "retrofitted": true,
+        "building_type": "reinforced concrete",
+        "code_level": "moderate",
+        "reference_longitude": 13.45295,
+        "reference_latitude": 45.94845,
+        "reference_elevation_m": 132.4
+      }
+    }
+  ]
+}

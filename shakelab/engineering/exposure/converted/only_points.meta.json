@@ -1,0 +1,9 @@
+{
+  "name": "ExposureModel_FVG_2025",
+  "description": "Unified typology model with extended fields",
+  "region": "Friuli Venezia Giulia, IT",
+  "crs": "EPSG:4326",
+  "source": "Censimento ISTAT 2021, rilievi OGS 2023",
+  "date": "2025-05-14",
+  "version": "2.1"
+}
