@@ -1,4 +1,6 @@
+# -*- coding: utf-8 -*-
 # ****************************************************************************
+#
 # Copyright (C) 2019-2025, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
@@ -16,153 +18,163 @@
 # with this download. If not, see <http://www.gnu.org/licenses/>
 # ****************************************************************************
 """
-This module provides minimal read and write utilities for JSON-formatted data,
-implemented using only Python standard libraries. It includes a custom JSON
-writer with support for controlled float precision and pretty-printing of
-GeoJSON coordinates, and a lightweight recursive JSON parser.
-These tools are particularly useful with ShakeLab's internal data models.
+Minimal JSON reader/writer utilities using only standard libraries.
+
+This module provides:
+
+* a lightweight, recursive JSON parser (:func:`read`,
+  :func:`read_str`), and
+* a small JSON writer (:func:`write`) with support for controlled
+  float precision and pretty-printing of GeoJSON-like ``coordinates``
+  (including 2D and 3D points).
+
+The parser is intentionally minimal and non-validating: it is intended
+for well-formed JSON produced by ShakeLab tools. Strings are written
+as UTF-8 without ASCII-escaping non-ASCII characters.
 """
 
-from typing import Any, Union, TextIO, Any
+from typing import Any, Optional, TextIO, Union
 
 
-def read(file: Union[str, TextIO]) -> Any:
+# ============================================================================
+# JSON reading utilities
+# ============================================================================
+
+
+def _parse_json_text(text: str) -> Any:
     """
-    Minimal JSON parser using only only standard libraries.
+    Parse JSON content from a string and return the corresponding
+    Python object.
 
-    Parameters
-    ----------
-    file : str or file-like
-
-    Returns
-    -------
-    Any
-        Parsed JSON as native Python object.
+    This is the core parser used by :func:`read` and :func:`read_str`.
+    It implements a minimal subset of JSON sufficient for ShakeLab
+    internal use.
     """
 
-    def parse_value(it):
-        ch = next_non_whitespace(it)
-        if ch == '"':
-            return parse_string(it)
-        elif ch == '{':
-            return parse_object(it)
-        elif ch == '[':
-            return parse_array(it)
-        elif ch == 't':
-            expect(it, 'rue')
-            return True
-        elif ch == 'f':
-            expect(it, 'alse')
-            return False
-        elif ch == 'n':
-            expect(it, 'ull')
-            return None
-        elif ch == '-' or ch.isdigit():
-            return parse_number(it, ch)
-        else:
-            raise ValueError(f"Unexpected character: {ch}")
-
-    def next_non_whitespace(it):
+    def next_non_whitespace(it: "CharIterator") -> str:
         while True:
             ch = next(it)
-            if ch not in ' \t\n\r':
+            if ch not in " \t\n\r":
                 return ch
 
-    def parse_string(it):
-        result = ''
+    def parse_string(it: "CharIterator") -> str:
+        result = ""
         while True:
             ch = next(it)
             if ch == '"':
                 return result
-            elif ch == '\\':
+            if ch == "\\":
                 esc = next(it)
                 if esc == '"':
                     result += '"'
-                elif esc == '\\':
-                    result += '\\'
-                elif esc == 'n':
-                    result += '\n'
-                elif esc == 't':
-                    result += '\t'
+                elif esc == "\\":
+                    result += "\\"
+                elif esc == "n":
+                    result += "\n"
+                elif esc == "t":
+                    result += "\t"
                 else:
                     raise ValueError(f"Unsupported escape: \\{esc}")
             else:
                 result += ch
 
-    def parse_number(it, first):
+    def parse_number(it: "CharIterator", first: str) -> Union[int, float]:
         num = first
         while True:
             try:
                 ch = peek(it)
-                if ch.isdigit() or ch in '.eE+-':
+                if ch.isdigit() or ch in ".eE+-":
                     num += next(it)
                 else:
                     break
             except StopIteration:
                 break
-        if '.' in num or 'e' in num or 'E' in num:
+        if "." in num or "e" in num or "E" in num:
             return float(num)
         return int(num)
 
-    def parse_array(it):
+    def parse_array(it: "CharIterator") -> list:
         arr = []
         ch = next_non_whitespace(it)
-        if ch == ']':
+        if ch == "]":
             return arr
         while True:
             putback(it, ch)
             arr.append(parse_value(it))
             ch = next_non_whitespace(it)
-            if ch == ']':
+            if ch == "]":
                 return arr
-            elif ch != ',':
+            if ch != ",":
                 raise ValueError("Expected ',' or ']' in array")
             ch = next_non_whitespace(it)
 
-    def parse_object(it):
+    def parse_object(it: "CharIterator") -> dict:
         obj = {}
         ch = next_non_whitespace(it)
-        if ch == '}':
+        if ch == "}":
             return obj
         while True:
             if ch != '"':
                 raise ValueError("Expected key string")
             key = parse_string(it)
             ch = next_non_whitespace(it)
-            if ch != ':':
+            if ch != ":":
                 raise ValueError("Expected ':' after key")
             val = parse_value(it)
             obj[key] = val
             ch = next_non_whitespace(it)
-            if ch == '}':
+            if ch == "}":
                 return obj
-            elif ch != ',':
+            if ch != ",":
                 raise ValueError("Expected ',' or '}' in object")
             ch = next_non_whitespace(it)
 
-    def expect(it, string):
+    def expect(it: "CharIterator", string: str) -> None:
         for c in string:
             if next(it) != c:
                 raise ValueError(f"Expected {string}")
 
-    def peek(it):
+    def peek(it: "CharIterator") -> str:
         ch = next(it)
         putback(it, ch)
         return ch
 
-    def putback(it, ch):
+    def putback(it: "CharIterator", ch: str) -> None:
         it.stack.append(ch)
 
+    def parse_value(it: "CharIterator") -> Any:
+        ch = next_non_whitespace(it)
+        if ch == '"':
+            return parse_string(it)
+        if ch == "{":
+            return parse_object(it)
+        if ch == "[":
+            return parse_array(it)
+        if ch == "t":
+            expect(it, "rue")
+            return True
+        if ch == "f":
+            expect(it, "alse")
+            return False
+        if ch == "n":
+            expect(it, "ull")
+            return None
+        if ch == "-" or ch.isdigit():
+            return parse_number(it, ch)
+        raise ValueError(f"Unexpected character: {ch}")
+
     class CharIterator:
-        def __init__(self, text):
+        """Simple iterator over a string with a push-back stack."""
+
+        def __init__(self, text: str) -> None:
             self.text = text
             self.index = 0
-            self.stack = []
+            self.stack: list[str] = []
 
-        def __iter__(self):
+        def __iter__(self) -> "CharIterator":
             return self
 
-        def __next__(self):
+        def __next__(self) -> str:
             if self.stack:
                 return self.stack.pop()
             if self.index >= len(self.text):
@@ -171,34 +183,71 @@ def read(file: Union[str, TextIO]) -> Any:
             self.index += 1
             return ch
 
+    it = CharIterator(text)
+    return parse_value(it)
+
+
+def read(file: Union[str, TextIO]) -> Any:
+    """
+    Read JSON content from a file or filename.
+
+    This uses a minimal recursive parser implemented with only
+    standard libraries.
+
+    Parameters
+    ----------
+    file : str or file-like
+        Path to a file, or an open readable text stream.
+
+    Returns
+    -------
+    Any
+        Parsed JSON as native Python object.
+    """
     close_file = False
     if isinstance(file, str):
-        file = open(file, 'r', encoding='utf-8')
+        file = open(file, "r", encoding="utf-8")
         close_file = True
 
     try:
         content = file.read()
-        it = CharIterator(content)
-        return parse_value(it)
+        return _parse_json_text(content)
     finally:
         if close_file:
             file.close()
 
 
-def write(data: Any,
-               file: Union[str, TextIO],
-               indent: int = 2,
-               float_precision: int = None) -> None:
+def read_str(text: str) -> Any:
     """
-    Write a dictionary or list to a file in JSON format using only
-    standard libraries.
+    Parse JSON content from a string and return the Python object.
+
+    This is a convenience wrapper around the internal parser used by
+    :func:`read`.
+    """
+    return _parse_json_text(text)
+
+
+# ============================================================================
+# JSON writing utilities
+# ============================================================================
+
+
+def write(
+    data: Any,
+    file: Union[str, TextIO],
+    indent: int = 2,
+    float_precision: Optional[int] = None,
+) -> None:
+    """
+    Write a Python object to a file in JSON format using only standard
+    libraries.
 
     Parameters
     ----------
     data : Any
-        The dictionary or list to serialize.
+        The JSON-serializable object to serialize.
     file : str or file-like
-        Path to the output file or an open writable stream.
+        Path to the output file or an open writable text stream.
     indent : int, optional
         Number of spaces for indentation (default is 2).
     float_precision : int, optional
@@ -208,89 +257,119 @@ def write(data: Any,
 
     def _format_float(x: float) -> str:
         if float_precision is not None:
-            return f'{round(x, float_precision):.{float_precision}f}'
+            return f"{round(x, float_precision):.{float_precision}f}"
         return str(x)
 
-    def _dump(obj: Any, level: int = 0, parent_key: str = '') -> str:
-        sp = ' ' * (level * indent)
+    def _dump(obj: Any, level: int = 0, parent_key: str = "") -> str:
+        sp = " " * (level * indent)
 
         if isinstance(obj, dict):
             if not obj:
-                return '{}'
+                return "{}"
             items = []
             for k, v in obj.items():
                 key = f'"{k}"'
                 val = _dump(v, level + 1, k)
                 items.append(f'{sp}{" " * indent}{key}: {val}')
-            return '{\n' + ',\n'.join(items) + '\n' + sp + '}'
+            return "{\n" + ",\n".join(items) + "\n" + sp + "}"
 
-        elif isinstance(obj, list):
+        if isinstance(obj, list):
             if not obj:
-                return '[]'
-            if parent_key == 'coordinates':
+                return "[]"
+            if parent_key == "coordinates":
                 return _format_coordinates(obj, level)
             items = [_dump(i, level + 1, parent_key) for i in obj]
-            return '[\n' + ',\n'.join(
+            inner = ",\n".join(
                 f'{sp}{" " * indent}{i}' for i in items
-            ) + '\n' + sp + ']'
+            )
+            return "[\n" + inner + "\n" + sp + "]"
 
-        elif isinstance(obj, str):
+        if isinstance(obj, str):
             return '"' + obj.replace('"', '\\"') + '"'
 
-        elif isinstance(obj, bool):
-            return 'true' if obj else 'false'
+        if isinstance(obj, bool):
+            return "true" if obj else "false"
 
-        elif obj is None:
-            return 'null'
+        if obj is None:
+            return "null"
 
-        elif isinstance(obj, float):
+        if isinstance(obj, float):
             return _format_float(obj)
 
-        else:
-            return str(obj)
+        return str(obj)
 
     def _format_coordinates(obj: Any, level: int) -> str:
-        sp0 = ' ' * (level * indent)
-        sp1 = ' ' * ((level + 1) * indent)
-        sp2 = ' ' * ((level + 2) * indent)
-        sp3 = ' ' * ((level + 3) * indent)
+        """
+        Pretty-print GeoJSON-like coordinates.
 
-        def fmtpt(pt):
-            return f'[{_format_float(pt[0])}, {_format_float(pt[1])}]'
+        Supports the most common 2D/3D patterns:
 
-        if isinstance(obj, list) and all(isinstance(x, float) for x in obj):
-            return f'[{_format_float(obj[0])}, {_format_float(obj[1])}]'
+        * [x, y] or [x, y, z]
+        * [[x, y], [x, y], ...]
+        * [[x, y, z], [x, y, z], ...]
+        * polygon-like [[[x, y], ...], [...]]
+        """
+        sp0 = " " * (level * indent)
+        sp1 = " " * ((level + 1) * indent)
+        sp2 = " " * ((level + 2) * indent)
 
-        if all(isinstance(pt, list) and len(pt) == 2 and
-               all(isinstance(x, float) for x in pt) for pt in obj):
-            lines = [sp0 + '[', sp1 + '[']
+        def fmtpt(pt: list[float]) -> str:
+            coords = ", ".join(_format_float(x) for x in pt)
+            return f"[{coords}]"
+
+        # Single 2D/3D coordinate: [x, y] or [x, y, z]
+        if (
+            isinstance(obj, list)
+            and len(obj) in (2, 3)
+            and all(isinstance(x, float) for x in obj)
+        ):
+            coords = ", ".join(_format_float(x) for x in obj)
+            return f"[{coords}]"
+
+        # Simple LineString-like: [[x, y], [x, y], ...] or 3D
+        if (
+            isinstance(obj, list)
+            and obj
+            and all(
+                isinstance(pt, list)
+                and len(pt) in (2, 3)
+                and all(isinstance(x, float) for x in pt)
+                for pt in obj
+            )
+        ):
+            lines = [sp0 + "[", sp1 + "["]
             for pt in obj:
-                lines.append(f'{sp2}{fmtpt(pt)},')
-            lines[-1] = lines[-1].rstrip(',')
-            lines.append(sp1 + ']', sp0 + ']')
-            return '\n'.join(lines)
+                lines.append(f"{sp2}{fmtpt(pt)},")
+            lines[-1] = lines[-1].rstrip(",")
+            lines.append(sp1 + "]")
+            lines.append(sp0 + "]")
+            return "\n".join(lines)
 
-        if all(isinstance(ring, list) for ring in obj):
-            lines = [sp0 + '[']
+        # Polygon-like: [[[x, y], ...], [...], ...]
+        if isinstance(obj, list) and obj and all(
+            isinstance(ring, list) for ring in obj
+        ):
+            lines = [sp0 + "["]
             for ring in obj:
-                lines.append(sp1 + '[')
+                lines.append(sp1 + "[")
                 for pt in ring:
-                    lines.append(f'{sp2}{fmtpt(pt)},')
-                lines[-1] = lines[-1].rstrip(',')
-                lines.append(sp1 + ']')
-            lines.append(sp0 + ']')
-            return '\n'.join(lines)
+                    lines.append(f"{sp2}{fmtpt(pt)},")
+                lines[-1] = lines[-1].rstrip(",")
+                lines.append(sp1 + "]")
+            lines.append(sp0 + "]")
+            return "\n".join(lines)
 
-        raise ValueError('Unsupported coordinates structure')
+        # Fallback: use generic list formatting
+        return _dump(obj, level)
 
     close_file = False
     if isinstance(file, str):
-        file = open(file, 'w', encoding='utf-8')
+        file = open(file, "w", encoding="utf-8")
         close_file = True
 
     try:
         file.write(_dump(data, level=0))
-        file.write('\n')
+        file.write("\n")
     finally:
         if close_file:
             file.close()

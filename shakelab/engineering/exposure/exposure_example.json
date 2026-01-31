@@ -1,0 +1,108 @@
+{
+  "type" : "ShakeLabExposure",
+  "schema_version" : "1.0.0",
+  "metadata": {
+    "name": "NEI25",
+    "description": "North-East Italy Exposure Model",
+    "region": "Friuli Venezia Giulia / Veneto",
+    "source": "Censimento ISTAT 2021, rilievi OGS 2023",
+    "date": "2025-10-19",
+    "version": "1.0",
+    "crs": "EPSG:4326",
+    "currency": "EUR",
+    "license": "CC-BY-4.0"
+  },
+  "assets": [
+    {
+      "id": "AGG_001",
+      "name": "Zona residenziale A",
+      "aggregated": true,
+      "aggregation_area": 1200,
+      "critical": false,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [13.4521, 45.9479],
+          [13.4538, 45.9479],
+          [13.4538, 45.9490],
+          [13.4521, 45.9490],
+          [13.4521, 45.9479]
+        ]]
+      },
+      "reference_location": {
+        "longitude": 13.45295,
+        "latitude": 45.94845,
+        "elevation": 132.4
+      },
+      "reference_geology": {
+        "vs30": 1000,
+        "soil_class" : "A",
+        "soil_type" : "limestone"
+      },
+      "typologies": [
+        {
+          "taxonomy": "MUR-URM-LOW",
+          "count": 20,
+          "usage": "residential",
+          "building_type": "unreinforced masonry",
+          "code_level": "moderate",
+          "occupants": {"day": 1.8, "night": 3.2},
+          "period": {"start": 1950, "end": 1970},
+          "replacement_cost": 2500000,
+          "stories": 2,
+          "damage_state": null
+        },
+        {
+          "taxonomy": "RC-MID",
+          "count": 10,
+          "usage": "residential",
+          "building_type": "reinforced concrete",
+          "code_level": "high",
+          "occupants": {"day": 5.1, "night": 10.2},
+          "period": {"start": 1990, "end": null},
+          "replacement_cost": 5500000,
+          "stories": null,
+          "damage_state": null
+        }
+      ]
+    },
+    {
+      "id": "BLDG_001",
+      "name": "Scuola Media Leopardi",
+      "aggregated": false,
+      "aggregation_area": null,
+      "critical": true,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          13.7663,
+          45.6489
+        ]
+      },
+      "reference_location": {
+        "longitude": 13.7663,
+        "latitude": 45.6489,
+        "elevation": 115.6
+      },
+      "reference_geology": {
+        "vs30": 300,
+        "soil_class" : "C",
+        "soil_type" : "sand"
+      },
+      "typologies": [
+        {
+          "taxonomy": "RC-LRS",
+          "count": 1,
+          "usage": "education",
+          "building_type": "reinforced concrete",
+          "code_level": "retrofit",
+          "occupants": {"day": 1.8, "night": 3.2},
+          "period": {"start": 1950, "end": 1970},
+          "replacement_cost": 1000000,
+          "stories": 3,
+          "damage_state": null
+        }
+      ]
+    }
+  ]
+}

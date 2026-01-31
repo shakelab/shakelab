@@ -1,5 +1,5 @@
 # ****************************************************************************
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -16,339 +16,499 @@
 # with this download. If not, see <http://www.gnu.org/licenses/>
 # ****************************************************************************
 """
-Conversion functions between ShakeLab JSON exposure models and GeoJSON
-format compatible with QGIS.
+ShakeLab Exposure data model (ShakeLabExposure schema_version 1.0.0).
+
+This module defines a compact representation of an exposure model used by
+ShakeLab for seismic impact scenarios. The model is stored as JSON and
+organized in three layers:
+
+1) Exposure (root)
+   - type: fixed string "ShakeLabExposure"
+   - schema_version: fixed string "1.0.0" for this implementation
+   - metadata: free-form dictionary with descriptive information
+   - assets: list of Asset objects
+
+2) Asset (georeferenced exposure unit)
+   Each asset represents either a single building or an aggregated unit
+   (e.g., census zone, grid cell, custom polygon). Assets may include an
+   optional geometry and optional site attributes.
+
+3) Typology (construction class within an asset)
+   Typologies represent one or more buildings of the same construction
+   class within an asset. Only (taxonomy, count) are mandatory.
+
+Validation philosophy
+---------------------
+Validation is pragmatic and schema-aligned: enforce required keys, basic
+type constraints, and key cross-field rules (e.g., geometry consistency
+with aggregated flag when geometry is provided). Optional fields are
+validated only when present.
+
+Public API
+----------
+- load_exposure(path): read JSON -> Exposure and validate
+- save_exposure(exposure, path): validate (optional) -> write JSON
 """
+
+from __future__ import annotations
+
 import json
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Union, List, Optional, Dict
+from typing import Any, Dict, List, Optional, Union
 
 
-class Subtype:
-    def __init__(
-        self,
-        taxonomy: str,
-        count: int,
-        avg_stories: float,
-        avg_area_m2: float,
-        total_value_eur: float,
-        avg_occupants: float,
-        fragility_set: str
-    ):
-        self.taxonomy = taxonomy
-        self.count = count
-        self.avg_stories = avg_stories
-        self.avg_area_m2 = avg_area_m2
-        self.total_value_eur = total_value_eur
-        self.avg_occupants = avg_occupants
-        self.fragility_set = fragility_set
+ALLOWED_GEOM_TYPES: set[str] = {"Point", "Polygon"}
+EXPECTED_TYPE: str = "ShakeLabExposure"
+EXPECTED_SCHEMA_VERSION: str = "1.0.0"
 
-    def to_dict(self) -> dict:
-        return self.__dict__
+CODE_LEVEL_ENUM: set[str] = {"none", "low", "moderate", "high", "retrofit"}
+
+__all__ = ["Typology", "Asset", "Exposure", "load_exposure", "save_exposure"]
 
 
-class Asset:
-    def __init__(
-        self,
-        asset_id: str,
-        aggregated: bool,
-        name: Optional[str] = None,
-        taxonomy: Optional[str] = None,
-        usage: Optional[str] = None,
-        year_built: Optional[int] = None,
-        stories: Optional[int] = None,
-        area_m2: Optional[float] = None,
-        value_eur: Optional[float] = None,
-        occupants: Optional[Dict[str, float]] = None,
-        vulnerability_class: Optional[str] = None,
-        fragility_set: Optional[str] = None,
-        critical: Optional[bool] = False,
-        geometry_shape: Optional[Dict] = None,
-        reference_site_location: Optional[Dict] = None,
-        subtypes: Optional[List[Subtype]] = None
-    ):
-        self.id = asset_id
-        self.aggregated = aggregated
-        self.name = name
-        self.taxonomy = taxonomy
-        self.usage = usage
-        self.year_built = year_built
-        self.stories = stories
-        self.area_m2 = area_m2
-        self.value_eur = value_eur
-        self.occupants = occupants
-        self.vulnerability_class = vulnerability_class
-        self.fragility_set = fragility_set
-        self.critical = critical
-        self.geometry_shape = geometry_shape
-        self.reference_site_location = reference_site_location
-        self.subtypes = subtypes or []
-
-    def to_dict(self) -> dict:
-        data = self.__dict__.copy()
-        data["subtypes"] = [s.to_dict() for s in self.subtypes]
-        return data
+def _drop_none(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a shallow copy of *d* without keys whose value is None."""
+    return {k: v for k, v in d.items() if v is not None}
 
 
-class Exposure:
-    def __init__(self, metadata: Dict, assets: List[Asset]):
-        self.metadata = metadata
-        self.assets = assets
-
-    def to_dict(self) -> dict:
-        return {
-            "metadata": self.metadata,
-            "assets": [a.to_dict() for a in self.assets]
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'Exposure':
-        assets = []
-        for a in data.get("assets", []):
-            subtypes = [Subtype(**s) for s in a.get("subtypes", [])]
-            asset = Asset(
-                asset_id=a["id"],
-                aggregated=a["aggregated"],
-                name=a.get("name"),
-                taxonomy=a.get("taxonomy"),
-                usage=a.get("usage"),
-                year_built=a.get("year_built"),
-                stories=a.get("stories"),
-                area_m2=a.get("area_m2"),
-                value_eur=a.get("value_eur"),
-                occupants=a.get("occupants"),
-                vulnerability_class=a.get("vulnerability_class"),
-                fragility_set=a.get("fragility_set"),
-                critical=a.get("critical", False),
-                geometry_shape=a.get("geometry_shape"),
-                reference_site_location=a.get("reference_site_location"),
-                subtypes=subtypes
-            )
-            assets.append(asset)
-        return cls(metadata=data.get("metadata", {}), assets=assets)
+def _is_number(x: Any) -> bool:
+    """Return True if x is int/float (but not bool)."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
-def convert_exposure_file_to_geojson(
-    input_path: Union[str, Path],
-    output_path: Union[str, Path] = None,
-    feature: str = None,
-    explode_typologies: bool = True,
-    save_metadata: bool = True
-    ) -> None:
+@dataclass
+class Typology:
     """
-    Convert a ShakeLab exposure model to a GeoJSON file for QGIS use.
+    Construction typology for one asset.
 
-    Parameters
-    ----------
-    input_path : str or Path
-        Path to the input ShakeLab JSON exposure model.
-    output_path : str or Path, optional
-        Path to save the GeoJSON. Defaults to .geojson extension.
-    feature : str, optional
-        If 'point' or 'polygon', filter by geometry type.
-    explode_typologies : bool, default True
-        If True, creates a feature per typology.
-    save_metadata : bool, default True
-        If True, saves metadata in a separate .meta.json file.
+    Mandatory:
+    - taxonomy: non-empty string
+    - count: integer >= 1
+
+    Other fields are optional and validated only if present (not None).
     """
-    input_path = Path(input_path)
-    if output_path is None:
-        output_path = input_path.with_suffix(".geojson")
-    else:
-        output_path = Path(output_path)
 
-    with open(input_path, "r", encoding="utf-8") as f:
-        exposure = json.load(f)
+    taxonomy: str
+    count: int
 
-    features = []
+    usage: Optional[str] = None
+    building_type: Optional[str] = None
+    code_level: Optional[str] = None
+    occupants: Optional[Dict[str, float]] = None
+    period: Optional[Dict[str, Optional[int]]] = None
+    replacement_cost: Optional[float] = None
+    stories: Optional[int] = None
+    damage_state: Optional[str] = None
 
-    for asset in exposure.get("assets", []):
-        if "geometry_shape" in asset:
-            geometry = asset["geometry_shape"]
-        elif "reference_site_location" in asset:
-            rsl = asset["reference_site_location"]
-            geometry = {
-                "type": "Point",
-                "coordinates": [
-                    rsl["longitude"],
-                    rsl["latitude"]
-                ]
-            }
-        else:
-            continue
+    def validate(self, aggregated: bool) -> None:
+        """
+        Validate a typology with permissive rules.
 
-        geom_type = geometry.get("type", "").lower()
-        if feature:
-            if feature == "point" and geom_type != "point":
-                continue
-            elif feature == "polygon" and geom_type != "polygon":
-                continue
+        Parameters
+        ----------
+        aggregated
+            Whether the parent asset is aggregated. Reserved for future
+            cross-field rules.
+        """
+        if not isinstance(self.taxonomy, str) or not self.taxonomy.strip():
+            raise ValueError("Typology.taxonomy must be a non-empty string.")
 
-        rsl = asset.get("reference_site_location", {})
-        rsl_flat = {
-            f"reference_{k}": v for k, v in rsl.items()
-            if k in ("longitude", "latitude", "elevation_m")
-        }
+        if not isinstance(self.count, int) or self.count < 1:
+            raise ValueError("Typology.count must be an integer >= 1.")
 
-        if explode_typologies:
-            for i, typ in enumerate(asset.get("typologies", [])):
-                props = {
-                    "parent_id": asset["id"],
-                    "typology_index": i,
-                    "name": asset.get("name"),
-                    "aggregated": asset.get("aggregated", False),
-                    "usage": asset.get("usage"),
-                    "critical": asset.get("critical", False),
-                    **typ,
-                    **rsl_flat
-                }
-                features.append({
-                    "type": "Feature",
-                    "geometry": geometry,
-                    "properties": props
-                })
-        else:
-            props = {
-                k: v for k, v in asset.items()
-                if k not in ("geometry_shape", "reference_site_location")
-            }
-            props.update(rsl_flat)
-            features.append({
-                "type": "Feature",
-                "geometry": geometry,
-                "properties": props
-            })
+        if self.usage is not None:
+            if not isinstance(self.usage, str):
+                raise ValueError("Typology.usage must be a string or None.")
 
-    geojson = {
-        "type": "FeatureCollection",
-        "features": features
-    }
+        if self.building_type is not None:
+            if not isinstance(self.building_type, str):
+                raise ValueError(
+                    "Typology.building_type must be a string or None."
+                )
 
-    # Salva GeoJSON con indentazione normale
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(geojson, f, indent=2)
+        if self.code_level is not None:
+            if self.code_level not in CODE_LEVEL_ENUM:
+                allowed = ", ".join(sorted(CODE_LEVEL_ENUM))
+                raise ValueError(
+                    f"Typology.code_level must be one of: {allowed}, or None."
+                )
 
-    # Salva file .meta.json con i metadati
-    if save_metadata and "metadata" in exposure:
-        meta_path = output_path.with_suffix(".meta.json")
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(exposure["metadata"], f, indent=2)
-
-
-def convert_geojson_to_exposure_file(
-    input_paths: Union[str, Path, List[Union[str, Path]]],
-    output_path: Union[str, Path],
-    metadata_path: Union[str, Path, None] = None
-    ) -> None:
-    """
-    Convert one or more GeoJSON files into a ShakeLab-compatible
-    JSON exposure model. Features with the same parent_id are grouped
-    under a single asset with typologies.
-
-    Parameters
-    ----------
-    input_paths : str, Path or list of str/Path
-        One or more GeoJSON input files.
-    output_path : str or Path
-        Path where the resulting ShakeLab JSON file will be saved.
-    metadata_path : str, Path or None
-        Optional path to a .meta.json file with metadata. If None or missing,
-        generic metadata fields are used.
-    """
-    if isinstance(input_paths, (str, Path)):
-        input_paths = [input_paths]
-
-    combined_assets = []
-    grouped_typologies = {}
-
-    for path in input_paths:
-        path = Path(path)
-        with open(path, "r", encoding="utf-8") as f:
-            geojson = json.load(f)
-
-        if geojson.get("type") != "FeatureCollection":
-            raise ValueError(f"Invalid GeoJSON format in {path.name}")
-
-        for feature in geojson.get("features", []):
-            geometry = feature.get("geometry", {})
-            props = feature.get("properties", {}).copy()
-
-            geom_type = geometry.get("type", "").lower()
-            if geom_type not in ("point", "polygon"):
-                continue
-
-            rsl = {}
-            for k in ("longitude", "latitude", "elevation_m"):
-                val = props.pop(f"reference_{k}", None)
-                if val is not None:
-                    rsl[k] = val
-
-            if "parent_id" in props:
-                pid = props.pop("parent_id")
-                typology = {
-                    k: v for k, v in props.items()
-                    if k not in (
-                        "typology_index", "name", "geometry_shape",
-                        "aggregated", "usage", "critical"
+        if self.occupants is not None:
+            if not isinstance(self.occupants, dict):
+                raise ValueError("Typology.occupants must be a dict or None.")
+            for key in ("day", "night"):
+                if key not in self.occupants:
+                    raise ValueError(
+                        f"Typology.occupants must include '{key}'."
                     )
-                }
+                val = self.occupants[key]
+                if not _is_number(val) or val < 0:
+                    raise ValueError(
+                        f"Typology.occupants.{key} must be a number >= 0."
+                    )
 
-                if pid not in grouped_typologies:
-                    grouped_typologies[pid] = {
-                        "id": pid,
-                        "aggregated": True,
-                        "name": props.get("name"),
-                        "usage": props.get("usage"),
-                        "critical": props.get("critical", False),
-                        "geometry_shape": geometry,
-                        "reference_site_location": rsl,
-                        "typologies": []
-                    }
+        if self.period is not None:
+            if not isinstance(self.period, dict):
+                raise ValueError("Typology.period must be a dict or None.")
 
-                grouped_typologies[pid]["typologies"].append(typology)
-            else:
-                asset = {
-                    "id": props.get("id"),
-                    "aggregated": props.get("aggregated", False),
-                    "name": props.get("name"),
-                    "usage": props.get("usage"),
-                    "critical": props.get("critical", False),
-                    "geometry_shape": geometry,
-                    "reference_site_location": rsl,
-                    "typologies": props.get("typologies", [])
-                }
-                if isinstance(asset["typologies"], dict):
-                    asset["typologies"] = [asset["typologies"]]
-                combined_assets.append(asset)
+            unknown = set(self.period.keys()) - {"start", "end"}
+            if unknown:
+                raise ValueError(
+                    f"Typology.period contains unknown keys: {sorted(unknown)}."
+                )
 
-    combined_assets.extend(grouped_typologies.values())
+            start = self.period.get("start")
+            end = self.period.get("end")
 
-    # Gestione metadati opzionale
-    if metadata_path:
-        try:
-            with open(metadata_path, "r", encoding="utf-8") as f:
-                metadata = json.load(f)
-        except FileNotFoundError:
-            metadata = None
-    else:
-        metadata = None
+            if start is not None and not isinstance(start, int):
+                raise ValueError("Typology.period.start must be int or None.")
+            if end is not None and not isinstance(end, int):
+                raise ValueError("Typology.period.end must be int or None.")
 
-    metadata_default = {
-        "name": "MergedExposureModel",
-        "description": "Imported from GeoJSON",
-        "region": "Unknown",
-        "crs": "EPSG:4326",
-        "source": "GeoJSON",
-        "date": "YYYY-MM-DD",
-        "version": "2.1"
-    }
+        if self.replacement_cost is not None:
+            if not _is_number(self.replacement_cost) or self.replacement_cost < 0:
+                raise ValueError(
+                    "Typology.replacement_cost must be a number >= 0 or None."
+                )
 
-    model = {
-        "metadata": metadata or metadata_default,
-        "assets": combined_assets
-    }
+        if self.stories is not None:
+            if not isinstance(self.stories, int) or self.stories < 1:
+                raise ValueError("Typology.stories must be int >= 1 or None.")
 
-    output_path = Path(output_path)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(model, f, indent=2)
+        if self.damage_state is not None:
+            if not isinstance(self.damage_state, str):
+                raise ValueError("Typology.damage_state must be a string or None.")
 
+        _ = aggregated
+
+    def to_dict(self, include_nulls: bool = False) -> Dict[str, Any]:
+        """Serialize the typology to a JSON-compatible dict."""
+        d = asdict(self)
+        return d if include_nulls else _drop_none(d)
+
+
+@dataclass
+class Asset:
+    """
+    Georeferenced exposure unit (single building or aggregated area).
+
+    Mandatory:
+    - id: non-empty string
+    - aggregated: boolean
+    - reference_location: dict with longitude/latitude numbers
+    - typologies: non-empty list[Typology]
+
+    Optional:
+    - name: string or None
+    - critical: bool or None
+    - geometry: GeoJSON-like dict (validated if present)
+    - reference_geology: dict or None (validated if present)
+    - aggregation_area: number >= 0 or None
+    """
+
+    id: str
+    aggregated: bool
+    reference_location: Dict[str, Any]
+    typologies: List[Typology] = field(default_factory=list)
+
+    name: Optional[str] = None
+    aggregation_area: Optional[float] = None
+    critical: Optional[bool] = None
+    geometry: Optional[Dict[str, Any]] = None
+    reference_geology: Optional[Dict[str, Any]] = None
+
+    def validate(self) -> None:
+        """Validate an asset with permissive, schema-aligned rules."""
+        if not isinstance(self.id, str) or not self.id.strip():
+            raise ValueError("Asset.id must be a non-empty string.")
+
+        if not isinstance(self.aggregated, bool):
+            raise ValueError("Asset.aggregated must be a boolean.")
+
+        if self.name is not None and not isinstance(self.name, str):
+            raise ValueError("Asset.name must be a string or None.")
+
+        if self.critical is not None and not isinstance(self.critical, bool):
+            raise ValueError("Asset.critical must be a boolean or None.")
+
+        if self.aggregation_area is not None:
+            if not _is_number(self.aggregation_area) or self.aggregation_area < 0:
+                raise ValueError(
+                    "Asset.aggregation_area must be number >= 0 or None."
+                )
+
+        if self.geometry is not None:
+            if not isinstance(self.geometry, dict):
+                raise ValueError("Asset.geometry must be an object or None.")
+            gtype = self.geometry.get("type")
+            if gtype not in ALLOWED_GEOM_TYPES:
+                allowed = ", ".join(sorted(ALLOWED_GEOM_TYPES))
+                raise ValueError(
+                    f"Asset {self.id}: geometry.type '{gtype}' not allowed. "
+                    f"Allowed: {allowed}"
+                )
+            if "coordinates" not in self.geometry:
+                raise ValueError(
+                    f"Asset {self.id}: geometry.coordinates is required."
+                )
+
+            if self.aggregated and gtype != "Polygon":
+                raise ValueError(
+                    f"Asset {self.id}: aggregated assets require Polygon."
+                )
+            if (not self.aggregated) and gtype != "Point":
+                raise ValueError(
+                    f"Asset {self.id}: single buildings require Point."
+                )
+
+        if not isinstance(self.reference_location, dict):
+            raise ValueError(
+                f"Asset {self.id}: reference_location must be an object."
+            )
+        for k in ("longitude", "latitude"):
+            if k not in self.reference_location:
+                raise ValueError(
+                    f"Asset {self.id}: reference_location.{k} required."
+                )
+            if not _is_number(self.reference_location[k]):
+                raise ValueError(
+                    f"Asset {self.id}: reference_location.{k} must be a number."
+                )
+
+        if "elevation" in self.reference_location:
+            elev = self.reference_location["elevation"]
+            if elev is not None and not _is_number(elev):
+                raise ValueError(f"Asset {self.id}: elevation must be a number.")
+
+        if self.reference_geology is not None:
+            if not isinstance(self.reference_geology, dict):
+                raise ValueError(
+                    f"Asset {self.id}: reference_geology must be an object or "
+                    f"None."
+                )
+            if "vs30" in self.reference_geology:
+                vs30 = self.reference_geology.get("vs30")
+                if vs30 is not None and (not _is_number(vs30) or vs30 < 0):
+                    raise ValueError(
+                        f"Asset {self.id}: vs30 must be >= 0 or None."
+                    )
+
+        if not self.typologies:
+            raise ValueError(f"Asset {self.id}: at least one typology is required.")
+
+        for t in self.typologies:
+            t.validate(aggregated=self.aggregated)
+
+    def to_dict(self, include_nulls: bool = False) -> Dict[str, Any]:
+        """Serialize the asset to a JSON-compatible dict."""
+        d: Dict[str, Any] = {
+            "id": self.id,
+            "name": self.name,
+            "aggregated": self.aggregated,
+            "aggregation_area": self.aggregation_area,
+            "critical": self.critical,
+            "geometry": self.geometry,
+            "reference_location": self.reference_location,
+            "reference_geology": self.reference_geology,
+            "typologies": [t.to_dict(include_nulls=include_nulls)
+                           for t in self.typologies],
+        }
+        return d if include_nulls else _drop_none(d)
+
+
+@dataclass
+class Exposure:
+    """
+    Root container for a ShakeLabExposure model (schema_version 1.0.0).
+
+    Mandatory:
+    - type
+    - schema_version
+    - metadata (non-empty dict)
+    - assets (non-empty list[Asset])
+    """
+
+    type: str
+    schema_version: str
+    metadata: Dict[str, Any]
+    assets: List[Asset]
+
+    def validate(self) -> None:
+        """Validate the root exposure container."""
+        if self.type != EXPECTED_TYPE:
+            raise ValueError(
+                f"Exposure.type must be '{EXPECTED_TYPE}', got '{self.type}'."
+            )
+        if self.schema_version != EXPECTED_SCHEMA_VERSION:
+            raise ValueError(
+                f"Exposure.schema_version must be '{EXPECTED_SCHEMA_VERSION}'."
+            )
+        if not isinstance(self.metadata, dict) or not self.metadata:
+            raise ValueError("Exposure.metadata must be a non-empty dict.")
+        if not self.assets:
+            raise ValueError("Exposure.assets must not be empty.")
+        for asset in self.assets:
+            asset.validate()
+
+    def to_dict(self, include_nulls: bool = False) -> Dict[str, Any]:
+        """Serialize the exposure container to a JSON-compatible dict."""
+        d = {
+            "type": self.type,
+            "schema_version": self.schema_version,
+            "metadata": self.metadata,
+            "assets": [a.to_dict(include_nulls=include_nulls)
+                       for a in self.assets],
+        }
+        return d if include_nulls else _drop_none(d)
+
+
+def load_exposure(
+    json_path: Union[str, Path],
+    validate: bool = True,
+) -> Exposure:
+    """
+    Load a ShakeLabExposure JSON file (schema_version 1.0.0) into an
+    Exposure object.
+
+    Parameters
+    ----------
+    json_path
+        Path to the JSON file.
+    validate
+        If True, run the datamodel validation (Exposure.validate()).
+
+    Returns
+    -------
+    Exposure
+        Parsed Exposure instance.
+    """
+    path = Path(json_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    for key in ("type", "schema_version", "metadata", "assets"):
+        if key not in data:
+            raise ValueError(f"Missing required field '{key}' in file.")
+
+    assets_in = data.get("assets")
+    if not isinstance(assets_in, list) or not assets_in:
+        raise ValueError("Field 'assets' must be a non-empty list.")
+
+    assets: List[Asset] = []
+    for a in assets_in:
+        if not isinstance(a, dict):
+            raise ValueError("Each asset must be an object (dict).")
+
+        for key in ("id", "aggregated", "reference_location", "typologies"):
+            if key not in a:
+                raise ValueError(
+                    f"Missing required field 'assets[].{key}' in file."
+                )
+
+        typs_in = a.get("typologies")
+        if not isinstance(typs_in, list) or not typs_in:
+            raise ValueError("Field 'assets[].typologies' must be non-empty.")
+
+        typologies: List[Typology] = []
+        for t in typs_in:
+            if not isinstance(t, dict):
+                raise ValueError("Each typology must be an object (dict).")
+
+            for key in ("taxonomy", "count"):
+                if key not in t:
+                    raise ValueError(
+                        f"Missing required field 'typologies[].{key}'."
+                    )
+
+            typology = Typology(
+                taxonomy=t.get("taxonomy"),
+                count=int(t.get("count")),
+                usage=t.get("usage"),
+                building_type=t.get("building_type"),
+                code_level=t.get("code_level"),
+                occupants=t.get("occupants"),
+                period=t.get("period"),
+                replacement_cost=t.get("replacement_cost"),
+                stories=t.get("stories"),
+                damage_state=t.get("damage_state"),
+            )
+            typologies.append(typology)
+
+        asset = Asset(
+            id=a.get("id"),
+            name=a.get("name"),
+            aggregated=bool(a.get("aggregated")),
+            aggregation_area=a.get("aggregation_area"),
+            critical=a.get("critical"),
+            geometry=a.get("geometry"),
+            reference_location=a.get("reference_location"),
+            reference_geology=a.get("reference_geology"),
+            typologies=typologies,
+        )
+        assets.append(asset)
+
+    exposure = Exposure(
+        type=data.get("type"),
+        schema_version=data.get("schema_version"),
+        metadata=data.get("metadata"),
+        assets=assets,
+    )
+
+    if validate:
+        exposure.validate()
+
+    return exposure
+
+
+def save_exposure(
+    exposure: Exposure,
+    json_path: Union[str, Path],
+    validate: bool = True,
+    *,
+    include_nulls: bool = False,
+    indent: int = 2,
+    sort_keys: bool = False,
+    ensure_ascii: bool = False,
+) -> None:
+    """
+    Save a ShakeLabExposure object to a JSON file.
+
+    Parameters
+    ----------
+    exposure
+        Exposure instance to serialize.
+    json_path
+        Output path for the JSON file.
+    validate
+        If True, call `exposure.validate()` before writing.
+    include_nulls
+        If True, preserve keys with null values in the output JSON.
+    indent
+        Indentation level passed to `json.dump`.
+    sort_keys
+        Sort JSON keys alphabetically.
+    ensure_ascii
+        If True, escape non-ASCII characters.
+    """
+    if validate:
+        exposure.validate()
+
+    path = Path(json_path)
+    if path.parent and not path.parent.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = exposure.to_dict(include_nulls=include_nulls)
+
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(
+            data,
+            f,
+            ensure_ascii=ensure_ascii,
+            indent=indent,
+            sort_keys=sort_keys,
+        )
+        f.write("\n")

@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -32,15 +32,24 @@ Notes
 * The reader handles default NRML namespaces explicitly (qualified tags).
 """
 
-from typing import Dict, Iterator, List, Optional
+from __future__ import annotations
 
+from typing import Any, Dict, Iterator, List, Optional
 from xml.etree import ElementTree as ET
+from typing import Dict, List, Mapping, Optional, Tuple, Union
+from datetime import date
 
-from shakelab.engineering.fragility_old import (
-    FragilityModelParametric,
-    FragilityModelDiscrete,
+from shakelab.engineering.exposure.exposure import (
+    Typology,
+    Asset,
+    Exposure,
 )
+#from shakelab.engineering.fragility_old import (
+#    FragilityModelParametric,
+#    FragilityModelDiscrete,
+#)
 
+Number = Union[int, float]
 
 _NRML_NS = "http://openquake.org/xmlns/nrml/0.5"
 _GML_NS = "http://www.opengis.net/gml"
@@ -358,17 +367,22 @@ def iter_exposure_assets(
     recover: bool = False,
 ) -> Iterator[Dict]:
     """
-    Stream NRML 0.5 exposure assets as plain dicts.
+    Stream NRML 0.5 exposure assets as plain dicts, with robust
+    namespace handling. The iterator is memory-efficient and yields
+    one asset at a time.
 
-    This iterator is memory-efficient and yields one asset at a time.
+    This reader first tries exact lookups with the NRML namespace
+    and then falls back to localname-only matches so it works even
+    when the XML uses default namespaces or different prefixes.
 
     Parameters
     ----------
     xml_path : str
         Path to the NRML exposure XML file.
     recover : bool, default False
-        If True, performs a minimal, non-destructive trimming of any
-        garbage that may precede the first '<' in the file.
+        If True, uses a tolerant stream that trims any garbage bytes
+        preceding the first '<'. This is non-destructive and only
+        affects the parsing stream.
 
     Yields
     ------
@@ -382,7 +396,41 @@ def iter_exposure_assets(
           "costs": {"structural": float, "nonstructural": float, ...},
           "tags": {"comune": str, "sezione": str, ...}
         }
+
+    Notes
+    -----
+    * 'location' attributes are cast to float; missing values are None.
+    * 'occupancies' values are summed if multiple entries per period
+      exist in the source.
+    * 'costs' values are summed if multiple entries per type exist.
+    * Memory is released by clearing the processed <asset> element.
     """
+
+    # ------- helpers (local to avoid polluting the module scope) ---------
+
+    def _tag_localname(tag: str) -> str:
+        """Return local part of a tag, stripping '{ns}' if present."""
+        if not isinstance(tag, str):
+            return ""
+        if tag.startswith("{"):
+            return tag.split("}", 1)[1]
+        return tag
+
+    def _find_any_ns(parent, localname: str):
+        """Find first direct child by localname, ignoring namespace."""
+        for child in list(parent):
+            if _tag_localname(child.tag) == localname:
+                return child
+        return None
+
+    def _findall_any_ns(parent, localname: str):
+        """Yield direct children by localname, ignoring namespace."""
+        for child in list(parent):
+            if _tag_localname(child.tag) == localname:
+                yield child
+
+    # -------------------- parsing stream selection -----------------------
+
     events = (
         _iterparse_clean_stream(xml_path)
         if recover
@@ -399,38 +447,63 @@ def iter_exposure_assets(
     tags_tag = f"{{{n}}}tags"
 
     for elem in events:
-        if elem.tag != asset_tag:
+        is_asset = elem.tag == asset_tag or _tag_localname(elem.tag) == "asset"
+        if not is_asset:
             continue
 
         at = elem.attrib
 
+        # ---- location (try exact-NS then fallback by localname) ----
         loc_el = elem.find(loc_tag)
+        if loc_el is None:
+            loc_el = _find_any_ns(elem, "location")
         location = {
             "lat": (
-                _safe_float(loc_el.attrib.get("lat")) if loc_el else None
+                _safe_float(loc_el.attrib.get("lat"))
+                if loc_el is not None else None
             ),
             "lon": (
-                _safe_float(loc_el.attrib.get("lon")) if loc_el else None
+                _safe_float(loc_el.attrib.get("lon"))
+                if loc_el is not None else None
             ),
         }
 
-        occs: Dict[str, int] = {}
+        # ---- occupancies (sum by period) ----
         occs_el = elem.find(occs_tag)
+        if occs_el is None:
+            occs_el = _find_any_ns(elem, "occupancies")
+        occs: Dict[str, int] = {}
         if occs_el is not None:
-            for o in occs_el.findall(occ_tag):
+            occ_elems = list(occs_el.findall(occ_tag))
+            if not occ_elems:
+                occ_elems = list(_findall_any_ns(occs_el, "occupancy"))
+            for o in occ_elems:
                 period = o.attrib.get("period")
-                if period:
-                    occs[period] = _safe_int(o.attrib.get("occupants"))
+                if not period:
+                    continue
+                val = _safe_int(o.attrib.get("occupants"), 0)
+                occs[period] = occs.get(period, 0) + val
 
-        costs: Dict[str, float] = {}
+        # ---- costs (sum by type) ----
         costs_el = elem.find(costs_tag)
+        if costs_el is None:
+            costs_el = _find_any_ns(elem, "costs")
+        costs: Dict[str, float] = {}
         if costs_el is not None:
-            for c in costs_el.findall(cost_tag):
+            cost_elems = list(costs_el.findall(cost_tag))
+            if not cost_elems:
+                cost_elems = list(_findall_any_ns(costs_el, "cost"))
+            for c in cost_elems:
                 ctype = c.attrib.get("type")
-                if ctype:
-                    costs[ctype] = _safe_float(c.attrib.get("value"))
+                if not ctype:
+                    continue
+                cval = _safe_float(c.attrib.get("value"), 0.0)
+                costs[ctype] = costs.get(ctype, 0.0) + cval
 
+        # ---- tags (attributes of <tags/>) ----
         tags_el = elem.find(tags_tag)
+        if tags_el is None:
+            tags_el = _find_any_ns(elem, "tags")
         tags = dict(tags_el.attrib) if tags_el is not None else {}
 
         yield {
@@ -445,7 +518,7 @@ def iter_exposure_assets(
             "tags": tags,
         }
 
-        # Free memory as we stream.
+        # Free memory as we stream the tree.
         elem.clear()
 
 
@@ -473,3 +546,296 @@ def load_oq_exposure(xml_path: str, recover: bool = False) -> List[Dict]:
         List of asset records as produced by `iter_exposure_assets`.
     """
     return [rec for rec in iter_exposure_assets(xml_path, recover=recover)]
+
+
+# --------------------------------------------------------------------------- #
+# Conversion to Shakelab exposure
+# --------------------------------------------------------------------------- #
+
+def convert_oq_exposure_strict(
+    records: List[Dict[str, Any]],
+    *,
+    group_by: str = "none",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> "Exposure":
+    """
+    Convert OpenQuake exposure records to a ShakeLab Exposure object.
+
+    Strict policy:
+    - No inference from taxonomy (no by-prefix mapping).
+    - Do not fabricate missing attributes.
+    - Do not generate geometry (Asset.geometry is left as None).
+    - Use reference_location only (mandatory in ShakeLab).
+
+    Parameters
+    ----------
+    records
+        List of OpenQuake exposure records as dictionaries, typically
+        returned by `load_oq_exposure()`.
+    group_by
+        Grouping strategy:
+        - "none": one ShakeLab asset per OpenQuake record
+        - "id": group by record["id"]
+        - "name": group by record["name"]
+        - "tag:<key>": group by record["tags"][<key>]
+    metadata
+        Metadata dictionary for the root Exposure object. Must include at
+        least `name` and `date` for ShakeLab validation.
+
+    Returns
+    -------
+    Exposure
+        A validated ShakeLab Exposure object.
+
+    Raises
+    ------
+    ValueError
+        On missing mandatory fields (e.g., cannot compute reference point).
+    """
+    # Local import to avoid hard dependency at module import time.
+    from shakelab.engineering.exposure.exposure import (  # noqa: WPS433
+        Asset,
+        Exposure,
+        Typology,
+    )
+
+    def _is_number(x: Any) -> bool:
+        return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+    def _parse_int_or_none(x: Any) -> Optional[int]:
+        if x is None:
+            return None
+        if isinstance(x, bool):
+            return None
+        if isinstance(x, int):
+            return x
+        if isinstance(x, float):
+            return int(x) if x.is_integer() else None
+        if isinstance(x, str):
+            s = x.strip()
+            if not s:
+                return None
+            try:
+                return int(s)
+            except ValueError:
+                return None
+        return None
+
+    def _parse_float_or_none(x: Any) -> Optional[float]:
+        if x is None:
+            return None
+        if isinstance(x, bool):
+            return None
+        if isinstance(x, (int, float)):
+            return float(x)
+        if isinstance(x, str):
+            s = x.strip()
+            if not s:
+                return None
+            try:
+                return float(s)
+            except ValueError:
+                return None
+        return None
+
+    def _group_key(rec: Dict[str, Any]) -> str:
+        if group_by == "none":
+            rid = rec.get("id")
+            if isinstance(rid, str) and rid.strip():
+                return rid
+            return str(id(rec))
+
+        if group_by == "id":
+            rid = rec.get("id")
+            if isinstance(rid, str) and rid.strip():
+                return rid
+            return str(id(rec))
+
+        if group_by == "name":
+            name = rec.get("name")
+            if isinstance(name, str) and name.strip():
+                return name
+            rid = rec.get("id")
+            if isinstance(rid, str) and rid.strip():
+                return rid
+            return str(id(rec))
+
+        if group_by.startswith("tag:"):
+            key = group_by.split(":", 1)[1].strip()
+            tags = rec.get("tags") or {}
+            if isinstance(tags, dict):
+                val = tags.get(key)
+                if val is not None:
+                    sval = str(val).strip()
+                    if sval:
+                        return sval
+            rid = rec.get("id")
+            if isinstance(rid, str) and rid.strip():
+                return rid
+            return str(id(rec))
+
+        raise ValueError(f"Unsupported group_by='{group_by}'")
+
+    def _pick_lon_lat(group: List[Dict[str, Any]]) -> tuple[float, float]:
+        for r in group:
+            loc = r.get("location") or {}
+            if not isinstance(loc, dict):
+                continue
+            lon = loc.get("lon")
+            lat = loc.get("lat")
+            if _is_number(lon) and _is_number(lat):
+                return float(lon), float(lat)
+        raise ValueError(
+            "Cannot build reference_location: missing lon/lat in group."
+        )
+
+    def _pick_occupants(rec: Dict[str, Any]) -> Optional[Dict[str, float]]:
+        occ = rec.get("occupancies") or {}
+        if not isinstance(occ, dict) or not occ:
+            return None
+
+        day = occ.get("day")
+        night = occ.get("night")
+        if _is_number(day) and _is_number(night):
+            if float(day) < 0 or float(night) < 0:
+                return None
+            return {"day": float(day), "night": float(night)}
+
+        return None
+
+    def _pick_replacement_cost(rec: Dict[str, Any]) -> Optional[float]:
+        costs = rec.get("costs") or {}
+        if not isinstance(costs, dict) or not costs:
+            return None
+
+        repl = costs.get("replacement")
+        if _is_number(repl) and float(repl) >= 0:
+            return float(repl)
+
+        numeric = [v for v in costs.values() if _is_number(v) and float(v) >= 0]
+        if len(numeric) == 1:
+            return float(numeric[0])
+
+        return None
+
+    def _pick_period(rec: Dict[str, Any]) -> Optional[Dict[str, Optional[int]]]:
+        tags = rec.get("tags") or {}
+        if not isinstance(tags, dict) or not tags:
+            return None
+
+        start = _parse_int_or_none(tags.get("period_start"))
+        end = _parse_int_or_none(tags.get("period_end"))
+
+        if start is None and end is None:
+            return None
+
+        return {"start": start, "end": end}
+
+    def _pick_code_level(rec: Dict[str, Any]) -> Optional[str]:
+        tags = rec.get("tags") or {}
+        if not isinstance(tags, dict):
+            return None
+        val = tags.get("code_level")
+        if val is None:
+            return None
+        s = str(val).strip()
+        if not s:
+            return None
+        # Keep only values accepted by the ShakeLab model.
+        allowed = {"none", "low", "moderate", "high", "retrofit"}
+        return s if s in allowed else None
+
+    def _pick_str_tag(rec: Dict[str, Any], key: str) -> Optional[str]:
+        tags = rec.get("tags") or {}
+        if not isinstance(tags, dict):
+            return None
+        val = tags.get(key)
+        if val is None:
+            return None
+        s = str(val).strip()
+        return s if s else None
+
+    def _pick_stories(rec: Dict[str, Any]) -> Optional[int]:
+        tags = rec.get("tags") or {}
+        if not isinstance(tags, dict):
+            return None
+        return _parse_int_or_none(tags.get("stories"))
+
+    if metadata is None:
+        metadata = {}
+
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        key = _group_key(r)
+        groups.setdefault(key, []).append(r)
+
+    assets: List[Asset] = []
+    for gid, group in groups.items():
+        lon, lat = _pick_lon_lat(group)
+
+        # aggregated is informational now (geometry is optional).
+        # Make it True when grouping creates multi-record assets, or when an
+        # OQ record represents multiple buildings (number > 1).
+        aggregated = False
+        if len(group) > 1:
+            aggregated = True
+        else:
+            number = group[0].get("number")
+            if isinstance(number, int) and number > 1:
+                aggregated = True
+
+        typologies: List[Typology] = []
+        for r in group:
+            taxonomy = r.get("taxonomy")
+            if not isinstance(taxonomy, str) or not taxonomy.strip():
+                continue
+
+            number = r.get("number")
+            if not isinstance(number, int) or number < 1:
+                continue
+
+            typologies.append(
+                Typology(
+                    taxonomy=taxonomy.strip(),
+                    count=number,
+                    usage=_pick_str_tag(r, "usage"),
+                    building_type=_pick_str_tag(r, "building_type"),
+                    code_level=_pick_code_level(r),
+                    occupants=_pick_occupants(r),
+                    period=_pick_period(r),
+                    replacement_cost=_pick_replacement_cost(r),
+                    stories=_pick_stories(r),
+                    damage_state=_pick_str_tag(r, "damage_state"),
+                )
+            )
+
+        if not typologies:
+            continue
+
+        assets.append(
+            Asset(
+                id=str(gid),
+                name=str(gid),
+                aggregated=aggregated,
+                aggregation_area=_parse_float_or_none(
+                    group[0].get("area") if len(group) == 1 else None
+                ),
+                critical=False,
+                geometry=None,
+                reference_location={"longitude": lon, "latitude": lat},
+                reference_geology={},
+                typologies=typologies,
+            )
+        )
+
+    exposure = Exposure(
+        type="ShakeLabExposure",
+        schema_version="1.0.0",
+        metadata=metadata,
+        assets=assets,
+    )
+
+    exposure.validate()
+    return exposure

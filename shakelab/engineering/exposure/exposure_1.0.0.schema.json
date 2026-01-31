@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "ShakeLabExposure (schema_version 1.0.0)",
+  "type": "object",
+  "required": ["type", "schema_version", "metadata", "assets"],
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "ShakeLabExposure" },
+    "schema_version": { "const": "1.0.0" },
+    "metadata": { "$ref": "#/definitions/metadata" },
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/asset" }
+    }
+  },
+  "definitions": {
+    "metadata": {
+      "type": "object",
+      "required": ["name", "date"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "region": { "type": "string" },
+        "source": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "version": { "type": "string" },
+        "crs": { "type": "string" },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "license": { "type": "string" }
+      }
+    },
+
+    "coord2": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": [{ "type": "number" }, { "type": "number" }]
+    },
+
+    "ring": {
+      "type": "array",
+      "minItems": 4,
+      "items": { "$ref": "#/definitions/coord2" }
+    },
+
+    "geometry": {
+      "type": "object",
+      "required": ["type", "coordinates"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["Point", "Polygon"] },
+        "coordinates": {}
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "Point" } } },
+          "then": {
+            "properties": {
+              "coordinates": { "$ref": "#/definitions/coord2" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "Polygon" } } },
+          "then": {
+            "properties": {
+              "coordinates": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "#/definitions/ring" }
+              }
+            }
+          }
+        }
+      ]
+    },
+
+    "reference_location": {
+      "type": "object",
+      "required": ["longitude", "latitude"],
+      "additionalProperties": false,
+      "properties": {
+        "longitude": { "type": "number" },
+        "latitude": { "type": "number" },
+        "elevation": { "type": "number" }
+      }
+    },
+
+    "reference_geology": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "vs30": { "type": "number", "minimum": 0 },
+        "soil_class": { "type": "string" },
+        "soil_type": { "type": "string" }
+      }
+    },
+
+    "period": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start": { "type": ["integer", "null"] },
+        "end": { "type": ["integer", "null"] }
+      }
+    },
+
+    "occupants": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "day": { "type": "number", "minimum": 0 },
+        "night": { "type": "number", "minimum": 0 }
+      }
+    },
+
+    "damage_state": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+
+    "code_level": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "enum": ["none", "low", "moderate", "high", "retrofit"]
+        }
+      ]
+    },
+
+    "typology": {
+      "type": "object",
+      "required": ["taxonomy", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "taxonomy": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 1 },
+
+        "usage": { "type": ["string", "null"], "minLength": 1 },
+        "building_type": { "type": ["string", "null"], "minLength": 1 },
+        "code_level": { "$ref": "#/definitions/code_level" },
+
+        "occupants": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/definitions/occupants" }
+          ]
+        },
+
+        "period": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/definitions/period" }
+          ]
+        },
+
+        "replacement_cost": { "type": ["number", "null"], "minimum": 0 },
+
+        "stories": { "type": ["integer", "null"], "minimum": 1 },
+
+        "damage_state": { "$ref": "#/definitions/damage_state" }
+      }
+    },
+
+    "asset": {
+      "type": "object",
+      "required": [
+        "id",
+        "aggregated",
+        "aggregation_area",
+        "reference_location",
+        "typologies"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+
+        "name": {
+          "description": "Optional human-readable label (may be empty).",
+          "type": ["string", "null"]
+        },
+
+        "aggregated": { "type": "boolean" },
+        "aggregation_area": { "type": ["number", "null"], "minimum": 0 },
+
+        "critical": {
+          "description": "Optional critical-infrastructure flag.",
+          "type": ["boolean", "null"]
+        },
+
+        "geometry": { "$ref": "#/definitions/geometry" },
+
+        "reference_location": { "$ref": "#/definitions/reference_location" },
+
+        "reference_geology": {
+          "description": "Optional site/geology attributes (may be empty object).",
+          "$ref": "#/definitions/reference_geology"
+        },
+
+        "typologies": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/typology" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["geometry"],
+            "properties": { "aggregated": { "const": true } }
+          },
+          "then": {
+            "properties": {
+              "geometry": {
+                "properties": { "type": { "const": "Polygon" } }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["geometry"],
+            "properties": { "aggregated": { "const": false } }
+          },
+          "then": {
+            "properties": {
+              "geometry": {
+                "properties": { "type": { "const": "Point" } }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
