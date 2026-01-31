@@ -552,20 +552,29 @@ def load_oq_exposure(xml_path: str, recover: bool = False) -> List[Dict]:
 # Conversion to Shakelab exposure
 # --------------------------------------------------------------------------- #
 
-def convert_oq_exposure_strict(
+def oq_to_shakelab_exposure(
     records: List[Dict[str, Any]],
     *,
     group_by: str = "none",
     metadata: Optional[Dict[str, Any]] = None,
+    strict: bool = False,
 ) -> "Exposure":
     """
     Convert OpenQuake exposure records to a ShakeLab Exposure object.
 
-    Strict policy:
-    - No inference from taxonomy (no by-prefix mapping).
-    - Do not fabricate missing attributes.
-    - Do not generate geometry (Asset.geometry is left as None).
-    - Use reference_location only (mandatory in ShakeLab).
+    The conversion is intentionally conservative: no inference from taxonomy
+    and no geometry creation. Only the mandatory ShakeLab fields are
+    guaranteed to be populated.
+
+    Strict mode
+    ----------
+    If `strict=True`, the returned Exposure object is populated with all
+    optional fields using explicit empty/default values, so that a JSON
+    serialization with `include_nulls=True` will contain every field and
+    sub-field defined by the schema.
+
+    If `strict=False`, optional fields are left as None and can be omitted
+    in JSON output by serializing with `include_nulls=False`.
 
     Parameters
     ----------
@@ -581,6 +590,9 @@ def convert_oq_exposure_strict(
     metadata
         Metadata dictionary for the root Exposure object. Must include at
         least `name` and `date` for ShakeLab validation.
+    strict
+        If True, populate optional fields and nested sub-fields with
+        explicit default/null values.
 
     Returns
     -------
@@ -590,9 +602,10 @@ def convert_oq_exposure_strict(
     Raises
     ------
     ValueError
-        On missing mandatory fields (e.g., cannot compute reference point).
+        On missing mandatory fields (e.g., cannot compute a reference
+        location or missing required metadata).
     """
-    # Local import to avoid hard dependency at module import time.
+    # Local import to avoid a hard dependency at module import time.
     from shakelab.engineering.exposure.exposure import (  # noqa: WPS433
         Asset,
         Exposure,
@@ -603,9 +616,7 @@ def convert_oq_exposure_strict(
         return isinstance(x, (int, float)) and not isinstance(x, bool)
 
     def _parse_int_or_none(x: Any) -> Optional[int]:
-        if x is None:
-            return None
-        if isinstance(x, bool):
+        if x is None or isinstance(x, bool):
             return None
         if isinstance(x, int):
             return x
@@ -622,9 +633,7 @@ def convert_oq_exposure_strict(
         return None
 
     def _parse_float_or_none(x: Any) -> Optional[float]:
-        if x is None:
-            return None
-        if isinstance(x, bool):
+        if x is None or isinstance(x, bool):
             return None
         if isinstance(x, (int, float)):
             return float(x)
@@ -641,42 +650,30 @@ def convert_oq_exposure_strict(
     def _group_key(rec: Dict[str, Any]) -> str:
         if group_by == "none":
             rid = rec.get("id")
-            if isinstance(rid, str) and rid.strip():
-                return rid
-            return str(id(rec))
-
+            return str(rid) if rid is not None else ""
         if group_by == "id":
             rid = rec.get("id")
-            if isinstance(rid, str) and rid.strip():
-                return rid
-            return str(id(rec))
-
+            return str(rid) if rid is not None else ""
         if group_by == "name":
-            name = rec.get("name")
-            if isinstance(name, str) and name.strip():
-                return name
-            rid = rec.get("id")
-            if isinstance(rid, str) and rid.strip():
-                return rid
-            return str(id(rec))
-
+            rname = rec.get("name")
+            return str(rname) if rname is not None else ""
         if group_by.startswith("tag:"):
-            key = group_by.split(":", 1)[1].strip()
+            tag_key = group_by.split("tag:", 1)[1].strip()
             tags = rec.get("tags") or {}
             if isinstance(tags, dict):
-                val = tags.get(key)
-                if val is not None:
-                    sval = str(val).strip()
-                    if sval:
-                        return sval
-            rid = rec.get("id")
-            if isinstance(rid, str) and rid.strip():
-                return rid
-            return str(id(rec))
-
-        raise ValueError(f"Unsupported group_by='{group_by}'")
+                val = tags.get(tag_key)
+                return str(val) if val is not None else ""
+            return ""
+        raise ValueError(
+            "Invalid group_by. Use: 'none', 'id', 'name', or 'tag:<key>'."
+        )
 
     def _pick_lon_lat(group: List[Dict[str, Any]]) -> tuple[float, float]:
+        """
+        Pick reference (lon, lat) for a group.
+
+        Strategy: first valid numeric lon/lat found.
+        """
         for r in group:
             loc = r.get("location") or {}
             if not isinstance(loc, dict):
@@ -685,65 +682,7 @@ def convert_oq_exposure_strict(
             lat = loc.get("lat")
             if _is_number(lon) and _is_number(lat):
                 return float(lon), float(lat)
-        raise ValueError(
-            "Cannot build reference_location: missing lon/lat in group."
-        )
-
-    def _pick_occupants(rec: Dict[str, Any]) -> Optional[Dict[str, float]]:
-        occ = rec.get("occupancies") or {}
-        if not isinstance(occ, dict) or not occ:
-            return None
-
-        day = occ.get("day")
-        night = occ.get("night")
-        if _is_number(day) and _is_number(night):
-            if float(day) < 0 or float(night) < 0:
-                return None
-            return {"day": float(day), "night": float(night)}
-
-        return None
-
-    def _pick_replacement_cost(rec: Dict[str, Any]) -> Optional[float]:
-        costs = rec.get("costs") or {}
-        if not isinstance(costs, dict) or not costs:
-            return None
-
-        repl = costs.get("replacement")
-        if _is_number(repl) and float(repl) >= 0:
-            return float(repl)
-
-        numeric = [v for v in costs.values() if _is_number(v) and float(v) >= 0]
-        if len(numeric) == 1:
-            return float(numeric[0])
-
-        return None
-
-    def _pick_period(rec: Dict[str, Any]) -> Optional[Dict[str, Optional[int]]]:
-        tags = rec.get("tags") or {}
-        if not isinstance(tags, dict) or not tags:
-            return None
-
-        start = _parse_int_or_none(tags.get("period_start"))
-        end = _parse_int_or_none(tags.get("period_end"))
-
-        if start is None and end is None:
-            return None
-
-        return {"start": start, "end": end}
-
-    def _pick_code_level(rec: Dict[str, Any]) -> Optional[str]:
-        tags = rec.get("tags") or {}
-        if not isinstance(tags, dict):
-            return None
-        val = tags.get("code_level")
-        if val is None:
-            return None
-        s = str(val).strip()
-        if not s:
-            return None
-        # Keep only values accepted by the ShakeLab model.
-        allowed = {"none", "low", "moderate", "high", "retrofit"}
-        return s if s in allowed else None
+        raise ValueError("Cannot determine reference_location for group.")
 
     def _pick_str_tag(rec: Dict[str, Any], key: str) -> Optional[str]:
         tags = rec.get("tags") or {}
@@ -755,6 +694,56 @@ def convert_oq_exposure_strict(
         s = str(val).strip()
         return s if s else None
 
+    def _pick_code_level(rec: Dict[str, Any]) -> Optional[str]:
+        val = _pick_str_tag(rec, "code_level")
+        if val is None:
+            return None
+        v = val.strip().lower()
+        allowed = {"none", "low", "moderate", "high", "retrofit"}
+        return v if v in allowed else None
+
+    def _pick_period(rec: Dict[str, Any]) -> Optional[Dict[str, Optional[int]]]:
+        tags = rec.get("tags") or {}
+        if not isinstance(tags, dict):
+            return None
+
+        start = _parse_int_or_none(tags.get("period_start"))
+        end = _parse_int_or_none(tags.get("period_end"))
+
+        if start is None and end is None:
+            return None
+        return {"start": start, "end": end}
+
+    def _pick_occupants(rec: Dict[str, Any]) -> Optional[Dict[str, float]]:
+        tags = rec.get("tags") or {}
+        if not isinstance(tags, dict):
+            return None
+
+        day = _parse_float_or_none(tags.get("occupants_day"))
+        night = _parse_float_or_none(tags.get("occupants_night"))
+
+        if day is None and night is None:
+            return None
+
+        return {
+            "day": float(day) if day is not None else 0.0,
+            "night": float(night) if night is not None else 0.0,
+        }
+
+    def _pick_replacement_cost(rec: Dict[str, Any]) -> Optional[float]:
+        costs = rec.get("costs") or {}
+        if not isinstance(costs, dict):
+            return None
+
+        val = costs.get("structural")
+        if val is None:
+            return None
+
+        cost = _parse_float_or_none(val)
+        if cost is None:
+            return None
+        return cost if cost >= 0 else None
+
     def _pick_stories(rec: Dict[str, Any]) -> Optional[int]:
         tags = rec.get("tags") or {}
         if not isinstance(tags, dict):
@@ -764,20 +753,28 @@ def convert_oq_exposure_strict(
     if metadata is None:
         metadata = {}
 
+    if not isinstance(metadata, dict):
+        raise ValueError("metadata must be a dict.")
+
+    if not isinstance(metadata.get("name"), str) or not metadata["name"].strip():
+        raise ValueError("metadata must include a non-empty 'name' field.")
+
+    if not isinstance(metadata.get("date"), str) or not metadata["date"].strip():
+        raise ValueError("metadata must include a non-empty 'date' field.")
+
     groups: Dict[str, List[Dict[str, Any]]] = {}
     for r in records:
         if not isinstance(r, dict):
             continue
-        key = _group_key(r)
-        groups.setdefault(key, []).append(r)
+        gid = _group_key(r)
+        if not gid:
+            continue
+        groups.setdefault(gid, []).append(r)
 
     assets: List[Asset] = []
     for gid, group in groups.items():
         lon, lat = _pick_lon_lat(group)
 
-        # aggregated is informational now (geometry is optional).
-        # Make it True when grouping creates multi-record assets, or when an
-        # OQ record represents multiple buildings (number > 1).
         aggregated = False
         if len(group) > 1:
             aggregated = True
@@ -796,39 +793,94 @@ def convert_oq_exposure_strict(
             if not isinstance(number, int) or number < 1:
                 continue
 
-            typologies.append(
-                Typology(
-                    taxonomy=taxonomy.strip(),
-                    count=number,
-                    usage=_pick_str_tag(r, "usage"),
-                    building_type=_pick_str_tag(r, "building_type"),
-                    code_level=_pick_code_level(r),
-                    occupants=_pick_occupants(r),
-                    period=_pick_period(r),
-                    replacement_cost=_pick_replacement_cost(r),
-                    stories=_pick_stories(r),
-                    damage_state=_pick_str_tag(r, "damage_state"),
+            usage = _pick_str_tag(r, "usage")
+            btype = _pick_str_tag(r, "building_type")
+            code_level = _pick_code_level(r)
+            occupants = _pick_occupants(r)
+            period = _pick_period(r)
+            repl_cost = _pick_replacement_cost(r)
+            stories = _pick_stories(r)
+            dmg_state = _pick_str_tag(r, "damage_state")
+
+            if strict:
+                typologies.append(
+                    Typology(
+                        taxonomy=taxonomy.strip(),
+                        count=number,
+                        usage=usage,
+                        building_type=btype,
+                        code_level=code_level,
+                        occupants=(
+                            occupants
+                            if occupants is not None
+                            else {"day": 0.0, "night": 0.0}
+                        ),
+                        period=period if period is not None else {
+                            "start": None,
+                            "end": None,
+                        },
+                        replacement_cost=repl_cost if repl_cost is not None else 0.0,
+                        stories=stories,
+                        damage_state=dmg_state,
+                    )
                 )
-            )
+            else:
+                typologies.append(
+                    Typology(
+                        taxonomy=taxonomy.strip(),
+                        count=number,
+                        usage=usage,
+                        building_type=btype,
+                        code_level=code_level,
+                        occupants=occupants,
+                        period=period,
+                        replacement_cost=repl_cost,
+                        stories=stories,
+                        damage_state=dmg_state,
+                    )
+                )
 
         if not typologies:
             continue
 
-        assets.append(
-            Asset(
+        if strict:
+            reference_location: Dict[str, Any] = {
+                "longitude": lon,
+                "latitude": lat,
+                "elevation": None,
+            }
+            reference_geology: Dict[str, Any] = {
+                "vs30": None,
+                "soil_class": None,
+                "soil_type": None,
+            }
+            asset = Asset(
                 id=str(gid),
-                name=str(gid),
+                name=None,
+                aggregated=aggregated,
+                aggregation_area=None,
+                critical=None,
+                geometry=None,
+                reference_location=reference_location,
+                reference_geology=reference_geology,
+                typologies=typologies,
+            )
+        else:
+            asset = Asset(
+                id=str(gid),
+                name=None,
                 aggregated=aggregated,
                 aggregation_area=_parse_float_or_none(
                     group[0].get("area") if len(group) == 1 else None
                 ),
-                critical=False,
+                critical=None,
                 geometry=None,
                 reference_location={"longitude": lon, "latitude": lat},
-                reference_geology={},
+                reference_geology=None,
                 typologies=typologies,
             )
-        )
+
+        assets.append(asset)
 
     exposure = Exposure(
         type="ShakeLabExposure",
@@ -839,3 +891,4 @@ def convert_oq_exposure_strict(
 
     exposure.validate()
     return exposure
+
