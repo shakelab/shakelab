@@ -1,0 +1,83 @@
+{
+  "type": "ShakeLabFragility",
+  "schema_version": "1.0.0",
+  "metadata": {
+    "name": "Example fragility database",
+    "date": "2026-02-07",
+    "description": "One continuous lognormal model and one discrete model.",
+    "source": "example"
+  },
+  "models": [
+    {
+      "id": "GENERIC_RC_LR_PGA_LN_V1",
+      "name": "Generic reinforced-concrete low-rise (example)",
+      "author": "Generic",
+      "year": 2026,
+      "taxonomy": "RC_LR_GENERIC",
+      "imt": "PGA",
+      "im_units": "g",
+      "model_type": "lognormal_continuous",
+      "damage_scale": {
+        "id": "D1D5",
+        "levels": ["D1", "D2", "D3", "D4", "D5"]
+      },
+      "im_bounds": {
+        "min": 0.01,
+        "max": 5.0
+      },
+      "parameters": {
+        "D1": { "theta": 0.06, "beta": 0.60 },
+        "D2": { "theta": 0.12, "beta": 0.60 },
+        "D3": { "theta": 0.20, "beta": 0.60 },
+        "D4": { "theta": 0.32, "beta": 0.60 },
+        "D5": { "theta": 0.55, "beta": 0.60 }
+      },
+      "notes": "All theta values are in IM units. beta is log-stddev (ln)."
+    },
+    {
+      "id": "GENERIC_URM_LR_SA03_DISC_V1",
+      "name": "Generic unreinforced masonry low-rise, SA(0.3) (example)",
+      "author": "Generic",
+      "year": 2026,
+      "taxonomy": "URM_LR_GENERIC",
+      "imt": "SA(0.3)",
+      "im_units": "g",
+      "model_type": "discrete",
+      "damage_scale": {
+        "id": "D1D5",
+        "levels": ["D1", "D2", "D3", "D4", "D5"]
+      },
+      "im_bounds": {
+        "min": 0.02,
+        "max": 2.0
+      },
+      "tables": {
+        "D1": {
+          "im": [0.02, 0.05, 0.10, 0.20, 0.50, 1.00, 2.00],
+          "poe": [0.00, 0.03, 0.10, 0.25, 0.60, 0.83, 0.93],
+          "log_im": true
+        },
+        "D2": {
+          "im": [0.02, 0.05, 0.10, 0.20, 0.50, 1.00, 2.00],
+          "poe": [0.00, 0.01, 0.05, 0.15, 0.45, 0.72, 0.86],
+          "log_im": true
+        },
+        "D3": {
+          "im": [0.02, 0.05, 0.10, 0.20, 0.50, 1.00, 2.00],
+          "poe": [0.00, 0.00, 0.02, 0.08, 0.30, 0.57, 0.77],
+          "log_im": true
+        },
+        "D4": {
+          "im": [0.02, 0.05, 0.10, 0.20, 0.50, 1.00, 2.00],
+          "poe": [0.00, 0.00, 0.01, 0.04, 0.18, 0.42, 0.65],
+          "log_im": true
+        },
+        "D5": {
+          "im": [0.02, 0.05, 0.10, 0.20, 0.50, 1.00, 2.00],
+          "poe": [0.00, 0.00, 0.00, 0.02, 0.10, 0.28, 0.50],
+          "log_im": true
+        }
+      }
+    }
+  ]
+}

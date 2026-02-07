@@ -18,19 +18,36 @@
 #
 # ****************************************************************************
 """
-Utilities for reading/writing OpenQuake NRML fragments used in ShakeLab.
+Utilities for interoperating between OpenQuake models and ShakeLab.
 
-This module provides:
-- Conversion of in-memory fragility collections to NRML 0.5 XML.
-- Generation of NRML 0.5 exposure models from project data.
-- Streaming parse of NRML 0.5 exposure models into plain Python dicts.
+This module provides helper functions to handle data structures commonly
+used in the OpenQuake ecosystem (e.g. exposure and fragility models) and
+to convert or adapt them to ShakeLab-native representations.
 
-Notes
------
-* The writer functions emit NRML 0.5 with a default namespace for NRML and
-  the 'gml' prefix for GML.
-* The reader handles default NRML namespaces explicitly (qualified tags).
+Currently, the module includes utilities to:
+- load and parse OpenQuake exposure models defined in NRML/XML format,
+- represent OpenQuake exposure records as simple Python dictionaries,
+- convert OpenQuake exposure data into the ShakeLabExposure format.
+
+Additional functionality related to fragility and vulnerability models
+is included or under active development. These components follow the
+same design principles adopted for exposure handling.
+
+Design philosophy
+-----------------
+The OpenQuake → ShakeLab conversions implemented here are intentionally
+conservative and transparent:
+- no implicit assumptions are made beyond what is explicitly encoded in
+  the OpenQuake models,
+- no automatic inference of engineering parameters is performed,
+- the resulting ShakeLab objects are schema-aligned and suitable for
+  progressive enrichment by downstream components.
+
+This module acts as an interoperability layer rather than a full
+reimplementation of OpenQuake semantics, focusing on clarity, stability,
+and long-term maintainability.
 """
+
 
 from __future__ import annotations
 

@@ -362,6 +362,91 @@ class Exposure:
         }
         return d if include_nulls else _drop_none(d)
 
+    def list_taxonomies(self) -> List[str]:
+        """
+        Return the list of unique taxonomies present in the exposure.
+    
+        Taxonomies are derived from the typologies attached to each asset.
+        The list is returned in sorted order.
+    
+        Returns
+        -------
+        list of str
+            Sorted list of unique typology taxonomies.
+        """
+        tax = {
+            typ.taxonomy
+            for asset in self.assets
+            for typ in asset.typologies
+            if isinstance(typ.taxonomy, str) and typ.taxonomy.strip()
+        }
+        return sorted(tax)
+
+    @classmethod
+    def from_json(
+        cls,
+        json_path: Union[str, Path],
+        validate: bool = True,
+    ) -> "Exposure":
+        """
+        Load an exposure dataset from a JSON file.
+    
+        This is a convenience wrapper around `load_exposure`.
+    
+        Parameters
+        ----------
+        json_path
+            Path to the exposure JSON file.
+        validate
+            If True, run full model validation.
+    
+        Returns
+        -------
+        Exposure
+            Parsed Exposure instance.
+        """
+        return load_exposure(json_path, validate=validate)
+
+    def to_json(
+        self,
+        json_path: Union[str, Path],
+        validate: bool = True,
+        *,
+        include_nulls: bool = False,
+        indent: int = 2,
+        sort_keys: bool = False,
+        ensure_ascii: bool = False,
+    ) -> None:
+        """
+        Write the exposure dataset to a JSON file.
+    
+        This is a convenience wrapper around `save_exposure`.
+    
+        Parameters
+        ----------
+        json_path
+            Output path for the JSON file.
+        validate
+            If True, run validation before writing.
+        include_nulls
+            If True, include keys with null values.
+        indent
+            Indentation level for JSON formatting.
+        sort_keys
+            Sort JSON keys alphabetically.
+        ensure_ascii
+            Escape non-ASCII characters if True.
+        """
+        save_exposure(
+            self,
+            json_path,
+            validate=validate,
+            include_nulls=include_nulls,
+            indent=indent,
+            sort_keys=sort_keys,
+            ensure_ascii=ensure_ascii,
+        )
+
 
 def load_exposure(
     json_path: Union[str, Path],

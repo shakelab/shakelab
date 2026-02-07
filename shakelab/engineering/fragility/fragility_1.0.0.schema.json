@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "ShakeLabFragility (schema_version 1.0.0)",
+  "type": "object",
+  "required": ["type", "schema_version", "metadata", "models"],
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "ShakeLabFragility" },
+    "schema_version": { "const": "1.0.0" },
+    "metadata": { "$ref": "#/definitions/metadata" },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/model" }
+    }
+  },
+  "definitions": {
+    "metadata": {
+      "type": "object",
+      "required": ["name", "date"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "region": { "type": "string" },
+        "source": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "version": { "type": "string" },
+        "license": { "type": "string" }
+      }
+    },
+
+    "damage_scale": {
+      "type": "object",
+      "required": ["id", "levels"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "levels": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "im_bounds": {
+      "type": "object",
+      "required": ["min", "max"],
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": "number", "minimum": 0 },
+        "max": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+
+    "lognormal_params": {
+      "type": "object",
+      "required": ["theta", "beta"],
+      "additionalProperties": false,
+      "properties": {
+        "theta": { "type": "number", "exclusiveMinimum": 0 },
+        "beta": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+
+    "discrete_table": {
+      "type": "object",
+      "required": ["im", "poe"],
+      "additionalProperties": false,
+      "properties": {
+        "im": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "number" }
+        },
+        "poe": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "log_im": { "type": "boolean" }
+      }
+    },
+
+    "model_base": {
+      "type": "object",
+      "required": [
+        "id",
+        "taxonomy",
+        "imt",
+        "model_type",
+        "damage_scale",
+        "im_bounds"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "author": { "type": "string" },
+        "year": { "type": "integer" },
+
+        "taxonomy": { "type": "string", "minLength": 1 },
+        "imt": { "type": "string", "minLength": 1 },
+        "im_units": { "type": "string", "minLength": 1 },
+
+        "model_type": {
+          "type": "string",
+          "enum": ["lognormal_continuous", "discrete"]
+        },
+
+        "damage_scale": { "$ref": "#/definitions/damage_scale" },
+        "im_bounds": { "$ref": "#/definitions/im_bounds" }
+      }
+    },
+
+    "model": {
+      "allOf": [
+        { "$ref": "#/definitions/model_base" },
+        {
+          "if": {
+            "properties": { "model_type": { "const": "lognormal_continuous" } }
+          },
+          "then": {
+            "required": ["parameters"],
+            "additionalProperties": true,
+            "properties": {
+              "parameters": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": { "$ref": "#/definitions/lognormal_params" }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "model_type": { "const": "discrete" } }
+          },
+          "then": {
+            "required": ["tables"],
+            "additionalProperties": true,
+            "properties": {
+              "tables": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": { "$ref": "#/definitions/discrete_table" }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
