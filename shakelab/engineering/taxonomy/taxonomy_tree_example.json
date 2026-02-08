@@ -1,0 +1,25 @@
+{
+  "type": "ShakeLabTaxonomyTree",
+  "schema_version": "1.0.0",
+  "metadata": {
+    "name": "Example explicit taxonomy to fragility mapping",
+    "date": "2026-02-07",
+    "description": "Explicit mapping between exposure taxonomies and fragility models. Each taxonomy must be explicitly listed. Weights are optional and represent epistemic uncertainty."
+  },
+  "mappings": {
+    "RC-LRS": {
+      "fragility_models": [
+        {"id": "GENERIC_RC_LR_PGA_LN_V1"}
+      ],
+      "notes": "Single fragility model, deterministic mapping."
+    },
+    "MUR-URM-LOW": {
+      "fragility_models": [
+        {"id": "GENERIC_URM_LR_SA03_DISC_V1", "weight": 0.5},
+        {"id": "GENERIC_URM_LR_PGA_LN_V1", "weight": 0.3},
+        {"id": "GENERIC_URM_LR_PGV_LN_V1", "weight": 0.2}
+      ],
+      "notes": "Multiple fragility models representing epistemic uncertainty in URM low-rise behavior."
+    }
+  }
+}

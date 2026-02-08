@@ -318,7 +318,7 @@ class Asset:
 
 
 @dataclass
-class Exposure:
+class ExposureModel:
     """
     Root container for a ShakeLabExposure model (schema_version 1.0.0).
 
@@ -451,7 +451,7 @@ class Exposure:
 def load_exposure(
     json_path: Union[str, Path],
     validate: bool = True,
-) -> Exposure:
+) -> ExposureModel:
     """
     Load a ShakeLabExposure JSON file (schema_version 1.0.0) into an
     Exposure object.
@@ -461,7 +461,7 @@ def load_exposure(
     json_path
         Path to the JSON file.
     validate
-        If True, run the datamodel validation (Exposure.validate()).
+        If True, run the datamodel validation (ExposureModel.validate()).
 
     Returns
     -------
@@ -536,7 +536,7 @@ def load_exposure(
         )
         assets.append(asset)
 
-    exposure = Exposure(
+    exposure = ExposureModel(
         type=data.get("type"),
         schema_version=data.get("schema_version"),
         metadata=data.get("metadata"),
@@ -550,7 +550,7 @@ def load_exposure(
 
 
 def save_exposure(
-    exposure: Exposure,
+    exposure: ExposureModel,
     json_path: Union[str, Path],
     validate: bool = True,
     *,

@@ -103,7 +103,7 @@ print("\nModels loaded from JSON:")
 print(collection_json.list_ids())
 
 # Select a model by id
-model = collection_json.get("GENERIC_RC_LR_PGA_LN_V1")
+model = collection_json["GENERIC_RC_LR_PGA_LN_V1"]
 
 # ------------------------------------------------------------
 # 7a) Deterministic IM (reference case)

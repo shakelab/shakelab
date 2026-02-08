@@ -1,10 +1,10 @@
-from exposure import Exposure
+from exposure import ExposureModel
 
 # ------------------------------------------------------------
 # 1) Load exposure model from JSON
 # ------------------------------------------------------------
 
-exposure = Exposure.from_json(
+exposure = ExposureModel.from_json(
     "exposure_example.json",
     validate=True,
 )

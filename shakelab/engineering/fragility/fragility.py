@@ -737,6 +737,22 @@ class FragilityCollection:
             if model.id != mid:
                 raise ValueError("models key must match model.id.")
 
+    def __getitem__(self, model_id: str) -> FragilityModel:
+        """Return a model by id (dict-style access)."""
+        return self.models[model_id]
+    
+    def __contains__(self, model_id: object) -> bool:
+        """Return True if model_id exists in the collection."""
+        return model_id in self.models
+    
+    def __len__(self) -> int:
+        """Return the number of models in the collection."""
+        return len(self.models)
+    
+    def __iter__(self):
+        """Iterate over model ids (sorted)."""
+        return iter(self.list_ids())
+
     def add(self, model: FragilityModel) -> None:
         """Add or replace a model by id."""
         self.models[model.id] = model
