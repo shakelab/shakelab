@@ -1,0 +1,8 @@
+{
+  "gmpemap": {
+    "BragatoSlejko2005": {
+      "pointer": "shakelab.gmmodel.gmpe.bragato_slejko_2005:BragatoSlejko2005",
+      "alias": ["BS2005", "Bragato2005", "Bragato_Slejko_2005"]
+    }
+  }
+}

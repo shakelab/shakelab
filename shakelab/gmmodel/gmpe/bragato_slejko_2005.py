@@ -23,7 +23,7 @@
 import numpy as _np
 from scipy.constants import g
 
-from shakelab.gmpe.base import GMPE
+from shakelab.gmmodel.gmpe.base import GMPE
 
 class BragatoSlejko2005(GMPE):
     """
