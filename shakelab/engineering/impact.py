@@ -49,7 +49,7 @@ from math import isfinite
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple
 import json, os
 
-from shakelab.engineering.groundmotion import GroundMotionContext
+from shakelab.gmmodel.groundmotion import GroundMotionContext
 from shakelab.engineering.exposure.exposure import Asset, ExposureModel
 from shakelab.engineering.taxonomy.taxonomy_tree import TaxonomyTree
 from shakelab.engineering.fragility.fragility import FragilityCollection
@@ -63,6 +63,9 @@ TypologyWeighting = Literal["count", "uniform"]
 
 __all__ = [
     "ImpactConfig",
+    "GroundMotionValue",
+    "TypologyImpactResult",
+    "AssetImpactResult",
     "ImpactResult",
     "compute_impact_scenario",
     "damage_probabilities",
@@ -77,31 +80,37 @@ class ImpactConfig:
     Attributes
     ----------
     uncertainty_mode
-        - "lognormal": convolve fragility PoE with IM lognormal uncertainty
-          using (median IM, sigma_ln).
-        - "median_only": deterministic computation using the median IM
-          (sigma_ln ignored).
+        - "lognormal": convolve fragility PoE with IM lognormal
+          uncertainty using (median IM, sigma_ln).
+        - "median_only": deterministic computation using the
+          median IM (sigma_ln ignored).
     output
         - "exceed": return exceedance probabilities P(DS >= level)
-        - "state": return mutually exclusive probabilities including D0 and
-          a tail state.
+        - "state": return mutually exclusive probabilities including
+          D0 and a tail state.
     typology_weighting
         How typologies are mixed at asset level:
         - "count": weights proportional to typology.count (default)
-        - "uniform": each typology contributes equally
+        - "uniform": each typology contributes equally.
     normalize_asset_probabilities
-        If True, the asset-level probability output is normalized so that the
-        returned probabilities sum to ~1 (for output="state") or remain in
-        [0, 1] (for output="exceed") as a convex mixture across typologies.
+        If True, the asset-level probability output is normalized so
+        that probabilities form a convex mixture across typologies.
         If False, typology mixtures are summed without normalization.
         (Expected counts are always computed using typology.count.)
     missing_taxonomy
-        Behavior when a typology.taxonomy is not found in the TaxonomyTree.
+        Behavior when a typology.taxonomy is not found in the
+        TaxonomyTree ("raise" or "skip").
     no_damage_key
         Output key for the no-damage state (only for output="state").
     tail_key
-        Output key for the tail state beyond the last level (only for
-        output="state").
+        Output key for the tail state beyond the last damage level
+        (only for output="state").
+    include_typology_breakdown
+        If True, the output includes per-typology damage results
+        within each asset, including ground-motion values,
+        damage probabilities, and expected number of units in
+        each damage state. If False, only aggregated asset-level
+        damage results are returned.
     """
 
     uncertainty_mode: UncertaintyMode = "lognormal"
@@ -115,6 +124,81 @@ class ImpactConfig:
     no_damage_key: str = "D0"
     tail_key: str = "GT_LAST"
 
+    include_typology_breakdown: bool = False
+
+
+@dataclass(frozen=True)
+class GroundMotionValue:
+    """
+    Ground-motion values used in the impact calculation.
+
+    Attributes
+    ----------
+    imt
+        Intensity measure type (e.g. "PGA", "PGV", "SA(0.3)").
+    median
+        Median IM value in linear scale.
+    sigma_ln
+        Logarithmic standard deviation (natural log units). May be NaN.
+    """
+
+    imt: str
+    median: float
+    sigma_ln: float
+
+
+@dataclass
+class TypologyImpactResult:
+    """
+    Per-typology outputs (within one asset).
+
+    Attributes
+    ----------
+    taxonomy
+        Exposure taxonomy string.
+    count
+        Number of units for this typology (as provided by exposure).
+    probabilities
+        Damage probabilities for this typology (keys depend on config.output).
+    expected_counts
+        Expected counts per state for this typology (always "state"
+        convention including D0 and tail).
+    """
+
+    taxonomy: str
+    count: float
+    probabilities: Dict[str, float]
+    expected_counts: Dict[str, float]
+
+
+@dataclass
+class AssetImpactResult:
+    """
+    Per-asset outputs.
+
+    Attributes
+    ----------
+    reference_location
+        Reference location dict with keys: longitude, latitude, elevation.
+    n_units
+        Total number of units for the asset (sum of typology counts).
+    ground_motion_by_imt
+        Ground motion values used within this asset, keyed by IMT.
+    probabilities
+        Asset-level damage probabilities (mixed over typologies).
+    expected_counts
+        Asset-level expected counts per state (sum over typologies).
+    typologies
+        Optional per-typology breakdown (if enabled).
+    """
+
+    reference_location: Dict[str, float]
+    n_units: float
+    ground_motion_by_imt: Dict[str, GroundMotionValue]
+    probabilities: Dict[str, float]
+    expected_counts: Dict[str, float]
+    typologies: Optional[List[TypologyImpactResult]] = None
+
 
 @dataclass
 class ImpactResult:
@@ -123,17 +207,15 @@ class ImpactResult:
 
     Attributes
     ----------
-    damage_prob_by_asset
-        Asset-level damage probabilities (keys depend on config.output).
-    expected_count_by_asset
-        Asset-level expected counts per damage state (only meaningful if the
-        exposure typologies provide `count`). Keys follow the "state" output
-        convention (including D0 and tail).
+    assets
+        Per-asset results keyed by asset id.
     """
 
-    damage_prob_by_asset: Dict[str, Dict[str, float]]
-    expected_count_by_asset: Dict[str, Dict[str, float]]
+    assets: Dict[str, AssetImpactResult]
 
+# ---------------------------------------------------------------------------
+# Impact evaluation
+# ---------------------------------------------------------------------------
 
 def compute_impact_scenario(
     gm_context: GroundMotionContext,
@@ -161,7 +243,7 @@ def compute_impact_scenario(
     Returns
     -------
     ImpactResult
-        Asset-level probability outputs + expected counts.
+        Per-asset outputs, optionally including per-typology breakdown.
 
     Notes
     -----
@@ -171,14 +253,20 @@ def compute_impact_scenario(
     """
     cfg = config or ImpactConfig()
 
-    damage_prob_by_asset: Dict[str, Dict[str, float]] = {}
-    expected_count_by_asset: Dict[str, Dict[str, float]] = {}
+    assets_out: Dict[str, AssetImpactResult] = {}
 
     for asset in exposure_model.assets:
         asset_id = str(asset.id)
 
+        # Reference location (stored in output)
+        lon, lat, elev = _asset_reference_lonlat(asset)
+        ref_loc = {
+            "longitude": lon,
+            "latitude": lat,
+            "elevation": elev,
+        }
+
         is_aggregated = bool(getattr(asset, "aggregated", False))
-        
         if not is_aggregated and len(asset.typologies) > 1:
             # Non-aggregated asset with multiple typologies is
             # ambiguous (composition vs epistemic uncertainty).
@@ -189,25 +277,63 @@ def compute_impact_scenario(
                 "typology."
             )
 
-        lon, lat, elev = _asset_reference_lonlat(asset)
+        # Total count per asset (n_units)
+        n_units = 0.0
+        for typ in asset.typologies:
+            n_units += float(getattr(typ, "count", 0.0) or 0.0)
 
-        # 1) Per-typology probabilities (asset mixture)
+        # Typology-level probabilities (for asset mixture)
         typ_prob_list: List[Tuple[Dict[str, float], float]] = []
 
-        # 2) Per-typology expected counts (always "state")
+        # Asset-level expected counts (always "state")
         asset_expected: Dict[str, float] = {}
 
-        for typ in asset.typologies:
-            tax = str(typ.taxonomy)
+        # Optional typology breakdown
+        typology_out: Optional[List[TypologyImpactResult]]
+        if getattr(cfg, "include_typology_breakdown", False):
+            typology_out = []
+        else:
+            typology_out = None
 
-            if tax not in taxonomy_tree:
+        # Ground motion values used within this asset (by IMT)
+        gm_by_imt: Dict[str, GroundMotionValue] = {}
+
+        for typ in asset.typologies:
+            taxonomy = str(typ.taxonomy)
+
+            if taxonomy not in taxonomy_tree:
                 if cfg.missing_taxonomy == "skip":
                     continue
                 raise KeyError(
-                    f"Exposure taxonomy not found in taxonomy tree: {tax!r}"
+                    "Exposure taxonomy not found in taxonomy tree: "
+                    f"{taxonomy!r}"
                 )
 
-            resolved = taxonomy_tree.resolve(tax, fragility_collection)
+            resolved = taxonomy_tree.resolve(taxonomy, fragility_collection)
+            if not resolved:
+                raise ValueError(
+                    f"Empty mapping for taxonomy {taxonomy!r} in taxonomy tree."
+                )
+
+            # Determine IMT for this typology (all resolved models share IMT).
+            imt = str(resolved[0][0].imt).strip()
+
+            # Evaluate ground motion once per (asset, IMT) and cache it.
+            if imt in gm_by_imt:
+                gm_val = gm_by_imt[imt]
+            else:
+                im_med, sigma_ln = gm_context.evaluate_at_site(
+                    imt=imt,
+                    lon=float(lon),
+                    lat=float(lat),
+                    elevation_m=float(elev),
+                )
+                gm_val = GroundMotionValue(
+                    imt=imt,
+                    median=float(im_med),
+                    sigma_ln=float(sigma_ln),
+                )
+                gm_by_imt[imt] = gm_val
 
             # Damage probabilities at this site for this typology (cfg.output)
             probs = damage_probabilities(
@@ -233,11 +359,8 @@ def compute_impact_scenario(
             # Expected counts use "state" convention regardless of cfg.output
             probs_state = probs
             if cfg.output == "exceed":
-                # Convert exceedance -> state using model levels from
-                # the first resolved model (all are assumed compatible).
                 levels = resolved[0][0].damage_scale.levels
-            
-                # Scientific guard: ensure exceedance keys match damage levels
+
                 missing = [lv for lv in levels if lv not in probs]
                 extra = [k for k in probs.keys() if k not in set(levels)]
                 if missing or extra:
@@ -245,7 +368,7 @@ def compute_impact_scenario(
                         "Cannot convert exceedance to state probabilities: "
                         f"missing levels={missing}, extra keys={extra}."
                     )
-            
+
                 probs_state = _exceed_to_state(
                     probs,
                     levels,
@@ -257,16 +380,36 @@ def compute_impact_scenario(
             for k, p in probs_state.items():
                 asset_expected[k] = asset_expected.get(k, 0.0) + cnt * float(p)
 
-        damage_prob_by_asset[asset_id] = _mix_probabilities(
+            # Optional per-typology breakdown
+            if typology_out is not None:
+                expected_typ: Dict[str, float] = {}
+                for k, p in probs_state.items():
+                    expected_typ[k] = cnt * float(p)
+
+                typology_out.append(
+                    TypologyImpactResult(
+                        taxonomy=taxonomy,
+                        count=cnt,
+                        probabilities=probs,
+                        expected_counts=expected_typ,
+                    )
+                )
+
+        asset_probs = _mix_probabilities(
             typ_prob_list,
             normalize=cfg.normalize_asset_probabilities,
         )
-        expected_count_by_asset[asset_id] = asset_expected
 
-    return ImpactResult(
-        damage_prob_by_asset=damage_prob_by_asset,
-        expected_count_by_asset=expected_count_by_asset,
-    )
+        assets_out[asset_id] = AssetImpactResult(
+            reference_location=ref_loc,
+            n_units=n_units,
+            ground_motion_by_imt=gm_by_imt,
+            probabilities=asset_probs,
+            expected_counts=asset_expected,
+            typologies=typology_out,
+        )
+
+    return ImpactResult(assets=assets_out)
 
 
 def damage_probabilities(
@@ -400,45 +543,163 @@ def save_impact_result(
     result: ImpactResult,
     output_path: str,
     config: ImpactConfig,
+    gm_context: GroundMotionContext,
     metadata: Optional[Dict[str, Any]] = None,
     create_dirs: bool = True,
 ) -> None:
     """
-    Save ImpactResult to a JSON file.
+    Save ImpactResult to a JSON file (schema v1.0.0, in development).
 
-    Parameters
-    ----------
-    result
-        ImpactResult instance.
-    output_path
-        Path to the output JSON file.
-    config
-        ImpactConfig used to compute the result.
-    metadata
-        Optional additional metadata.
-    create_dirs
-        If True, create parent directories if needed.
+    This function serializes a self-contained result file including:
+    - scenario information (event + ground-motion provider)
+    - impact configuration
+    - damage scale block (derived internally)
+    - per-asset and optional per-typology results
+
+    Notes
+    -----
+    - Model input file paths are intentionally NOT included.
+    - damage_scale.levels is derived from the first asset probabilities.
     """
     if create_dirs:
         directory = os.path.dirname(os.path.abspath(output_path))
         if directory and not os.path.exists(directory):
             os.makedirs(directory, exist_ok=True)
 
+    if not result.assets:
+        raise ValueError("Empty ImpactResult: no assets were computed.")
+
+    def _get(obj: Any, *names: str, default: Any = None) -> Any:
+        for name in names:
+            if hasattr(obj, name):
+                return getattr(obj, name)
+        return default
+
+    # Build scenario block from gm_context
+    event = gm_context.event
+    hypo = event.hypocentre
+
+    scenario: Dict[str, Any] = {
+        "event": {
+            "magnitude": float(event.magnitude),
+            "hypocentre": {
+                "longitude": float(_get(hypo, "longitude", "lon")),
+                "latitude": float(_get(hypo, "latitude", "lat")),
+                "elevation": float(_get(hypo, "elevation", "elev")),
+            },
+        },
+        "ground_motion": {
+            "provider": type(gm_context.provider).__name__,
+        },
+    }
+
+    gmpe_name = _get(gm_context.provider, "gmpe_name")
+    if gmpe_name is not None:
+        scenario["ground_motion"]["gmpe_name"] = str(gmpe_name)
+
+    dist_approx = _get(
+        gm_context.provider,
+        "distance_approx",
+        "distance_approximation",
+    )
+    if dist_approx is not None:
+        scenario["ground_motion"]["distance_approx"] = str(dist_approx)
+
+    # Build damage scale block (derive levels from the first asset)
+    first_asset = next(iter(result.assets.values()))
+    keys = set(first_asset.probabilities.keys())
+
+    no_damage_key = str(config.no_damage_key)
+    tail_key = str(config.tail_key)
+
+    mid = sorted([k for k in keys if k not in {no_damage_key, tail_key}])
+    levels = [no_damage_key] + mid + [tail_key]
+
+    damage_scale: Dict[str, Any] = {
+        "output": config.output,
+        "levels": levels,
+        "tail_key": tail_key,
+        "no_damage_key": no_damage_key,
+        "expected_counts_convention": "state",
+    }
+
+    # Serialize assets (stable ordering)
+    assets_out: List[Dict[str, Any]] = []
+
+    for asset_id in sorted(result.assets.keys()):
+        asset = result.assets[asset_id]
+
+        gm_out: Dict[str, Any] = {}
+        for imt, gm in asset.ground_motion_by_imt.items():
+            gm_out[str(imt)] = {
+                "median": float(gm.median),
+                "sigma_ln": float(gm.sigma_ln),
+            }
+
+        asset_obj: Dict[str, Any] = {
+            "id": str(asset_id),
+            "reference_location": {
+                "longitude": float(asset.reference_location["longitude"]),
+                "latitude": float(asset.reference_location["latitude"]),
+                "elevation": float(
+                    asset.reference_location.get("elevation", 0.0)
+                ),
+            },
+            "n_units": float(asset.n_units),
+            "ground_motion": gm_out,
+            "damage": {
+                "probabilities": {
+                    k: float(v) for k, v in asset.probabilities.items()
+                },
+                "expected_counts": {
+                    k: float(v) for k, v in asset.expected_counts.items()
+                },
+            },
+        }
+
+        if asset.typologies is not None:
+            typ_list: List[Dict[str, Any]] = []
+            for typ in asset.typologies:
+                typ_list.append(
+                    {
+                        "taxonomy": str(typ.taxonomy),
+                        "count": float(typ.count),
+                        "damage": {
+                            "probabilities": {
+                                k: float(v)
+                                for k, v in typ.probabilities.items()
+                            },
+                            "expected_counts": {
+                                k: float(v)
+                                for k, v in typ.expected_counts.items()
+                            },
+                        },
+                    }
+                )
+            asset_obj["typologies"] = typ_list
+
+        assets_out.append(asset_obj)
+
     payload: Dict[str, Any] = {
-        "type": "ShakeLabImpactResult",
+        "type": "ShakeLabDamageResult",
         "schema_version": "1.0.0",
+        "scenario": scenario,
         "config": {
             "uncertainty_mode": config.uncertainty_mode,
             "output": config.output,
             "typology_weighting": config.typology_weighting,
-            "normalize_asset_probabilities":
-                config.normalize_asset_probabilities,
+            "normalize_asset_probabilities": bool(
+                config.normalize_asset_probabilities
+            ),
+            "missing_taxonomy": config.missing_taxonomy,
             "no_damage_key": config.no_damage_key,
             "tail_key": config.tail_key,
+            "include_typology_breakdown": bool(
+                config.include_typology_breakdown
+            ),
         },
-        "damage_prob_by_asset": result.damage_prob_by_asset,
-        "expected_count_by_asset":
-            result.expected_count_by_asset,
+        "damage_scale": damage_scale,
+        "assets": assets_out,
     }
 
     if metadata:
@@ -604,7 +865,7 @@ def main() -> None:
     fragility_collection = FragilityCollection.from_json(fragility_file)
 
     # Ground motion layer
-    from shakelab.engineering.groundmotion import (
+    from shakelab.gmmodel.groundmotion import (
         GroundMotionProvider,
         ScenarioEvent,
     )
@@ -627,6 +888,7 @@ def main() -> None:
         output="state",
         typology_weighting="count",
         normalize_asset_probabilities=True,
+        include_typology_breakdown=True,
     )
 
     res = compute_impact_scenario(
@@ -639,7 +901,12 @@ def main() -> None:
 
     print(res)
 
-    save_impact_result(res, "impact_result.json", config)
+    save_impact_result(
+        result=res,
+        output_path="impact_result.json",
+        config=config,
+        gm_context=gm_context,
+    )
 
 if __name__ == "__main__":
     main()

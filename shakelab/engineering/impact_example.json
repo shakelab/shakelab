@@ -1,0 +1,175 @@
+{
+  "type": "ShakeLabDamageResult",
+  "schema_version": "1.0.0",
+
+  "scenario": {
+    "event": {
+      "magnitude": 5.5,
+      "hypocentre": {
+        "longitude": 13.0,
+        "latitude": 46.0,
+        "elevation": -10000.0
+      }
+    },
+    "ground_motion": {
+      "provider": "GroundMotionProvider",
+      "gmpe_name": "BragatoSlejko2005",
+      "distance_approx": "ellipsoid"
+    }
+  },
+
+  "config": {
+    "uncertainty_mode": "lognormal",
+    "output": "state",
+    "typology_weighting": "count",
+    "normalize_asset_probabilities": true,
+    "missing_taxonomy": "raise",
+    "no_damage_key": "D0",
+    "tail_key": "GT_LAST",
+    "include_typology_breakdown": true
+  },
+
+  "damage_scale": {
+    "output": "state",
+    "levels": ["D0", "D1", "D2", "D3", "GT_LAST"],
+    "tail_key": "GT_LAST",
+    "no_damage_key": "D0",
+    "expected_counts_convention": "state"
+  },
+
+  "assets": [
+    {
+      "id": "ASSET_001",
+      "reference_location": {
+        "longitude": 13.0,
+        "latitude": 46.0,
+        "elevation": 0.0
+      },
+      "n_units": 10.0,
+
+      "ground_motion": {
+        "PGA": {
+          "median": 0.3785622852348989,
+          "sigma_ln": 0.9187314521046244
+        }
+      },
+
+      "damage": {
+        "probabilities": {
+          "D0": 0.0,
+          "D1": 0.10041414710552618,
+          "D2": 0.15419351492547362,
+          "D3": 0.22948376118736707,
+          "GT_LAST": 0.5159085767816332
+        },
+        "expected_counts": {
+          "D0": 0.0,
+          "D1": 1.0041414710552619,
+          "D2": 1.5419351492547362,
+          "D3": 2.2948376118736706,
+          "GT_LAST": 5.1590857678163315
+        }
+      },
+
+      "typologies": [
+        {
+          "taxonomy": "RC-LRS",
+          "count": 8.0,
+          "damage": {
+            "probabilities": {
+              "D0": 0.0,
+              "D1": 0.11253260995128422,
+              "D2": 0.16792429159753142,
+              "D3": 0.23956139852370578,
+              "GT_LAST": 0.4799816999274786
+            },
+            "expected_counts": {
+              "D0": 0.0,
+              "D1": 0.9002608796102738,
+              "D2": 1.3433943327802513,
+              "D3": 1.9164911881896463,
+              "GT_LAST": 3.8398535994198286
+            }
+          }
+        },
+        {
+          "taxonomy": "MUR-URM-LOW",
+          "count": 2.0,
+          "damage": {
+            "probabilities": {
+              "D0": 0.0,
+              "D1": 0.05194029572249402,
+              "D2": 0.09927040823724237,
+              "D3": 0.1891732118420122,
+              "GT_LAST": 0.6596160841982514
+            },
+            "expected_counts": {
+              "D0": 0.0,
+              "D1": 0.10388059144498804,
+              "D2": 0.19854081647448474,
+              "D3": 0.3783464236840244,
+              "GT_LAST": 1.3192321683965027
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "ASSET_002",
+      "reference_location": {
+        "longitude": 13.02,
+        "latitude": 46.01,
+        "elevation": 0.0
+      },
+      "n_units": 5.0,
+
+      "ground_motion": {
+        "PGA": {
+          "median": 0.3631370924730752,
+          "sigma_ln": 0.9187314521046244
+        }
+      },
+
+      "damage": {
+        "probabilities": {
+          "D0": 0.0,
+          "D1": 0.05584978948278396,
+          "D2": 0.10388372501087273,
+          "D3": 0.19380532304703985,
+          "GT_LAST": 0.6464611624593034
+        },
+        "expected_counts": {
+          "D0": 0.0,
+          "D1": 0.2792489474139198,
+          "D2": 0.5194186250543636,
+          "D3": 0.9690266152351992,
+          "GT_LAST": 3.232305812296517
+        }
+      },
+
+      "typologies": [
+        {
+          "taxonomy": "MUR-URM-LOW",
+          "count": 5.0,
+          "damage": {
+            "probabilities": {
+              "D0": 0.0,
+              "D1": 0.05584978948278396,
+              "D2": 0.10388372501087273,
+              "D3": 0.19380532304703985,
+              "GT_LAST": 0.6464611624593034
+            },
+            "expected_counts": {
+              "D0": 0.0,
+              "D1": 0.2792489474139198,
+              "D2": 0.5194186250543636,
+              "D3": 0.9690266152351992,
+              "GT_LAST": 3.232305812296517
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
