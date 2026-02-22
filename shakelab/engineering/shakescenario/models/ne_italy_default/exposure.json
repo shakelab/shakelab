@@ -1,0 +1,47 @@
+{
+  "type": "ShakeLabExposure",
+  "schema_version": "1.0.0",
+  "metadata": {
+    "name": "Two assets example",
+    "date": "2026-02-18",
+    "description": "Two assets with two typologies."
+  },
+  "assets": [
+    {
+      "id": "ASSET_001",
+      "name": "RC building",
+      "aggregated": true,
+      "reference_location": {
+        "longitude": 13.0,
+        "latitude": 46.0,
+        "elevation": 0.0
+      },
+      "typologies": [
+        {
+          "taxonomy": "RC-LRS",
+          "count": 8
+        },
+        {
+          "taxonomy": "MUR-URM-LOW",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "id": "ASSET_002",
+      "name": "URM building",
+      "aggregated": false,
+      "reference_location": {
+        "longitude": 13.02,
+        "latitude": 46.01,
+        "elevation": 0.0
+      },
+      "typologies": [
+        {
+          "taxonomy": "MUR-URM-LOW",
+          "count": 5
+        }
+      ]
+    }
+  ]
+}

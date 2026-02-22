@@ -70,7 +70,6 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("ping", help="Ping server and print capabilities.")
 
     p_submit = sub.add_parser("submit", help="Submit a new scenario job.")
-    p_submit.add_argument("--params-json", help="Path to a JSON params file.")
     p_submit.add_argument("--tag", default=None)
     # Convenience event args (optional; merged into params)
     p_submit.add_argument("--mag", type=float, default=None)
@@ -85,6 +84,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--status", default=None)
     p_list.add_argument("--limit", type=int, default=50)
     p_list.add_argument("--offset", type=int, default=0)
+
+    p_submit.add_argument("--request-json", help="Path to a submit payload JSON.")
+    p_submit.add_argument("--model-id", default=None)
+    p_submit.add_argument("--gmpe", default=None)
+    p_submit.add_argument("--distance-approx", default=None)
+    
+    p_models = sub.add_parser("models", help="Model registry operations.")
+    models_sub = p_models.add_subparsers(dest="models_cmd", required=True)
+    models_sub.add_parser("list", help="List available model_id on server.")
 
     p_get = sub.add_parser("get", help="Get job details.")
     p_get.add_argument("job_id", type=int)
@@ -125,36 +133,67 @@ def main() -> None:
         return
 
     if args.cmd == "submit":
-        params: dict[str, Any] = {}
-
-        if args.params_json:
-            loaded = _json_load_file(args.params_json)
+        payload: dict[str, Any] = {}
+    
+        if args.request_json:
+            loaded = _json_load_file(args.request_json)
             if not isinstance(loaded, dict):
-                raise ValueError("params-json must contain a JSON object.")
-            params.update(loaded)
-
-        event = params.get("event", {})
+                raise ValueError("request-json must contain a JSON object.")
+            payload = loaded
+    
+        scenario = payload.get("scenario", {})
+        if not isinstance(scenario, dict):
+            scenario = {}
+    
+        event = scenario.get("event", {})
         if not isinstance(event, dict):
             event = {}
-        for k, v in (
-            ("magnitude", args.mag),
-            ("longitude", args.lon),
-            ("latitude", args.lat),
-            ("depth_km", args.depth),
-            ("strike", args.strike),
-            ("dip", args.dip),
-            ("rake", args.rake),
-        ):
-            if v is not None:
-                event[k] = v
-
+    
+        hypoc = event.get("hypocentre", {})
+        if not isinstance(hypoc, dict):
+            hypoc = {}
+    
+        # Convenience flags override loaded request
+        if args.mag is not None:
+            event["magnitude"] = args.mag
+        if args.lon is not None:
+            hypoc["longitude"] = args.lon
+        if args.lat is not None:
+            hypoc["latitude"] = args.lat
+        if args.depth is not None:
+            # depth_km -> convert to elevation meters (negative)
+            hypoc["elevation"] = -1000.0 * float(args.depth)
+    
+        if hypoc:
+            event["hypocentre"] = hypoc
         if event:
-            params["event"] = event
-
-        payload = {"params": params}
+            scenario["event"] = event
+    
+        gm = scenario.get("ground_motion", {})
+        if not isinstance(gm, dict):
+            gm = {}
+        if args.gmpe is not None:
+            gm["provider"] = "gmpe"
+            gm["gmpe_name"] = args.gmpe
+        if args.distance_approx is not None:
+            gm["distance_approx"] = args.distance_approx
+        if gm:
+            scenario["ground_motion"] = gm
+    
+        if scenario:
+            payload["scenario"] = scenario
+    
+        models = payload.get("models", {})
+        if not isinstance(models, dict):
+            models = {}
+        if args.model_id is not None:
+            models["model_id"] = args.model_id
+        if models:
+            payload["models"] = models
+    
         if args.tag is not None:
             payload["tag"] = args.tag
-
+    
         res = client.request("submit", payload=payload, req_id=_req_id())
         _print_json(res)
         return
@@ -166,6 +205,11 @@ def main() -> None:
             "offset": args.offset,
         }
         res = client.request("list", payload=payload, req_id=_req_id())
+        _print_json(res)
+        return
+
+    if args.cmd == "models" and args.models_cmd == "list":
+        res = client.request("models.list", payload={}, req_id=_req_id())
         _print_json(res)
         return
 

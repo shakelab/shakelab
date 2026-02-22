@@ -1,0 +1,80 @@
+{
+  "type": "ShakeLabFragility",
+  "schema_version": "1.0.0",
+  "metadata": {
+    "name": "Two-model fragility example",
+    "date": "2026-02-18",
+    "description": "RC and URM lognormal models."
+  },
+  "models": [
+    {
+      "id": "GENERIC_RC_LR_PGA_LN_V1",
+      "name": "Generic RC low-rise",
+      "author": "Example",
+      "year": 2026,
+      "taxonomy": "RC_LR_GENERIC",
+      "imt": "PGA",
+      "im_units": "g",
+      "model_type": "lognormal_continuous",
+      "damage_scale": {
+        "id": "D1D3",
+        "levels": ["D1", "D2", "D3"]
+      },
+      "im_bounds": {
+        "min": 0.01,
+        "max": 5.0
+      },
+      "parameters": {
+        "D1": { "theta": 0.10, "beta": 0.60 },
+        "D2": { "theta": 0.20, "beta": 0.60 },
+        "D3": { "theta": 0.40, "beta": 0.60 }
+      }
+    },
+    {
+      "id": "GENERIC_URM_LR_PGA_LN_V1",
+      "name": "Generic URM low-rise",
+      "author": "Example",
+      "year": 2026,
+      "taxonomy": "URM_LR_GENERIC",
+      "imt": "PGA",
+      "im_units": "g",
+      "model_type": "lognormal_continuous",
+      "damage_scale": {
+        "id": "D1D3",
+        "levels": ["D1", "D2", "D3"]
+      },
+      "im_bounds": {
+        "min": 0.01,
+        "max": 5.0
+      },
+      "parameters": {
+        "D1": { "theta": 0.06, "beta": 0.70 },
+        "D2": { "theta": 0.12, "beta": 0.70 },
+        "D3": { "theta": 0.25, "beta": 0.70 }
+      }
+    },
+    {
+      "id": "GENERIC_URM_LR_PGA_LN_V2",
+      "name": "Generic URM low-rise (more fragile)",
+      "author": "Example",
+      "year": 2026,
+      "taxonomy": "URM_LR_GENERIC",
+      "imt": "PGA",
+      "im_units": "g",
+      "model_type": "lognormal_continuous",
+      "damage_scale": {
+        "id": "D1D3",
+        "levels": ["D1", "D2", "D3"]
+      },
+      "im_bounds": {
+        "min": 0.01,
+        "max": 5.0
+      },
+      "parameters": {
+        "D1": { "theta": 0.05, "beta": 0.75 },
+        "D2": { "theta": 0.10, "beta": 0.75 },
+        "D3": { "theta": 0.20, "beta": 0.75 }
+      }
+    }
+  ]
+}

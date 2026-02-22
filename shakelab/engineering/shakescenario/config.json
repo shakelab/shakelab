@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "paths": {
+    "db": "./shakescenario.db",
+    "workdir": "./runs",
+    "model_root": "./models"
+  },
+  "server": {},
+  "defaults": {
+    "model_id": "ne_italy_default",
+    "ground_motion": {
+      "provider": "gmpe",
+      "gmpe_name": "BragatoSlejko2005",
+      "distance_approx": "ellipsoid"
+    },
+    "impact_config": {
+      "uncertainty_mode": "lognormal",
+      "typology_weighting": "count",
+      "missing_taxonomy": "raise",
+      "no_damage_key": "D0",
+      "tail_key": "GT_LAST"
+    }
+  }
+}

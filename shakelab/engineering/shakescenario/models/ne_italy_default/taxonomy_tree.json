@@ -1,0 +1,22 @@
+{
+  "type": "ShakeLabTaxonomyTree",
+  "schema_version": "1.0.0",
+  "metadata": {
+    "name": "Two taxonomy mapping",
+    "date": "2026-02-18",
+    "description": "RC deterministic, URM epistemic mixture."
+  },
+  "mappings": {
+    "RC-LRS": {
+      "fragility_models": [
+        { "id": "GENERIC_RC_LR_PGA_LN_V1" }
+      ]
+    },
+    "MUR-URM-LOW": {
+      "fragility_models": [
+        { "id": "GENERIC_URM_LR_PGA_LN_V1", "weight": 0.7 },
+        { "id": "GENERIC_URM_LR_PGA_LN_V2", "weight": 0.3 }
+      ]
+    }
+  }
+}

@@ -56,7 +56,14 @@ from pathlib import Path
 from typing import Any
 
 from database import JobDatabase
-from models import JobStatus, ServerInfo
+from models import (
+    JobStatus,
+    ServerConfig,
+    ServerInfo,
+    load_server_config,
+    model_paths,
+    list_models,
+)
 from protocol import ProtocolError, recv_message, send_message
 
 
@@ -71,6 +78,32 @@ def _safe_json(obj: Any) -> Any:
         return obj
     except TypeError:
         return str(obj)
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for k, v in override.items():
+        if (
+            k in out
+            and isinstance(out[k], dict)
+            and isinstance(v, dict)
+        ):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def _server_defaults_payload(cfg) -> dict[str, Any]:
+    return {
+        "models": {"model_id": cfg.defaults.model_id},
+        "scenario": {"ground_motion": {
+            "provider": cfg.defaults.ground_motion.provider,
+            "gmpe_name": cfg.defaults.ground_motion.gmpe_name,
+            "distance_approx": cfg.defaults.ground_motion.distance_approx,
+        }},
+        "impact_config": dict(cfg.defaults.impact_config),
+    }
 
 
 class ShakeScenarioServer:
@@ -99,11 +132,13 @@ class ShakeScenarioServer:
         port: int,
         db: JobDatabase,
         workdir: Path,
+        config: ServerConfig,
         workers: int = 2,
     ) -> None:
         self._host = host
         self._port = port
         self._db = db
+        self._config = config
         self._workdir = workdir
         self._workdir.mkdir(parents=True, exist_ok=True)
 
@@ -238,6 +273,9 @@ class ShakeScenarioServer:
         if op == "list":
             return self._op_list(payload)
 
+        if op == "models.list":
+            return self._op_models_list()
+
         if op == "get":
             return self._op_get(payload)
 
@@ -263,28 +301,68 @@ class ShakeScenarioServer:
     def _op_submit(self, payload: dict[str, Any]) -> dict[str, Any]:
         """
         Submit a new scenario job.
-
-        Expected payload keys (v1 baseline)
-        ----------------------------------
-        - params: dict
-            Scenario parameters (event, config, options, etc.).
-        - tag: str, optional
-            User-defined label for quick filtering.
+    
+        Payload (v1)
+        ------------
+        - scenario.event (required)
+        - scenario.ground_motion (optional; defaults from server config)
+        - models.model_id (optional; defaults from server config)
+        - impact_config (optional; defaults from server config)
+        - output (optional)
+        - tag (optional)
         """
-        params = payload.get("params", {})
+        if not isinstance(payload, dict):
+            raise ValueError("Payload must be a JSON object.")
+    
         tag = payload.get("tag")
-
-        if not isinstance(params, dict):
-            raise ValueError("'params' must be a dict.")
         if tag is not None and not isinstance(tag, str):
             raise ValueError("'tag' must be a string or omitted.")
-
-        job_id = self._db.create_job(params=params, tag=tag)
+    
+        defaults = _server_defaults_payload(self._config)
+        resolved = _deep_merge(defaults, payload)
+    
+        scenario = resolved.get("scenario", {})
+        if not isinstance(scenario, dict):
+            raise ValueError("'scenario' must be a JSON object.")
+    
+        event = scenario.get("event")
+        if not isinstance(event, dict):
+            raise ValueError("Missing required 'scenario.event' object.")
+    
+        models = resolved.get("models", {})
+        if not isinstance(models, dict):
+            raise ValueError("'models' must be a JSON object.")
+    
+        model_id = models.get("model_id")
+        if not isinstance(model_id, str) or not model_id:
+            raise ValueError("'models.model_id' must be a non-empty string.")
+    
+        # Resolve model paths now (fail fast)
+        mpaths = model_paths(self._config.paths.model_root, model_id)
+    
+        job_id = self._db.create_job(params=resolved, tag=tag)
         job_dir = self._job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
-
-        self._executor.submit(self._run_job, job_id, params, job_dir)
-
+    
+        # Persist resolved request as artifact
+        (job_dir / "request_resolved.json").write_text(
+            json.dumps(resolved, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    
+        # Also persist a minimal meta (server-side operational info)
+        meta = {
+            "job_id": job_id,
+            "model_id": model_id,
+            "model_dir": str(mpaths["model_dir"]),
+        }
+        (job_dir / "meta.json").write_text(
+            json.dumps(meta, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    
+        self._executor.submit(self._run_job, job_id, resolved, job_dir)
+    
         return {"job_id": job_id, "status": JobStatus.QUEUED.value}
 
     def _op_list(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -301,6 +379,10 @@ class ShakeScenarioServer:
             offset=int(offset),
         )
         return {"jobs": rows}
+
+    def _op_models_list(self) -> dict[str, Any]:
+        mids = list_models(self._config.paths.model_root)
+        return {"model_ids": mids}
 
     def _op_get(self, payload: dict[str, Any]) -> dict[str, Any]:
         job_id = payload.get("job_id")
@@ -365,62 +447,136 @@ class ShakeScenarioServer:
     def _job_dir(self, job_id: int) -> Path:
         return self._workdir / f"job_{job_id:06d}"
 
-    def _run_job(
-        self,
-        job_id: int,
-        params: dict[str, Any],
-        job_dir: Path,
-    ) -> None:
-        """
-        Execute a job.
-
-        This is the integration point where ShakeScenario will call the
-        real pipeline (ground motion + fragility + impact).
-
-        For v1 bootstrap, we write metadata and a minimal manifest.
-        """
-        # If someone canceled while queued, do not start.
+    def _run_job(self, job_id: int, params: dict[str, Any], job_dir: Path) -> None:
         job = self._db.get_job(job_id)
         if job is None:
             return
         if job["status"] == JobStatus.CANCELED.value:
             return
-
+    
         self._db.update_status(job_id, JobStatus.RUNNING)
-
+    
         try:
-            # --- Placeholder computation ---
-            # Replace with actual ShakeScenario compute call.
-            meta = {
-                "job_id": job_id,
-                "params": params,
-                "note": "Placeholder job runner; replace with real pipeline.",
-            }
-            (job_dir / "meta.json").write_text(
-                json.dumps(meta, indent=2, sort_keys=True),
-                encoding="utf-8",
+            cfg = self._config
+            models_cfg = params["models"]
+            scenario_cfg = params["scenario"]
+            impact_cfg = params.get("impact_config", {})
+    
+            model_id = models_cfg["model_id"]
+            mpaths = model_paths(cfg.paths.model_root, model_id)
+    
+            # Import here to keep server startup light
+            from shakelab.engineering.impact import (
+                ImpactConfig,
+                compute_impact_scenario,
+                save_impact_result,
             )
-
+            from shakelab.engineering.exposure.exposure import ExposureModel
+            from shakelab.engineering.fragility.fragility import FragilityCollection
+            from shakelab.engineering.taxonomy.taxonomy_tree import TaxonomyTree
+            from shakelab.gmmodel.groundmotion import (
+                GroundMotionContext,
+                GroundMotionProvider,
+                ScenarioEvent,
+            )
+            from shakelab.libutils.geodeticN.primitives import WgsPoint
+            
+            exposure = ExposureModel.from_json(str(mpaths["exposure_path"]), validate=True)
+            taxonomy_tree = TaxonomyTree.from_json(str(mpaths["taxonomy_tree_path"]))
+            fragility = FragilityCollection.from_json(str(mpaths["fragility_path"]))
+            
+            # Build event
+            ev = scenario_cfg["event"]
+            hypoc = ev.get("hypocentre", {})
+            if not isinstance(hypoc, dict):
+                raise ValueError("scenario.event.hypocentre must be an object.")
+            
+            event = ScenarioEvent(
+                hypocentre=WgsPoint(
+                    longitude=float(hypoc["longitude"]),
+                    latitude=float(hypoc["latitude"]),
+                    elevation=float(hypoc.get("elevation", -10000.0)),
+                ),
+                magnitude=float(ev["magnitude"]),
+            )
+            
+            # Ground motion
+            gm = scenario_cfg.get("ground_motion", {})
+            if not isinstance(gm, dict):
+                raise ValueError("scenario.ground_motion must be an object.")
+            
+            provider = gm.get("provider", "gmpe")
+            if provider != "gmpe":
+                raise ValueError(f"Unsupported provider: {provider}")
+            
+            gmpe_name = gm.get("gmpe_name")
+            if not isinstance(gmpe_name, str) or not gmpe_name:
+                raise ValueError("scenario.ground_motion.gmpe_name is required.")
+            
+            distance_approx = gm.get("distance_approx", "ellipsoid")
+            
+            gm_provider = GroundMotionProvider.gmpe(
+                gmpe_name=gmpe_name,
+                distance_approx=distance_approx,
+            )
+            
+            gm_context = GroundMotionContext(event=event, provider=gm_provider)
+            
+            # Impact config
+            config = ImpactConfig(**impact_cfg)
+            
+            # Compute
+            impact = compute_impact_scenario(
+                gm_context=gm_context,
+                exposure_model=exposure,
+                taxonomy_tree=taxonomy_tree,
+                fragility_collection=fragility,
+                config=config,
+            )
+            
+            out_path = job_dir / "impact_result.json"
+            save_impact_result(
+                result=impact,
+                output_path=str(out_path),
+                config=config,
+                gm_context=gm_context,
+                metadata={"job_id": job_id},
+            )
+            
+            if not out_path.exists():
+                raise RuntimeError("impact_result.json was not created.")
+    
             manifest = {
                 "job_id": job_id,
-                "files": ["meta.json"],
+                "artifacts": [
+                    {"name": "request_resolved.json", "type": "request", "format": "json"},
+                    {"name": "meta.json", "type": "meta", "format": "json"},
+                    {"name": "impact_result.json", "type": "impact_result", "format": "json"},
+                ],
             }
             (job_dir / "result_manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-            # --- End placeholder computation ---
-
+    
             self._db.update_status(job_id, JobStatus.COMPLETED)
             self._db.update_result_meta(
                 job_id,
                 {"workdir": str(job_dir), "manifest": "result_manifest.json"},
             )
-
-        except Exception as exc:  # noqa: BLE001
+    
+        except Exception as exc:
+            # Write error artifact for easier debugging
+            try:
+                (job_dir / "error.txt").write_text(
+                    str(exc),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass  # never fail while writing debug info
+        
             self._db.update_status(job_id, JobStatus.FAILED)
             self._db.update_error(job_id, str(exc))
-
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -430,6 +586,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=6000)
     p.add_argument("--db", default="shakescenario.db")
+    p.add_argument("--config", default="config.json")
     p.add_argument("--workdir", default="./runs")
     p.add_argument("--workers", type=int, default=2)
     return p
@@ -438,18 +595,21 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _build_arg_parser().parse_args()
 
-    db_path = Path(args.db).expanduser().resolve()
-    workdir = Path(args.workdir).expanduser().resolve()
+    if args.config is None:
+        raise ValueError("Server requires --config /path/to/config.json")
 
-    db = JobDatabase(db_path)
+    cfg = load_server_config(args.config)
+    
+    db = JobDatabase(cfg.paths.db)
     db.initialize()
-
+    
     srv = ShakeScenarioServer(
         host=args.host,
         port=args.port,
         db=db,
-        workdir=workdir,
+        workdir=cfg.paths.workdir,
         workers=args.workers,
+        config=cfg,
     )
     srv.serve_forever()
 

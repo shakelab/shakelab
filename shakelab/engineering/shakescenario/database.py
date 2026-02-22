@@ -89,9 +89,10 @@ class JobDatabase:
             self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at)")
 
     def reset(self) -> None:
-        """Delete all jobs."""
+        """Delete all jobs and reset the AUTOINCREMENT counter (dev)."""
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM jobs")
+            self._conn.execute("DELETE FROM sqlite_sequence WHERE name='jobs'")
 
     def create_job(self, params: dict[str, Any], tag: str | None = None) -> int:
         """Insert a new job and return its id."""
