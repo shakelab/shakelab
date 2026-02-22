@@ -1,41 +1,43 @@
 # ShakeScenario
 
-**ShakeScenario** is a lightweight TCP client--server service for
-running job-based rapid seismic damage and impact scenarios within the
-ShakeLab engineering framework.
+**ShakeScenario** is a lightweight TCP-based client--server service for
+executing rapid seismic impact and damage scenarios within the ShakeLab
+engineering framework.
 
-The module is designed to live inside:
+The module lives inside:
 
     shakelab.engineering
 
-and provides a clean separation between:
+and provides separation between:
 
--   scenario submission (client side),
--   parallel execution (server side),
--   job persistence (sqlite3),
--   artifact storage (filesystem).
-
-------------------------------------------------------------------------
-
-## Architecture
-
-ShakeScenario follows a simple job-oriented architecture.
-
-Client (CLI): - submits scenario jobs, - queries status and metadata, -
-manages lifecycle (cancel, delete, reset).
-
-Server: - accepts TCP connections, - persists jobs in sqlite3, -
-executes jobs using a worker pool, - stores per-job artifacts in a
-dedicated directory.
-
-Communication is performed via:
-
--   TCP sockets
--   Length-prefixed JSON messages (8-byte big-endian header)
+-   Scenario submission (client side)
+-   Parallel execution (server side)
+-   Job persistence (sqlite3)
+-   Model registry (model_id → directory resolution)
+-   Artifact storage (filesystem)
+-   Deterministic job outputs
 
 ------------------------------------------------------------------------
 
-## Repository Layout
+# Architecture Overview
+
+ShakeScenario follows a job-oriented architecture.
+
+Client (CLI): - Submits scenario jobs - Queries status and metadata -
+Waits for completion - Cancels, deletes, or resets jobs - Lists
+available model_id on the server
+
+Server: - Accepts TCP connections - Validates and merges payload with
+server defaults - Resolves model_id to model directories - Executes jobs
+using a worker pool - Persists job state in sqlite3 - Writes per-job
+artifacts to a dedicated directory - Stores debug artifacts (error.txt)
+
+Communication protocol: - TCP sockets - Length-prefixed JSON messages
+(8-byte big-endian header)
+
+------------------------------------------------------------------------
+
+# Repository Layout
 
     shakescenario/
     ├── shakescenario-server.py
@@ -45,66 +47,102 @@ Communication is performed via:
     ├── models.py
     └── README.md
 
-This simplified layout is intentional, since the module is contained
-within `shakelab.engineering`.
+------------------------------------------------------------------------
+
+# Server Configuration (config.json)
+
+The server requires a JSON configuration file.
+
+Example:
+
+{ "schema_version": "1.0.0", "paths": { "db": "./shakescenario.db",
+"workdir": "./runs", "model_root": "./models" }, "server": {},
+"defaults": { "model_id": "ne_italy_default", "ground_motion": {
+"provider": "gmpe", "gmpe_name": "BragatoSlejko2005", "distance_approx":
+"ellipsoid" }, "impact_config": { "uncertainty_mode": "lognormal",
+"typology_weighting": "count", "missing_taxonomy": "raise",
+"no_damage_key": "D0", "tail_key": "GT_LAST" } } }
+
+Precedence:
+
+    payload > config.defaults > hardcoded
 
 ------------------------------------------------------------------------
 
-## Running the Server
+# Model Registry (model_id)
 
-Start the server:
+Models are resolved using:
 
-``` bash
-python3 shakescenario-server.py   --host 127.0.0.1   --port 6000   --db shakescenario.db   --workdir ./runs   --workers 4
-```
+    model_root / model_id
+
+Each model directory must contain:
+
+    exposure.json
+    fragility.json
+    taxonomy_tree.json
+
+Validation includes:
+
+-   Strict model_id regex
+-   Prevention of path traversal
+-   Existence checks
+
+List models:
+
+    python3 shakescenario.py models list
+
+------------------------------------------------------------------------
+
+# Running the Server
+
+From repository root:
+
+    python3 shakelab/engineering/shakescenario/shakescenario-server.py         --config shakelab/engineering/shakescenario/config.json
 
 Options:
 
--   `--host` : bind address
--   `--port` : TCP port
--   `--db` : sqlite database file
--   `--workdir` : directory for job artifacts
--   `--workers` : number of parallel workers
+-   --host
+-   --port
+-   --workers
+-   --config (required)
 
 ------------------------------------------------------------------------
 
-## Using the Client
+# Client Usage
 
-Ping the server:
+Ping:
 
-``` bash
-python3 shakescenario.py ping
-```
+    python3 shakescenario.py ping
 
-Submit a scenario:
+Submit:
 
-``` bash
-python3 shakescenario.py submit   --mag 5.2   --lon 12.34   --lat 45.67   --depth 10
-```
+    python3 shakescenario.py submit         --mag 5.2         --lon 12.34         --lat 45.67         --depth 10
+
+Override model:
+
+    python3 shakescenario.py submit         --mag 5.2         --lon 12.34         --lat 45.67         --depth 10         --model-id ne_italy_default
 
 List jobs:
 
-``` bash
-python3 shakescenario.py list
-```
+    python3 shakescenario.py list
 
-Get job details:
+Get job:
 
-``` bash
-python3 shakescenario.py get 1
-```
+    python3 shakescenario.py get 1
 
-Wait for completion:
+Wait:
 
-``` bash
-python3 shakescenario.py wait 1 --timeout 60
-```
+    python3 shakescenario.py wait 1 --timeout 60
+
+Reset (dev):
+
+    python3 shakescenario.py reset --yes-i-know
 
 ------------------------------------------------------------------------
 
-## Job Persistence
+# Job Lifecycle
 
-Jobs are stored in a sqlite3 database with the following states:
+States:
 
 -   queued
 -   running
@@ -112,95 +150,76 @@ Jobs are stored in a sqlite3 database with the following states:
 -   failed
 -   canceled
 
-Each job has:
-
--   creation timestamp
--   optional start/end timestamps
--   parameter JSON
--   result metadata JSON
--   error field (if any)
+Reset also resets AUTOINCREMENT.
 
 ------------------------------------------------------------------------
 
-## Artifact Storage
-
-Each job produces a dedicated directory:
+# Artifact Layout
 
     runs/
     └── job_000001/
+        ├── request_resolved.json
         ├── meta.json
-        └── result_manifest.json
+        ├── impact_result.json
+        ├── result_manifest.json
+        └── error.txt (if failed)
 
-Future versions may include additional outputs such as:
+request_resolved.json: Full merged payload.
 
--   impact CSV
--   GeoJSON
--   logs
--   ground motion summaries
+impact_result.json: Output of compute_impact_scenario +
+save_impact_result.
+
+result_manifest.json: List of artifacts.
+
+error.txt: Debug info if job fails.
 
 ------------------------------------------------------------------------
 
-## Protocol (v1)
+# Protocol (v1)
 
-Each TCP message consists of:
+Each message:
 
-1.  8-byte unsigned big-endian length
+1.  8-byte big-endian length
 2.  UTF-8 JSON payload
 
-Request structure:
+Request:
 
-``` json
-{
-  "v": 1,
-  "op": "submit",
-  "req_id": "uuid",
-  "payload": { ... }
-}
-```
+{ "v": 1, "op": "submit", "req_id": "uuid", "payload": { ... } }
 
-Response structure:
+Response (success):
 
-``` json
-{
-  "v": 1,
-  "req_id": "uuid",
-  "ok": true,
-  "result": { ... }
-}
-```
+{ "v": 1, "req_id": "uuid", "ok": true, "result": { ... } }
 
-Errors are returned with:
+Response (error):
 
-``` json
-{
-  "v": 1,
-  "req_id": "uuid",
-  "ok": false,
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Description"
-  }
-}
-```
+{ "v": 1, "req_id": "uuid", "ok": false, "error": { "code":
+"ERROR_CODE", "message": "Description" } }
 
 ------------------------------------------------------------------------
 
-## Integration Point
+# Integration Point
 
-The actual scenario computation must be implemented in:
+Scenario computation is implemented in:
 
     ShakeScenarioServer._run_job()
 
-This is the location where ShakeLab ground motion, fragility, and impact
-modules should be invoked.
+This integrates:
+
+-   ExposureModel
+-   FragilityCollection
+-   TaxonomyTree
+-   GroundMotionContext
+-   ImpactConfig
+-   compute_impact_scenario
+-   save_impact_result
 
 ------------------------------------------------------------------------
 
-## Design Goals
+# Design Goals
 
--   Minimal dependencies (stdlib only)
--   Deterministic persistence (sqlite3)
--   Clean protocol contract
--   Parallel execution via worker pool
--   Reproducible artifact layout
--   Future extensibility (download, authentication, clustering)
+-   Minimal dependencies
+-   Deterministic persistence
+-   Reproducible artifacts
+-   Safe model resolution
+-   Explicit configuration
+-   Developer-friendly debugging (error.txt)
