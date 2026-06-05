@@ -50,6 +50,9 @@ import argparse
 import json
 import socket
 import threading
+import signal
+import traceback
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
@@ -157,7 +160,14 @@ class ShakeScenarioServer:
 
         try:
             while not self._stop.is_set():
-                conn, addr = sock.accept()
+                try:
+                    conn, addr = sock.accept()
+                except OSError:
+                    # Socket closed during shutdown or transient accept error
+                    if self._stop.is_set():
+                        break
+                    continue
+
                 t = threading.Thread(
                     target=self._handle_connection,
                     args=(conn, addr),
@@ -566,14 +576,13 @@ class ShakeScenarioServer:
             )
     
         except Exception as exc:
-            # Write error artifact for easier debugging
             try:
                 (job_dir / "error.txt").write_text(
-                    str(exc),
+                    traceback.format_exc(),
                     encoding="utf-8",
                 )
             except Exception:
-                pass  # never fail while writing debug info
+                pass
         
             self._db.update_status(job_id, JobStatus.FAILED)
             self._db.update_error(job_id, str(exc))
@@ -599,10 +608,10 @@ def main() -> None:
         raise ValueError("Server requires --config /path/to/config.json")
 
     cfg = load_server_config(args.config)
-    
+
     db = JobDatabase(cfg.paths.db)
     db.initialize()
-    
+
     srv = ShakeScenarioServer(
         host=args.host,
         port=args.port,
@@ -611,6 +620,15 @@ def main() -> None:
         workers=args.workers,
         config=cfg,
     )
+
+    def _handle_signal(signum, frame):
+        # Idempotent, safe if called multiple times.
+        srv.shutdown()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
     srv.serve_forever()
 
 

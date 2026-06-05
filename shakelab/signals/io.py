@@ -24,7 +24,7 @@ import os
 from glob import glob
 
 from shakelab.signals import base
-from shakelab.signals.libio import sac, dyna
+from shakelab.signals.libio import sac, dyna, tdms
 
 USE_LIBMSEED = True
 
@@ -123,6 +123,8 @@ def reader(file_path, stream_collection=None, format=None,
                 current_format = 'sac'
             elif fext == '.txt':
                 current_format = 'dyna'
+            elif fext == '.tdms':
+                current_format = 'tdms'
             else:
                 print(f"Unrecognized extension for '{file}'. "
                       f"Defaulting to 'mseed'.")
@@ -142,6 +144,9 @@ def reader(file_path, stream_collection=None, format=None,
         elif current_format == 'dyna':
             record = dyna.dynaread(file)
             stream_collection.append(record)
+
+        elif current_format == 'tdms':
+            stream_collection = tdms.tdms_stream_read(file)
 
         elif current_format in ['ascii', 'seisan', 'seg2',
                                 'dat', 'gse', 'reftek']:
