@@ -57,6 +57,7 @@ class ServerInfo:
 # ---------------------------------------------------------------------------
 
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_MODEL_MANIFEST_NAME = "manifest.json"
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,17 @@ class ServerConfig:
     paths: ServerPaths
     server: dict[str, Any]
     defaults: ServerDefaults
+
+
+@dataclass(frozen=True)
+class ScenarioModel:
+    """Loaded ShakeScenario model components."""
+
+    model_id: str
+    model_dir: Path
+    exposure: Any
+    taxonomy_tree: Any
+    fragility: Any
 
 
 def load_server_config(path: str | Path) -> ServerConfig:
@@ -261,45 +273,251 @@ def resolve_model_dir(model_root: Path, model_id: str) -> Path:
     return model_dir
 
 
+def _load_model_manifest(model_dir: Path) -> dict[str, Any]:
+    """
+    Load and validate the model manifest.
+
+    Parameters
+    ----------
+    model_dir
+        Path to the model directory.
+
+    Returns
+    -------
+    dict
+        Parsed manifest content.
+
+    Raises
+    ------
+    ValueError
+        If the manifest is missing, invalid, or malformed.
+    """
+    manifest_path = model_dir / _MODEL_MANIFEST_NAME
+
+    if not manifest_path.exists() or not manifest_path.is_file():
+        raise ValueError(
+            f"MODEL_INVALID: missing file: {_MODEL_MANIFEST_NAME}"
+        )
+
+    try:
+        manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8")
+        )
+    except OSError as exc:
+        raise ValueError(
+            f"Cannot read model manifest: {manifest_path}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Invalid JSON model manifest: {manifest_path}"
+        ) from exc
+
+    if not isinstance(manifest, dict):
+        raise ValueError("Model manifest must be a JSON object.")
+
+    schema_version = manifest.get("schema_version")
+    if schema_version != "1.0.0":
+        raise ValueError("Model manifest schema_version must be '1.0.0'.")
+
+    files = manifest.get("files")
+    if not isinstance(files, dict):
+        raise ValueError("Model manifest must contain a 'files' object.")
+
+    return manifest
+
+
+def _resolve_model_file(model_dir: Path, relpath: Any, key: str) -> Path:
+    """
+    Resolve a manifest file path relative to the model directory.
+
+    Parameters
+    ----------
+    model_dir
+        Path to the model directory.
+    relpath
+        Relative path read from the manifest.
+    key
+        Manifest key used for error messages.
+
+    Returns
+    -------
+    Path
+        Resolved file path.
+
+    Raises
+    ------
+    ValueError
+        If the path is invalid, absolute, escapes model_dir, or is missing.
+    """
+    if not isinstance(relpath, str) or not relpath.strip():
+        raise ValueError(f"files.{key} must be a non-empty string.")
+
+    rel = Path(relpath)
+
+    if rel.is_absolute():
+        raise ValueError(f"files.{key} must be relative, not absolute.")
+
+    path = (model_dir / rel).resolve()
+
+    try:
+        path.relative_to(model_dir.resolve())
+    except ValueError as exc:
+        raise ValueError(f"files.{key} escapes model directory.") from exc
+
+    if not path.exists() or not path.is_file():
+        raise ValueError(f"MODEL_INVALID: missing file: {relpath}")
+
+    return path
+
+
+def _manifest_model_paths(model_dir: Path) -> dict[str, Any]:
+    """
+    Return model file paths declared by the model manifest.
+
+    Parameters
+    ----------
+    model_dir
+        Path to the model directory.
+
+    Returns
+    -------
+    dict
+        Dictionary with model_dir, manifest_path, exposure_path,
+        taxonomy_tree_path, and fragility_paths. The fragility_paths entry is
+        a list of Path objects.
+    """
+    manifest = _load_model_manifest(model_dir)
+    files = manifest["files"]
+
+    exposure_path = _resolve_model_file(
+        model_dir,
+        files.get("exposure"),
+        "exposure",
+    )
+
+    taxonomy_tree_path = _resolve_model_file(
+        model_dir,
+        files.get("taxonomy_tree"),
+        "taxonomy_tree",
+    )
+
+    fragility_raw = files.get("fragility")
+    if isinstance(fragility_raw, str):
+        fragility_raw = [fragility_raw]
+
+    if not isinstance(fragility_raw, list) or not fragility_raw:
+        raise ValueError(
+            "files.fragility must be a non-empty string or array."
+        )
+
+    fragility_paths = []
+    for i, relpath in enumerate(fragility_raw):
+        fragility_paths.append(
+            _resolve_model_file(
+                model_dir,
+                relpath,
+                f"fragility[{i}]",
+            )
+        )
+
+    return {
+        "model_dir": model_dir,
+        "manifest_path": model_dir / _MODEL_MANIFEST_NAME,
+        "exposure_path": exposure_path,
+        "taxonomy_tree_path": taxonomy_tree_path,
+        "fragility_paths": fragility_paths,
+    }
+
+
 def _validate_model_dir(model_dir: Path) -> None:
     """
-    Validate that a model directory exists and contains required files.
+    Validate that a model directory exists and contains a valid manifest.
 
     Required files (v1)
     -------------------
-    - exposure.json
-    - fragility.json
-    - taxonomy_tree.json
+    - manifest.json
+
+    The manifest must declare:
+    - files.exposure
+    - files.taxonomy_tree
+    - files.fragility
+
+    The declared file paths must be relative to the model directory.
     """
     if not model_dir.exists():
         raise ValueError(f"MODEL_NOT_FOUND: {model_dir}")
     if not model_dir.is_dir():
         raise ValueError(f"MODEL_INVALID: not a directory: {model_dir}")
 
-    required = ("exposure.json", "fragility.json", "taxonomy_tree.json")
-    missing: list[str] = []
-    for name in required:
-        p = model_dir / name
-        if not p.exists() or not p.is_file():
-            missing.append(name)
-
-    if missing:
-        miss = ", ".join(missing)
-        raise ValueError(f"MODEL_INVALID: missing files: {miss}")
+    _manifest_model_paths(model_dir)
 
 
-def model_paths(model_root: Path, model_id: str) -> dict[str, Path]:
+def model_paths(model_root: Path, model_id: str) -> dict[str, Any]:
     """
-    Return required model file paths for a given model_id.
+    Return model file paths for a given model_id.
+
+    Paths are resolved from the model manifest.
     """
     model_dir = resolve_model_dir(model_root, model_id)
-    _validate_model_dir(model_dir)
-    return {
-        "model_dir": model_dir,
-        "exposure_path": model_dir / "exposure.json",
-        "fragility_path": model_dir / "fragility.json",
-        "taxonomy_tree_path": model_dir / "taxonomy_tree.json",
-    }
+
+    if not model_dir.exists():
+        raise ValueError(f"MODEL_NOT_FOUND: {model_dir}")
+    if not model_dir.is_dir():
+        raise ValueError(f"MODEL_INVALID: not a directory: {model_dir}")
+
+    return _manifest_model_paths(model_dir)
+
+
+def load_model(model_root: Path, model_id: str) -> ScenarioModel:
+    """
+    Load all model components for a given model_id.
+
+    Parameters
+    ----------
+    model_root
+        Root directory containing model directories.
+    model_id
+        Model identifier.
+
+    Returns
+    -------
+    ScenarioModel
+        Loaded exposure model, taxonomy tree, and fragility collection.
+
+    Raises
+    ------
+    ValueError
+        If the model directory or declared model files are invalid.
+    """
+    paths = model_paths(model_root, model_id)
+
+    # Import here to keep server startup light and avoid import cycles.
+    from shakelab.engineering.exposure.exposure import ExposureModel
+    from shakelab.engineering.fragility.fragility import (
+        FragilityCollection,
+    )
+    from shakelab.engineering.taxonomy.taxonomy_tree import (
+        TaxonomyTree,
+    )
+
+    exposure = ExposureModel.from_json(
+        str(paths["exposure_path"]),
+        validate=True,
+    )
+    taxonomy_tree = TaxonomyTree.from_json(
+        str(paths["taxonomy_tree_path"])
+    )
+    fragility = FragilityCollection.from_json(
+        paths["fragility_paths"]
+    )
+
+    return ScenarioModel(
+        model_id=model_id,
+        model_dir=paths["model_dir"],
+        exposure=exposure,
+        taxonomy_tree=taxonomy_tree,
+        fragility=fragility,
+    )
 
 
 def list_models(model_root: Path) -> list[str]:
@@ -307,7 +525,7 @@ def list_models(model_root: Path) -> list[str]:
     List valid model_id directories under model_root.
 
     A model_id is considered valid if it matches the model_id pattern and
-    contains the required files.
+    contains a valid model manifest.
     """
     root = model_root.expanduser().resolve()
     if not root.exists():

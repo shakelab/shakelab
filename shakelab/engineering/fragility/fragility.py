@@ -54,6 +54,7 @@ No plotting utilities are included in this module.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 import json
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -800,11 +801,59 @@ class FragilityCollection:
         return cls(metadata=dict(meta), models=models)
 
     @classmethod
-    def from_json(cls, path: str) -> "FragilityCollection":
-        """Load a collection from a JSON file."""
-        with open(path, "r", encoding="utf-8") as fobj:
-            data = json.load(fobj)
-        return cls.from_dict(data)
+    def from_json(
+        cls,
+        paths: str | Path | Sequence[str | Path],
+    ) -> "FragilityCollection":
+        """
+        Load a collection from one or more JSON files.
+
+        Parameters
+        ----------
+        paths
+            JSON file path or sequence of JSON file paths.
+    
+        Returns
+        -------
+        FragilityCollection
+            Loaded fragility collection. If multiple files are provided,
+            their models are merged into a single collection.
+
+        Raises
+        ------
+        ValueError
+            If no paths are provided or duplicate model ids are found.
+        """
+        if isinstance(paths, (str, Path)):
+            paths = [paths]
+
+        if not paths:
+            raise ValueError("At least one fragility file must be provided.")
+
+        models: Dict[str, FragilityModel] = {}
+
+        for path in paths:
+            with open(path, "r", encoding="utf-8") as fobj:
+                data = json.load(fobj)
+
+            collection = cls.from_dict(data)
+
+            for model_id, model in collection.models.items():
+                if model_id in models:
+                    raise ValueError(
+                        f"Duplicate fragility model id: {model_id}"
+                    )
+                models[model_id] = model
+
+        if len(paths) == 1:
+            metadata = dict(collection.metadata)
+        else:
+            metadata = {
+                "name": "Merged fragility collection",
+                "source_files": [str(path) for path in paths],
+            }
+
+        return cls(metadata=metadata, models=models)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the collection to a JSON-ready dictionary."""

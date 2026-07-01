@@ -52,7 +52,7 @@ import socket
 import threading
 import signal
 import traceback
-import sys
+
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
@@ -63,11 +63,19 @@ from models import (
     JobStatus,
     ServerConfig,
     ServerInfo,
+    load_model,
     load_server_config,
     model_paths,
     list_models,
 )
 from protocol import ProtocolError, recv_message, send_message
+
+
+SERVER_DEFAULT_HOST = "127.0.0.1"
+SERVER_DEFAULT_PORT = 6000
+SERVER_DEFAULT_DB = "shakescenario.db"
+SERVER_DEFAULT_WORKDIR = "./runs"
+SERVER_DEFAULT_WORKERS = 2
 
 
 def _safe_json(obj: Any) -> Any:
@@ -83,7 +91,10 @@ def _safe_json(obj: Any) -> Any:
         return str(obj)
 
 
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+def _deep_merge(
+    base: dict[str, Any],
+    override: dict[str, Any],
+) -> dict[str, Any]:
     out = dict(base)
     for k, v in override.items():
         if (
@@ -457,7 +468,12 @@ class ShakeScenarioServer:
     def _job_dir(self, job_id: int) -> Path:
         return self._workdir / f"job_{job_id:06d}"
 
-    def _run_job(self, job_id: int, params: dict[str, Any], job_dir: Path) -> None:
+    def _run_job(
+        self,
+        job_id: int,
+        params: dict[str, Any],
+        job_dir: Path,
+    ) -> None:
         job = self._db.get_job(job_id)
         if job is None:
             return
@@ -473,17 +489,14 @@ class ShakeScenarioServer:
             impact_cfg = params.get("impact_config", {})
     
             model_id = models_cfg["model_id"]
-            mpaths = model_paths(cfg.paths.model_root, model_id)
-    
+            model = load_model(cfg.paths.model_root, model_id)
+            
             # Import here to keep server startup light
             from shakelab.engineering.impact import (
                 ImpactConfig,
                 compute_impact_scenario,
                 save_impact_result,
             )
-            from shakelab.engineering.exposure.exposure import ExposureModel
-            from shakelab.engineering.fragility.fragility import FragilityCollection
-            from shakelab.engineering.taxonomy.taxonomy_tree import TaxonomyTree
             from shakelab.gmmodel.groundmotion import (
                 GroundMotionContext,
                 GroundMotionProvider,
@@ -491,15 +504,13 @@ class ShakeScenarioServer:
             )
             from shakelab.libutils.geodeticN.primitives import WgsPoint
             
-            exposure = ExposureModel.from_json(str(mpaths["exposure_path"]), validate=True)
-            taxonomy_tree = TaxonomyTree.from_json(str(mpaths["taxonomy_tree_path"]))
-            fragility = FragilityCollection.from_json(str(mpaths["fragility_path"]))
-            
             # Build event
             ev = scenario_cfg["event"]
             hypoc = ev.get("hypocentre", {})
             if not isinstance(hypoc, dict):
-                raise ValueError("scenario.event.hypocentre must be an object.")
+                raise ValueError(
+                    "scenario.event.hypocentre must be an object."
+                )
             
             event = ScenarioEvent(
                 hypocentre=WgsPoint(
@@ -521,7 +532,9 @@ class ShakeScenarioServer:
             
             gmpe_name = gm.get("gmpe_name")
             if not isinstance(gmpe_name, str) or not gmpe_name:
-                raise ValueError("scenario.ground_motion.gmpe_name is required.")
+                raise ValueError(
+                    "scenario.ground_motion.gmpe_name is required."
+                )
             
             distance_approx = gm.get("distance_approx", "ellipsoid")
             
@@ -538,9 +551,9 @@ class ShakeScenarioServer:
             # Compute
             impact = compute_impact_scenario(
                 gm_context=gm_context,
-                exposure_model=exposure,
-                taxonomy_tree=taxonomy_tree,
-                fragility_collection=fragility,
+                exposure_model=model.exposure,
+                taxonomy_tree=model.taxonomy_tree,
+                fragility_collection=model.fragility,
                 config=config,
             )
             
@@ -559,9 +572,21 @@ class ShakeScenarioServer:
             manifest = {
                 "job_id": job_id,
                 "artifacts": [
-                    {"name": "request_resolved.json", "type": "request", "format": "json"},
-                    {"name": "meta.json", "type": "meta", "format": "json"},
-                    {"name": "impact_result.json", "type": "impact_result", "format": "json"},
+                    {
+                        "name": "request_resolved.json",
+                        "type": "request",
+                        "format": "json",
+                    },
+                    {
+                        "name": "meta.json",
+                        "type": "meta",
+                        "format": "json",
+                    },
+                    {
+                        "name": "impact_result.json",
+                        "type": "impact_result",
+                        "format": "json",
+                    },
                 ],
             }
             (job_dir / "result_manifest.json").write_text(
@@ -587,17 +612,18 @@ class ShakeScenarioServer:
             self._db.update_status(job_id, JobStatus.FAILED)
             self._db.update_error(job_id, str(exc))
 
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="shakescenario-server",
         description="ShakeScenario TCP server (job-based).",
     )
-    p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=6000)
-    p.add_argument("--db", default="shakescenario.db")
+    p.add_argument("--host", default=None)
+    p.add_argument("--port", type=int, default=None)
+    p.add_argument("--db", default=None)
     p.add_argument("--config", default="config.json")
-    p.add_argument("--workdir", default="./runs")
-    p.add_argument("--workers", type=int, default=2)
+    p.add_argument("--workdir", default=None)
+    p.add_argument("--workers", type=int, default=None)
     return p
 
 
@@ -609,15 +635,45 @@ def main() -> None:
 
     cfg = load_server_config(args.config)
 
-    db = JobDatabase(cfg.paths.db)
+    host = (
+        args.host
+        if args.host is not None
+        else cfg.server.get("host", SERVER_DEFAULT_HOST)
+    )
+
+    port = (
+        args.port
+        if args.port is not None
+        else cfg.server.get("port", SERVER_DEFAULT_PORT)
+    )
+
+    workers = (
+        args.workers
+        if args.workers is not None
+        else cfg.server.get("workers", SERVER_DEFAULT_WORKERS)
+    )
+
+    db_path = (
+        args.db
+        if args.db is not None
+        else getattr(cfg.paths, "db", SERVER_DEFAULT_DB)
+    )
+
+    workdir = (
+        args.workdir
+        if args.workdir is not None
+        else getattr(cfg.paths, "workdir", SERVER_DEFAULT_WORKDIR)
+    )
+
+    db = JobDatabase(db_path)
     db.initialize()
 
     srv = ShakeScenarioServer(
-        host=args.host,
-        port=args.port,
+        host=host,
+        port=port,
         db=db,
-        workdir=cfg.paths.workdir,
-        workers=args.workers,
+        workdir=Path(workdir),
+        workers=workers,
         config=cfg,
     )
 
