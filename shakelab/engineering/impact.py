@@ -69,6 +69,9 @@ __all__ = [
     "ImpactResult",
     "compute_impact_scenario",
     "damage_probabilities",
+    "save_impact_result",
+    "save_impact_summary",
+    "build_impact_summary",
 ]
 
 
@@ -539,73 +542,28 @@ def damage_probabilities(
     return combined
 
 
-def save_impact_result(
+def _ensure_output_dir(output_path: str) -> None:
+    """
+    Create the parent directory of an output file if needed.
+    """
+    directory = os.path.dirname(os.path.abspath(output_path))
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
+
+
+def _build_damage_scale(
     result: ImpactResult,
-    output_path: str,
     config: ImpactConfig,
-    gm_context: GroundMotionContext,
-    metadata: Optional[Dict[str, Any]] = None,
-    create_dirs: bool = True,
-) -> None:
+) -> Dict[str, Any]:
     """
-    Save ImpactResult to a JSON file (schema v1.0.0, in development).
+    Build the damage-scale metadata block from an impact result.
 
-    This function serializes a self-contained result file including:
-    - scenario information (event + ground-motion provider)
-    - impact configuration
-    - damage scale block (derived internally)
-    - per-asset and optional per-typology results
-
-    Notes
-    -----
-    - Model input file paths are intentionally NOT included.
-    - damage_scale.levels is derived from the first asset probabilities.
+    The expected-count convention is always "state", independently from
+    the probability output convention requested in ImpactConfig.
     """
-    if create_dirs:
-        directory = os.path.dirname(os.path.abspath(output_path))
-        if directory and not os.path.exists(directory):
-            os.makedirs(directory, exist_ok=True)
-
     if not result.assets:
         raise ValueError("Empty ImpactResult: no assets were computed.")
 
-    def _get(obj: Any, *names: str, default: Any = None) -> Any:
-        for name in names:
-            if hasattr(obj, name):
-                return getattr(obj, name)
-        return default
-
-    # Build scenario block from gm_context
-    event = gm_context.event
-    hypo = event.hypocentre
-
-    scenario: Dict[str, Any] = {
-        "event": {
-            "magnitude": float(event.magnitude),
-            "hypocentre": {
-                "longitude": float(_get(hypo, "longitude", "lon")),
-                "latitude": float(_get(hypo, "latitude", "lat")),
-                "elevation": float(_get(hypo, "elevation", "elev")),
-            },
-        },
-        "ground_motion": {
-            "provider": type(gm_context.provider).__name__,
-        },
-    }
-
-    gmpe_name = _get(gm_context.provider, "gmpe_name")
-    if gmpe_name is not None:
-        scenario["ground_motion"]["gmpe_name"] = str(gmpe_name)
-
-    dist_approx = _get(
-        gm_context.provider,
-        "distance_approx",
-        "distance_approximation",
-    )
-    if dist_approx is not None:
-        scenario["ground_motion"]["distance_approx"] = str(dist_approx)
-
-    # Build damage scale block (derive levels from the first asset)
     first_asset = next(iter(result.assets.values()))
     keys = set(first_asset.probabilities.keys())
 
@@ -615,7 +573,7 @@ def save_impact_result(
     mid = sorted([k for k in keys if k not in {no_damage_key, tail_key}])
     levels = [no_damage_key] + mid + [tail_key]
 
-    damage_scale: Dict[str, Any] = {
+    return {
         "output": config.output,
         "levels": levels,
         "tail_key": tail_key,
@@ -623,17 +581,21 @@ def save_impact_result(
         "expected_counts_convention": "state",
     }
 
-    # Serialize assets (stable ordering)
+
+def _serialize_impact_assets(
+    result: ImpactResult,
+) -> List[Dict[str, Any]]:
+    """Serialize per-asset impact results using stable asset ordering."""
     assets_out: List[Dict[str, Any]] = []
 
     for asset_id in sorted(result.assets.keys()):
         asset = result.assets[asset_id]
 
         gm_out: Dict[str, Any] = {}
-        for imt, gm in asset.ground_motion_by_imt.items():
+        for imt, gm_val in asset.ground_motion_by_imt.items():
             gm_out[str(imt)] = {
-                "median": float(gm.median),
-                "sigma_ln": float(gm.sigma_ln),
+                "median": float(gm_val.median),
+                "sigma_ln": float(gm_val.sigma_ln),
             }
 
         asset_obj: Dict[str, Any] = {
@@ -680,30 +642,129 @@ def save_impact_result(
 
         assets_out.append(asset_obj)
 
+    return assets_out
+
+
+def save_impact_result(
+    result: ImpactResult,
+    output_path: str,
+    config: ImpactConfig,
+    metadata: Optional[Dict[str, Any]] = None,
+    create_dirs: bool = True,
+) -> None:
+    """
+    Save canonical asset-level impact results to JSON.
+
+    The file intentionally does not duplicate scenario or impact
+    configuration blocks. Those belong to the resolved job request.
+
+    Parameters
+    ----------
+    result
+        Computed impact result.
+    output_path
+        Destination JSON file.
+    config
+        Impact configuration used to derive damage-scale metadata.
+    metadata
+        Optional lightweight metadata. Avoid file-system paths.
+    create_dirs
+        If True, create the output parent directory.
+    """
+    if create_dirs:
+        _ensure_output_dir(output_path)
+
+    if not result.assets:
+        raise ValueError("Empty ImpactResult: no assets were computed.")
+
     payload: Dict[str, Any] = {
-        "type": "ShakeLabDamageResult",
+        "type": "ShakeScenarioImpactAssets",
         "schema_version": "1.0.0",
-        "scenario": scenario,
-        "config": {
-            "uncertainty_mode": config.uncertainty_mode,
-            "output": config.output,
-            "typology_weighting": config.typology_weighting,
-            "normalize_asset_probabilities": bool(
-                config.normalize_asset_probabilities
-            ),
-            "missing_taxonomy": config.missing_taxonomy,
-            "no_damage_key": config.no_damage_key,
-            "tail_key": config.tail_key,
-            "include_typology_breakdown": bool(
-                config.include_typology_breakdown
-            ),
-        },
-        "damage_scale": damage_scale,
-        "assets": assets_out,
+        "damage_scale": _build_damage_scale(result, config),
+        "assets": _serialize_impact_assets(result),
     }
 
     if metadata:
         payload["metadata"] = metadata
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+
+def build_impact_summary(
+    result: ImpactResult,
+    config: ImpactConfig,
+) -> Dict[str, Any]:
+    """
+    Build a lightweight impact summary for dashboards and job listings.
+
+    The summary contains only objective aggregate information derived from
+    canonical asset-level results. Ranking and presentation-specific metrics
+    are intentionally left to the WebUI.
+    """
+    if not result.assets:
+        raise ValueError("Empty ImpactResult: no assets were computed.")
+
+    damage_scale = _build_damage_scale(result, config)
+    levels = list(damage_scale["levels"])
+
+    total_units = 0.0
+    expected_totals = {level: 0.0 for level in levels}
+    imt_stats: Dict[str, Dict[str, float]] = {}
+
+    for asset in result.assets.values():
+        total_units += float(asset.n_units)
+
+        for level in levels:
+            value = float(asset.expected_counts.get(level, 0.0))
+            expected_totals[level] = expected_totals.get(level, 0.0) + value
+
+        for imt, gm_val in asset.ground_motion_by_imt.items():
+            key = str(imt)
+            median = float(gm_val.median)
+
+            if key not in imt_stats:
+                imt_stats[key] = {
+                    "min_median": median,
+                    "max_median": median,
+                }
+            else:
+                imt_stats[key]["min_median"] = min(
+                    imt_stats[key]["min_median"],
+                    median,
+                )
+                imt_stats[key]["max_median"] = max(
+                    imt_stats[key]["max_median"],
+                    median,
+                )
+
+    return {
+        "type": "ShakeScenarioImpactSummary",
+        "schema_version": "1.0.0",
+        "asset_count": len(result.assets),
+        "total_units": float(total_units),
+        "damage_scale": damage_scale,
+        "expected_counts": {
+            k: float(v) for k, v in expected_totals.items()
+        },
+        "ground_motion": imt_stats,
+    }
+
+
+def save_impact_summary(
+    result: ImpactResult,
+    output_path: str,
+    config: ImpactConfig,
+    create_dirs: bool = True,
+) -> None:
+    """Save a lightweight impact summary to JSON."""
+    if create_dirs:
+        _ensure_output_dir(output_path)
+
+    payload = build_impact_summary(
+        result=result,
+        config=config,
+    )
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
@@ -903,9 +964,14 @@ def main() -> None:
 
     save_impact_result(
         result=res,
-        output_path="impact_result.json",
+        output_path="impact_assets.json",
         config=config,
-        gm_context=gm_context,
+    )
+
+    save_impact_summary(
+        result=res,
+        output_path="impact_summary.json",
+        config=config,
     )
 
 if __name__ == "__main__":

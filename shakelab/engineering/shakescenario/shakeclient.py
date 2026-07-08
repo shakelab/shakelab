@@ -39,7 +39,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from protocol import ProtocolClient
+from shakelab.engineering.shakescenario.protocol import ProtocolClient
 
 
 class ShakeScenarioClient:
@@ -110,10 +110,16 @@ class ShakeScenarioClient:
             req_id=self._req_id(),
         )
 
-    def reset(self) -> dict[str, Any]:
+    def reset(
+        self,
+        purge: bool = False,
+    ) -> dict[str, Any]:
         return self._client.request(
             "reset",
-            payload={"confirm": True},
+            payload={
+                "confirm": True,
+                "purge": bool(purge),
+            },
             req_id=self._req_id(),
         )
 
@@ -179,6 +185,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_submit.add_argument("--lon", type=float, default=None)
     p_submit.add_argument("--lat", type=float, default=None)
     p_submit.add_argument("--depth", type=float, default=None)
+    p_submit.add_argument(
+        "--origin-time",
+        dest="origin_time",
+        default=None,
+        help="Origin time (ISO-8601).",
+    )
 
     p_list = sub.add_parser("list", help="List jobs.")
     p_list.add_argument("--status", default=None)
@@ -205,7 +217,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_delete.add_argument("--purge", action="store_true")
 
     p_reset = sub.add_parser("reset", help="Reset database (dangerous).")
-    p_reset.add_argument("--yes-i-know", dest="yes_i_know", action="store_true")
+    p_reset.add_argument(
+        "--yes-i-know",
+        dest="yes_i_know",
+        action="store_true",
+    )
+    p_reset.add_argument(
+        "--purge",
+        action="store_true",
+        help="Also remove all job artifact directories.",
+    )
 
     return parser
 
@@ -442,10 +463,13 @@ def _merge_submit_payload(
         hypoc = {}
 
     mag = _safe_getattr(args, "mag", None)
+    origin_time = _safe_getattr(args, "origin_time", None)
     lon = _safe_getattr(args, "lon", None)
     lat = _safe_getattr(args, "lat", None)
     depth = _safe_getattr(args, "depth", None)
 
+    if origin_time is not None:
+        event["origin_time"] = str(origin_time)
     if mag is not None:
         event["magnitude"] = float(mag)
     if lon is not None:
@@ -538,8 +562,14 @@ def main() -> None:
 
         if args.cmd == "reset":
             if not args.yes_i_know:
-                raise ValueError("Use --yes-i-know to confirm reset.")
-            res = client.reset()
+                raise ValueError(
+                    "Use --yes-i-know to confirm reset."
+                )
+
+            res = client.reset(
+                purge=args.purge,
+            )
+
             _print_result(res, args.format, "other")
             return
 

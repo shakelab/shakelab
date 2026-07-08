@@ -46,6 +46,7 @@ Notes
 
 from __future__ import annotations
 
+import shutil
 import argparse
 import json
 import socket
@@ -76,6 +77,14 @@ SERVER_DEFAULT_PORT = 6000
 SERVER_DEFAULT_DB = "shakescenario.db"
 SERVER_DEFAULT_WORKDIR = "./runs"
 SERVER_DEFAULT_WORKERS = 2
+
+JOB_MANIFEST = "manifest.json"
+JOB_REQUEST = "request.json"
+JOB_RESULTS_DIR = "results"
+JOB_LOGS_DIR = "logs"
+IMPACT_ASSETS = "impact_assets.json"
+IMPACT_SUMMARY = "impact_summary.json"
+JOB_ERROR_LOG = "error.log"
 
 
 def _safe_json(obj: Any) -> Any:
@@ -358,30 +367,24 @@ class ShakeScenarioServer:
         if not isinstance(model_id, str) or not model_id:
             raise ValueError("'models.model_id' must be a non-empty string.")
     
-        # Resolve model paths now (fail fast)
-        mpaths = model_paths(self._config.paths.model_root, model_id)
-    
+        # Resolve model paths now, but do not persist local paths.
+        model_paths(self._config.paths.model_root, model_id)
+
         job_id = self._db.create_job(params=resolved, tag=tag)
         job_dir = self._job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
-    
-        # Persist resolved request as artifact
-        (job_dir / "request_resolved.json").write_text(
+
+        results_dir = job_dir / JOB_RESULTS_DIR
+        logs_dir = job_dir / JOB_LOGS_DIR
+        results_dir.mkdir(parents=True, exist_ok=True)
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Persist the resolved request as the canonical job input.
+        (job_dir / JOB_REQUEST).write_text(
             json.dumps(resolved, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-    
-        # Also persist a minimal meta (server-side operational info)
-        meta = {
-            "job_id": job_id,
-            "model_id": model_id,
-            "model_dir": str(mpaths["model_dir"]),
-        }
-        (job_dir / "meta.json").write_text(
-            json.dumps(meta, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-    
+
         self._executor.submit(self._run_job, job_id, resolved, job_dir)
     
         return {"job_id": job_id, "status": JobStatus.QUEUED.value}
@@ -435,6 +438,18 @@ class ShakeScenarioServer:
         # If running, we do not force-kill in v1.
         return {"job_id": int(job_id), "status": status}
 
+    def _remove_job_dir(self, job_id: int) -> bool:
+        """Remove a job artifact directory, if it exists."""
+        job_dir = self._job_dir(job_id)
+        if not job_dir.exists():
+            return False
+
+        if not job_dir.is_dir():
+            raise ValueError(f"Job path is not a directory: {job_dir}")
+
+        shutil.rmtree(job_dir)
+        return True
+
     def _op_delete(self, payload: dict[str, Any]) -> dict[str, Any]:
         job_id = payload.get("job_id")
         purge = bool(payload.get("purge", False))
@@ -446,24 +461,40 @@ class ShakeScenarioServer:
         if not ok:
             raise ValueError(f"Job not found: {job_id}")
 
+        purged = False
         if purge:
-            job_dir = self._job_dir(int(job_id))
-            if job_dir.exists():
-                for p in sorted(job_dir.rglob("*"), reverse=True):
-                    if p.is_file():
-                        p.unlink(missing_ok=True)
-                    else:
-                        p.rmdir()
-                job_dir.rmdir()
+            purged = self._remove_job_dir(int(job_id))
 
-        return {"job_id": int(job_id), "deleted": True, "purge": purge}
+        return {
+            "job_id": int(job_id),
+            "deleted": True,
+            "purge": purge,
+            "purged": purged,
+        }
 
     def _op_reset(self, payload: dict[str, Any]) -> dict[str, Any]:
         confirm = bool(payload.get("confirm", False))
+        purge = bool(payload.get("purge", False))
+
         if not confirm:
             raise ValueError("Reset requires confirm=true.")
+
         self._db.reset()
-        return {"reset": True}
+
+        purged = False
+        if purge and self._workdir.exists():
+            for path in self._workdir.iterdir():
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+            purged = True
+
+        return {
+            "reset": True,
+            "purge": purge,
+            "purged": purged,
+        }
 
     def _job_dir(self, job_id: int) -> Path:
         return self._workdir / f"job_{job_id:06d}"
@@ -496,6 +527,7 @@ class ShakeScenarioServer:
                 ImpactConfig,
                 compute_impact_scenario,
                 save_impact_result,
+                save_impact_summary,
             )
             from shakelab.gmmodel.groundmotion import (
                 GroundMotionContext,
@@ -557,58 +589,97 @@ class ShakeScenarioServer:
                 config=config,
             )
             
-            out_path = job_dir / "impact_result.json"
+            results_dir = job_dir / JOB_RESULTS_DIR
+            logs_dir = job_dir / JOB_LOGS_DIR
+            results_dir.mkdir(parents=True, exist_ok=True)
+            logs_dir.mkdir(parents=True, exist_ok=True)
+
+            impact_path = results_dir / IMPACT_ASSETS
+            summary_path = results_dir / IMPACT_SUMMARY
+
             save_impact_result(
                 result=impact,
-                output_path=str(out_path),
+                output_path=str(impact_path),
                 config=config,
-                gm_context=gm_context,
                 metadata={"job_id": job_id},
             )
-            
-            if not out_path.exists():
-                raise RuntimeError("impact_result.json was not created.")
-    
+
+            save_impact_summary(
+                result=impact,
+                output_path=str(summary_path),
+                config=config,
+            )
+
+            if not impact_path.exists():
+                raise RuntimeError(f"{IMPACT_ASSETS} was not created.")
+
+            if not summary_path.exists():
+                raise RuntimeError(f"{IMPACT_SUMMARY} was not created.")
+
             manifest = {
                 "job_id": job_id,
-                "artifacts": [
-                    {
-                        "name": "request_resolved.json",
-                        "type": "request",
-                        "format": "json",
-                    },
-                    {
-                        "name": "meta.json",
-                        "type": "meta",
-                        "format": "json",
-                    },
-                    {
-                        "name": "impact_result.json",
-                        "type": "impact_result",
-                        "format": "json",
-                    },
-                ],
+                "job_name": f"job_{job_id:06d}",
+                "tag": params.get("tag"),
+                "status": JobStatus.COMPLETED.value,
+                "model_id": model_id,
+                "schema_version": "1.0.0",
+                "artifacts": {
+                    "request": JOB_REQUEST,
+                    "impact_assets": (
+                        f"{JOB_RESULTS_DIR}/{IMPACT_ASSETS}"
+                    ),
+                    "impact_summary": (
+                        f"{JOB_RESULTS_DIR}/{IMPACT_SUMMARY}"
+                    ),
+                },
             }
-            (job_dir / "result_manifest.json").write_text(
+            (job_dir / JOB_MANIFEST).write_text(
                 json.dumps(manifest, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-    
+
             self._db.update_status(job_id, JobStatus.COMPLETED)
             self._db.update_result_meta(
                 job_id,
-                {"workdir": str(job_dir), "manifest": "result_manifest.json"},
+                {"workdir": str(job_dir), "manifest": JOB_MANIFEST},
             )
     
         except Exception as exc:
             try:
-                (job_dir / "error.txt").write_text(
+                logs_dir = job_dir / JOB_LOGS_DIR
+                logs_dir.mkdir(parents=True, exist_ok=True)
+
+                (logs_dir / JOB_ERROR_LOG).write_text(
                     traceback.format_exc(),
+                    encoding="utf-8",
+                )
+
+                models_cfg = params.get("models", {})
+                model_id = models_cfg.get("model_id")
+
+                manifest = {
+                    "job_id": job_id,
+                    "job_name": f"job_{job_id:06d}",
+                    "tag": params.get("tag"),
+                    "status": JobStatus.FAILED.value,
+                    "model_id": model_id,
+                    "schema_version": "1.0.0",
+                    "artifacts": {
+                        "request": JOB_REQUEST,
+                        "error": f"{JOB_LOGS_DIR}/{JOB_ERROR_LOG}",
+                    },
+                    "error": {
+                        "type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                }
+                (job_dir / JOB_MANIFEST).write_text(
+                    json.dumps(manifest, indent=2, sort_keys=True),
                     encoding="utf-8",
                 )
             except Exception:
                 pass
-        
+
             self._db.update_status(job_id, JobStatus.FAILED)
             self._db.update_error(job_id, str(exc))
 
