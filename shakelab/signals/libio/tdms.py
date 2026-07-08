@@ -41,7 +41,6 @@ from pathlib import Path
 import numpy as np
 
 from shakelab.libutils.timeN import Date
-from shakelab.signals.base import Record, StreamCollection
 
 
 TDS_TAG = b"TDSm"
@@ -338,6 +337,8 @@ def tdms_stream_read(input_data_source,
     This function is intended for compatibility with existing ShakeLab tools.
     For matrix-oriented DAS processing, use ``tdms_das_read`` instead.
     """
+    from shakelab.signals.base import Record, StreamCollection
+
     if stream_collection is None:
         stream_collection = StreamCollection()
 
