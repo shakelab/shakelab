@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -18,219 +18,376 @@
 #
 # ****************************************************************************
 """
-Module to import / export data formats
+Waveform input/output dispatch utilities.
+
+This module provides high-level reader and writer functions for ShakeLab
+waveform containers.  Format-specific implementations are delegated to the
+modules under ``shakelab.signals.libio``.
+
+Imports of format-specific modules are intentionally lazy, in order to avoid
+circular imports with ``shakelab.signals.base`` and to keep module loading
+lightweight.
 """
+
 import os
 from glob import glob
 
-from shakelab.signals import base
-from shakelab.signals.libio import sac, dyna, tdms
 
 USE_LIBMSEED = True
+
+MSEED_FORMATS = ("mseed", "miniseed", "ms", "seed")
+SAC_FORMATS = ("sac",)
+DYNA_FORMATS = ("dyna",)
+TDMS_FORMATS = ("tdms",)
+
+UNSUPPORTED_FORMATS = (
+    "ascii",
+    "seisan",
+    "seg2",
+    "dat",
+    "gse",
+    "reftek",
+    "itaca",
+)
+
+FORMAT_ALIASES = {
+    "miniseed": "mseed",
+    "ms": "mseed",
+    "seed": "mseed",
+}
+
+EXTENSION_FORMATS = {
+    ".ms": "mseed",
+    ".mseed": "mseed",
+    ".miniseed": "mseed",
+    ".seed": "mseed",
+    ".sac": "sac",
+    ".txt": "dyna",
+    ".tdms": "tdms",
+}
 
 
 def get_mseed_module(use_libmseed=USE_LIBMSEED):
     """
-    Load the appropriate module conditionally.
+    Return the selected MiniSEED backend module.
+
+    Parameters
+    ----------
+    use_libmseed : bool, optional
+        If ``True``, use the libmseed-backed module.  If ``False``, use the
+        pure-Python MiniSEED implementation.
+
+    Returns
+    -------
+    module
+        MiniSEED I/O module.
     """
     if use_libmseed:
         from shakelab.signals.libio import cymseed as mseed
     else:
         from shakelab.signals.libio import mseed
+
     return mseed
 
 
 def reader(file_path, stream_collection=None, format=None,
-           byte_order='be', is_db=False):
+           byte_order=None, is_db=False):
     """
-    Read seismic waveform data from file(s) into a StreamCollection object.
+    Read waveform data from one or more files.
 
     Parameters
     ----------
     file_path : str or list
-        Path to a waveform file, wildcard pattern, list of files, or a text
-        file containing a list of file paths (if `is_db=True`).
+        Path to a waveform file, wildcard pattern, directory, list of files,
+        or a text file containing a list of file paths if ``is_db=True``.
     stream_collection : StreamCollection, optional
-        Existing StreamCollection to which the data will be appended.
-        If None, a new StreamCollection is created.
+        Existing collection to which loaded records are appended.  If omitted,
+        a new collection is created.
     format : str, optional
-        File format. If None, it is inferred from file extensions.
-        Supported: 'mseed', 'sac', 'dyna'.
-    byte_order : str, default='be'
-        Byte order for reading SAC files ('be' or 'le').
-    is_db : bool, default=False
-        If True, interpret `file_path` as a text file listing paths to data
-        files instead of as a waveform file.
+        Input format.  If omitted, the format is inferred from the file
+        extension.
+    byte_order : str or None, optional
+        Byte order used by formats that require it.  ``None`` lets supporting
+        readers attempt automatic detection.
+    is_db : bool, optional
+        If ``True``, interpret ``file_path`` as a text file listing waveform
+        paths.
 
     Returns
     -------
     StreamCollection
-        A StreamCollection object containing the loaded waveform records.
+        Collection containing loaded records.
 
     Raises
     ------
+    TypeError
+        If ``file_path`` has an unsupported type.
     ValueError
-        If the specified or inferred format is not recognized.
+        If a format cannot be inferred or is not recognized.
     NotImplementedError
-        If the format is known but not yet implemented.
+        If the selected format is known but unsupported.
     """
-    if stream_collection is None:
-        stream_collection = base.StreamCollection()
+    stream_collection = _ensure_stream_collection(stream_collection)
+    file_list = _expand_file_list(file_path, is_db=is_db)
 
-    file_list = []
-
-    # Handle list of file paths
-    if isinstance(file_path, list):
-        file_list = file_path
-
-    # Handle a single string path
-    elif isinstance(file_path, str):
-
-        # Explicit text file list mode
-        if is_db:
-            if not os.path.isfile(file_path):
-                raise FileNotFoundError(
-                    f"List file not found: {file_path}"
-                )
-            with open(file_path, 'r') as f:
-                file_list = [
-                    line.strip() for line in f
-                    if line.strip() and not line.startswith('#')
-                ]
-
-        # Wildcards
-        elif '*' in file_path or '?' in file_path or '[' in file_path:
-            file_list = glob(file_path)
-
-        # Directory
-        elif os.path.isdir(file_path):
-            file_list = glob(os.path.join(file_path, '*'))
-
-        # Single file
-        else:
-            file_list = [file_path]
-
-    else:
-        raise TypeError("file_path must be str or list")
-
-    for file in file_list:
-        current_format = format
-        if current_format is None:
-            fext = os.path.splitext(file)[1].lower()
-            if fext in ['.ms', '.mseed', '.miniseed', '.seed']:
-                current_format = 'mseed'
-            elif fext == '.sac':
-                current_format = 'sac'
-            elif fext == '.txt':
-                current_format = 'dyna'
-            elif fext == '.tdms':
-                current_format = 'tdms'
-            else:
-                print(f"Unrecognized extension for '{file}'. "
-                      f"Defaulting to 'mseed'.")
-                current_format = 'mseed'
-
-        # Load the waveform
-        if current_format in ['miniseed', 'mseed', 'ms']:
-            mseed = get_mseed_module(USE_LIBMSEED)
-            stream_collection = mseed.msread(
-                file, stream_collection=stream_collection
-            )
-
-        elif current_format == 'sac':
-            record = sac.sacread(file, byte_order=byte_order)
-            stream_collection.append(record)
-
-        elif current_format == 'dyna':
-            record = dyna.dynaread(file)
-            stream_collection.append(record)
-
-        elif current_format == 'tdms':
-            stream_collection = tdms.tdms_stream_read(file)
-
-        elif current_format in ['ascii', 'seisan', 'seg2',
-                                'dat', 'gse', 'reftek']:
-            raise NotImplementedError(f'{current_format}: format '
-                                      'not yet implemented')
-
-        else:
-            raise ValueError(f'{current_format}: format not recognized')
+    for path in file_list:
+        current_format = _resolve_format(path, format)
+        stream_collection = _read_file(
+            path,
+            current_format,
+            stream_collection,
+            byte_order=byte_order,
+        )
 
     return stream_collection
 
 
-def writer(input_data, file_path, format=None,
-            byte_order='be', owrite=False):
+def writer(input_data, file_path, format=None, byte_order=None,
+           owrite=False):
     """
-    Write one or more seismic records to disk.
+    Write waveform data to disk.
 
     Parameters
     ----------
-    input_data : StreamCollection or Stream or Record
-        Data to be written. Accepts any shakelab waveform container.
+    input_data : Record, Stream or StreamCollection
+        ShakeLab waveform container to write.
     file_path : str
-        Path to the output file (MiniSEED) or directory (SAC).
+        Output file path for single-file formats or output directory for
+        multi-file formats such as SAC.
     format : str, optional
-        Output format. If None, inferred from file extension.
-        Supported: 'mseed', 'sac'.
-    byte_order : str, default='be'
-        Byte order for SAC files ('be' or 'le').
-    owrite : bool, default=False
-        If True, allows overwriting existing files.
+        Output format.  If omitted, the format is inferred from
+        ``file_path``.
+    byte_order : str or None, optional
+        Byte order used by formats that require it.  ``None`` lets the target
+        writer use its own default.
+    owrite : bool, optional
+        If ``True``, overwrite existing files.
 
     Raises
     ------
+    TypeError
+        If ``input_data`` is not a supported ShakeLab waveform container.
     ValueError
-        If the format is unknown.
+        If the format is not recognized.
     NotImplementedError
-        If the format is not implemented.
+        If the selected format is known but unsupported.
     """
-    if isinstance(input_data, (base.Record, base.Stream)):
-        stream_collection = base.StreamCollection()
-        stream_collection.append(input_data)
+    stream_collection = _as_stream_collection(input_data)
+    current_format = _resolve_format(file_path, format)
 
-    elif isinstance(input_data, base.StreamCollection):
-        stream_collection = input_data
+    if current_format == "mseed":
+        _write_mseed(stream_collection, file_path, owrite=owrite)
 
-    if format is None:
-        # Try to identify file from extension
-        fext = os.path.splitext(file_path)[1]
+    elif current_format == "sac":
+        _write_sac(
+            stream_collection,
+            file_path,
+            byte_order=byte_order,
+            owrite=owrite,
+        )
 
-        if fext in ['.ms', '.mseed', '.miniseed', '.seed']:
-            format = 'mseed'
-
-        elif fext in ['.sac', '.SAC']:
-            format = 'sac'
-
-        else:
-            #raise NotImplementedError('file type not recognized')
-            print('File type not recognized. Defualt to mseed')
-            format = 'mseed'
-
-    if format in ['miniseed', 'mseed', 'ms']:
-        if not owrite and os.path.exists(file_path):
-            print(f"File already exists. Skipping write.")
-            return
-    
-        mseed = get_mseed_module(USE_LIBMSEED)
-        mseed.mswrite(file_path, stream_collection)
-
-    elif format == 'sac':
-        if not os.path.isdir(file_path):
-            os.makedirs(file_path, exist_ok=True)
-
-        for stream in stream_collection:
-            for record in stream:
-                sid = record.head.sid
-                t0 = record.head.time.iso8601
-                filename = f"{sid}_{t0}.sac"
-                outpath = os.path.join(file_path, filename)
-                sac.sacwrite(outpath, record,
-                             byte_order=byte_order, owrite=owrite)
-
-    elif format in ['ascii', 'seisan', 'seg2',
-                    'dat', 'gse', 'reftek', 'itaca']:
-        raise NotImplementedError(f'{format}: format not yet implemented')
+    elif current_format in UNSUPPORTED_FORMATS:
+        raise NotImplementedError(
+            "{0}: format not yet implemented".format(current_format)
+        )
 
     else:
-        raise ValueError(f'{format}: format not recognized')
+        raise ValueError("{0}: format not recognized".format(
+            current_format
+        ))
+
+
+def _read_file(path, format, stream_collection, byte_order=None):
+    """
+    Read one file and append its content to a StreamCollection.
+    """
+    if format == "mseed":
+        mseed = get_mseed_module(USE_LIBMSEED)
+        return mseed.msread(path, stream_collection=stream_collection)
+
+    if format == "sac":
+        from shakelab.signals.libio import sac
+
+        record = sac.sacread(path, byte_order=byte_order)
+        stream_collection.append(record)
+
+        return stream_collection
+
+    if format == "dyna":
+        from shakelab.signals.libio import dyna
+
+        record = dyna.dynaread(path)
+        stream_collection.append(record)
+
+        return stream_collection
+
+    if format == "tdms":
+        from shakelab.signals.libio import tdms
+
+        tdms_collection = tdms.tdms_stream_read(path)
+
+        for stream in tdms_collection:
+            stream_collection.append(stream)
+
+        return stream_collection
+
+    if format in UNSUPPORTED_FORMATS:
+        raise NotImplementedError(
+            "{0}: format not yet implemented".format(format)
+        )
+
+    raise ValueError("{0}: format not recognized".format(format))
+
+
+def _write_mseed(stream_collection, file_path, owrite=False):
+    """
+    Write a StreamCollection to MiniSEED.
+    """
+    if os.path.exists(file_path) and not owrite:
+        raise FileExistsError("File exists: {0}".format(file_path))
+
+    mseed = get_mseed_module(USE_LIBMSEED)
+    mseed.mswrite(file_path, stream_collection)
+
+
+def _write_sac(stream_collection, directory, byte_order=None,
+               owrite=False):
+    """
+    Write a StreamCollection to one SAC file per record.
+    """
+    from shakelab.signals.libio import sac
+
+    os.makedirs(directory, exist_ok=True)
+
+    for stream in stream_collection:
+        for record in stream:
+            sid = _safe_filename_part(record.head.sid)
+            time = _safe_filename_part(record.head.time.iso8601)
+            filename = "{0}_{1}.sac".format(sid, time)
+            path = os.path.join(directory, filename)
+
+            sac.sacwrite(
+                path,
+                record,
+                byte_order=byte_order,
+                owrite=owrite,
+            )
+
+
+def _ensure_stream_collection(stream_collection=None):
+    """
+    Return a StreamCollection instance.
+    """
+    if stream_collection is not None:
+        return stream_collection
+
+    from shakelab.signals.base import StreamCollection
+
+    return StreamCollection()
+
+
+def _as_stream_collection(input_data):
+    """
+    Convert a ShakeLab waveform container to a StreamCollection.
+    """
+    from shakelab.signals.base import Record, Stream, StreamCollection
+
+    if isinstance(input_data, StreamCollection):
+        return input_data
+
+    if isinstance(input_data, (Record, Stream)):
+        stream_collection = StreamCollection()
+        stream_collection.append(input_data)
+
+        return stream_collection
+
+    raise TypeError(
+        "input_data must be a Record, Stream or StreamCollection"
+    )
+
+
+def _expand_file_list(file_path, is_db=False):
+    """
+    Expand input paths to an ordered list of files.
+    """
+    if isinstance(file_path, (list, tuple)):
+        return list(file_path)
+
+    if not isinstance(file_path, str):
+        raise TypeError("file_path must be str, list or tuple")
+
+    if is_db:
+        return _read_path_list(file_path)
+
+    if _has_wildcards(file_path):
+        return sorted(glob(file_path))
+
+    if os.path.isdir(file_path):
+        return sorted(glob(os.path.join(file_path, "*")))
+
+    return [file_path]
+
+
+def _read_path_list(path):
+    """
+    Read a text file containing one waveform path per line.
+    """
+    if not os.path.isfile(path):
+        raise FileNotFoundError("List file not found: {0}".format(path))
+
+    with open(path, "r", encoding="utf-8") as fid:
+        return [
+            line.strip()
+            for line in fid
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+
+
+def _resolve_format(path, format=None):
+    """
+    Resolve and normalize a waveform format.
+    """
+    if format is not None:
+        return _normalize_format(format)
+
+    extension = os.path.splitext(path)[1].lower()
+
+    if extension not in EXTENSION_FORMATS:
+        raise ValueError(
+            "Unable to infer waveform format from extension: {0}".format(
+                path
+            )
+        )
+
+    return EXTENSION_FORMATS[extension]
+
+
+def _normalize_format(format):
+    """
+    Normalize format aliases.
+    """
+    if format is None:
+        return None
+
+    value = format.lower().strip()
+
+    return FORMAT_ALIASES.get(value, value)
+
+
+def _has_wildcards(path):
+    """
+    Return True if path contains shell-style wildcard characters.
+    """
+    return "*" in path or "?" in path or "[" in path
+
+
+def _safe_filename_part(value):
+    """
+    Return a filesystem-friendly filename component.
+    """
+    text = str(value)
+
+    for char in ("/", "\\", ":", " "):
+        text = text.replace(char, "_")
+
+    return text
