@@ -181,6 +181,8 @@ class AssetImpactResult:
 
     Attributes
     ----------
+    name
+        Optional descriptive name of the exposure asset.
     reference_location
         Reference location dict with keys: longitude, latitude, elevation.
     n_units
@@ -188,13 +190,14 @@ class AssetImpactResult:
     ground_motion_by_imt
         Ground motion values used within this asset, keyed by IMT.
     probabilities
-        Asset-level damage probabilities (mixed over typologies).
+        Asset-level damage probabilities mixed over typologies.
     expected_counts
-        Asset-level expected counts per state (sum over typologies).
+        Asset-level expected counts per state, summed over typologies.
     typologies
-        Optional per-typology breakdown (if enabled).
+        Optional per-typology breakdown, if enabled.
     """
 
+    name: Optional[str]
     reference_location: Dict[str, float]
     n_units: float
     ground_motion_by_imt: Dict[str, GroundMotionValue]
@@ -404,6 +407,7 @@ def compute_impact_scenario(
         )
 
         assets_out[asset_id] = AssetImpactResult(
+            name=asset.name,
             reference_location=ref_loc,
             n_units=n_units,
             ground_motion_by_imt=gm_by_imt,
@@ -600,6 +604,7 @@ def _serialize_impact_assets(
 
         asset_obj: Dict[str, Any] = {
             "id": str(asset_id),
+            "name": asset.name,
             "reference_location": {
                 "longitude": float(asset.reference_location["longitude"]),
                 "latitude": float(asset.reference_location["latitude"]),

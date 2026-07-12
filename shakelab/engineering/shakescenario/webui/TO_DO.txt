@@ -1,0 +1,9 @@
+TO DO:
+- raggruppare la lista degli scenari calcolati in pagine di ~10-20 eventi
+- CSV output
+- la finestra nuovo evento non si chiude automaticamente
+- includere i nome degli assets nella lista
+- aggiungere status del server (active / not active)
+- aggiungere altri filtri, tipo del modello usato e data
+- refresh automatico della pagina
+- lo status dei jobs (running, completed, failed) non si aggiorna

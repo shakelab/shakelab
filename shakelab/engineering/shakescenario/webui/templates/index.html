@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ShakeScenario</title>
+
+    <link rel="stylesheet" href="/static/lib/leaflet/leaflet.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body>
+    <header class="app-header">
+        <div class="app-title">
+            <div class="app-logo">
+                <img
+                    src="{{ url_for('static',
+                                    filename='images/shakelab-logo-white.png') }}"
+                    alt="ShakeLab">
+            </div>
+            <div class="app-title-text">
+                <h1>ShakeScenario</h1>
+                <p>ShakeLab seismic damage scenario assessment</p>
+            </div>
+        </div>
+    
+        <nav class="app-nav">
+            <button id="btn-refresh" class="nav-button">
+                Refresh
+            </button>
+            <button
+                id="btn-new-run"
+                class="nav-button primary">
+                New scenario
+            </button>
+        </nav>
+    </header>
+
+    <main class="app-main">
+
+        <section class="top-panel">
+
+            <section class="map-panel panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>Map</h2>
+                        <p id="map-subtitle">Select a scenario from the archive</p>
+                    </div>
+
+                    <div class="map-tools">
+                        <select id="layer-selector">
+                            <option value="damage">Damage</option>
+                            <option value="shaking">Shaking</option>
+                            <option value="exposure">Exposure</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="map"></div>
+
+                <div id="map-legend" class="map-legend">
+                    <button id="btn-toggle-legend">Legend</button>
+                    <div id="legend-content"></div>
+                </div>
+            </section>
+
+            <aside class="side-panel">
+
+                <section class="event-panel panel">
+                    <div class="panel-header">
+                        <h2>Event details</h2>
+                    </div>
+
+                    <div id="event-details" class="details-grid">
+                        <div class="empty-state">
+                            No scenario selected.
+                        </div>
+                    </div>
+
+                    <div class="action-row">
+                        <button id="btn-download-json" disabled>JSON</button>
+                        <button id="btn-download-geojson" disabled>GeoJSON</button>
+                        <button id="btn-report" disabled>Report</button>
+                    </div>
+                </section>
+
+                <section class="impact-panel panel">
+                    <div class="panel-header">
+                        <h2>Top 10 Impacted Assets</h2>
+                    </div>
+
+                    <div id="impact-assets-summary">
+                        <div class="empty-state">
+                            No impact results available.
+                        </div>
+                    </div>
+                </section>
+
+            </aside>
+
+        </section>
+
+        <section class="filters-panel panel">
+            <div class="panel-header">
+                <h2>Scenario search filters</h2>
+            </div>
+
+            <form id="scenario-filters" class="filter-grid">
+                <label>
+                    Scenario ID
+                    <input id="filter-job-id" type="text" placeholder="job_000001">
+                </label>
+
+                <label>
+                    Minimum magnitude
+                    <input id="filter-mag-min" type="number" step="0.1" min="-10" max="10" value="2">
+                </label>
+
+                <label>
+                    Maximum magnitude
+                    <input id="filter-mag-max" type="number" step="0.1" min="-10" max="10" value="10">
+                </label>
+
+                <label>
+                    Status
+                    <select id="filter-status">
+                        <option value="">Any</option>
+                        <option value="completed">Completed</option>
+                        <option value="running">Running</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                </label>
+
+                <div class="filter-actions">
+                    <button type="submit" class="primary">Apply</button>
+                    <button type="button" id="btn-clear-filters">Clear</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="archive-panel panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Calculated scenarios</h2>
+                    <p id="archive-count">No scenarios loaded</p>
+                </div>
+            </div>
+
+            <div class="table-wrapper">
+                <table id="scenario-table">
+                    <thead>
+                        <tr>
+                            <th data-sort-key="job_id">Scenario ID</th>
+                            <th data-sort-key="origin_time">Date and Time</th>
+                            <th data-sort-key="magnitude">Magnitude</th>
+                            <th data-sort-key="longitude">Longitude</th>
+                            <th data-sort-key="latitude">Latitude</th>
+                            <th data-sort-key="depth_km">Depth (km)</th>
+                            <th data-sort-key="model_id">Model</th>
+                            <th data-sort-key="status">Status</th>
+                            <th>Delete</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scenario-table-body">
+                        <tr>
+                            <td colspan="9" class="empty-state">
+                                Loading scenarios...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <div id="new-scenario-modal" class="modal-backdrop hidden">
+        <section class="modal-panel">
+            <div class="modal-header">
+                <div>
+                    <h2>New Scenario</h2>
+                    <p>Submit a new calculation to the ShakeScenario server</p>
+                </div>
+                <button id="btn-close-new-scenario" type="button">
+                    ×
+                </button>
+            </div>
+    
+            <form id="new-scenario-form" class="scenario-form">
+                <div class="scenario-form-section">
+                    <h3>Earthquake</h3>
+                </div>
+
+                <label>
+                    Origin time UTC
+                    <input
+                        id="scenario-origin-time"
+                        type="text"
+                        placeholder="2026-07-07T09:30:00Z"
+                        required>
+                </label>
+
+                <label>
+                    Magnitude
+                    <input
+                        id="scenario-magnitude"
+                        type="number"
+                        step="0.1"
+                        value="5.2"
+                        required>
+                </label>
+
+                <label>
+                    Longitude
+                    <input
+                        id="scenario-longitude"
+                        type="number"
+                        step="0.0001"
+                        value="13.1"
+                        required>
+                </label>
+
+                <label>
+                    Latitude
+                    <input
+                        id="scenario-latitude"
+                        type="number"
+                        step="0.0001"
+                        value="46.2"
+                        required>
+                </label>
+
+                <label>
+                    Depth (km)
+                    <input
+                        id="scenario-depth"
+                        type="number"
+                        step="0.1"
+                        value="10.0"
+                        required>
+                </label>
+
+                <div></div>
+
+                <div class="scenario-form-section">
+                    <h3>Scenario</h3>
+                </div>
+
+                <label>
+                    Model
+                    <select id="scenario-model" required>
+                        <option value="">Loading models...</option>
+                    </select>
+                </label>
+
+                <label>
+                    Label
+                    <input
+                        id="scenario-tag"
+                        type="text"
+                        value="Test scenario"
+                        placeholder="Optional scenario label"
+                        required>
+                </label>
+
+                <div id="new-scenario-message" class="form-message"></div>
+
+                <div class="modal-actions">
+                    <button id="btn-cancel-new-scenario" type="button">
+                        Cancel
+                    </button>
+                    <button class="primary" type="submit">
+                        Run scenario
+                    </button>
+                </div>
+            </form>
+        </section>
+    </div>
+
+    <footer class="app-footer">
+        <span id="server-status">Server status: unknown</span>
+        <span id="selected-scenario">No selected scenario</span>
+    </footer>
+
+    <script src="/static/lib/leaflet/leaflet.js"></script>
+    
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/config.js"></script>
+    <script src="/static/js/state.js"></script>
+    
+    <script src="/static/js/map.js"></script>
+    <script src="/static/js/details.js"></script>
+    <script src="/static/js/impact.js"></script>
+    <script src="/static/js/archive.js"></script>
+    <script src="/static/js/filters.js"></script>
+    <script src="/static/js/scenario.js"></script>
+    
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
