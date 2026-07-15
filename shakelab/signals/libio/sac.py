@@ -37,7 +37,7 @@ from struct import pack, unpack
 
 import numpy as np
 
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 
 
 DEFAULT_BYTE_ORDER = "be"
@@ -137,8 +137,18 @@ def sacwrite(output_file, record, byte_order=DEFAULT_BYTE_ORDER,
     sac.head["NZJDAY"] = record.head.time.ordinal_day
     sac.head["NZHOUR"] = record.head.time.hour
     sac.head["NZMIN"] = record.head.time.minute
-    sac.head["NZSEC"] = int(record.head.time.second)
-    sac.head["NZMSEC"] = int(round((record.head.time.second % 1) * 1000))
+
+    second = float(record.head.time.second)
+    
+    nzsec = int(second)
+    nzmsec = int(round((second - nzsec) * 1000))
+    
+    if nzmsec == 1000:
+        nzsec += 1
+        nzmsec = 0
+    
+    sac.head["NZSEC"] = nzsec
+    sac.head["NZMSEC"] = nzmsec
 
     if len(sid) > 0:
         sac.head["KNETWK"] = sid[0]

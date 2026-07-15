@@ -31,7 +31,7 @@ The implementation supports:
 - fixed section data header;
 - blockettes 1000 and 1001;
 - uncompressed encodings 0, 1, 3, 4;
-- STEIM1 and STEIM2 decoding in pure Python.
+- STEIM1 and STEIM2 encoding and decoding in pure Python.
 
 The public API is intentionally kept compatible with the previous module:
 
@@ -46,7 +46,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 from shakelab.signals.binutils import ByteStream
 
 
@@ -59,6 +59,9 @@ ADMITTED_ENCODING = (0, 1, 3, 4, 10, 11)
 
 HEADER_SIZE = 48
 FRAME_SIZE = 64
+
+INT32_MIN = -(2 ** 31)
+INT32_MAX = 2 ** 31 - 1
 
 SIMPLE_DATA_FORMAT = {
     0: ("S1", 1),
@@ -323,27 +326,32 @@ class MSRecord:
               record_length=None, encoding=None):
         """
         Write the record to a ByteStream.
-
+    
         Parameters
         ----------
         byte_stream : ByteStream
             Open output stream.
         sequence_number : int, optional
-            Sequence number to write.  If omitted, the existing header value is
+            Sequence number to write. If omitted, the existing header value is
             preserved.
         record_length : int, optional
             Output MiniSEED record length in bytes.
         encoding : int, optional
-            Output encoding.  Currently only uncompressed encodings are
-            supported for writing.
+            Output encoding.
         """
         rec = MSRecord()
         rec.header = deepcopy(self.header)
         rec.blockette = deepcopy(self.blockette)
 
-        if sequence_number is not None:
-            rec.header["SEQUENCE_NUMBER"] = "{0:06d}".format(sequence_number)
+        rec.header["NUMBER_OF_BLOCKETTES_TO_FOLLOW"] = len(
+            rec.blockette
+        )
 
+        if sequence_number is not None:
+            rec.header["SEQUENCE_NUMBER"] = "{0:06d}".format(
+                sequence_number
+            )
+            
         if record_length is None:
             record_length = rec.record_length
         else:
@@ -351,42 +359,116 @@ class MSRecord:
             rec.blockette[1000]["DATA_RECORD_LENGTH"] = int(
                 np.log2(record_length)
             )
-
+    
         if encoding is None:
             encoding = rec.blockette[1000]["ENCODING_FORMAT"]
         else:
             _validate_encoding(encoding)
             rec.blockette[1000]["ENCODING_FORMAT"] = int(encoding)
-        
-        rec.blockette[1000]["WORD_ORDER"] = _mseed_word_order(byte_stream)
-
-        if encoding not in STRUCT_DATA_FORMAT:
-            raise NotImplementedError(
-                "Writing compressed MiniSEED is not implemented"
-            )
-
+    
         record_offset = byte_stream.offset
-        data_offset = HEADER_SIZE + _total_blockette_size(rec.blockette)
-
-        rec.header["OFFSET_TO_BEGINNING_OF_DATA"] = data_offset
+        blockette_end = HEADER_SIZE + _total_blockette_size(
+            rec.blockette
+        )
+    
         rec.header["OFFSET_TO_BEGINNING_OF_BLOCKETTE"] = HEADER_SIZE
+    
+        if encoding in (10, 11):
+            data_offset = _next_frame_boundary(blockette_end)
+            rec.blockette[1000]["WORD_ORDER"] = 1
+        else:
+            data_offset = blockette_end
+            rec.blockette[1000]["WORD_ORDER"] = _mseed_word_order(
+                byte_stream
+            )
+    
+        if data_offset >= record_length:
+            raise ValueError(
+                "MiniSEED record has no space available for data"
+            )
+    
+        rec.header["OFFSET_TO_BEGINNING_OF_DATA"] = data_offset
+    
+        if encoding in STRUCT_DATA_FORMAT:
+            data = _prepare_output_data(self.data, encoding)
+    
+            _, sample_size = STRUCT_DATA_FORMAT[encoding]
+            max_samples = (
+                record_length - data_offset
+            ) // sample_size
+    
+            sample_count = min(len(data), max_samples)
 
-        sample_type, sample_size = STRUCT_DATA_FORMAT[encoding]
-        max_samples = (record_length - data_offset) // sample_size
+            if sample_count != len(data):
+                raise ValueError(
+                    "Data do not fit in the selected MiniSEED record length: "
+                    "{0} of {1} samples can be written "
+                    "using encoding {2}".format(
+                        sample_count,
+                        len(data),
+                        encoding,
+                    )
+                )
 
-        data = _prepare_output_data(self.data, encoding)
-        sample_count = min(len(data), max_samples)
-
+            payload = None
+            frame_count = None
+    
+        elif encoding in (10, 11):
+            (
+                data,
+                payload,
+                sample_count,
+                frame_count,
+            ) = _encode_steim_payload(
+                self.data,
+                encoding,
+                record_length,
+                data_offset,
+            )
+    
+        else:
+            raise ValueError(
+                "Unsupported MiniSEED encoding: {0}".format(
+                    encoding
+                )
+            )
+    
         rec.header["NUMBER_OF_SAMPLES"] = sample_count
-
+    
+        if 1001 in rec.blockette:
+            if frame_count is None:
+                rec.blockette[1001]["FRAME_COUNT"] = 0
+            else:
+                rec.blockette[1001]["FRAME_COUNT"] = frame_count
+    
         self._write_header(byte_stream, rec)
-        self._write_blockettes(byte_stream, rec, record_offset)
-        self._write_data(byte_stream, data, sample_count, encoding)
-
+        self._write_blockettes(
+            byte_stream,
+            rec,
+            record_offset,
+        )
+    
+        byte_stream.goto(record_offset + data_offset)
+    
+        if encoding in STRUCT_DATA_FORMAT:
+            self._write_data(
+                byte_stream,
+                data,
+                sample_count,
+                encoding,
+            )
+        else:
+            byte_stream.buffer.write(payload)
+    
         padding = record_offset + record_length - byte_stream.offset
-
-        for _ in range(padding):
-            byte_stream.put(0, "B", 1)
+    
+        if padding < 0:
+            raise ValueError(
+                "Encoded MiniSEED record exceeds selected record length"
+            )
+    
+        if padding:
+            byte_stream.buffer.write(b"\x00" * padding)
 
     def append(self, record):
         """
@@ -515,69 +597,20 @@ class MSRecord:
         return data.copy()
 
     def _read_steim_data(self, byte_stream, encoding, nsamp):
-        """Decode STEIM1 or STEIM2 compressed data."""
-        if nsamp == 0:
-            return np.array([], dtype=np.int32)
-
-        if byte_stream.byte_order == "le":
-            raise ValueError("STEIM1/2 are only defined as big-endian")
-
-        frame_count = self.data_byte_length // FRAME_SIZE
-        data = np.empty(nsamp, dtype=np.int32)
-
-        count = 0
-        first = None
-        last = None
-
-        for frame_index in range(frame_count):
-            raw = _read_bytes(byte_stream, FRAME_SIZE)
-            words = np.frombuffer(raw, dtype=">i4", count=16)
-
-            if frame_index == 0:
-                first = int(words[1])
-                last = int(words[2])
-
-            control = int(words[0])
-            codes = [_binmask(control, 2, 15 - idx) for idx in range(16)]
-
-            start_word = 3 if frame_index == 0 else 1
-
-            for word_index in range(start_word, 16):
-                code = codes[word_index]
-
-                if code == 0:
-                    continue
-
-                diffs = _w32split(int(words[word_index]), code, encoding)
-
-                for diff in diffs:
-                    if count >= nsamp:
-                        break
-
-                    data[count] = diff
-                    count += 1
-
-                if count >= nsamp:
-                    break
-
-            if count >= nsamp:
-                break
-
-        if first is None or last is None:
-            raise ValueError("Empty STEIM data section")
-
-        if nsamp == 0:
-            return np.array([], dtype=np.int32)
-
-        data[0] = first
-
-        for idx in range(1, nsamp):
-            data[idx] += data[idx - 1]
-
-        if data[-1] != last:
-            raise ValueError("Sample mismatch in MiniSEED STEIM record")
-
-        return data
+        """Read and decode STEIM1 or STEIM2 compressed data."""
+        word_order = self.blockette[1000]["WORD_ORDER"]
+    
+        if word_order != 1:
+            raise ValueError(
+                "STEIM1/2 payload must use big-endian word order"
+            )
+    
+        raw = _read_bytes(
+            byte_stream,
+            self.data_byte_length,
+        )
+    
+        return _decode_steim(raw, encoding, nsamp)
 
     def _validate(self):
         """Validate minimal record consistency."""
@@ -671,6 +704,672 @@ def _prepare_output_data(data, encoding):
     return np.asarray(data)
 
 
+def _decode_steim(data, encoding, nsamp):
+    """
+    Decode a STEIM1 or STEIM2 payload.
+
+    Parameters
+    ----------
+    data : bytes
+        Complete STEIM payload composed of 64-byte frames.
+    encoding : int
+        MiniSEED encoding code: 10 for STEIM1 or 11 for STEIM2.
+    nsamp : int
+        Number of samples declared for the record.
+
+    Returns
+    -------
+    numpy.ndarray
+        Decoded signed 32-bit samples.
+
+    Raises
+    ------
+    ValueError
+        If the payload or encoding is invalid, or if the decoded samples
+        are inconsistent with the integration constants.
+    """
+    if encoding not in (10, 11):
+        raise ValueError(
+            "Unsupported STEIM encoding: {0}".format(encoding)
+        )
+
+    if nsamp < 0:
+        raise ValueError("STEIM sample count cannot be negative")
+
+    if nsamp == 0:
+        return np.array([], dtype=np.int32)
+
+    if len(data) % FRAME_SIZE != 0:
+        raise ValueError(
+            "STEIM payload length must be a multiple of 64 bytes"
+        )
+
+    frame_count = len(data) // FRAME_SIZE
+    samples = np.empty(nsamp, dtype=np.int32)
+
+    difference_count = 0
+    first = None
+    last = None
+
+    for frame_index in range(frame_count):
+        frame_offset = frame_index * FRAME_SIZE
+        frame = data[frame_offset:frame_offset + FRAME_SIZE]
+
+        words = np.frombuffer(
+            frame,
+            dtype=">i4",
+            count=16,
+        )
+
+        if frame_index == 0:
+            first = int(words[1])
+            last = int(words[2])
+
+        control = int(words[0])
+        start_word = 3 if frame_index == 0 else 1
+
+        for word_index in range(start_word, 16):
+            code = _binmask(
+                control,
+                2,
+                15 - word_index,
+            )
+
+            if code == 0:
+                continue
+
+            differences = _w32split(
+                int(words[word_index]),
+                code,
+                encoding,
+            )
+
+            for difference in differences:
+                if difference_count >= nsamp:
+                    break
+
+                samples[difference_count] = difference
+                difference_count += 1
+
+            if difference_count >= nsamp:
+                break
+
+        if difference_count >= nsamp:
+            break
+
+    if first is None or last is None:
+        raise ValueError("Empty STEIM data section")
+
+    if difference_count != nsamp:
+        raise ValueError(
+            "Insufficient differences in STEIM payload: "
+            "expected {0}, decoded {1}".format(
+                nsamp,
+                difference_count,
+            )
+        )
+
+    # The first encoded difference is d0 = X0 - X(-1). X0 is stored
+    # explicitly in the first frame, so d0 is replaced by X0 before
+    # integrating the remaining differences.
+    samples[0] = first
+
+    for index in range(1, nsamp):
+        value = int(samples[index - 1]) + int(samples[index])
+
+        if value < INT32_MIN or value > INT32_MAX:
+            raise ValueError(
+                "STEIM integration exceeds signed 32-bit range"
+            )
+
+        samples[index] = value
+
+    if int(samples[-1]) != last:
+        raise ValueError(
+            "Sample mismatch in STEIM payload: "
+            "expected XN={0}, decoded XN={1}".format(
+                last,
+                int(samples[-1]),
+            )
+        )
+
+    return samples
+
+
+def _prepare_steim_data(data):
+    """
+    Validate and convert input samples for STEIM encoding.
+
+    Parameters
+    ----------
+    data : array-like
+        Input integer samples.
+
+    Returns
+    -------
+    numpy.ndarray
+        One-dimensional array with dtype int64.
+
+    Raises
+    ------
+    ValueError
+        If the input is not one-dimensional, contains non-integer values,
+        or exceeds the signed 32-bit range.
+    """
+    samples = np.asarray(data)
+
+    if samples.ndim != 1:
+        raise ValueError("STEIM data must be one-dimensional")
+
+    if not np.issubdtype(samples.dtype, np.integer):
+        raise ValueError("STEIM encoding requires integer samples")
+
+    samples = samples.astype(np.int64, copy=False)
+
+    if samples.size:
+        if np.any(samples < INT32_MIN) or np.any(samples > INT32_MAX):
+            raise ValueError(
+                "STEIM samples must fit in the signed 32-bit range"
+            )
+
+    return samples
+
+
+def _signed_fits(value, bits):
+    """
+    Return True if a value fits in a signed integer field.
+
+    Parameters
+    ----------
+    value : int
+        Integer value.
+    bits : int
+        Number of available bits.
+
+    Returns
+    -------
+    bool
+        True if the value can be represented.
+    """
+    minimum = -(1 << (bits - 1))
+    maximum = (1 << (bits - 1)) - 1
+
+    return minimum <= int(value) <= maximum
+
+
+def _pack_signed_fields(values, bits):
+    """
+    Pack signed integer fields into one 32-bit word.
+
+    Values are packed from the most significant field to the least
+    significant field.
+
+    Parameters
+    ----------
+    values : sequence of int
+        Values to pack.
+    bits : int
+        Number of bits assigned to each value.
+
+    Returns
+    -------
+    int
+        Unsigned 32-bit packed word.
+    """
+    mask = (1 << bits) - 1
+    word = 0
+
+    for value in values:
+        if not _signed_fits(value, bits):
+            raise ValueError(
+                "Value {0} does not fit in {1} signed bits".format(
+                    value,
+                    bits,
+                )
+            )
+
+        word = (word << bits) | (int(value) & mask)
+
+    return word & 0xFFFFFFFF
+
+
+def _set_steim_control(control, word_index, code):
+    """
+    Set the two-bit control code for one STEIM frame word.
+
+    Parameters
+    ----------
+    control : int
+        Current control word.
+    word_index : int
+        Frame word index, from 1 to 15.
+    code : int
+        Two-bit STEIM control code.
+
+    Returns
+    -------
+    int
+        Updated control word.
+    """
+    if word_index < 1 or word_index > 15:
+        raise ValueError("STEIM word index must be between 1 and 15")
+
+    if code < 0 or code > 3:
+        raise ValueError("STEIM control code must be between 0 and 3")
+
+    shift = (15 - word_index) * 2
+
+    return control | (code << shift)
+
+
+def _pack_steim1_word(differences, index):
+    """
+    Pack the next STEIM1 difference word.
+
+    Packing priority is:
+
+    - four signed 8-bit differences;
+    - two signed 16-bit differences;
+    - one signed 32-bit difference.
+
+    Incomplete groups at the end are padded with zeros.
+
+    Parameters
+    ----------
+    differences : numpy.ndarray
+        Array of integer differences.
+    index : int
+        Index of the first unencoded difference.
+
+    Returns
+    -------
+    tuple
+        Packed word, control code and number of real differences consumed.
+    """
+    remaining = len(differences) - index
+
+    if remaining <= 0:
+        raise ValueError("No STEIM1 differences available for packing")
+
+    count = min(4, remaining)
+    values = [
+        int(value)
+        for value in differences[index:index + count]
+    ]
+
+    if all(_signed_fits(value, 8) for value in values):
+        packed_values = values + [0] * (4 - count)
+
+        return (
+            _pack_signed_fields(packed_values, 8),
+            1,
+            count,
+        )
+
+    count = min(2, remaining)
+    values = [
+        int(value)
+        for value in differences[index:index + count]
+    ]
+
+    if all(_signed_fits(value, 16) for value in values):
+        packed_values = values + [0] * (2 - count)
+
+        return (
+            _pack_signed_fields(packed_values, 16),
+            2,
+            count,
+        )
+
+    value = int(differences[index])
+
+    if not _signed_fits(value, 32):
+        raise ValueError(
+            "Difference {0} cannot be represented by STEIM1".format(
+                value
+            )
+        )
+
+    return value & 0xFFFFFFFF, 3, 1
+
+
+def _pack_steim2_word(differences, index):
+    """
+    Pack the next STEIM2 difference word.
+
+    Packing priority is:
+
+    - seven signed 4-bit differences;
+    - six signed 5-bit differences;
+    - five signed 6-bit differences;
+    - four signed 8-bit differences;
+    - three signed 10-bit differences;
+    - two signed 15-bit differences;
+    - one signed 30-bit difference.
+
+    Incomplete groups at the end are padded with zeros.
+
+    Parameters
+    ----------
+    differences : numpy.ndarray
+        Array of integer differences.
+    index : int
+        Index of the first unencoded difference.
+
+    Returns
+    -------
+    tuple
+        Packed word, control code and number of real differences consumed.
+
+    Raises
+    ------
+    ValueError
+        If no differences are available or the next difference cannot be
+        represented by STEIM2.
+    """
+    remaining = len(differences) - index
+
+    if remaining <= 0:
+        raise ValueError("No STEIM2 differences available for packing")
+
+    packings = (
+        # count, bits, control, dnib
+        (7, 4, 3, 2),
+        (6, 5, 3, 1),
+        (5, 6, 3, 0),
+        (4, 8, 1, None),
+        (3, 10, 2, 3),
+        (2, 15, 2, 2),
+        (1, 30, 2, 1),
+    )
+
+    for capacity, bits, control, dnib in packings:
+        count = min(capacity, remaining)
+
+        values = [
+            int(value)
+            for value in differences[index:index + count]
+        ]
+
+        if not all(_signed_fits(value, bits) for value in values):
+            continue
+
+        packed_values = values + [0] * (capacity - count)
+        word = _pack_signed_fields(packed_values, bits)
+
+        if dnib is not None:
+            word |= dnib << 30
+
+        return word & 0xFFFFFFFF, control, count
+
+    value = int(differences[index])
+
+    raise ValueError(
+        "Difference {0} cannot be represented by STEIM2".format(
+            value
+        )
+    )
+
+
+def _encode_steim(
+    data,
+    frame_count,
+    pack_word,
+    scheme_name,
+    previous_sample=None,
+):
+    """
+    Encode integer samples as a STEIM payload.
+
+    Parameters
+    ----------
+    data : array-like
+        Input signed integer samples.
+    frame_count : int
+        Maximum number of 64-byte frames available.
+    pack_word : callable
+        Function used to pack differences into one STEIM word.
+    scheme_name : str
+        Human-readable encoding name used in error messages.
+    previous_sample : int, optional
+        Sample immediately preceding the record. If omitted, zero is used
+        as the integration reference for the first difference.
+
+    Returns
+    -------
+    tuple
+        Encoded payload bytes, number of samples encoded and number of
+        frames used.
+
+    Raises
+    ------
+    ValueError
+        If the data, frame count or differences are invalid.
+
+    Notes
+    -----
+    The returned payload contains only the frames actually used. Padding
+    to the full MiniSEED record length remains the responsibility of the
+    record writer.
+    """
+    if frame_count < 1:
+        raise ValueError("At least one STEIM frame is required")
+
+    samples = _prepare_steim_data(data)
+
+    if samples.size == 0:
+        return b"", 0, 0
+
+    if previous_sample is None:
+        previous_sample = 0
+
+    previous_sample = int(previous_sample)
+
+    if not _signed_fits(previous_sample, 32):
+        raise ValueError(
+            "Previous STEIM sample must fit in signed 32 bits"
+        )
+
+    differences = np.empty(samples.size, dtype=np.int64)
+
+    differences[0] = int(samples[0]) - previous_sample
+
+    if samples.size > 1:
+        differences[1:] = samples[1:] - samples[:-1]
+
+    frames = []
+    difference_index = 0
+
+    for frame_index in range(frame_count):
+        words = [0] * 16
+        control = 0
+
+        if frame_index == 0:
+            words[1] = int(samples[0]) & 0xFFFFFFFF
+            word_index = 3
+        else:
+            word_index = 1
+
+        while (
+            word_index < 16
+            and difference_index < len(differences)
+        ):
+            word, code, consumed = pack_word(
+                differences,
+                difference_index,
+            )
+
+            words[word_index] = word
+
+            control = _set_steim_control(
+                control,
+                word_index,
+                code,
+            )
+
+            difference_index += consumed
+            word_index += 1
+
+        words[0] = control
+        frames.append(words)
+
+        if difference_index >= len(differences):
+            break
+
+    sample_count = difference_index
+
+    if sample_count == 0:
+        raise ValueError(
+            "No samples could be encoded as {0}".format(
+                scheme_name
+            )
+        )
+
+    # XN is the last sample actually stored in this payload.
+    frames[0][2] = (
+        int(samples[sample_count - 1])
+        & 0xFFFFFFFF
+    )
+
+    payload = np.asarray(
+        frames,
+        dtype=">u4",
+    ).tobytes()
+
+    return payload, sample_count, len(frames)
+
+
+def _encode_steim1(data, frame_count, previous_sample=None):
+    """
+    Encode integer samples as a STEIM1 payload.
+
+    Parameters
+    ----------
+    data : array-like
+        Input signed integer samples.
+    frame_count : int
+        Maximum number of 64-byte frames available.
+    previous_sample : int, optional
+        Sample immediately preceding the record.
+
+    Returns
+    -------
+    tuple
+        Encoded payload bytes, number of samples encoded and number of
+        frames used.
+    """
+    return _encode_steim(
+        data=data,
+        frame_count=frame_count,
+        pack_word=_pack_steim1_word,
+        scheme_name="STEIM1",
+        previous_sample=previous_sample,
+    )
+
+
+def _encode_steim2(data, frame_count, previous_sample=None):
+    """
+    Encode integer samples as a STEIM2 payload.
+
+    Parameters
+    ----------
+    data : array-like
+        Input signed integer samples.
+    frame_count : int
+        Maximum number of 64-byte frames available.
+    previous_sample : int, optional
+        Sample immediately preceding the record.
+
+    Returns
+    -------
+    tuple
+        Encoded payload bytes, number of samples encoded and number of
+        frames used.
+    """
+    return _encode_steim(
+        data=data,
+        frame_count=frame_count,
+        pack_word=_pack_steim2_word,
+        scheme_name="STEIM2",
+        previous_sample=previous_sample,
+    )
+
+
+def _encode_steim_payload(
+    data,
+    encoding,
+    record_length,
+    data_offset,
+):
+    """
+    Encode a complete STEIM payload for one MiniSEED record.
+
+    Parameters
+    ----------
+    data : array-like
+        Input integer samples.
+    encoding : int
+        MiniSEED encoding code: 10 for STEIM1 or 11 for STEIM2.
+    record_length : int
+        Total MiniSEED record length in bytes.
+    data_offset : int
+        Offset to the beginning of the STEIM payload.
+
+    Returns
+    -------
+    tuple
+        Prepared integer data, encoded payload bytes, number of samples
+        encoded and number of frames used.
+
+    Raises
+    ------
+    ValueError
+        If the encoding is unsupported, no complete frame is available,
+        or the samples do not fit in the selected record length.
+    """
+    samples = _prepare_steim_data(data)
+
+    available_bytes = record_length - data_offset
+    max_frame_count = available_bytes // FRAME_SIZE
+
+    if max_frame_count < 1:
+        raise ValueError(
+            "MiniSEED record has no complete STEIM frame"
+        )
+
+    if encoding == 10:
+        encoder = _encode_steim1
+        scheme_name = "STEIM1"
+
+    elif encoding == 11:
+        encoder = _encode_steim2
+        scheme_name = "STEIM2"
+
+    else:
+        raise ValueError(
+            "Unsupported STEIM encoding: {0}".format(
+                encoding
+            )
+        )
+
+    payload, sample_count, frame_count = encoder(
+        samples,
+        frame_count=max_frame_count,
+    )
+
+    if sample_count != len(samples):
+        raise ValueError(
+            "{0} data do not fit in the selected MiniSEED "
+            "record length: {1} of {2} samples encoded".format(
+                scheme_name,
+                sample_count,
+                len(samples),
+            )
+        )
+
+    return samples, payload, sample_count, frame_count
+
+
 def _numpy_byte_order(byte_stream):
     """Return NumPy byte-order marker from ByteStream byte order."""
     if byte_stream.byte_order == "le":
@@ -721,6 +1420,28 @@ def _validate_record_length(record_length):
 def _total_blockette_size(blockettes):
     """Return total encoded size of the supplied blockettes."""
     return sum(blockette_size(block_type) for block_type in blockettes)
+
+
+def _next_frame_boundary(offset):
+    """
+    Return the first 64-byte frame boundary at or after an offset.
+
+    Parameters
+    ----------
+    offset : int
+        Byte offset relative to the beginning of the record.
+
+    Returns
+    -------
+    int
+        Offset aligned to a STEIM frame boundary.
+    """
+    remainder = offset % FRAME_SIZE
+
+    if remainder == 0:
+        return offset
+
+    return offset + FRAME_SIZE - remainder
 
 
 def _binmask(word, bits, position):

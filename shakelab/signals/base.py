@@ -29,7 +29,7 @@ from collections import deque
 from shakelab.signals import fourier
 from shakelab.signals import response
 from shakelab.signals import io
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 from shakelab.libutils.geodetic import WgsPoint
 
 
