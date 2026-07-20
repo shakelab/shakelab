@@ -37,6 +37,7 @@ The public API is intentionally kept compatible with the previous module:
 
 - msread()
 - msrawread()
+- msrawiter()
 - msrawwrite()
 - MSRecord
 """
@@ -53,8 +54,10 @@ from shakelab.signals.binutils import ByteStream
 
 LOGGER = logging.getLogger(__name__)
 
+# MiniSEED fixed-header and payload byte order used by default.
 DEFAULT_BYTE_ORDER = "be"
 
+# MiniSEED data encoding identifiers.
 ENCODING_ASCII = 0
 ENCODING_INT16 = 1
 ENCODING_INT32 = 3
@@ -72,9 +75,13 @@ ADMITTED_ENCODING = (
     ENCODING_STEIM2,
 )
 
+# Fixed section data header size in bytes.
 HEADER_SIZE = 48
+
+# One STEIM frame contains sixteen 32-bit words.
 FRAME_SIZE = 64
 
+# Signed 32-bit sample limits required by STEIM1 and STEIM2.
 INT32_MIN = -(2 ** 31)
 INT32_MAX = 2 ** 31 - 1
 
@@ -205,6 +212,12 @@ def msrawwrite(record_list, output_data_source,
         Output file path or an already opened ByteStream.
     byte_order : str, optional
         Byte order used by ByteStream. Default is ``"be"``.
+    record_length : int, optional
+        Output record length in bytes. If omitted, each record retains
+        the value declared in blockette 1000.
+    encoding : int, optional
+        Output MiniSEED encoding. If omitted, each record retains the
+        encoding declared in blockette 1000.
     """
     close_stream = not isinstance(output_data_source, ByteStream)
 
@@ -350,9 +363,11 @@ class MSRecord:
             Sequence number to write. If omitted, the existing header value is
             preserved.
         record_length : int, optional
-            Output MiniSEED record length in bytes.
+            Output MiniSEED record length in bytes. If omitted, the value
+            declared in blockette 1000 is retained.
         encoding : int, optional
-            Output encoding.
+            Output MiniSEED encoding. If omitted, the value declared in
+            blockette 1000 is retained.
         """
         rec = MSRecord()
         rec.header = deepcopy(self.header)
@@ -936,7 +951,7 @@ def _pack_signed_fields(
 
     Parameters
     ----------
-    values : sequence of int
+    values : list of int
         Values to pack.
     bits : int
         Number of bits assigned to each value.
@@ -1113,7 +1128,7 @@ def _pack_steim2_word(
         raise ValueError("No STEIM2 differences available for packing")
 
     packings = (
-        # count, bits, control, dnib
+        # capacity, bits, control code, DNIB
         (7, 4, 3, 2),
         (6, 5, 3, 1),
         (5, 6, 3, 0),
@@ -1572,7 +1587,7 @@ def _w32split(
     word : int
         Input 32-bit word.
     order : int
-        Control nibble value.
+        Two-bit STEIM control code.
     scheme : int
         STEIM scheme: 10 for STEIM1, 11 for STEIM2.
 
@@ -1601,7 +1616,7 @@ def _split_steim1(
     word: int,
     order: int,
 ) -> list[int]:
-    """Split one STEIM1 word."""
+    """Decode differences from one STEIM1 data word."""
     if order == 2:
         return _getdiff(word, 16, 2)
 
@@ -1614,11 +1629,12 @@ def _split_steim1(
         )
     )
 
+
 def _split_steim2(
     word: int,
     order: int,
 ) -> list[int]:
-    """Split one STEIM2 word."""
+    """Decode differences from one STEIM2 data word."""
     dnib = _binmask(word, 2, 15)
 
     if order == 2:
@@ -1644,6 +1660,7 @@ def _split_steim2(
     raise ValueError(
         "Unsupported STEIM2 control code and DNIB combination"
     )
+
 
 def _mseed_word_order(byte_stream):
     """Return MiniSEED blockette 1000 word-order code."""
