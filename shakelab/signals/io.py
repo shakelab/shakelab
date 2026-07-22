@@ -90,28 +90,32 @@ def get_mseed_module(use_libmseed=USE_LIBMSEED):
     return mseed
 
 
-def reader(file_path, stream_collection=None, format=None,
-           byte_order=None, is_db=False):
+def reader(file_path=None, list_file=None, stream_collection=None,
+           format=None, byte_order=None, **format_options):
     """
     Read waveform data from one or more files.
 
     Parameters
     ----------
-    file_path : str or list
-        Path to a waveform file, wildcard pattern, directory, list of files,
-        or a text file containing a list of file paths if ``is_db=True``.
+    file_path : str, path-like or sequence, optional
+        Waveform file path, wildcard pattern, directory, or sequence of
+        waveform paths. Mutually exclusive with ``list_file``.
+    list_file : str or path-like, optional
+        Text file containing one waveform path per line. Mutually exclusive
+        with ``file_path``. Relative paths are resolved against the directory
+        containing the list file.
     stream_collection : StreamCollection, optional
-        Existing collection to which loaded records are appended.  If omitted,
+        Existing collection to which loaded records are appended. If omitted,
         a new collection is created.
     format : str, optional
-        Input format.  If omitted, the format is inferred from the file
+        Input format. If omitted, the format is inferred from each file
         extension.
     byte_order : str or None, optional
-        Byte order used by formats that require it.  ``None`` lets supporting
-        readers attempt automatic detection.
-    is_db : bool, optional
-        If ``True``, interpret ``file_path`` as a text file listing waveform
-        paths.
+        Byte order used by formats that support explicit selection. ``None``
+        lets the target reader use its default byte-order policy.
+    **format_options
+        Additional keyword arguments forwarded to the selected
+        format-specific reader.
 
     Returns
     -------
@@ -121,14 +125,29 @@ def reader(file_path, stream_collection=None, format=None,
     Raises
     ------
     TypeError
-        If ``file_path`` has an unsupported type.
+        If an input source has an unsupported type or a format-specific
+        option is invalid.
     ValueError
-        If a format cannot be inferred or is not recognized.
+        If neither input source is provided, both are provided, or a format
+        cannot be inferred.
     NotImplementedError
         If the selected format is known but unsupported.
     """
+    if file_path is not None and list_file is not None:
+        raise ValueError(
+            "file_path and list_file are mutually exclusive"
+        )
+
+    if file_path is None and list_file is None:
+        raise ValueError(
+            "Either file_path or list_file must be provided"
+        )
+
+    if list_file is not None:
+        file_path = _read_file_list(list_file)
+
     stream_collection = _ensure_stream_collection(stream_collection)
-    file_list = _expand_file_list(file_path, is_db=is_db)
+    file_list = _expand_file_list(file_path)
 
     for path in file_list:
         current_format = _resolve_format(path, format)
@@ -137,13 +156,14 @@ def reader(file_path, stream_collection=None, format=None,
             current_format,
             stream_collection,
             byte_order=byte_order,
+            **format_options,
         )
 
     return stream_collection
 
 
 def writer(input_data, file_path, format=None, byte_order=None,
-           owrite=False):
+           owrite=False, **format_options):
     """
     Write waveform data to disk.
 
@@ -155,18 +175,22 @@ def writer(input_data, file_path, format=None, byte_order=None,
         Output file path for single-file formats or output directory for
         multi-file formats such as SAC.
     format : str, optional
-        Output format.  If omitted, the format is inferred from
+        Output format. If omitted, the format is inferred from
         ``file_path``.
     byte_order : str or None, optional
-        Byte order used by formats that require it.  ``None`` lets the target
-        writer use its own default.
+        Byte order used by formats that support explicit selection. ``None``
+        lets the target writer use its default byte-order policy.
     owrite : bool, optional
         If ``True``, overwrite existing files.
+    **format_options
+        Additional keyword arguments forwarded to the selected
+        format-specific writer.
 
     Raises
     ------
     TypeError
-        If ``input_data`` is not a supported ShakeLab waveform container.
+        If ``input_data`` is not a supported ShakeLab waveform container or
+        a format-specific option is invalid.
     ValueError
         If the format is not recognized.
     NotImplementedError
@@ -176,7 +200,12 @@ def writer(input_data, file_path, format=None, byte_order=None,
     current_format = _resolve_format(file_path, format)
 
     if current_format == "mseed":
-        _write_mseed(stream_collection, file_path, owrite=owrite)
+        _write_mseed(
+            stream_collection,
+            file_path,
+            owrite=owrite,
+            **format_options,
+        )
 
     elif current_format == "sac":
         _write_sac(
@@ -184,6 +213,7 @@ def writer(input_data, file_path, format=None, byte_order=None,
             file_path,
             byte_order=byte_order,
             owrite=owrite,
+            **format_options,
         )
 
     elif current_format in UNSUPPORTED_FORMATS:
@@ -197,18 +227,36 @@ def writer(input_data, file_path, format=None, byte_order=None,
         ))
 
 
-def _read_file(path, format, stream_collection, byte_order=None):
+def _read_file(path, format, stream_collection, byte_order=None,
+               **format_options):
     """
     Read one file and append its content to a StreamCollection.
+
+    Additional format-specific options are forwarded unchanged to the
+    selected reader.
     """
     if format == "mseed":
         mseed = get_mseed_module(USE_LIBMSEED)
-        return mseed.msread(path, stream_collection=stream_collection)
+        options = dict(format_options)
+
+        if byte_order is not None and not USE_LIBMSEED:
+            options["byte_order"] = byte_order
+
+        return mseed.msread(
+            path,
+            stream_collection=stream_collection,
+            **options,
+        )
 
     if format == "sac":
         from shakelab.signals.libio import sac
 
-        record = sac.sacread(path, byte_order=byte_order)
+        options = dict(format_options)
+
+        if byte_order is not None:
+            options["byte_order"] = byte_order
+
+        record = sac.sacread(path, **options)
         stream_collection.append(record)
 
         return stream_collection
@@ -216,7 +264,7 @@ def _read_file(path, format, stream_collection, byte_order=None):
     if format == "dyna":
         from shakelab.signals.libio import dyna
 
-        record = dyna.dynaread(path)
+        record = dyna.dynaread(path, **format_options)
         stream_collection.append(record)
 
         return stream_collection
@@ -224,7 +272,10 @@ def _read_file(path, format, stream_collection, byte_order=None):
     if format == "tdms":
         from shakelab.signals.libio import tdms
 
-        tdms_collection = tdms.tdms_stream_read(path)
+        tdms_collection = tdms.tdms_stream_read(
+            path,
+            **format_options,
+        )
 
         for stream in tdms_collection:
             stream_collection.append(stream)
@@ -239,25 +290,42 @@ def _read_file(path, format, stream_collection, byte_order=None):
     raise ValueError("{0}: format not recognized".format(format))
 
 
-def _write_mseed(stream_collection, file_path, owrite=False):
+def _write_mseed(stream_collection, file_path, owrite=False,
+                 **format_options):
     """
     Write a StreamCollection to MiniSEED.
+
+    Additional format-specific options are forwarded unchanged to the
+    selected MiniSEED backend.
     """
     if os.path.exists(file_path) and not owrite:
         raise FileExistsError("File exists: {0}".format(file_path))
 
     mseed = get_mseed_module(USE_LIBMSEED)
-    mseed.mswrite(file_path, stream_collection)
+    mseed.mswrite(
+        file_path,
+        stream_collection,
+        **format_options,
+    )
 
 
 def _write_sac(stream_collection, directory, byte_order=None,
-               owrite=False):
+               owrite=False, **format_options):
     """
     Write a StreamCollection to one SAC file per record.
+
+    Additional format-specific options are forwarded unchanged to the SAC
+    writer.
     """
     from shakelab.signals.libio import sac
 
     os.makedirs(directory, exist_ok=True)
+
+    options = dict(format_options)
+    options["owrite"] = owrite
+
+    if byte_order is not None:
+        options["byte_order"] = byte_order
 
     for stream in stream_collection:
         for record in stream:
@@ -269,8 +337,7 @@ def _write_sac(stream_collection, directory, byte_order=None,
             sac.sacwrite(
                 path,
                 record,
-                byte_order=byte_order,
-                owrite=owrite,
+                **options,
             )
 
 
@@ -306,41 +373,104 @@ def _as_stream_collection(input_data):
     )
 
 
-def _expand_file_list(file_path, is_db=False):
+def _read_file_list(list_file):
     """
-    Expand input paths to an ordered list of files.
+    Read waveform paths from a text file.
+
+    Empty lines and lines starting with ``#`` are ignored. Relative paths
+    are resolved against the directory containing the list file.
+
+    Parameters
+    ----------
+    list_file : str or path-like
+        Path to a text file containing one waveform path per line.
+
+    Returns
+    -------
+    list of str
+        Waveform paths contained in the list file.
+
+    Raises
+    ------
+    TypeError
+        If ``list_file`` is not a path-like object.
     """
+    if not isinstance(list_file, (str, os.PathLike)):
+        raise TypeError(
+            "list_file must be a string or path-like object"
+        )
+
+    list_file = os.path.abspath(os.fspath(list_file))
+    base_directory = os.path.dirname(list_file)
+    file_list = []
+
+    with open(list_file, "r", encoding="utf-8") as fid:
+        for line in fid:
+            path = line.strip()
+
+            if not path or path.startswith("#"):
+                continue
+
+            path = os.path.expanduser(path)
+            path = os.path.expandvars(path)
+
+            if not os.path.isabs(path):
+                path = os.path.join(base_directory, path)
+
+            file_list.append(path)
+
+    return file_list
+
+
+def _expand_file_list(file_path):
+    """
+    Expand waveform input paths.
+
+    Parameters
+    ----------
+    file_path : str, path-like or sequence
+        Waveform file path, wildcard pattern, directory, or sequence of
+        paths.
+
+    Returns
+    -------
+    list of str
+        Expanded waveform file paths.
+
+    Raises
+    ------
+    TypeError
+        If ``file_path`` or one of its elements has an unsupported type.
+    """
+    if isinstance(file_path, (str, os.PathLike)):
+        path = os.path.expanduser(os.fspath(file_path))
+        path = os.path.expandvars(path)
+
+        if os.path.isdir(path):
+            return sorted(
+                os.path.join(path, name)
+                for name in os.listdir(path)
+                if os.path.isfile(os.path.join(path, name))
+            )
+
+        matches = sorted(glob.glob(path))
+
+        if matches:
+            return matches
+
+        return [path]
+
     if isinstance(file_path, (list, tuple)):
-        return list(file_path)
+        file_list = []
 
-    if not isinstance(file_path, str):
-        raise TypeError("file_path must be str, list or tuple")
+        for path in file_path:
+            file_list.extend(_expand_file_list(path))
 
-    if is_db:
-        return _read_path_list(file_path)
+        return file_list
 
-    if _has_wildcards(file_path):
-        return sorted(glob(file_path))
-
-    if os.path.isdir(file_path):
-        return sorted(glob(os.path.join(file_path, "*")))
-
-    return [file_path]
-
-
-def _read_path_list(path):
-    """
-    Read a text file containing one waveform path per line.
-    """
-    if not os.path.isfile(path):
-        raise FileNotFoundError("List file not found: {0}".format(path))
-
-    with open(path, "r", encoding="utf-8") as fid:
-        return [
-            line.strip()
-            for line in fid
-            if line.strip() and not line.lstrip().startswith("#")
-        ]
+    raise TypeError(
+        "file_path must be a path or a sequence of paths"
+    )
 
 
 def _resolve_format(path, format=None):
@@ -372,13 +502,6 @@ def _normalize_format(format):
     value = format.lower().strip()
 
     return FORMAT_ALIASES.get(value, value)
-
-
-def _has_wildcards(path):
-    """
-    Return True if path contains shell-style wildcard characters.
-    """
-    return "*" in path or "?" in path or "[" in path
 
 
 def _safe_filename_part(value):

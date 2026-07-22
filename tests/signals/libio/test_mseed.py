@@ -16,8 +16,12 @@ Regression tests for the pure-Python MiniSEED reader and writer.
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
+
+from shakelab.libutils.timeN import Date
+from shakelab.signals.base import Record, StreamCollection
 
 from shakelab.signals.libio.mseed import (
     ENCODING_ASCII,
@@ -30,9 +34,13 @@ from shakelab.signals.libio.mseed import (
     _decode_steim,
     _encode_steim1,
     _encode_steim2,
+    _encode_steim_payload,
     _prepare_steim_data,
+    _sampling_rate_factors,
+    msread,
     msrawread,
     msrawwrite,
+    mswrite,
 )
 
 
@@ -370,6 +378,304 @@ class TestMiniSeed(unittest.TestCase):
         trend = 10.0 * np.arange(500)
 
         return np.rint(signal + trend).astype(np.int32)
+
+    @staticmethod
+    def _make_shakelab_record(data, delta=0.01):
+        """
+        Create a ShakeLab waveform record for high-level writer tests.
+        """
+        record = Record()
+
+        record.head.sid = "XX.TEST.00.BHZ"
+        record.head.time = Date("2026-200T12:00:00.0000")
+        record.head.delta = delta
+        record.data = np.asarray(data)
+
+        return record
+
+    def test_mswrite_steim2_segmented_round_trip(self):
+        """Test high-level STEIM2 writing across multiple records."""
+        original = self._integer_signal()
+
+        collection = StreamCollection()
+        collection.append(
+            self._make_shakelab_record(original)
+        )
+
+        output_file = self.output_dir / "segmented_steim2.mseed"
+
+        mswrite(
+            output_file,
+            collection,
+            encoding=ENCODING_STEIM2,
+            reclen=256,
+        )
+
+        raw_records = msrawread(output_file)
+
+        self.assertGreater(len(raw_records), 1)
+
+        restored = np.concatenate([
+            record.data
+            for record in raw_records
+        ])
+
+        np.testing.assert_array_equal(restored, original)
+
+    def test_mswrite_int32_segmented_round_trip(self):
+        """Test high-level INT32 writing across multiple records."""
+        original = np.arange(
+            -500,
+            500,
+            dtype=np.int32,
+        )
+
+        collection = StreamCollection()
+        collection.append(
+            self._make_shakelab_record(original)
+        )
+
+        output_file = self.output_dir / "segmented_int32.mseed"
+
+        mswrite(
+            output_file,
+            collection,
+            encoding=ENCODING_INT32,
+            reclen=256,
+        )
+
+        raw_records = msrawread(output_file)
+
+        self.assertGreater(len(raw_records), 1)
+
+        restored = np.concatenate([
+            record.data
+            for record in raw_records
+        ])
+
+        np.testing.assert_array_equal(restored, original)
+
+    def test_mswrite_record_metadata(self):
+        """Test sequence numbers and segmented record start times."""
+        original = np.arange(
+            1000,
+            dtype=np.int32,
+        )
+
+        delta = 0.01
+        record = self._make_shakelab_record(
+            original,
+            delta=delta,
+        )
+
+        collection = StreamCollection()
+        collection.append(record)
+
+        output_file = self.output_dir / "metadata.mseed"
+
+        mswrite(
+            output_file,
+            collection,
+            encoding=ENCODING_INT32,
+            reclen=256,
+        )
+
+        raw_records = msrawread(output_file)
+
+        sample_index = 0
+
+        for index, raw_record in enumerate(
+            raw_records,
+            start=1,
+        ):
+            self.assertEqual(raw_record.seqn, index)
+
+            expected_time = (
+                record.head.time
+                + sample_index * delta
+            )
+
+            self.assertAlmostEqual(
+                raw_record.time - expected_time,
+                0.0,
+                places=4,
+            )
+
+            sample_index += raw_record.nsamp
+
+        self.assertEqual(sample_index, len(original))
+
+    def test_sampling_rate_factors_slow_rate(self):
+        """Test representation of a 0.00875 Hz sampling rate."""
+        sampling_rate = 0.00875
+        delta = 1.0 / sampling_rate
+
+        factor, multiplier = _sampling_rate_factors(delta)
+
+        self.assertEqual(factor, 7)
+        self.assertEqual(multiplier, -800)
+
+        reconstructed_rate = factor / abs(multiplier)
+
+        self.assertAlmostEqual(
+            reconstructed_rate,
+            sampling_rate,
+        )
+
+    def test_mswrite_rejects_mseed3(self):
+        """Test rejection of unsupported MiniSEED 3 output."""
+        collection = StreamCollection()
+        collection.append(
+            self._make_shakelab_record(
+                np.arange(10, dtype=np.int32)
+            )
+        )
+
+        output_file = self.output_dir / "mseed3.mseed"
+
+        with self.assertRaises(ValueError):
+            mswrite(
+                output_file,
+                collection,
+                msformat=3,
+            )
+
+    def test_mswrite_rejects_invalid_sid(self):
+        """Test rejection of an invalid waveform source identifier."""
+        record = self._make_shakelab_record(
+            np.arange(10, dtype=np.int32)
+        )
+        record.head.sid = "INVALID"
+
+        collection = StreamCollection()
+        collection.append(record)
+
+        output_file = self.output_dir / "invalid_sid.mseed"
+
+        with self.assertRaises(ValueError):
+            mswrite(
+                output_file,
+                collection,
+                encoding=ENCODING_INT32,
+            )
+
+    def test_mswrite_msread_round_trip(self):
+        """Test the complete high-level MiniSEED API round trip."""
+        original = self._integer_signal()
+
+        collection = StreamCollection()
+        collection.append(
+            self._make_shakelab_record(original)
+        )
+
+        output_file = self.output_dir / "high_level.mseed"
+
+        mswrite(
+            output_file,
+            collection,
+            encoding=ENCODING_STEIM2,
+            reclen=256,
+        )
+
+        restored = msread(output_file)
+
+        self.assertEqual(len(restored), 1)
+        self.assertEqual(len(restored[0]), 1)
+
+        output_record = restored[0][0]
+
+        self.assertEqual(
+            output_record.head.sid,
+            "XX.TEST.00.BHZ",
+        )
+        self.assertAlmostEqual(
+            output_record.head.delta,
+            0.01,
+        )
+        self.assertAlmostEqual(
+            output_record.head.time
+            - Date("2026-200T12:00:00.0000"),
+            0.0,
+            places=4,
+        )
+
+        np.testing.assert_array_equal(
+            output_record.data,
+            original,
+        )
+
+    def test_mswrite_steim1_segmented_round_trip(self):
+        """Test high-level STEIM1 writing across multiple records."""
+        original = self._integer_signal()
+
+        collection = StreamCollection()
+        collection.append(
+            self._make_shakelab_record(original)
+        )
+
+        output_file = self.output_dir / "segmented_steim1.mseed"
+
+        mswrite(
+            output_file,
+            collection,
+            encoding=ENCODING_STEIM1,
+            reclen=256,
+        )
+
+        raw_records = msrawread(output_file)
+
+        self.assertGreater(len(raw_records), 1)
+
+        restored = np.concatenate([
+            record.data
+            for record in raw_records
+        ])
+
+        np.testing.assert_array_equal(restored, original)
+
+    def test_partial_steim_limits_prepared_input(self):
+        """Test that partial STEIM encoding limits input preparation."""
+        original = np.arange(
+            100000,
+            dtype=np.int32,
+        )
+
+        prepared_sizes = []
+
+        original_prepare = _prepare_steim_data
+
+        def tracked_prepare(data):
+            prepared_sizes.append(len(data))
+            return original_prepare(data)
+
+        with patch(
+            "shakelab.signals.libio.mseed._prepare_steim_data",
+            side_effect=tracked_prepare,
+        ):
+            _, _, sample_count, _ = _encode_steim_payload(
+                original,
+                encoding=ENCODING_STEIM2,
+                record_length=256,
+                data_offset=64,
+                require_all=False,
+            )
+
+        max_frame_count = (256 - 64) // 64
+        data_word_count = 13 + 15 * (max_frame_count - 1)
+        expected_limit = data_word_count * 7
+
+        self.assertEqual(
+            prepared_sizes,
+            [expected_limit],
+        )
+        self.assertLessEqual(
+            sample_count,
+            expected_limit,
+        )
+        self.assertLess(
+            expected_limit,
+            len(original),
+        )
 
 
 if __name__ == "__main__":
