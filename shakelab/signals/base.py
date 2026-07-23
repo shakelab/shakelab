@@ -786,13 +786,24 @@ class Stream(object):
                         out.append(sel, enforce=True)
             return out
 
-    def sort(self):
+    def sort(self, reverse=False):
         """
-        """
-        def get_time(rec):
-            return rec.head.time.seconds
+        Sort records by start time.
 
-        self.record.sort(key=get_time)
+        Parameters
+        ----------
+        reverse : bool, optional
+            If ``True``, sort records from latest to earliest. Default is
+            ``False``.
+
+        Notes
+        -----
+        Sorting is performed in place.
+        """
+        self.record.sort(
+            key=lambda record: record.head.time.seconds,
+            reverse=reverse,
+        )
 
     def fix_gaps(self):
         """
@@ -1009,6 +1020,40 @@ class StreamCollection():
                 new_stream = self.stream_class(id=sid)
             self.stream.append(new_stream)
         self[sid].append(data)
+
+    def sort(self, sort_records=True, reverse=False):
+        """
+        Sort streams by source identifier.
+    
+        Parameters
+        ----------
+        sort_records : bool, optional
+            If ``True``, also sort records within each stream by start time.
+            Default is ``True``.
+        reverse : bool, optional
+            If ``True``, reverse both stream and record ordering. Default is
+            ``False``.
+    
+        Notes
+        -----
+        Sorting is performed in place. Streams are ordered lexicographically
+        by their source identifier. Missing identifiers are treated as empty
+        strings.
+        """
+        def stream_key(stream):
+            if stream.sid is None:
+                return ""
+
+            return str(stream.sid)
+
+        self.stream.sort(
+            key=stream_key,
+            reverse=reverse,
+        )
+
+        if sort_records:
+            for stream in self.stream:
+                stream.sort(reverse=reverse)
 
     def remove(self):
         pass
