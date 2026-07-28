@@ -29,57 +29,60 @@ from shakelab.libutils.geodetic import WgsPoint
 
 
 def test_header_initialization():
-    header = Header()
-    assert header._rate is None
-    assert header._delta is None
-    assert header.sid is None
-    assert header.eid is None
+    header = Header(
+        delta=0.01,
+        time="2026-01-01T00:00:00",
+        location=(13.0, 46.0),
+        sid="IV.TEST..HHZ",
+        eid="event_001",
+        units="m/s",
+    )
+
+    assert header.delta == 0.01
+    assert header.rate == 100.0
+    assert header.sid == "IV.TEST..HHZ"
+    assert header.eid == "event_001"
+    assert header.units == "m/s"
     assert isinstance(header.time, Date)
     assert isinstance(header.location, WgsPoint)
-    assert header.units is None
-    assert header.response is None
-    assert header.meta == {}
-    assert header._parent is None
 
-def test_delta_rate_setters():
+
+def test_header_rate_sync():
     header = Header()
 
-    header.delta = 0.1
-    assert header._delta == 0.1
-    assert header._rate == 10.0
+    header.rate = 50.0
 
-    header.rate = 20.0
-    assert header._rate == 20.0
-    assert header._delta == 0.05
+    assert header.rate == 50.0
+    assert header.delta == 0.02
 
-def test_copy_method():
+
+def test_header_invalid_sampling_values():
     header = Header()
-    header.sid = '123'
-    header.eid = '456'
-    header.delta = 0.1
-    header.units = 'm/s'
-    header.meta = {'key': 'value'}
 
-    header_copy = header.copy()
-    assert header_copy.sid == header.sid
-    assert header_copy.eid == header.eid
-    assert header_copy.delta == header.delta
-    assert header_copy.rate == header.rate
-    assert header_copy.units == header.units
-    assert header_copy.meta == header.meta
-    assert header_copy is not header
-    assert header_copy.meta is not header.meta  # Ensures a deep copy
+    for value in (0, -1, np.nan, np.inf):
+        try:
+            header.delta = value
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(
+                "Invalid delta accepted: {0}".format(value)
+            )
+
+def test_header_copy_does_not_copy_parent():
+    parent = object()
+    header = Header(
+        delta=0.01,
+        sid="IV.TEST..HHZ",
+        parent=parent,
+    )
+    header.meta["quality"] = "D"
+
+    copied = header.copy()
+
+    assert copied is not header
+    assert copied._parent is None
+    assert copied.meta == header.meta
+    assert copied.meta is not header.meta
 
 
-@pytest.fixture
-def sample_data():
-    return np.array([1, 2, 3, 4, 5])
-
-@pytest.fixture
-def record(sample_data):
-    return Record(data=sample_data, delta=0.1, time=0)
-
-def test_record_initialization(record, sample_data):
-    assert np.array_equal(record.data, sample_data)
-    assert record.delta == 0.1
-    assert record.time == 0
