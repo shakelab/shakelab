@@ -1,247 +1,600 @@
 # ShakeScenario
 
-ShakeScenario is a client--server application for running rapid seismic
+ShakeScenario is a client-server application for running rapid seismic
 damage and impact scenarios using the ShakeLab engineering modules.
 
-It allows you to:
+It provides:
 
--   Start a background server that manages jobs
--   Submit earthquake scenarios from a command line client
--   Track execution status
--   Retrieve results and artifacts
--   Manage multiple model configurations on the server
+-   a background TCP server that manages persistent calculation jobs;
+-   a Python/command-line client for submitting and managing scenarios;
+-   support for multiple self-contained scenario models;
+-   configurable ground-motion providers and asset-to-provider
+    assignments;
+-   persistent, reproducible job inputs and outputs;
+-   integration with the ShakeScenario WebUI.
 
-This document explains how to install, configure, start, and use the
-system from a user perspective.
+The scientific calculation is implemented by the underlying ShakeLab
+engineering modules. ShakeScenario provides the service,
+model-management, job-management, and persistence layers around those
+modules.
 
-------------------------------------------------------------------------
+## 1. Architecture
 
-# 1. System Overview
+ShakeScenario is organized in three levels.
 
-ShakeScenario consists of:
+1.  **Engineering library**
 
-SERVER shakescenario-server.py
+    The scientific calculation is provided by modules under
+    `shakelab.engineering`, in particular exposure, taxonomy, fragility,
+    ground motion, and impact. These modules can also be used directly
+    from Python without running ShakeScenario.
 
-CLIENT (CLI) shakescenario.py
+2.  **ShakeScenario service**
 
-The server performs the actual scenario computation. The client is used
-to communicate with the server.
+    `shakeserver.py` exposes scenario calculations as persistent jobs
+    through a TCP service. `shakeclient.py` provides the corresponding
+    Python client and command-line interface.
 
-All computations are executed as jobs and stored persistently.
+3.  **WebUI**
 
-------------------------------------------------------------------------
+    The WebUI uses the ShakeScenario service rather than reimplementing
+    the scientific calculation.
 
-# 2. Preparing the Environment
+A scenario model is a self-contained bundle containing the exposure,
+taxonomy tree, fragility models, ground-motion configuration, and
+optional geometry used by the WebUI.
 
-ShakeScenario is part of:
+## 2. Requirements
 
-    shakelab.engineering
+ShakeScenario is part of ShakeLab.
 
-Make sure:
+Requirements:
 
--   Python 3.10+ is available
--   ShakeLab is installed and importable
--   Required models are prepared (see Section 4)
+-   Python 3.10 or newer;
+-   ShakeLab installed and importable;
+-   the scientific dependencies required by the selected ShakeLab
+    engineering modules;
+-   at least one valid ShakeScenario model.
 
-No external dependencies beyond the standard library and ShakeLab are
-required.
+The server and client communicate using a length-prefixed JSON TCP
+protocol.
 
-------------------------------------------------------------------------
+## 3. Server configuration
 
-# 3. Server Configuration
-
-The server requires a JSON configuration file.
-
-Example: config.json
-
-{ "schema_version": "1.0.0", "paths": { "db": "./shakescenario.db",
-"workdir": "./runs", "model_root": "./models" }, "defaults": {
-"model_id": "ne_italy_default", "ground_motion": { "provider": "gmpe",
-"gmpe_name": "BragatoSlejko2005", "distance_approx": "ellipsoid" },
-"impact_config": { "uncertainty_mode": "lognormal",
-"typology_weighting": "count", "missing_taxonomy": "raise",
-"no_damage_key": "D0", "tail_key": "GT_LAST" } } }
-
-Meaning:
-
-db SQLite database file storing job history
-
-workdir Directory where job results are written
-
-model_root Directory containing model subdirectories
-
-defaults Default parameters used if not specified by the client
-
-------------------------------------------------------------------------
-
-# 4. Preparing Models
-
-Each model must be placed in:
-
-    model_root / model_id
+The server is started with a JSON configuration file.
 
 Example:
 
-    models/
-        ne_italy_default/
-            exposure.json
-            fragility.json
-            taxonomy_tree.json
+``` json
+{
+  "schema_version": "1.0.0",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 6000,
+    "workers": 4
+  },
+  "paths": {
+    "db": "./db/shakescenario.db",
+    "workdir": "./runs",
+    "model_root": "./models"
+  },
+  "defaults": {
+    "model_id": "fvg_20260630",
+    "impact_config": {
+      "uncertainty_mode": "lognormal",
+      "output": "state",
+      "typology_weighting": "count",
+      "normalize_asset_probabilities": true,
+      "missing_taxonomy": "raise",
+      "no_damage_key": "D0",
+      "include_typology_breakdown": true
+    }
+  }
+}
+```
+
+### 3.1 Paths
+
+`db`
+:   SQLite database used to store persistent job information.
+
+`workdir`
+:   Root directory where job directories and calculation products are
+    written.
+
+`model_root`
+:   Root directory containing the available scenario models.
+
+### 3.2 Server settings
+
+`host`
+:   TCP interface on which the server listens.
+
+`port`
+:   TCP port.
+
+`workers`
+:   Number of background worker threads available for calculations.
+
+Command-line values for `--host`, `--port`, and `--workers` override the
+corresponding values in the configuration file.
+
+### 3.3 Defaults
+
+`model_id`
+:   Scenario model used when the client does not explicitly select one.
+
+`impact_config`
+:   Default configuration passed to the engineering impact calculation.
+
+Ground-motion configuration is **not** a server default. It belongs to
+the selected scenario model. This keeps the service independent of the
+specific ground-motion methodology used by a model.
+
+## 4. Scenario models
+
+Each model is stored in:
+
+``` text
+model_root/<model_id>/
+```
+
+For example:
+
+``` text
+models/
+└── fvg_20260630/
+    ├── manifest.json
+    ├── exposure.json
+    ├── taxonomy_tree.json
+    ├── geometry.geojson
+    ├── groundmotion.json
+    └── fragility/
+        ├── fragility_faravelli.json
+        └── fragility_rosti.json
+```
+
+The directory name is the `model_id`.
+
+### 4.1 Model manifest
+
+Each model must contain `manifest.json`.
+
+Example:
+
+``` json
+{
+  "schema_version": "1.0.0",
+  "files": {
+    "exposure": "exposure.json",
+    "taxonomy_tree": "taxonomy_tree.json",
+    "fragility": [
+      "fragility/fragility_faravelli.json",
+      "fragility/fragility_rosti.json"
+    ],
+    "ground_motion": "groundmotion.json",
+    "geometry": "geometry.geojson"
+  }
+}
+```
 
-Each model directory MUST contain:
+The scientific files declared by the manifest are resolved relative to
+the model directory.
+
+The current service requires:
+
+-   `exposure`;
+-   `taxonomy_tree`;
+-   one or more `fragility` files;
+-   `ground_motion`.
+
+`geometry` is used by higher-level applications such as the WebUI and is
+not part of the core impact calculation.
 
--   exposure.json
--   fragility.json
--   taxonomy_tree.json
+## 5. Ground-motion configuration
 
-The model_id is the directory name.
+Ground motion is configured at model level in `groundmotion.json`.
 
-------------------------------------------------------------------------
+This layer is separate from the general-purpose ground-motion modelling
+code under `shakelab.gmmodel`. The engineering ground-motion layer
+configures providers and determines which configured provider is used
+for each exposure asset.
 
-# 5. Starting the Server
+A model may define several configured providers. Provider instances and
+their contexts are shared by all assets assigned to them.
 
-From the project root:
+### 5.1 Single provider for all assets
 
-    python3 shakelab/engineering/shakescenario/shakescenario-server.py         --config config.json
+The simplest configuration uses one default provider:
 
-Optional parameters:
+``` json
+{
+  "type": "ShakeLabGroundMotion",
+  "schema_version": "1.0.0",
+  "providers": [
+    {
+      "id": "regional_gmpe",
+      "provider": "gmpe",
+      "default": true,
+      "config": {
+        "gmpe_name": "BragatoSlejko2005",
+        "distance_approx": "ellipsoid"
+      }
+    }
+  ]
+}
+```
 
-    --host      Default: 127.0.0.1
-    --port      Default: 6000
-    --workers   Number of parallel jobs
+All assets without an explicit assignment use the provider marked as
+`default`.
 
-The server will:
+### 5.2 Multiple providers
 
--   Validate configuration
--   Validate model directories
--   Open the database
--   Start listening for connections
+Providers may contain explicit asset assignments. The same configured
+provider can therefore be reused by many assets without duplicating its
+configuration.
 
-------------------------------------------------------------------------
+Assignments may also carry provider-specific asset parameters, such as a
+station code for an observed-motion provider.
 
-# 6. Using the Client
+The intensity measure type (IMT) is not assigned in the ground-motion
+file. It is determined by the fragility model used for the asset
+taxonomy.
 
-All commands are executed using:
+The current assignment model resolves one provider for each asset.
+Combining multiple simultaneous providers for the same asset is
+intentionally outside the current v1 semantics.
 
-    python3 shakescenario.py
+## 6. Damage probabilities
 
-------------------------------------------------------------------------
+Fragility curves are interpreted as damage-state exceedance
+probabilities:
 
-## 6.1 Check Server Connectivity
+``` text
+P(DS >= D1)
+P(DS >= D2)
+...
+P(DS >= Dn)
+```
 
-    python3 shakescenario.py ping
+ShakeLab can convert these cumulative probabilities into mutually
+exclusive damage-state probabilities:
 
-If successful, the server responds.
+``` text
+P(D0) = 1 - P(DS >= D1)
 
-------------------------------------------------------------------------
+P(Dk) = P(DS >= Dk) - P(DS >= D(k+1))
+        for k = 1, ..., n-1
 
-## 6.2 Submit a Scenario (Minimal)
+P(Dn) = P(DS >= Dn)
+```
 
-    python3 shakescenario.py submit         --mag 5.2         --lon 12.34         --lat 45.67         --depth 10
+`D0` represents no damage.
 
-This uses default model and default ground motion configuration.
+The impact configuration supports:
 
-------------------------------------------------------------------------
+`output = "exceed"`
+:   Damage probabilities are reported as exceedance probabilities
+    `D1..Dn`.
 
-## 6.3 Submit with Custom Model
+`output = "state"`
+:   Damage probabilities are reported as mutually exclusive states
+    `D0..Dn`.
 
-    python3 shakescenario.py submit         --mag 5.2         --lon 12.34         --lat 45.67         --depth 10         --model-id ne_italy_default
+Expected counts are always calculated using the mutually exclusive state
+representation `D0..Dn`.
 
-------------------------------------------------------------------------
+There is no additional `GT_LAST` damage state in the current convention.
+The last configured damage state `Dn` is the most severe state
+represented by the damage scale.
 
-## 6.4 List Available Models
+## 7. Starting the server
 
-    python3 shakescenario.py models list
+From a working directory containing the server configuration:
 
-------------------------------------------------------------------------
+``` bash
+python3 /path/to/shakelab/engineering/shakescenario/shakeserver.py \
+    --config config.json
+```
 
-## 6.5 List Jobs
+Optional command-line overrides include:
 
-    python3 shakescenario.py list
+``` text
+--host
+--port
+--workers
+```
 
-------------------------------------------------------------------------
+At startup the server validates its configuration and the default model,
+initializes the database, and reports the listening address and
+available models.
+
+A typical interactive startup looks like:
+
+``` text
+ShakeScenario server
+  host:       127.0.0.1
+  port:       6000
+  workers:    4
+  model root: /path/to/models
+  default:    fvg_20260630
+  models:     fvg_20260630
+
+Server ready. Press Ctrl+C to stop.
+```
+
+Press `Ctrl+C` to stop an interactively running server.
+
+## 8. Using the client
+
+The command-line client is:
+
+``` bash
+python3 shakeclient.py
+```
 
-## 6.6 Get Job Details
+The default connection is `127.0.0.1:6000`. Use `--host` and `--port` to
+connect elsewhere.
 
-    python3 shakescenario.py get 1
+### 8.1 Check server connectivity
 
-Shows:
+``` bash
+python3 shakeclient.py ping
+```
 
--   Status
--   Parameters
--   Error (if failed)
--   Result metadata
+### 8.2 Submit a scenario
 
-------------------------------------------------------------------------
+``` bash
+python3 shakeclient.py submit \
+    --mag 5.2 \
+    --lon 13.25 \
+    --lat 46.25 \
+    --depth 10
+```
 
-## 6.7 Wait for Completion
+Optional event metadata include:
 
-    python3 shakescenario.py wait 1 --timeout 60
+``` text
+--origin-time
+--tag
+```
 
-------------------------------------------------------------------------
+For example:
 
-## 6.8 Reset Database (Development)
+``` bash
+python3 shakeclient.py submit \
+    --tag test_fvg_m52 \
+    --origin-time "2026-07-08T12:32:15Z" \
+    --mag 5.2 \
+    --lon 13.25 \
+    --lat 46.25 \
+    --depth 10
+```
 
-WARNING: Deletes all jobs.
+The selected model determines the exposure, taxonomy, fragility, and
+ground-motion configuration. The client therefore does not select a GMPE
+or other ground-motion provider directly.
 
-    python3 shakescenario.py reset --yes-i-know
+### 8.3 Submit with a specific model
 
-------------------------------------------------------------------------
+``` bash
+python3 shakeclient.py submit \
+    --model-id fvg_20260630 \
+    --mag 5.2 \
+    --lon 13.25 \
+    --lat 46.25 \
+    --depth 10
+```
 
-# 7. Understanding Job Results
+### 8.4 Submit a JSON request
 
-Each job creates a directory:
+A request can also be supplied using:
 
-    runs/job_000001/
+``` bash
+python3 shakeclient.py submit --request-json request.json
+```
 
-Containing:
+A standard request has the form:
 
-request_resolved.json Full parameters used after merging defaults
+``` json
+{
+  "models": {
+    "model_id": "fvg_20260630"
+  },
+  "scenario": {
+    "event": {
+      "magnitude": 5.2,
+      "hypocentre": {
+        "longitude": 13.25,
+        "latitude": 46.25,
+        "elevation": -10000.0
+      }
+    }
+  }
+}
+```
 
-meta.json Execution metadata
+`scenario.ground_motion` is not part of the current standard request.
+Ground motion is defined by the selected model.
 
-impact_result.json Final computed impact results
+### 8.5 List available models
 
-result_manifest.json List of generated artifacts
+``` bash
+python3 shakeclient.py models list
+```
 
-error.txt Only present if the job failed
+### 8.6 List jobs
 
-------------------------------------------------------------------------
+``` bash
+python3 shakeclient.py list
+```
 
-# 8. Job Lifecycle
+### 8.7 Get job details
 
-A job can be:
+``` bash
+python3 shakeclient.py get 1
+```
 
-queued running completed failed canceled
+### 8.8 Wait for completion
 
-Status is visible using:
+``` bash
+python3 shakeclient.py wait 1 --timeout 120 --interval 2
+```
 
-    shakescenario.py list
-    shakescenario.py get <id>
+### 8.9 Delete a job
 
-------------------------------------------------------------------------
+``` bash
+python3 shakeclient.py delete 1
+```
 
-# 9. Parameter Precedence
+To remove associated job files as well:
 
-When submitting a job:
+``` bash
+python3 shakeclient.py delete 1 --purge
+```
 
-    client payload overrides
-    server defaults override
-    internal hardcoded defaults
+### 8.10 Reset the database
 
-------------------------------------------------------------------------
+Development/administrative operation:
 
-# 10. Typical Workflow
+``` bash
+python3 shakeclient.py reset --yes-i-know
+```
 
-1.  Prepare models in model_root
-2.  Configure config.json
-3.  Start server
-4.  Submit scenario
-5.  Monitor job
-6.  Retrieve results from runs/job_xxxxxx
+To remove job directories as well:
 
-------------------------------------------------------------------------
+``` bash
+python3 shakeclient.py reset --yes-i-know --purge
+```
 
-ShakeScenario is designed to provide reproducible, transparent, and
-traceable scenario calculations with persistent storage and clear
-artifact management.
+## 9. Job lifecycle
+
+A job can have one of the following states:
+
+``` text
+queued
+running
+completed
+failed
+canceled
+```
+
+Jobs are persisted in the SQLite database. Calculations are executed by
+the server worker pool.
+
+## 10. Job directories and artifacts
+
+Each submitted job is assigned a directory such as:
+
+``` text
+runs/job_000001/
+```
+
+The current job layout is:
+
+``` text
+job_000001/
+├── manifest.json
+├── request.json
+├── results/
+│   ├── impact_assets.json
+│   └── impact_summary.json
+└── logs/
+    ├── job.log
+    ├── warnings.json
+    └── error.log
+```
+
+`manifest.json`
+:   Job metadata, status, model identifier, ground-motion provider
+    provenance, and relative artifact paths.
+
+`request.json`
+:   Resolved request used by the calculation.
+
+`results/impact_assets.json`
+:   Per-asset impact results, including ground motion used by the
+    calculation and damage results.
+
+`results/impact_summary.json`
+:   Lightweight aggregate statistics.
+
+`logs/job.log`
+:   Job execution log.
+
+`logs/warnings.json`
+:   Structured warnings.
+
+`logs/error.log`
+:   Error information for failed jobs.
+
+Artifact paths stored in the manifest are relative to the job directory.
+
+## 11. Ground-motion provenance
+
+The impact result records the configured `provider_id` associated with
+each ground-motion value. This makes it possible to identify which
+configured provider produced the intensity measure used for a given
+asset.
+
+The job manifest also records lightweight model-level ground-motion
+provenance, including the configured provider identifiers and the
+default provider identifier.
+
+The complete ground-motion configuration remains part of the selected
+model rather than being duplicated into every job request.
+
+## 12. Parameter precedence
+
+For request parameters that support defaults, precedence is:
+
+``` text
+client payload
+    overrides
+server defaults
+```
+
+The server default `model_id` is used if no model is selected by the
+client.
+
+Ground-motion provider selection is different: it is resolved by the
+ground-motion configuration of the selected model and its asset
+assignments, not by client/server parameter precedence.
+
+## 13. Typical workflow
+
+1.  Prepare a scenario model under `model_root`.
+2.  Add its `manifest.json` and `groundmotion.json`.
+3.  Configure the ShakeScenario server.
+4.  Start the server.
+5.  Check connectivity with `ping`.
+6.  Submit an earthquake scenario.
+7.  Monitor the job with `list`, `get`, or `wait`.
+8.  Inspect or retrieve the generated artifacts.
+9.  Use the same service through the WebUI when required.
+
+## 14. Design principles
+
+ShakeScenario follows a few deliberate architectural rules:
+
+-   scientific functionality remains in reusable `shakelab.engineering`
+    modules;
+-   the TCP service builds on those library functions rather than
+    duplicating them;
+-   the WebUI builds on the service layer;
+-   scenario models are self-contained and portable;
+-   exposure data are not modified merely to encode ground-motion
+    routing;
+-   configured ground-motion providers are shared across assigned
+    assets;
+-   provider-specific asset parameters belong to ground-motion
+    assignments;
+-   the IMT is determined by fragility, not duplicated in ground-motion
+    configuration;
+-   job outputs use relative artifact paths and preserve calculation
+    provenance;
+-   model and request formats are versioned explicitly.
+
+This separation allows the same engineering functionality to be used
+directly as a Python library, through the ShakeScenario service, or
+through the WebUI.

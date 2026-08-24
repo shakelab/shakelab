@@ -41,6 +41,8 @@ Notes
 -----
 - This is intentionally "simple layout" (flat files) to fit inside
   shakelab.engineering, while keeping the service self-contained.
+- Scientific ground-motion configuration is part of the selected
+  ScenarioModel. The server only binds it to the submitted event.
 
 """
 
@@ -118,15 +120,12 @@ def _deep_merge(
 
 
 def _server_defaults_payload(cfg) -> dict[str, Any]:
+    """Build the default submit payload from server configuration."""
     return {
         "models": {"model_id": cfg.defaults.model_id},
-        "scenario": {"ground_motion": {
-            "provider": cfg.defaults.ground_motion.provider,
-            "gmpe_name": cfg.defaults.ground_motion.gmpe_name,
-            "distance_approx": cfg.defaults.ground_motion.distance_approx,
-        }},
         "impact_config": dict(cfg.defaults.impact_config),
     }
+
 
 
 class ShakeScenarioServer:
@@ -335,11 +334,17 @@ class ShakeScenarioServer:
         Payload (v1)
         ------------
         - scenario.event (required)
-        - scenario.ground_motion (optional; defaults from server config)
+          - magnitude (required)
+          - hypocentre (required)
+          - event_id (optional; required by event-specific providers)
+          - origin_time (optional)
         - models.model_id (optional; defaults from server config)
         - impact_config (optional; defaults from server config)
         - output (optional)
         - tag (optional)
+
+        Ground-motion configuration is part of the selected ScenarioModel
+        and is not specified in the submit payload.
         """
         if not isinstance(payload, dict):
             raise ValueError("Payload must be a JSON object.")
@@ -529,11 +534,7 @@ class ShakeScenarioServer:
                 save_impact_result,
                 save_impact_summary,
             )
-            from shakelab.gmmodel.groundmotion import (
-                GroundMotionContext,
-                GroundMotionProvider,
-                ScenarioEvent,
-            )
+            from shakelab.gmmodel.groundmotion import ScenarioEvent
             from shakelab.libutils.geodeticN.primitives import WgsPoint
             
             # Build event
@@ -544,6 +545,21 @@ class ShakeScenarioServer:
                     "scenario.event.hypocentre must be an object."
                 )
             
+            event_id = ev.get("event_id")
+            if event_id is not None:
+                if not isinstance(event_id, str):
+                    raise ValueError(
+                        "scenario.event.event_id must be a string "
+                        "or omitted."
+                    )
+                event_id = event_id.strip()
+                if not event_id:
+                    raise ValueError(
+                        "scenario.event.event_id must not be empty."
+                    )
+
+            origin_time = ev.get("origin_time")
+
             event = ScenarioEvent(
                 hypocentre=WgsPoint(
                     longitude=float(hypoc["longitude"]),
@@ -551,38 +567,24 @@ class ShakeScenarioServer:
                     elevation=float(hypoc.get("elevation", -10000.0)),
                 ),
                 magnitude=float(ev["magnitude"]),
+                event_id=event_id,
+                origin_time=origin_time,
             )
             
             # Ground motion
-            gm = scenario_cfg.get("ground_motion", {})
-            if not isinstance(gm, dict):
-                raise ValueError("scenario.ground_motion must be an object.")
-            
-            provider = gm.get("provider", "gmpe")
-            if provider != "gmpe":
-                raise ValueError(f"Unsupported provider: {provider}")
-            
-            gmpe_name = gm.get("gmpe_name")
-            if not isinstance(gmpe_name, str) or not gmpe_name:
-                raise ValueError(
-                    "scenario.ground_motion.gmpe_name is required."
-                )
-            
-            distance_approx = gm.get("distance_approx", "ellipsoid")
-            
-            gm_provider = GroundMotionProvider.gmpe(
-                gmpe_name=gmpe_name,
-                distance_approx=distance_approx,
-            )
-            
-            gm_context = GroundMotionContext(event=event, provider=gm_provider)
-            
+            #
+            # The selected ScenarioModel owns the engineering-level
+            # ground-motion configuration. Build a runtime bound to this
+            # event; configured providers and asset assignments are resolved
+            # inside the ground-motion layer.
+            ground_motion = model.ground_motion.runtime(event)
+
             # Impact config
             config = ImpactConfig(**impact_cfg)
             
             # Compute
             impact = compute_impact_scenario(
-                gm_context=gm_context,
+                ground_motion=ground_motion,
                 exposure_model=model.exposure,
                 taxonomy_tree=model.taxonomy_tree,
                 fragility_collection=model.fragility,
@@ -622,6 +624,16 @@ class ShakeScenarioServer:
                 "tag": params.get("tag"),
                 "status": JobStatus.COMPLETED.value,
                 "model_id": model_id,
+                "event_id": event.event_id,
+                "ground_motion": {
+                    "provider_ids": [
+                        provider.id
+                        for provider in model.ground_motion.providers
+                    ],
+                    "default_provider_id": (
+                        model.ground_motion.default_provider_id
+                    ),
+                },
                 "schema_version": "1.0.0",
                 "artifacts": {
                     "request": JOB_REQUEST,
@@ -663,6 +675,11 @@ class ShakeScenarioServer:
                     "tag": params.get("tag"),
                     "status": JobStatus.FAILED.value,
                     "model_id": model_id,
+                    "event_id": (
+                        params.get("scenario", {})
+                        .get("event", {})
+                        .get("event_id")
+                    ),
                     "schema_version": "1.0.0",
                     "artifacts": {
                         "request": JOB_REQUEST,
@@ -739,6 +756,26 @@ def main() -> None:
     db = JobDatabase(db_path)
     db.initialize()
 
+    available_models = list_models(cfg.paths.model_root)
+
+    print("ShakeScenario server")
+    print(f"  host:       {host}")
+    print(f"  port:       {port}")
+    print(f"  workers:    {workers}")
+    print(f"  model root: {cfg.paths.model_root}")
+    print(f"  default:    {cfg.defaults.model_id}")
+
+    if available_models:
+        print(
+            "  models:     "
+            + ", ".join(available_models)
+        )
+    else:
+        print("  models:     none")
+
+    print("")
+    print("Server ready. Press Ctrl+C to stop.")
+
     srv = ShakeScenarioServer(
         host=host,
         port=port,
@@ -750,7 +787,10 @@ def main() -> None:
 
     def _handle_signal(signum, frame):
         # Idempotent, safe if called multiple times.
+        print("")
+        print("Shutting down ShakeScenario server...")
         srv.shutdown()
+        print("Server stopped.")
         raise SystemExit(0)
 
     signal.signal(signal.SIGTERM, _handle_signal)

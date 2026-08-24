@@ -1,0 +1,48 @@
+{
+  "type": "ShakeLabGroundMotion",
+  "schema_version": "1.0.0",
+
+  "providers": [
+    {
+      "id": "regional_gmpe",
+      "provider": "gmpe",
+      "default": true,
+
+      "config": {
+        "gmpe_name": "BragatoSlejko2005",
+        "distance_approx": "ellipsoid"
+      }
+    },
+
+    {
+      "id": "observed_motion",
+      "provider": "stations",
+
+      "config": {
+        "data_path": "observations"
+      },
+
+      "assignments": [
+        {
+          "assets": [
+            "BLDG_001"
+          ],
+
+          "parameters": {
+            "station_code": "UD01"
+          }
+        },
+
+        {
+          "assets": [
+            "BLDG_002"
+          ],
+
+          "parameters": {
+            "station_code": "UD02"
+          }
+        }
+      ]
+    }
+  ]
+}

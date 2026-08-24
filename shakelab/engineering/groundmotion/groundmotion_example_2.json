@@ -1,0 +1,37 @@
+{
+  "type": "ShakeLabGroundMotion",
+  "schema_version": "1.0.0",
+
+  "providers": [
+    {
+      "id": "regional_gmpe",
+      "provider": "gmpe",
+      "default": true,
+
+      "config": {
+        "gmpe_name": "BragatoSlejko2005",
+        "distance_approx": "ellipsoid"
+      }
+    },
+
+    {
+      "id": "official_shakemap",
+      "provider": "shakemap",
+
+      "config": {
+        "path": "grid.xml",
+        "interp": "bilinear"
+      },
+
+      "assignments": [
+        {
+          "assets": [
+            "AGG_010",
+            "AGG_011",
+            "AGG_012"
+          ]
+        }
+      ]
+    }
+  ]
+}

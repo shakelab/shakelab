@@ -21,6 +21,11 @@
 ShakeLab - ShakeScenario data models.
 
 This module defines small, stable datatypes shared by server/client/database.
+
+Scenario models are self-contained model bundles. Their manifest declares
+exposure, taxonomy, fragility, and ground-motion configuration files. The
+ShakeScenario service loads these components but does not implement their
+scientific logic.
 """
 
 from __future__ import annotations
@@ -70,20 +75,10 @@ class ServerPaths:
 
 
 @dataclass(frozen=True)
-class GroundMotionDefaults:
-    """Default ground-motion provider configuration."""
-
-    provider: str
-    gmpe_name: str | None = None
-    distance_approx: str | None = None
-
-
-@dataclass(frozen=True)
 class ServerDefaults:
     """Default values applied when submit payload omits them."""
 
     model_id: str
-    ground_motion: GroundMotionDefaults
     impact_config: dict[str, Any]
 
 
@@ -106,6 +101,7 @@ class ScenarioModel:
     exposure: Any
     taxonomy_tree: Any
     fragility: Any
+    ground_motion: Any
 
 
 def load_server_config(path: str | Path) -> ServerConfig:
@@ -201,35 +197,12 @@ def _parse_defaults(obj: Any) -> ServerDefaults:
         raise ValueError("defaults.model_id must be a non-empty string.")
     _validate_model_id(model_id)
 
-    gm = obj.get("ground_motion")
-    if not isinstance(gm, dict):
-        raise ValueError("defaults.ground_motion must be a JSON object.")
-
-    provider = gm.get("provider")
-    if not isinstance(provider, str) or not provider:
-        raise ValueError("defaults.ground_motion.provider must be a string.")
-
-    gmpe_name = gm.get("gmpe_name")
-    if gmpe_name is not None and not isinstance(gmpe_name, str):
-        raise ValueError("defaults.ground_motion.gmpe_name must be a string.")
-
-    distance_approx = gm.get("distance_approx")
-    if distance_approx is not None and not isinstance(distance_approx, str):
-        raise ValueError(
-            "defaults.ground_motion.distance_approx must be a string."
-        )
-
     impact_cfg = obj.get("impact_config", {})
     if not isinstance(impact_cfg, dict):
         raise ValueError("defaults.impact_config must be a JSON object.")
 
     return ServerDefaults(
         model_id=model_id,
-        ground_motion=GroundMotionDefaults(
-            provider=provider,
-            gmpe_name=gmpe_name,
-            distance_approx=distance_approx,
-        ),
         impact_config=dict(impact_cfg),
     )
 
@@ -374,17 +347,8 @@ def _manifest_model_paths(model_dir: Path) -> dict[str, Any]:
     """
     Return model file paths declared by the model manifest.
 
-    Parameters
-    ----------
-    model_dir
-        Path to the model directory.
-
-    Returns
-    -------
-    dict
-        Dictionary with model_dir, manifest_path, exposure_path,
-        taxonomy_tree_path, and fragility_paths. The fragility_paths entry is
-        a list of Path objects.
+    Returns a dictionary containing the resolved paths for exposure,
+    taxonomy tree, fragility files, and ground-motion configuration.
     """
     manifest = _load_model_manifest(model_dir)
     files = manifest["files"]
@@ -399,6 +363,12 @@ def _manifest_model_paths(model_dir: Path) -> dict[str, Any]:
         model_dir,
         files.get("taxonomy_tree"),
         "taxonomy_tree",
+    )
+
+    ground_motion_path = _resolve_model_file(
+        model_dir,
+        files.get("ground_motion"),
+        "ground_motion",
     )
 
     fragility_raw = files.get("fragility")
@@ -426,6 +396,7 @@ def _manifest_model_paths(model_dir: Path) -> dict[str, Any]:
         "exposure_path": exposure_path,
         "taxonomy_tree_path": taxonomy_tree_path,
         "fragility_paths": fragility_paths,
+        "ground_motion_path": ground_motion_path,
     }
 
 
@@ -441,8 +412,9 @@ def _validate_model_dir(model_dir: Path) -> None:
     - files.exposure
     - files.taxonomy_tree
     - files.fragility
+    - files.ground_motion
 
-    The declared file paths must be relative to the model directory.
+    All declared paths must be relative to the model directory.
     """
     if not model_dir.exists():
         raise ValueError(f"MODEL_NOT_FOUND: {model_dir}")
@@ -470,24 +442,10 @@ def model_paths(model_root: Path, model_id: str) -> dict[str, Any]:
 
 def load_model(model_root: Path, model_id: str) -> ScenarioModel:
     """
-    Load all model components for a given model_id.
+    Load all scientific model components for a given model_id.
 
-    Parameters
-    ----------
-    model_root
-        Root directory containing model directories.
-    model_id
-        Model identifier.
-
-    Returns
-    -------
-    ScenarioModel
-        Loaded exposure model, taxonomy tree, and fragility collection.
-
-    Raises
-    ------
-    ValueError
-        If the model directory or declared model files are invalid.
+    Ground-motion configuration is validated against the loaded exposure
+    model so invalid or duplicate asset assignments fail before calculation.
     """
     paths = model_paths(model_root, model_id)
 
@@ -495,6 +453,9 @@ def load_model(model_root: Path, model_id: str) -> ScenarioModel:
     from shakelab.engineering.exposure.exposure import ExposureModel
     from shakelab.engineering.fragility.fragility import (
         FragilityCollection,
+    )
+    from shakelab.engineering.groundmotion.groundmotion import (
+        GroundMotionModel,
     )
     from shakelab.engineering.taxonomy.taxonomy_tree import (
         TaxonomyTree,
@@ -510,6 +471,11 @@ def load_model(model_root: Path, model_id: str) -> ScenarioModel:
     fragility = FragilityCollection.from_json(
         paths["fragility_paths"]
     )
+    ground_motion = GroundMotionModel.from_json(
+        str(paths["ground_motion_path"]),
+        exposure_model=exposure,
+        validate=True,
+    )
 
     return ScenarioModel(
         model_id=model_id,
@@ -517,6 +483,7 @@ def load_model(model_root: Path, model_id: str) -> ScenarioModel:
         exposure=exposure,
         taxonomy_tree=taxonomy_tree,
         fragility=fragility,
+        ground_motion=ground_motion,
     )
 
 
@@ -546,4 +513,3 @@ def list_models(model_root: Path) -> list[str]:
         out.append(model_id)
 
     return out
-

@@ -449,11 +449,10 @@ class ScenarioRepository:
         d3 = self._as_number(expected.get("D3")) or 0
         d4 = self._as_number(expected.get("D4")) or 0
         d5 = self._as_number(expected.get("D5")) or 0
-        gt_last = self._as_number(expected.get("GT_LAST")) or 0
-
         pga_median = self._as_float(pga.get("median"))
+        pga_provider = pga.get("provider_id")
         severe = d4 + d5
-        damage_total = severe + gt_last
+        damage_total = severe
 
         return {
             "id": asset_id,
@@ -466,22 +465,20 @@ class ScenarioRepository:
             "PGA": pga_median,
             "damage": damage_total,
             "damage_d4_d5": severe,
-            "damage_gt_last": gt_last,
             "D0": d0,
             "D1": d1,
             "D2": d2,
             "D3": d3,
             "D4": d4,
             "D5": d5,
-            "GT_LAST": gt_last,
             "prob_D0": self._as_float(probabilities.get("D0")),
             "prob_D1": self._as_float(probabilities.get("D1")),
             "prob_D2": self._as_float(probabilities.get("D2")),
             "prob_D3": self._as_float(probabilities.get("D3")),
             "prob_D4": self._as_float(probabilities.get("D4")),
             "prob_D5": self._as_float(probabilities.get("D5")),
-            "prob_GT_LAST": self._as_float(
-                probabilities.get("GT_LAST"),
+            "ground_motion_provider": (
+                str(pga_provider) if pga_provider is not None else None
             ),
         }
 

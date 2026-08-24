@@ -1,6 +1,6 @@
 # ****************************************************************************
 #
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -18,709 +18,1640 @@
 #
 # ****************************************************************************
 """
-ShakeMap reader and container classes for USGS ShakeMap products.
+ShakeMap readers and lightweight container classes.
 
-Includes:
-- ShakeMapGMData: ground motion values and uncertainties
-- ShakeMapEvent: metadata + shakemap data wrapper
+This module provides generic access to standard USGS ShakeMap products,
+independently of the ShakeScenario ground-motion provider layer.
+
+Main components
+---------------
+ShakeMapGMData
+    Container for ShakeMap ground-motion grid values and optional
+    uncertainty values.
+
+ShakeMapEvent
+    Container for one ShakeMap event directory, including event metadata,
+    ground-motion grid data, uncertainty data, and optional station data.
+
+Design principles
+-----------------
+- This module performs file parsing, validation, interpolation, and export.
+- It does not depend on GroundMotionProvider or ScenarioEvent.
+- ShakeMap product fields are preserved using their native names
+  (e.g. PGA, PGV, PSA03, STDPGA).
+- Unit conversion is intentionally not performed here.
+- Missing or inconsistent ShakeMap products fail explicitly rather than being
+  silently filled with zero values.
+
+Notes
+-----
+ShakeMap XML products are read from ``grid.xml`` and, when available,
+``uncertainty.xml``. Both files are expected to use the same grid geometry.
 """
+
+from __future__ import annotations
+
 import csv
 import json
+import math
 import xml.etree.ElementTree as ET
+
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Tuple
-from scipy.interpolate import griddata
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+
+import numpy as np
+from scipy.interpolate import RegularGridInterpolator, griddata
+
+
+_SHAKEMAP_NAMESPACE = "http://earthquake.usgs.gov/eqcenter/shakemap"
+_DEFAULT_GRID_FILE = "grid.xml"
+_DEFAULT_UNCERTAINTY_FILE = "uncertainty.xml"
+_DEFAULT_INFO_FILE = "info.json"
+_DEFAULT_STATIONS_FILE = "stationlist.json"
+
+
+# ---------------------------------------------------------------------------
+# Small immutable metadata structures
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ShakeMapGridField:
+    """
+    Metadata describing one ShakeMap grid field.
+
+    Parameters
+    ----------
+    index
+        One-based column index as stored by ShakeMap.
+    name
+        Field name, for example ``LON``, ``LAT``, ``PGA`` or ``STDPGA``.
+    units
+        Field units declared in the XML metadata.
+    """
+
+    index: int
+    name: str
+    units: str = ""
+
+
+@dataclass(frozen=True)
+class ShakeMapGridSpec:
+    """
+    ShakeMap grid geometry metadata.
+
+    Parameters
+    ----------
+    lon_min, lon_max
+        Longitude bounds in degrees.
+    lat_min, lat_max
+        Latitude bounds in degrees.
+    lon_spacing, lat_spacing
+        Grid spacing in degrees.
+    nlon, nlat
+        Number of grid nodes along longitude and latitude.
+    """
+
+    lon_min: float
+    lon_max: float
+    lat_min: float
+    lat_max: float
+    lon_spacing: float
+    lat_spacing: float
+    nlon: int
+    nlat: int
+
+
+@dataclass(frozen=True)
+class ShakeMapGrid:
+    """
+    Parsed ShakeMap grid product.
+
+    Parameters
+    ----------
+    rows
+        Grid records, one dictionary per ShakeMap grid point.
+    fields
+        Ordered grid-field metadata.
+    spec
+        Optional grid geometry metadata from ``grid_specification``.
+    """
+
+    rows: tuple[Mapping[str, float], ...]
+    fields: tuple[ShakeMapGridField, ...]
+    spec: Optional[ShakeMapGridSpec] = None
+
+    @property
+    def field_names(self) -> tuple[str, ...]:
+        """Return ordered field names."""
+        return tuple(field.name for field in self.fields)
+
+    @property
+    def units(self) -> Dict[str, str]:
+        """Return field-unit mapping."""
+        return {
+            field.name: field.units
+            for field in self.fields
+        }
+
+
+# ---------------------------------------------------------------------------
+# Ground-motion data container
+# ---------------------------------------------------------------------------
 
 
 class ShakeMapGMData:
     """
-    Container for ShakeMap ground motion values and uncertainties.
+    Container for ShakeMap ground-motion values and optional uncertainties.
 
-    Includes both grid.xml and uncertainty.xml contents, matched by index.
+    ``grid`` and ``uncertainty`` preserve ShakeMap native field names.
+    Coordinates are expected to be stored as ``LON`` and ``LAT``.
+
+    When uncertainty data are supplied, the coordinate geometry is validated
+    against the main grid.
     """
 
-    def __init__(self,
-                 grid_data: List[Dict[str, float]],
-                 uncertainty_data: Optional[List[Dict[str, float]]] = None):
-        """
-        Initialize the ShakeMapGMData object.
+    def __init__(
+        self,
+        grid_data: Union[
+            ShakeMapGrid,
+            Sequence[Mapping[str, float]],
+        ],
+        uncertainty_data: Optional[
+            Union[
+                ShakeMapGrid,
+                Sequence[Mapping[str, float]],
+            ]
+        ] = None,
+    ) -> None:
+        self._grid_product = self._normalize_product(grid_data)
+        self._uncertainty_product = (
+            self._normalize_product(uncertainty_data)
+            if uncertainty_data is not None
+            else None
+        )
 
-        Parameters
-        ----------
-        grid_data : list of dict
-            Parsed records from 'grid.xml'.
-        uncertainty_data : list of dict, optional
-            Parsed records from 'uncertainty.xml', if available.
-        """
-        self.grid = grid_data
-        self.uncertainty = uncertainty_data
+        self.grid: List[Dict[str, float]] = [
+            dict(row) for row in self._grid_product.rows
+        ]
+        self.uncertainty: Optional[List[Dict[str, float]]] = None
 
-        if uncertainty_data:
-            if len(grid_data) != len(uncertainty_data):
-                raise ValueError("Mismatch in grid and uncertainty lengths.")
+        if self._uncertainty_product is not None:
+            self.uncertainty = [
+                dict(row)
+                for row in self._uncertainty_product.rows
+            ]
+            self._validate_uncertainty_alignment()
+
+        self._regular_axes: Optional[
+            Tuple[np.ndarray, np.ndarray]
+        ] = None
+        self._regular_values: Dict[
+            Tuple[str, str],
+            np.ndarray
+        ] = {}
+        self._interpolators: Dict[
+            Tuple[str, str, str],
+            RegularGridInterpolator
+        ] = {}
+
+        self._prepare_regular_grid()
+
+    @staticmethod
+    def _normalize_product(
+        product: Union[
+            ShakeMapGrid,
+            Sequence[Mapping[str, float]],
+        ]
+    ) -> ShakeMapGrid:
+        """Normalize legacy row lists to a ShakeMapGrid object."""
+        if isinstance(product, ShakeMapGrid):
+            if not product.rows:
+                raise ValueError("ShakeMap grid is empty.")
+            return product
+
+        if not isinstance(product, Sequence) or isinstance(
+            product,
+            (str, bytes),
+        ):
+            raise TypeError(
+                "grid data must be a ShakeMapGrid or a sequence of mappings."
+            )
+
+        rows: List[Mapping[str, float]] = []
+        for row in product:
+            if not isinstance(row, Mapping):
+                raise TypeError(
+                    "ShakeMap grid rows must be mappings."
+                )
+            rows.append(dict(row))
+
+        if not rows:
+            raise ValueError("ShakeMap grid is empty.")
+
+        fields = tuple(
+            ShakeMapGridField(
+                index=i + 1,
+                name=str(name),
+                units="",
+            )
+            for i, name in enumerate(rows[0].keys())
+        )
+
+        return ShakeMapGrid(
+            rows=tuple(rows),
+            fields=fields,
+            spec=None,
+        )
+
+    @property
+    def grid_product(self) -> ShakeMapGrid:
+        """Return parsed main grid product."""
+        return self._grid_product
+
+    @property
+    def uncertainty_product(self) -> Optional[ShakeMapGrid]:
+        """Return parsed uncertainty product, if available."""
+        return self._uncertainty_product
+
+    @property
+    def field_names(self) -> tuple[str, ...]:
+        """Return fields available in the main grid."""
+        return self._grid_product.field_names
+
+    @property
+    def uncertainty_field_names(self) -> tuple[str, ...]:
+        """Return fields available in uncertainty data."""
+        if self._uncertainty_product is None:
+            return ()
+        return self._uncertainty_product.field_names
+
+    @property
+    def units(self) -> Dict[str, str]:
+        """
+        Return combined field-unit mapping.
+
+        Main-grid units are returned first and uncertainty-field units are
+        added when present.
+        """
+        units = dict(self._grid_product.units)
+        if self._uncertainty_product is not None:
+            units.update(self._uncertainty_product.units)
+        return units
+
+    def __len__(self) -> int:
+        return len(self.grid)
+
+    def has_param(self, name: str) -> bool:
+        """Return whether a parameter exists in grid or uncertainty data."""
+        key = str(name).strip().upper()
+        if key in self.field_names:
+            return True
+        if key in self.uncertainty_field_names:
+            return True
+        return False
 
     def get_param(self, name: str) -> List[float]:
         """
-        Retrieve a list of values for a given parameter.
+        Retrieve all values for a ShakeMap parameter.
 
         Parameters
         ----------
-        name : str
-            Name of the parameter (e.g., 'PGA', 'STDPGA', 'LAT', 'LON').
+        name
+            Native ShakeMap field name.
 
         Returns
         -------
         list of float
-            Values for the parameter across all grid points.
+            Parameter values in native ShakeMap units.
+
+        Raises
+        ------
+        KeyError
+            If the field does not exist.
         """
-        if name.startswith("STD") and self.uncertainty:
-            return [row[name] for row in self.uncertainty if name in row]
-        return [row[name] for row in self.grid if name in row]
+        key = str(name).strip().upper()
+
+        if (
+            self._uncertainty_product is not None
+            and key in self.uncertainty_field_names
+        ):
+            return [
+                float(row[key])
+                for row in self.uncertainty
+            ]
+
+        if key in self.field_names:
+            return [
+                float(row[key])
+                for row in self.grid
+            ]
+
+        raise KeyError(
+            f"ShakeMap parameter not found: {key!r}."
+        )
 
     def get_point(self, index: int) -> Dict[str, float]:
         """
-        Return a dictionary with all parameters at a given point index.
-
-        Parameters
-        ----------
-        index : int
-            Index of the point.
-
-        Returns
-        -------
-        dict
-            Combined parameters (including uncertainty if available).
+        Return all main-grid and uncertainty values for one point index.
         """
         record = self.grid[index].copy()
-        if self.uncertainty:
-            record.update(self.uncertainty[index])
+        if self.uncertainty is not None:
+            for key, value in self.uncertainty[index].items():
+                if key in ("LON", "LAT"):
+                    continue
+                record[key] = value
         return record
-
-    def __len__(self):
-        return len(self.grid)
 
     def get_ground_motion(
         self,
-        sites: Union[Tuple[float, float], List[Tuple[float, float]]],
-        parameters: Optional[List[str]] = None,
-        nan_fill: Optional[float] = None
-        ) -> List[Dict[str, float]]:
+        sites: Union[
+            Tuple[float, float],
+            Sequence[Tuple[float, float]],
+        ],
+        parameters: Optional[Sequence[str]] = None,
+        method: str = "linear",
+        outside: str = "nan",
+    ) -> List[Dict[str, float]]:
         """
-        Interpolate ground motion values at one or more site coordinates.
-    
+        Interpolate ShakeMap values at one or more site coordinates.
+
         Parameters
         ----------
-        sites : tuple or list of tuples
-            Coordinates (longitude, latitude) of the site(s).
-        parameters : list of str, optional
-            Parameters to retrieve. If None, all available are returned.
-        nan_fill : float, optional
-            Value to replace NaNs. If None, NaNs are preserved.
-    
+        sites
+            One ``(longitude, latitude)`` pair or a sequence of pairs.
+        parameters
+            Native ShakeMap parameters to interpolate. If omitted, all
+            non-coordinate fields from grid and uncertainty products are used.
+        method
+            Interpolation method. Supported values are ``linear`` and
+            ``nearest``.
+        outside
+            Behavior for points outside the ShakeMap grid:
+            - ``"nan"``: return NaN;
+            - ``"raise"``: raise ValueError.
+
         Returns
         -------
         list of dict
-            One dictionary per site with {parameter: value} pairs.
+            One dictionary per requested site.
         """
-        if isinstance(sites, tuple):
-            sites = [sites]
-    
-        x = [row["LON"] for row in self.grid]
-        y = [row["LAT"] for row in self.grid]
-    
-        if parameters is None:
-            parameters = [k for k in self.grid[0] if k not in ("LON", "LAT")]
-            if self.uncertainty:
-                parameters += [
-                    k for k in self.uncertainty[0]
-                    if k.startswith("STD") and k not in ("LON", "LAT")
-                ]
-    
-        output = [{} for _ in sites]
-    
-        for param in parameters:
-            if param.startswith("STD") and self.uncertainty:
-                z = [row.get(param, float("nan")) for row in self.uncertainty]
-            else:
-                z = [row.get(param, float("nan")) for row in self.grid]
-    
-            interp = griddata(
-                points=list(zip(x, y)),
-                values=z,
-                xi=sites,
-                method="linear"
+        site_list = _normalize_site_tuples(sites)
+
+        parameter_list = self._normalize_parameters(parameters)
+
+        method_key = str(method).strip().lower()
+        if method_key not in {"linear", "nearest"}:
+            raise ValueError(
+                "Interpolation method must be 'linear' or 'nearest'."
             )
-    
-            for i, val in enumerate(interp):
-                if nan_fill is not None and (val is None or str(val) == "nan"):
-                    output[i][param] = nan_fill
-                else:
-                    output[i][param] = float(val)
-    
+
+        outside_key = str(outside).strip().lower()
+        if outside_key not in {"nan", "raise"}:
+            raise ValueError(
+                "outside must be either 'nan' or 'raise'."
+            )
+
+        if self._regular_axes is not None:
+            output = self._interpolate_regular(
+                site_list,
+                parameter_list,
+                method=method_key,
+            )
+        else:
+            output = self._interpolate_scattered(
+                site_list,
+                parameter_list,
+                method=method_key,
+            )
+
+        if outside_key == "raise":
+            for site, values in zip(site_list, output):
+                missing = [
+                    key
+                    for key, value in values.items()
+                    if not math.isfinite(value)
+                ]
+                if missing:
+                    raise ValueError(
+                        "Site is outside ShakeMap interpolation domain or "
+                        "contains unavailable data: "
+                        f"lon={site[0]}, lat={site[1]}, "
+                        f"parameters={missing}."
+                    )
+
         return output
 
-    def export_csv(self,
-                   path,
-                   site_file: Optional[Path] = None,
-                   parameters: Optional[List[str]] = None,
-                   format: str = "geojson",
-                   nan_fill: Optional[float] = None) -> None:
-        """
-        Export ground motion data to CSV.
-    
-        Parameters
-        ----------
-        path : str or Path
-            Output CSV file path.
-        site_file : str or Path, optional
-            CSV or GeoJSON file with new site grid (id, longitude, latitude).
-        parameters : list of str, optional
-            Parameters to export (e.g., ['PGA', 'MMI']). If None, export all.
-        format : str, default 'geojson'
-            Format of site_file: 'csv' or 'geojson'.
-        nan_fill : float, optional
-            Value to substitute for NaN results. If None, NaNs are preserved.
-        """
-        path = Path(path)
-        if site_file is not None:
-            site_file = Path(site_file)
-    
-        sites = self._get_sites(site_file, format)
-        values = self._interpolate(sites, parameters, nan_fill)
-    
-        sample_id = next(iter(values))
-        fieldnames = ["id", "longitude", "latitude"]
-        fieldnames += list(values[sample_id].keys())
-    
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for site in sites:
-                row = {
-                    "id": site["id"],
-                    "longitude": site["longitude"],
-                    "latitude": site["latitude"],
-                    **values[site["id"]]
-                }
-                writer.writerow(row)    
+    # ------------------------------------------------------------------
+    # Grid validation / interpolation preparation
+    # ------------------------------------------------------------------
 
-    def export_geojson(self,
-                       path,
-                       site_file: Optional[Path] = None,
-                       parameters: Optional[List[str]] = None,
-                       format: str = "geojson",
-                       nan_fill: Optional[float] = None) -> None:
+    def _validate_uncertainty_alignment(self) -> None:
+        """Validate grid/uncertainty size and point coordinates."""
+        assert self.uncertainty is not None
+
+        if len(self.grid) != len(self.uncertainty):
+            raise ValueError(
+                "Mismatch in grid and uncertainty lengths: "
+                f"{len(self.grid)} != {len(self.uncertainty)}."
+            )
+
+        for index, (grid_row, unc_row) in enumerate(
+            zip(self.grid, self.uncertainty)
+        ):
+            try:
+                grid_lon = float(grid_row["LON"])
+                grid_lat = float(grid_row["LAT"])
+                unc_lon = float(unc_row["LON"])
+                unc_lat = float(unc_row["LAT"])
+            except KeyError as exc:
+                raise ValueError(
+                    "Both grid and uncertainty data must contain "
+                    "LON and LAT fields."
+                ) from exc
+
+            if not (
+                math.isclose(
+                    grid_lon,
+                    unc_lon,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                )
+                and math.isclose(
+                    grid_lat,
+                    unc_lat,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                )
+            ):
+                raise ValueError(
+                    "Grid and uncertainty coordinates are not aligned "
+                    f"at index {index}: "
+                    f"({grid_lon}, {grid_lat}) != "
+                    f"({unc_lon}, {unc_lat})."
+                )
+
+    def _prepare_regular_grid(self) -> None:
         """
-        Export ground motion data to GeoJSON FeatureCollection.
-    
-        Parameters
-        ----------
-        path : str or Path
-            Output GeoJSON file path.
-        site_file : str or Path, optional
-            CSV or GeoJSON file with new site grid (id, longitude, latitude).
-        parameters : list of str, optional
-            Parameters to export (e.g., ['PGA', 'MMI']). If None, export all.
-        format : str, default 'geojson'
-            Format of site_file: 'csv' or 'geojson'.
-        nan_fill : float, optional
-            Value to substitute for NaN results. If None, NaNs are preserved.
+        Detect a complete rectilinear grid and prepare cached arrays.
+
+        If the data do not form a complete Cartesian longitude/latitude grid,
+        interpolation falls back to ``scipy.interpolate.griddata``.
         """
+        lons = np.asarray(
+            [float(row["LON"]) for row in self.grid],
+            dtype=float,
+        )
+        lats = np.asarray(
+            [float(row["LAT"]) for row in self.grid],
+            dtype=float,
+        )
+
+        unique_lons = np.unique(lons)
+        unique_lats = np.unique(lats)
+
+        if unique_lons.size * unique_lats.size != len(self.grid):
+            return
+
+        coord_to_index: Dict[Tuple[float, float], int] = {}
+
+        for i, (lon, lat) in enumerate(zip(lons, lats)):
+            key = (float(lon), float(lat))
+            if key in coord_to_index:
+                return
+            coord_to_index[key] = i
+
+        if len(coord_to_index) != len(self.grid):
+            return
+
+        for lat in unique_lats:
+            for lon in unique_lons:
+                if (float(lon), float(lat)) not in coord_to_index:
+                    return
+
+        self._regular_axes = (
+            unique_lats.astype(float),
+            unique_lons.astype(float),
+        )
+
+        for source_name, rows in self._parameter_sources():
+            available = [
+                key
+                for key in rows[0].keys()
+                if key not in ("LON", "LAT")
+            ]
+
+            for param in available:
+                values = np.empty(
+                    (unique_lats.size, unique_lons.size),
+                    dtype=float,
+                )
+
+                for iy, lat in enumerate(unique_lats):
+                    for ix, lon in enumerate(unique_lons):
+                        row_index = coord_to_index[
+                            (float(lon), float(lat))
+                        ]
+                        values[iy, ix] = float(
+                            rows[row_index].get(
+                                param,
+                                float("nan"),
+                            )
+                        )
+
+                self._regular_values[
+                    (source_name, str(param).upper())
+                ] = values
+
+    def _parameter_sources(
+        self,
+    ) -> Iterable[Tuple[str, List[Dict[str, float]]]]:
+        yield "grid", self.grid
+        if self.uncertainty is not None:
+            yield "uncertainty", self.uncertainty
+
+    def _normalize_parameters(
+        self,
+        parameters: Optional[Sequence[str]],
+    ) -> List[str]:
+        if parameters is None:
+            out = [
+                key
+                for key in self.field_names
+                if key not in ("LON", "LAT")
+            ]
+            out.extend(
+                key
+                for key in self.uncertainty_field_names
+                if key not in ("LON", "LAT")
+                and key not in out
+            )
+            return list(out)
+
+        out: List[str] = []
+        for param in parameters:
+            key = str(param).strip().upper()
+            if not key:
+                raise ValueError(
+                    "ShakeMap parameter names must be non-empty."
+                )
+            if not self.has_param(key):
+                raise KeyError(
+                    f"ShakeMap parameter not found: {key!r}."
+                )
+            if key not in out:
+                out.append(key)
+
+        return out
+
+    def _source_for_parameter(
+        self,
+        parameter: str,
+    ) -> Tuple[str, List[Dict[str, float]]]:
+        key = str(parameter).upper()
+
+        if (
+            self.uncertainty is not None
+            and key in self.uncertainty_field_names
+        ):
+            return "uncertainty", self.uncertainty
+
+        if key in self.field_names:
+            return "grid", self.grid
+
+        raise KeyError(
+            f"ShakeMap parameter not found: {key!r}."
+        )
+
+    def _interpolate_regular(
+        self,
+        sites: List[Tuple[float, float]],
+        parameters: Sequence[str],
+        *,
+        method: str,
+    ) -> List[Dict[str, float]]:
+        assert self._regular_axes is not None
+
+        lat_axis, lon_axis = self._regular_axes
+
+        xi = np.asarray(
+            [(lat, lon) for lon, lat in sites],
+            dtype=float,
+        )
+
+        output = [{} for _ in sites]
+
+        for param in parameters:
+            source_name, _rows = self._source_for_parameter(param)
+            value_key = (source_name, param)
+            values = self._regular_values[value_key]
+
+            interp_key = (source_name, param, method)
+            interpolator = self._interpolators.get(interp_key)
+
+            if interpolator is None:
+                interpolator = RegularGridInterpolator(
+                    (lat_axis, lon_axis),
+                    values,
+                    method=method,
+                    bounds_error=False,
+                    fill_value=np.nan,
+                )
+                self._interpolators[interp_key] = interpolator
+
+            interpolated = np.asarray(
+                interpolator(xi),
+                dtype=float,
+            )
+
+            for i, value in enumerate(interpolated):
+                output[i][param] = float(value)
+
+        return output
+
+    def _interpolate_scattered(
+        self,
+        sites: List[Tuple[float, float]],
+        parameters: Sequence[str],
+        *,
+        method: str,
+    ) -> List[Dict[str, float]]:
+        points = np.asarray(
+            [
+                (float(row["LON"]), float(row["LAT"]))
+                for row in self.grid
+            ],
+            dtype=float,
+        )
+        xi = np.asarray(sites, dtype=float)
+
+        output = [{} for _ in sites]
+
+        for param in parameters:
+            _source_name, rows = self._source_for_parameter(param)
+            values = np.asarray(
+                [
+                    float(row.get(param, float("nan")))
+                    for row in rows
+                ],
+                dtype=float,
+            )
+
+            interpolated = griddata(
+                points=points,
+                values=values,
+                xi=xi,
+                method=method,
+                fill_value=np.nan,
+            )
+
+            for i, value in enumerate(interpolated):
+                output[i][param] = float(value)
+
+        return output
+
+    # ------------------------------------------------------------------
+    # Export helpers
+    # ------------------------------------------------------------------
+
+    def export_csv(
+        self,
+        path: Union[str, Path],
+        site_file: Optional[Union[str, Path]] = None,
+        parameters: Optional[Sequence[str]] = None,
+        format: str = "geojson",
+        outside: str = "nan",
+    ) -> None:
+        """Export interpolated ShakeMap values to CSV."""
         path = Path(path)
-        if site_file is not None:
-            site_file = Path(site_file)
-    
         sites = self._get_sites(site_file, format)
-        values = self._interpolate(sites, parameters, nan_fill)
-    
+
+        values = self.get_ground_motion(
+            [
+                (site["longitude"], site["latitude"])
+                for site in sites
+            ],
+            parameters=parameters,
+            outside=outside,
+        )
+
+        if not sites:
+            raise ValueError("No sites available for export.")
+
+        fieldnames = ["id", "longitude", "latitude"]
+        fieldnames.extend(values[0].keys())
+
+        with path.open(
+            "w",
+            newline="",
+            encoding="utf-8",
+        ) as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=fieldnames,
+            )
+            writer.writeheader()
+
+            for site, value in zip(sites, values):
+                writer.writerow(
+                    {
+                        "id": site["id"],
+                        "longitude": site["longitude"],
+                        "latitude": site["latitude"],
+                        **value,
+                    }
+                )
+
+    def export_geojson(
+        self,
+        path: Union[str, Path],
+        site_file: Optional[Union[str, Path]] = None,
+        parameters: Optional[Sequence[str]] = None,
+        format: str = "geojson",
+        outside: str = "nan",
+    ) -> None:
+        """Export interpolated ShakeMap values to GeoJSON."""
+        path = Path(path)
+        sites = self._get_sites(site_file, format)
+
+        values = self.get_ground_motion(
+            [
+                (site["longitude"], site["latitude"])
+                for site in sites
+            ],
+            parameters=parameters,
+            outside=outside,
+        )
+
         features = []
-        for site in sites:
-            feature = {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [site["longitude"], site["latitude"]]
-                },
-                "properties": {
-                    "id": site["id"],
-                    **values[site["id"]]
+
+        for site, value in zip(sites, values):
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [
+                            site["longitude"],
+                            site["latitude"],
+                        ],
+                    },
+                    "properties": {
+                        "id": site["id"],
+                        **value,
+                    },
                 }
-            }
-            features.append(feature)
-    
+            )
+
         geojson = {
             "type": "FeatureCollection",
-            "features": features
+            "features": features,
         }
-    
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(geojson, f, indent=2)
 
-    def _get_sites(self,
-                   site_file: Optional[Path],
-                   fmt: str) -> List[Dict[str, float]]:
+        path.write_text(
+            json.dumps(
+                geojson,
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def _get_sites(
+        self,
+        site_file: Optional[Union[str, Path]],
+        fmt: str,
+    ) -> List[Dict[str, Any]]:
         """
-        Internal: Load site list from CSV or GeoJSON, or use grid as fallback.
-    
-        Supports flexible field names like 'lon', 'latitude', 'site_id'.
-    
-        Parameters
-        ----------
-        site_file : str or Path or None
-            Path to site list file. If None, use internal ShakeMap grid.
-        fmt : str
-            Format: 'csv' or 'geojson'.
-    
-        Returns
-        -------
-        list of dict
-            Each dict contains: id, longitude, latitude.
+        Load interpolation sites from CSV or GeoJSON.
+
+        If no site file is supplied, the internal ShakeMap grid itself is
+        returned as the site list.
         """
         if site_file is None:
             return [
                 {
                     "id": str(i),
-                    "longitude": row["LON"],
-                    "latitude": row["LAT"]
+                    "longitude": float(row["LON"]),
+                    "latitude": float(row["LAT"]),
                 }
                 for i, row in enumerate(self.grid)
             ]
-    
-        site_file = Path(site_file)
-    
-        id_keys = ["id", "site_id", "name"]
-        lon_keys = ["longitude", "lon"]
-        lat_keys = ["latitude", "lat"]
-    
-        def _get_first_key(d: Dict[str, str],
-                           keys: List[str],
-                           label: str) -> str:
-            for k in keys:
-                if k in d:
-                    return d[k]
-            raise ValueError(f"Missing required field '{label}' "
-                             f"(expected one of {keys})")
-    
-        if fmt == "csv":
-            with open(site_file, "r", encoding="utf-8") as f:
+
+        site_path = Path(site_file)
+        fmt_key = str(fmt).strip().lower()
+
+        id_keys = ("id", "site_id", "name")
+        lon_keys = ("longitude", "lon")
+        lat_keys = ("latitude", "lat")
+
+        if fmt_key == "csv":
+            with site_path.open(
+                "r",
+                encoding="utf-8",
+            ) as f:
                 reader = csv.DictReader(f)
-                sites = []
+                sites: List[Dict[str, Any]] = []
+
                 for row in reader:
-                    try:
-                        site = {
-                            "id": _get_first_key(row, id_keys, "id"),
-                            "longitude": float(_get_first_key(
-                                row, lon_keys, "longitude")),
-                            "latitude": float(_get_first_key(
-                                row, lat_keys, "latitude"))
+                    sites.append(
+                        {
+                            "id": _first_mapping_value(
+                                row,
+                                id_keys,
+                                "id",
+                            ),
+                            "longitude": float(
+                                _first_mapping_value(
+                                    row,
+                                    lon_keys,
+                                    "longitude",
+                                )
+                            ),
+                            "latitude": float(
+                                _first_mapping_value(
+                                    row,
+                                    lat_keys,
+                                    "latitude",
+                                )
+                            ),
                         }
-                    except ValueError as e:
-                        raise ValueError(f"Error parsing site file: {e}")
-                    sites.append(site)
-                return sites
-    
-        if fmt == "geojson":
-            with open(site_file, "r", encoding="utf-8") as f:
-                gj = json.load(f)
-    
-            if "features" not in gj:
-                raise ValueError("Invalid GeoJSON: missing 'features' field")
-    
-            sites = []
-            for feat in gj["features"]:
-                try:
-                    props = feat["properties"]
-                    coords = feat["geometry"]["coordinates"]
-                    site = {
-                        "id": _get_first_key(props, id_keys, "id"),
-                        "longitude": float(coords[0]),
-                        "latitude": float(coords[1])
-                    }
-                except (KeyError, TypeError, IndexError, ValueError) as e:
-                    raise ValueError(
-                        "GeoJSON feature must include 'properties.id' and "
-                        "Point geometry with [lon, lat] coordinates."
                     )
-                sites.append(site)
+
+                return sites
+
+        if fmt_key == "geojson":
+            data = _load_json(site_path)
+
+            features = data.get("features")
+            if not isinstance(features, list):
+                raise ValueError(
+                    "Invalid GeoJSON: missing 'features' array."
+                )
+
+            sites = []
+
+            for feature in features:
+                try:
+                    properties = feature["properties"]
+                    geometry = feature["geometry"]
+                    coordinates = geometry["coordinates"]
+                except (KeyError, TypeError) as exc:
+                    raise ValueError(
+                        "Invalid GeoJSON feature."
+                    ) from exc
+
+                if (
+                    not isinstance(coordinates, Sequence)
+                    or len(coordinates) < 2
+                ):
+                    raise ValueError(
+                        "GeoJSON Point coordinates must contain "
+                        "[longitude, latitude]."
+                    )
+
+                sites.append(
+                    {
+                        "id": _first_mapping_value(
+                            properties,
+                            id_keys,
+                            "id",
+                        ),
+                        "longitude": float(coordinates[0]),
+                        "latitude": float(coordinates[1]),
+                    }
+                )
+
             return sites
-    
-        raise ValueError(f"Unsupported site file format: {fmt}")
-        
-    def _interpolate(self,
-                     sites: List[Dict],
-                     parameters: Optional[List[str]],
-                     nan_fill: Optional[float] = None
-                     ) -> Dict[str, Dict[str, float]]:
-        """
-        Internal: interpolate specified parameters onto given site list.
-    
-        Parameters
-        ----------
-        sites : list of dict
-            Sites with id, longitude, latitude.
-        parameters : list of str, optional
-            Parameters to interpolate. If None, use all available.
-        nan_fill : float, optional
-            Value to substitute for NaN results. If None, NaNs are preserved.
-    
-        Returns
-        -------
-        dict
-            Dictionary keyed by site id, each with {param: value}.
-        """
-        x = [row["LON"] for row in self.grid]
-        y = [row["LAT"] for row in self.grid]
-    
-        if parameters is None:
-            parameters = [k for k in self.grid[0] if k not in ("LON", "LAT")]
-            if self.uncertainty:
-                parameters += [
-                    k for k in self.uncertainty[0] if k not in ("LON", "LAT")
-                ]
-    
-        output = {site["id"]: {} for site in sites}
-        xi = [(s["longitude"], s["latitude"]) for s in sites]
-    
-        for param in parameters:
-            if param.startswith("STD") and self.uncertainty:
-                z = [row.get(param, float("nan")) for row in self.uncertainty]
-            else:
-                z = [row.get(param, float("nan")) for row in self.grid]
-    
-            interp = griddata(points=list(zip(x, y)), values=z, xi=xi,
-                              method="linear")
-    
-            for val, site in zip(interp, sites):
-                if nan_fill is not None and (val is None or str(val) == "nan"):
-                    output[site["id"]][param] = nan_fill
-                else:
-                    output[site["id"]][param] = float(val)
-    
-        return output
+
+        raise ValueError(
+            f"Unsupported site file format: {fmt!r}."
+        )
+
+
+# ---------------------------------------------------------------------------
+# ShakeMap event container
+# ---------------------------------------------------------------------------
 
 
 class ShakeMapEvent:
     """
-    Container class for a ShakeMap event, including metadata and grid data.
+    Container for one standard ShakeMap event directory.
 
-    Can be initialized directly from data dictionaries or by loading from
-    a ShakeMap folder structure. Supports incremental loading of individual
-    files after instantiation.
+    The event can be built directly from in-memory objects or loaded from a
+    directory containing standard ShakeMap products.
     """
 
-    def __init__(self,
-                 info: Optional[Dict] = None,
-                 gm_data: Optional[ShakeMapGMData] = None,
-                 stations: Optional[Dict] = None,
-                 folder: Optional[Path] = None,
-                 load_stations: bool = True,
-                 load_uncertainty: bool = True):
-        """
-        Initialize the ShakeMapEvent object.
-
-        Parameters
-        ----------
-        info : dict, optional
-            Parsed contents of 'info.json'.
-        gm_data : ShakeMapGMData, optional
-            Ground motion data object.
-        stations : dict, optional
-            Parsed contents of 'stationlist.json'.
-        folder : str or Path, optional
-            If provided, load all files from this folder.
-        load_stations : bool, default True
-            Whether to load stationlist.json if available.
-        load_uncertainty : bool, default True
-            Whether to load uncertainty.xml if available.
-        """
-        self.info = None
-        self.gm_data = None
-        self.stations = None
+    def __init__(
+        self,
+        info: Optional[Dict[str, Any]] = None,
+        gm_data: Optional[ShakeMapGMData] = None,
+        stations: Optional[Dict[str, Any]] = None,
+        folder: Optional[Union[str, Path]] = None,
+        load_stations: bool = True,
+        load_uncertainty: bool = True,
+        require_info: bool = False,
+    ) -> None:
+        self.info: Optional[Dict[str, Any]] = info
+        self.gm_data: Optional[ShakeMapGMData] = gm_data
+        self.stations: Optional[Dict[str, Any]] = stations
+        self.folder: Optional[Path] = None
 
         if folder is not None:
-            self.load_folder(folder,
-                             load_stations=load_stations,
-                             load_uncertainty=load_uncertainty)
-        else:
-            self.info = info
-            self.gm_data = gm_data
-            self.stations = stations
+            self.load_folder(
+                folder,
+                load_stations=load_stations,
+                load_uncertainty=load_uncertainty,
+                require_info=require_info,
+            )
 
     @property
     def event_id(self) -> str:
-        if not self.info:
-            return "N/A"
-        return self.info.get("input", {}).get(
-            "event_information", {}
-        ).get("event_id", "N/A")
-    
-    
+        """Return ShakeMap event identifier when available."""
+        return str(
+            self._event_information().get(
+                "event_id",
+                "N/A",
+            )
+        )
+
     @property
-    def magnitude(self) -> str:
-        if not self.info:
-            return "N/A"
-        return self.info.get("input", {}).get(
-            "event_information", {}
-        ).get("magnitude", "N/A")
-    
-    
+    def magnitude(self) -> Any:
+        """Return event magnitude metadata when available."""
+        return self._event_information().get(
+            "magnitude",
+            "N/A",
+        )
+
     @property
-    def origin_time(self) -> str:
-        if not self.info:
-            return "N/A"
-        return self.info.get("input", {}).get(
-            "event_information", {}
-        ).get("origin_time", "N/A")
-    
-    
+    def origin_time(self) -> Any:
+        """Return event origin time metadata when available."""
+        return self._event_information().get(
+            "origin_time",
+            "N/A",
+        )
+
     @property
-    def latitude(self) -> str:
-        if not self.info:
-            return "N/A"
-        return self.info.get("input", {}).get(
-            "event_information", {}
-        ).get("latitude", "N/A")
-    
-    
+    def latitude(self) -> Any:
+        """Return event latitude metadata when available."""
+        return self._event_information().get(
+            "latitude",
+            "N/A",
+        )
+
     @property
-    def longitude(self) -> str:
-        if not self.info:
-            return "N/A"
-        return self.info.get("input", {}).get(
-            "event_information", {}
-        ).get("longitude", "N/A")
-    
-    
+    def longitude(self) -> Any:
+        """Return event longitude metadata when available."""
+        return self._event_information().get(
+            "longitude",
+            "N/A",
+        )
+
     @property
-    def depth(self) -> str:
-        if not self.info:
-            return "N/A"
-        return self.info.get("input", {}).get(
-            "event_information", {}
-        ).get("depth", "N/A")
+    def depth(self) -> Any:
+        """Return event depth metadata when available."""
+        return self._event_information().get(
+            "depth",
+            "N/A",
+        )
 
     @property
     def units(self) -> Dict[str, str]:
+        """
+        Return ShakeMap field units.
+
+        XML metadata is preferred because it describes the actual loaded
+        products. ``info.json`` units are used only as an additional source.
+        """
+        units: Dict[str, str] = {}
+
+        if self.gm_data is not None:
+            units.update(self.gm_data.units)
+
+        if self.info:
+            ground_motions = (
+                self.info.get("output", {})
+                .get("ground_motions", {})
+            )
+
+            if isinstance(ground_motions, Mapping):
+                for key, value in ground_motions.items():
+                    if (
+                        isinstance(value, Mapping)
+                        and "units" in value
+                    ):
+                        units.setdefault(
+                            str(key).upper(),
+                            str(value["units"]),
+                        )
+
+        return units
+
+    def _event_information(self) -> Mapping[str, Any]:
         if not self.info:
             return {}
-        return {
-            k: v.get("units", "unknown")
-            for k, v in self.info.get("output", {}).get(
-                "ground_motions", {}
-                ).items()
-        }
 
-    def load_folder(self,
-                    folder: Path,
-                    load_stations: bool = True,
-                    load_uncertainty: bool = True) -> None:
+        event_information = (
+            self.info.get("input", {})
+            .get("event_information", {})
+        )
+
+        if isinstance(event_information, Mapping):
+            return event_information
+
+        return {}
+
+    def load_folder(
+        self,
+        folder: Union[str, Path],
+        load_stations: bool = True,
+        load_uncertainty: bool = True,
+        require_info: bool = False,
+    ) -> None:
         """
-        Load ShakeMap data from a standard folder.
+        Load a standard ShakeMap event directory.
 
-        Parameters
-        ----------
-        folder : str or Path
-            Path to the ShakeMap folder.
-        load_stations : bool
-            Whether to load stationlist.json if available.
-        load_uncertainty : bool
-            Whether to load uncertainty.xml if available.
+        ``grid.xml`` is required. Other products are optional unless
+        explicitly required.
         """
-        folder = Path(folder)
-        self.load_info(folder / "info.json")
-        self.load_grid(folder / "grid.xml")
-        if load_uncertainty and (folder / "uncertainty.xml").exists():
-            self.load_uncertainty(folder / "uncertainty.xml")
-        if load_stations and (folder / "stationlist.json").exists():
-            self.load_stations(folder / "stationlist.json")
+        event_dir = Path(folder).expanduser().resolve()
 
-    def load_info(self, path: Path) -> None:
-        """Load event metadata from an info.json file."""
-        self.info = _load_json(path)
+        if not event_dir.exists():
+            raise FileNotFoundError(
+                f"ShakeMap directory not found: {event_dir}"
+            )
 
-    def load_grid(self, path: Path) -> None:
-        """Load ground motion data from a grid.xml file."""
-        grid = _load_grid(path)
-        self.gm_data = ShakeMapGMData(grid_data=grid)
+        if not event_dir.is_dir():
+            raise ValueError(
+                f"ShakeMap path is not a directory: {event_dir}"
+            )
 
-    def load_uncertainty(self, path: Path) -> None:
-        """Load uncertainty data from an uncertainty.xml file."""
-        if not self.gm_data:
-            raise RuntimeError("Grid must be loaded before uncertainty.")
-        unc = _load_grid(path)
-        self.gm_data.uncertainty = unc
+        self.folder = event_dir
 
-    def load_stations(self, path: Path) -> None:
-        """Load station observations from a stationlist.json file."""
-        self.stations = _load_json(path)
+        grid_path = event_dir / _DEFAULT_GRID_FILE
+        if not grid_path.is_file():
+            raise FileNotFoundError(
+                f"ShakeMap grid file not found: {grid_path}"
+            )
+
+        info_path = event_dir / _DEFAULT_INFO_FILE
+
+        if info_path.is_file():
+            self.load_info(info_path)
+        elif require_info:
+            raise FileNotFoundError(
+                f"ShakeMap info file not found: {info_path}"
+            )
+        else:
+            self.info = None
+
+        uncertainty_path = (
+            event_dir / _DEFAULT_UNCERTAINTY_FILE
+        )
+
+        grid_product = _load_grid_product(grid_path)
+
+        uncertainty_product = None
+
+        if load_uncertainty and uncertainty_path.is_file():
+            uncertainty_product = _load_grid_product(
+                uncertainty_path
+            )
+
+        self.gm_data = ShakeMapGMData(
+            grid_data=grid_product,
+            uncertainty_data=uncertainty_product,
+        )
+
+        stations_path = event_dir / _DEFAULT_STATIONS_FILE
+
+        if load_stations and stations_path.is_file():
+            self.load_stations(stations_path)
+        else:
+            self.stations = None
+
+    def load_info(
+        self,
+        path: Union[str, Path],
+    ) -> None:
+        """Load event metadata from ``info.json``."""
+        self.info = _load_json(Path(path))
+
+    def load_grid(
+        self,
+        path: Union[str, Path],
+    ) -> None:
+        """
+        Load a main ShakeMap grid.
+
+        Existing uncertainty data are discarded because their geometry may no
+        longer correspond to the newly loaded grid.
+        """
+        product = _load_grid_product(Path(path))
+        self.gm_data = ShakeMapGMData(
+            grid_data=product,
+        )
+
+    def load_uncertainty(
+        self,
+        path: Union[str, Path],
+    ) -> None:
+        """
+        Load uncertainty data and validate geometry against the main grid.
+        """
+        if self.gm_data is None:
+            raise RuntimeError(
+                "Grid must be loaded before uncertainty."
+            )
+
+        uncertainty = _load_grid_product(Path(path))
+
+        self.gm_data = ShakeMapGMData(
+            grid_data=self.gm_data.grid_product,
+            uncertainty_data=uncertainty,
+        )
+
+    def load_stations(
+        self,
+        path: Union[str, Path],
+    ) -> None:
+        """Load ``stationlist.json``."""
+        self.stations = _load_json(Path(path))
 
     def get_ground_motion(
         self,
-        sites: Union[Tuple[float, float], List[Tuple[float, float]]],
-        parameters: Optional[List[str]] = None,
-        nan_fill: Optional[float] = None
-        ) -> List[Dict[str, float]]:
-        """
-        Get ground motion values at one or more sites via interpolation.
-    
-        Parameters
-        ----------
-        sites : tuple or list of tuples
-            Coordinates (longitude, latitude) of one or more sites.
-        parameters : list of str, optional
-            Parameters to retrieve. If None, all available are returned.
-        nan_fill : float, optional
-            Value to replace NaNs. If None, NaNs are preserved.
-    
-        Returns
-        -------
-        list of dict
-            One dictionary per site with {parameter: value} pairs.
-        """
-        if not self.gm_data:
+        sites: Union[
+            Tuple[float, float],
+            Sequence[Tuple[float, float]],
+        ],
+        parameters: Optional[Sequence[str]] = None,
+        method: str = "linear",
+        outside: str = "nan",
+    ) -> List[Dict[str, float]]:
+        """Interpolate loaded ShakeMap fields at requested sites."""
+        if self.gm_data is None:
             raise RuntimeError("Grid data not loaded.")
+
         return self.gm_data.get_ground_motion(
             sites=sites,
             parameters=parameters,
-            nan_fill=nan_fill
+            method=method,
+            outside=outside,
         )
 
-    def export(self,
-               path,
-               site_file: Optional[Path] = None,
-               parameters: Optional[List[str]] = None,
-               format: str = "geojson",
-               nan_fill: Optional[float] = None) -> None:
-        """
-        Export the ground motion data to CSV or GeoJSON.
+    def export(
+        self,
+        path: Union[str, Path],
+        site_file: Optional[Union[str, Path]] = None,
+        parameters: Optional[Sequence[str]] = None,
+        format: str = "geojson",
+        outside: str = "nan",
+    ) -> None:
+        """Export ShakeMap values to CSV or GeoJSON."""
+        if self.gm_data is None:
+            raise RuntimeError("Grid data not loaded.")
 
-        Parameters
-        ----------
-        path : str or Path
-            Output file path (.csv or .geojson).
-        site_file : str or Path, optional
-            Optional input file with site list (CSV or GeoJSON).
-        parameters : list of str, optional
-            Parameters to export. If None, all available will be used.
-        format : str, default 'geojson'
-            Format of site_file: 'csv' or 'geojson'.
-        nan_fill : float, optional
-            Value to assign for missing interpolated data (NaN).
-        """
-        path = Path(path)
-        if site_file is not None:
-            site_file = Path(site_file)
+        output_path = Path(path)
+        suffix = output_path.suffix.lower()
 
-        suffix = path.suffix.lower()
         if suffix == ".csv":
-            self.gm_data.export_csv(path,
-                                    site_file=site_file,
-                                    parameters=parameters,
-                                    format=format,
-                                    nan_fill=nan_fill)
-        elif suffix in (".geojson", ".json"):
-            self.gm_data.export_geojson(path,
-                                        site_file=site_file,
-                                        parameters=parameters,
-                                        format=format,
-                                        nan_fill=nan_fill)
-        else:
-            raise ValueError("Unsupported output file extension: " + suffix)
+            self.gm_data.export_csv(
+                output_path,
+                site_file=site_file,
+                parameters=parameters,
+                format=format,
+                outside=outside,
+            )
+            return
+
+        if suffix in (".geojson", ".json"):
+            self.gm_data.export_geojson(
+                output_path,
+                site_file=site_file,
+                parameters=parameters,
+                format=format,
+                outside=outside,
+            )
+            return
+
+        raise ValueError(
+            f"Unsupported output file extension: {suffix!r}."
+        )
 
     def summary(self) -> None:
-        """
-        Print a summary of the ShakeMap event and its loaded components.
-        """
+        """Print a concise summary of loaded ShakeMap products."""
         print("ShakeMap Summary")
         print("----------------")
-    
-        # Event metadata
-        event_id = "N/A"
-        magnitude = "N/A"
-        origin_time = "N/A"
-        lat = "N/A"
-        lon = "N/A"
-    
-        if self.info:
-            info_event = self.info.get("input", {}).get(
-                "event_information", {}
+        print(f"Event ID:     {self.event_id}")
+        print(f"Magnitude:    {self.magnitude}")
+        print(f"Origin time:  {self.origin_time}")
+        print(
+            "Epicenter:    "
+            f"lat={self.latitude}, lon={self.longitude}"
+        )
+        print(f"Depth:        {self.depth}")
+
+        if self.gm_data is None:
+            print("Grid data:    Not loaded")
+        else:
+            print(f"Grid points:  {len(self.gm_data)}")
+            print(
+                "GM parameters: "
+                + ", ".join(
+                    key
+                    for key in self.gm_data.field_names
+                    if key not in ("LON", "LAT")
+                )
             )
-            event_id = info_event.get("event_id", "N/A")
-            magnitude = info_event.get("magnitude", "N/A")
-            origin_time = info_event.get("origin_time", "N/A")
-            lat = info_event.get("latitude", "N/A")
-            lon = info_event.get("longitude", "N/A")
-    
-        print(f"Event ID:     {event_id}")
-        print(f"Magnitude:    {magnitude}")
-        print(f"Origin time:  {origin_time}")
-        print(f"Epicenter:    lat={lat}, lon={lon}")
-    
-        # Grid summary
-        if self.gm_data:
-            npts = len(self.gm_data)
-            print(f"Grid points:  {npts}")
-    
-            sample_grid = self.gm_data.grid[0]
-            grid_params = [
-                k for k in sample_grid if k not in ("LON", "LAT")
-            ]
-            print("Available GM parameters:",
-                  ", ".join(grid_params))
-    
-            if self.gm_data.uncertainty:
-                sample_unc = self.gm_data.uncertainty[0]
-                unc_params = [
-                    k for k in sample_unc if k not in ("LON", "LAT")
-                ]
-                print("Available STD parameters:",
-                      ", ".join(unc_params))
-            else:
+
+            if self.gm_data.uncertainty is None:
                 print("Uncertainty:  Not loaded")
-    
+            else:
+                print(
+                    "STD parameters: "
+                    + ", ".join(
+                        key
+                        for key in self.gm_data.uncertainty_field_names
+                        if key not in ("LON", "LAT")
+                    )
+                )
+
             lons = self.gm_data.get_param("LON")
             lats = self.gm_data.get_param("LAT")
-            print(f"Longitude range:  {min(lons):.2f}° – {max(lons):.2f}°")
-            print(f"Latitude range:   {min(lats):.2f}° – {max(lats):.2f}°")
-        else:
-            print("Grid data:    Not loaded")
-    
-        # Station info
+
+            print(
+                "Longitude range: "
+                f"{min(lons):.4f} - {max(lons):.4f}"
+            )
+            print(
+                "Latitude range:  "
+                f"{min(lats):.4f} - {max(lats):.4f}"
+            )
+
         if self.stations:
-            nsta = len(self.stations.get("features", []))
-            print(f"Stations loaded: Yes ({nsta} entries)")
+            features = self.stations.get("features", [])
+            count = len(features) if isinstance(features, list) else 0
+            print(f"Stations:     {count}")
         else:
-            print("Stations loaded: No")
+            print("Stations:     Not loaded")
 
-        # Unit info
-        if self.info:
-            print("Units (from info.json):")
-            units = self.get_units()
-            for k, u in units.items():
-                print(f"  {k}: {u}")
+        if self.units:
+            print("Units:")
+            for key, unit in sorted(self.units.items()):
+                print(f"  {key}: {unit}")
 
-# -------------------------------------------------------------------------
-# Internal helper functions
-# -------------------------------------------------------------------------
 
-def _load_json(path: Path) -> Dict:
-    """Internal function to load a JSON file."""
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+# ---------------------------------------------------------------------------
+# XML / JSON parsing helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_json(path: Path) -> Dict[str, Any]:
+    """Load one JSON object from disk."""
+    try:
+        data = json.loads(
+            path.read_text(encoding="utf-8")
+        )
+    except OSError as exc:
+        raise ValueError(
+            f"Cannot read JSON file: {path}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Invalid JSON file: {path}"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"JSON root must be an object: {path}"
+        )
+
+    return data
 
 
 def _load_grid(path: Path) -> List[Dict[str, float]]:
-    """Internal function to load ShakeMap grid or uncertainty XML file."""
-    tree = ET.parse(path)
+    """
+    Backward-compatible helper returning only parsed ShakeMap rows.
+
+    New code should prefer ``_load_grid_product`` because it preserves field
+    metadata and grid geometry.
+    """
+    product = _load_grid_product(path)
+    return [
+        dict(row)
+        for row in product.rows
+    ]
+
+
+def _load_grid_product(path: Path) -> ShakeMapGrid:
+    """
+    Parse a ShakeMap ``grid.xml`` or ``uncertainty.xml`` product.
+
+    Returns
+    -------
+    ShakeMapGrid
+        Parsed rows plus field and grid-geometry metadata.
+    """
+    try:
+        tree = ET.parse(path)
+    except (OSError, ET.ParseError) as exc:
+        raise ValueError(
+            f"Cannot parse ShakeMap XML file: {path}"
+        ) from exc
+
     root = tree.getroot()
-    ns = {"sm": "http://earthquake.usgs.gov/eqcenter/shakemap"}
 
-    fields = root.findall("sm:grid_field", ns)
-    columns = [field.attrib["name"] for field in fields]
+    fields = _parse_grid_fields(root)
 
-    lines = root.find("sm:grid_data", ns).text.strip().split("\n")
-    data = []
-    for line in lines:
-        values = list(map(float, line.strip().split()))
-        data.append(dict(zip(columns, values)))
-    return data
+    if not fields:
+        raise ValueError(
+            f"No grid_field definitions found in {path}."
+        )
+
+    field_names = [
+        field.name
+        for field in fields
+    ]
+
+    if len(set(field_names)) != len(field_names):
+        raise ValueError(
+            f"Duplicate grid_field names in {path}."
+        )
+
+    grid_data_element = _find_child(
+        root,
+        "grid_data",
+    )
+
+    if (
+        grid_data_element is None
+        or grid_data_element.text is None
+        or not grid_data_element.text.strip()
+    ):
+        raise ValueError(
+            f"No grid_data found in {path}."
+        )
+
+    rows: List[Mapping[str, float]] = []
+
+    for line_number, line in enumerate(
+        grid_data_element.text.strip().splitlines(),
+        start=1,
+    ):
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        parts = stripped.split()
+
+        if len(parts) != len(fields):
+            raise ValueError(
+                "ShakeMap grid_data column count mismatch "
+                f"in {path}, line {line_number}: "
+                f"{len(parts)} values for {len(fields)} fields."
+            )
+
+        try:
+            values = [
+                float(value)
+                for value in parts
+            ]
+        except ValueError as exc:
+            raise ValueError(
+                "Non-numeric ShakeMap grid_data value "
+                f"in {path}, line {line_number}."
+            ) from exc
+
+        rows.append(
+            dict(
+                zip(
+                    field_names,
+                    values,
+                )
+            )
+        )
+
+    if not rows:
+        raise ValueError(
+            f"ShakeMap grid contains no rows: {path}"
+        )
+
+    for required in ("LON", "LAT"):
+        if required not in field_names:
+            raise ValueError(
+                f"ShakeMap grid missing required field {required!r}: "
+                f"{path}"
+            )
+
+    spec = _parse_grid_specification(root)
+
+    if spec is not None:
+        expected_count = spec.nlon * spec.nlat
+        if expected_count != len(rows):
+            raise ValueError(
+                "ShakeMap grid size does not match "
+                "grid_specification: "
+                f"expected {expected_count}, got {len(rows)} "
+                f"in {path}."
+            )
+
+    return ShakeMapGrid(
+        rows=tuple(rows),
+        fields=tuple(fields),
+        spec=spec,
+    )
+
+
+def _parse_grid_fields(
+    root: ET.Element,
+) -> List[ShakeMapGridField]:
+    field_elements = _find_all_children(
+        root,
+        "grid_field",
+    )
+
+    fields: List[ShakeMapGridField] = []
+
+    for order, element in enumerate(
+        field_elements,
+        start=1,
+    ):
+        name = element.attrib.get("name")
+        if not name:
+            raise ValueError(
+                "ShakeMap grid_field missing 'name'."
+            )
+
+        raw_index = element.attrib.get(
+            "index",
+            str(order),
+        )
+
+        try:
+            index = int(raw_index)
+        except ValueError as exc:
+            raise ValueError(
+                "ShakeMap grid_field has invalid index: "
+                f"{raw_index!r}."
+            ) from exc
+
+        fields.append(
+            ShakeMapGridField(
+                index=index,
+                name=str(name).strip().upper(),
+                units=str(
+                    element.attrib.get("units", "")
+                ).strip(),
+            )
+        )
+
+    fields.sort(key=lambda field: field.index)
+
+    return fields
+
+
+def _parse_grid_specification(
+    root: ET.Element,
+) -> Optional[ShakeMapGridSpec]:
+    element = _find_child(
+        root,
+        "grid_specification",
+    )
+
+    if element is None:
+        return None
+
+    required = {
+        "lon_min": "lon_min",
+        "lon_max": "lon_max",
+        "lat_min": "lat_min",
+        "lat_max": "lat_max",
+        "lon_spacing": "nominal_lon_spacing",
+        "lat_spacing": "nominal_lat_spacing",
+        "nlon": "nlon",
+        "nlat": "nlat",
+    }
+
+    values: Dict[str, Any] = {}
+
+    for target, source in required.items():
+        raw = element.attrib.get(source)
+        if raw is None:
+            return None
+
+        try:
+            if target in ("nlon", "nlat"):
+                values[target] = int(raw)
+            else:
+                values[target] = float(raw)
+        except ValueError:
+            return None
+
+    return ShakeMapGridSpec(**values)
+
+
+def _find_child(
+    root: ET.Element,
+    local_name: str,
+) -> Optional[ET.Element]:
+    for element in root.iter():
+        if _local_tag_name(element.tag) == local_name:
+            return element
+    return None
+
+
+def _find_all_children(
+    root: ET.Element,
+    local_name: str,
+) -> List[ET.Element]:
+    return [
+        element
+        for element in root.iter()
+        if _local_tag_name(element.tag) == local_name
+    ]
+
+
+def _local_tag_name(tag: str) -> str:
+    if "}" in tag:
+        return tag.rsplit("}", 1)[1]
+    return tag
+
+
+def _normalize_site_tuples(
+    sites: Union[
+        Tuple[float, float],
+        Sequence[Tuple[float, float]],
+    ],
+) -> List[Tuple[float, float]]:
+    if (
+        isinstance(sites, tuple)
+        and len(sites) == 2
+        and all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            for value in sites
+        )
+    ):
+        site_values = [sites]
+    else:
+        if not isinstance(sites, Sequence) or isinstance(
+            sites,
+            (str, bytes),
+        ):
+            raise TypeError(
+                "sites must be a (lon, lat) tuple or a sequence "
+                "of (lon, lat) tuples."
+            )
+        site_values = list(sites)
+
+    out: List[Tuple[float, float]] = []
+
+    for site in site_values:
+        if (
+            not isinstance(site, Sequence)
+            or len(site) != 2
+        ):
+            raise ValueError(
+                "Each site must contain longitude and latitude."
+            )
+
+        lon = float(site[0])
+        lat = float(site[1])
+
+        if not (
+            math.isfinite(lon)
+            and math.isfinite(lat)
+        ):
+            raise ValueError(
+                "Site longitude and latitude must be finite."
+            )
+
+        out.append((lon, lat))
+
+    return out
+
+
+def _first_mapping_value(
+    mapping: Mapping[str, Any],
+    keys: Sequence[str],
+    label: str,
+) -> Any:
+    for key in keys:
+        if key in mapping:
+            return mapping[key]
+
+    raise ValueError(
+        f"Missing required field {label!r}; "
+        f"expected one of {list(keys)}."
+    )
+
+
+__all__ = [
+    "ShakeMapGridField",
+    "ShakeMapGridSpec",
+    "ShakeMapGrid",
+    "ShakeMapGMData",
+    "ShakeMapEvent",
+]

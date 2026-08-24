@@ -27,6 +27,9 @@ This module provides:
 The client speaks the length-prefixed JSON TCP protocol implemented in
 :mod:`protocol`.
 
+Ground-motion configuration belongs to the selected ScenarioModel on the
+server and is therefore not specified through the standard submit CLI.
+
 """
 
 from __future__ import annotations
@@ -179,8 +182,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_submit.add_argument("--tag", default=None)
     p_submit.add_argument("--request-json", dest="request_json", default=None)
     p_submit.add_argument("--model-id", dest="model_id", default=None)
-    p_submit.add_argument("--gmpe", default=None)
-    p_submit.add_argument("--distance-approx", dest="distance_approx", default=None)
     p_submit.add_argument("--mag", type=float, default=None)
     p_submit.add_argument("--lon", type=float, default=None)
     p_submit.add_argument("--lat", type=float, default=None)
@@ -190,6 +191,12 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="origin_time",
         default=None,
         help="Origin time (ISO-8601).",
+    )
+    p_submit.add_argument(
+        "--event-id",
+        dest="event_id",
+        default=None,
+        help="Event identifier (required by event-specific providers).",
     )
 
     p_list = sub.add_parser("list", help="List jobs.")
@@ -286,15 +293,20 @@ def _job_key_fields(job: dict[str, Any]) -> dict[str, str]:
     lon = _get_nested(params, ["scenario", "event", "hypocentre", "longitude"], None)
     lat = _get_nested(params, ["scenario", "event", "hypocentre", "latitude"], None)
     elev = _get_nested(params, ["scenario", "event", "hypocentre", "elevation"], None)
-    gmpe = _get_nested(params, ["scenario", "ground_motion", "gmpe_name"], "-")
-
+    event_id = _get_nested(
+        params,
+        ["scenario", "event", "event_id"],
+        None,
+    )
     return {
         "model_id": str(model_id) if model_id is not None else "-",
         "mag": _format_float(mag, 2) if mag is not None else "-",
         "lon": _format_float(lon, 4) if lon is not None else "-",
         "lat": _format_float(lat, 4) if lat is not None else "-",
         "depth": _elevation_to_depth_km(elev),
-        "gmpe": str(gmpe) if gmpe is not None else "-",
+        "event_id": (
+            str(event_id) if event_id is not None else "-"
+        ),
     }
 
 
@@ -325,6 +337,7 @@ def _print_list_text(res: dict[str, Any]) -> None:
         "created_at",
         "tag",
         "model_id",
+        "event_id",
         "mag",
         "lon",
         "lat",
@@ -367,8 +380,6 @@ def _print_get_text(job: dict[str, Any]) -> None:
     print(f"  magnitude: {k['mag']}")
     print(f"  lon/lat: {k['lon']} / {k['lat']}")
     print(f"  depth_km: {k['depth']}")
-    if k["gmpe"] != "-":
-        print(f"  gmpe: {k['gmpe']}")
 
     meta = job.get("result_meta", {})
     if isinstance(meta, dict) and meta:
@@ -464,12 +475,18 @@ def _merge_submit_payload(
 
     mag = _safe_getattr(args, "mag", None)
     origin_time = _safe_getattr(args, "origin_time", None)
+    event_id = _safe_getattr(args, "event_id", None)
     lon = _safe_getattr(args, "lon", None)
     lat = _safe_getattr(args, "lat", None)
     depth = _safe_getattr(args, "depth", None)
 
     if origin_time is not None:
         event["origin_time"] = str(origin_time)
+    if event_id is not None:
+        event_id = str(event_id).strip()
+        if not event_id:
+            raise ValueError("--event-id must not be empty.")
+        event["event_id"] = event_id
     if mag is not None:
         event["magnitude"] = float(mag)
     if lon is not None:
@@ -484,22 +501,13 @@ def _merge_submit_payload(
     if event:
         scenario["event"] = event
 
-    gm = scenario.get("ground_motion", {})
-    if not isinstance(gm, dict):
-        gm = {}
-
-    gmpe = _safe_getattr(args, "gmpe", None)
-    dist_approx = _safe_getattr(args, "distance_approx", None)
-
-    if gmpe is not None:
-        gm["provider"] = "gmpe"
-        gm["gmpe_name"] = str(gmpe)
-    if dist_approx is not None:
-        gm["distance_approx"] = str(dist_approx)
-    if gm:
-        scenario["ground_motion"] = gm
-
     if scenario:
+        if "ground_motion" in scenario:
+            raise ValueError(
+                "scenario.ground_motion is no longer accepted by the "
+                "standard ShakeScenario v1 client. Ground-motion "
+                "configuration belongs to the selected model."
+            )
         payload["scenario"] = scenario
 
     return payload

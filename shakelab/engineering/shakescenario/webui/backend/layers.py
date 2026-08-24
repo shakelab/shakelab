@@ -44,7 +44,6 @@ DAMAGE_LEVELS = (
     "D3",
     "D4",
     "D5",
-    "GT_LAST",
 )
 
 
@@ -316,9 +315,11 @@ def _add_ground_motion_scalars(
     if isinstance(pga, dict):
         pga_median = _as_number(pga.get("median"))
         pga_sigma = _as_number(pga.get("sigma_ln"))
+        pga_provider = pga.get("provider_id")
     else:
         pga_median = _as_number(pga)
         pga_sigma = None
+        pga_provider = None
 
     if pga_median is not None:
         properties["PGA"] = pga_median
@@ -327,6 +328,9 @@ def _add_ground_motion_scalars(
 
     if pga_sigma is not None:
         properties["pga_sigma_ln"] = pga_sigma
+
+    if pga_provider is not None:
+        properties["pga_provider_id"] = str(pga_provider)
 
 
 def _add_damage_scalars(
@@ -346,12 +350,9 @@ def _add_damage_scalars(
 
         d4 = _as_number(expected.get("D4")) or 0.0
         d5 = _as_number(expected.get("D5")) or 0.0
-        gt_last = _as_number(expected.get("GT_LAST")) or 0.0
-
         properties["damage_d4_d5"] = d4 + d5
-        properties["damage_gt_last"] = gt_last
-        properties["damage_total"] = d4 + d5 + gt_last
-        properties["damage"] = d4 + d5 + gt_last
+        properties["damage_total"] = d4 + d5
+        properties["damage"] = d4 + d5
 
     if isinstance(probabilities, dict):
         for level in DAMAGE_LEVELS:
@@ -361,10 +362,8 @@ def _add_damage_scalars(
 
         prob_d4 = _as_number(probabilities.get("D4")) or 0.0
         prob_d5 = _as_number(probabilities.get("D5")) or 0.0
-        prob_gt_last = _as_number(probabilities.get("GT_LAST")) or 0.0
-
         properties["prob_damage_d4_d5"] = prob_d4 + prob_d5
-        properties["prob_damage_total"] = prob_d4 + prob_d5 + prob_gt_last
+        properties["prob_damage_total"] = prob_d4 + prob_d5
 
 
 def _copy_first(

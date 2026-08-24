@@ -8,17 +8,14 @@
   "server": {},
   "defaults": {
     "model_id": "ne_italy_default",
-    "ground_motion": {
-      "provider": "gmpe",
-      "gmpe_name": "BragatoSlejko2005",
-      "distance_approx": "ellipsoid"
-    },
     "impact_config": {
       "uncertainty_mode": "lognormal",
+      "output": "state",
       "typology_weighting": "count",
+      "normalize_asset_probabilities": true,
       "missing_taxonomy": "raise",
       "no_damage_key": "D0",
-      "tail_key": "GT_LAST"
+      "include_typology_breakdown": true
     }
   }
 }

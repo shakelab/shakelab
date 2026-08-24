@@ -16,53 +16,56 @@
 # with this download. If not, see <http://www.gnu.org/licenses/>
 # ****************************************************************************
 """
-ShakeScenario: ground-motion interface and providers.
+General ground-motion interface and providers.
 
-This module defines the ground-motion layer used by ShakeScenario. It provides
-a stable API to compute intensity measures (IMs) at arbitrary sites for a given
-scenario event, independently of any impact/fragility/exposure logic.
+This module defines a provider-independent interface for computing intensity
+measures at arbitrary sites for a scenario event.
 
-Main components
----------------
-- ScenarioEvent:
-  Minimal seismic source container (hypocentre, magnitude, optional metadata)
-  providing convenience accessors (epicentre, depth_km).
+The scientific providers implemented here are intentionally independent of
+the engineering exposure/fragility/impact layers. Engineering-level provider
+configuration and asset routing are implemented in
+``shakelab.engineering.groundmotion``.
 
-- GroundMotionProvider:
-  Factory/registry to instantiate a selected ground-motion backend:
-  - "gmpe": analytical/statistical GMPEs implemented in ShakeLab
-  - "shakemap": precomputed products (placeholder / skeleton)
-  - "plugin": external or numerical simulators (placeholder / skeleton)
+Providers
+---------
+``gmpe``
+    Analytical/statistical GMPEs implemented in ShakeLab.
 
-- GroundMotionContext:
-  Lightweight context that binds a ScenarioEvent to a provider and exposes
-  helpers to evaluate IM at multiple sites or at a single lon/lat location.
+``shakemap``
+    Precomputed ShakeMap products read through ``shakelab.gmmodel.usgs``.
+
+``plugin``
+    Placeholder for external or numerical ground-motion backends.
 
 Output convention
 -----------------
-All providers return a pair (im, sigma_ln) for each site:
-- im: median IM value in linear space (NOT logarithmic). Units are assumed to be
-  consistent by design (no unit conversion is performed here).
-- sigma_ln: standard deviation of ln(IM), dimensionless. If not available,
-  providers should return 0.0.
+Providers return ``(im, sigma_ln)``:
 
-Distance metric
----------------
-For GMPE-based providers, the distance metric is taken from the GMPE itself
-(via `DISTANCE_METRIC`) and is used consistently for both the GMPE input and any
-diagnostic distance computations. Hypocentral distances rely on WgsPoint 3-D
-distance methods (using point elevation).
+- ``im`` is the median intensity measure in linear space;
+- ``sigma_ln`` is the standard deviation of ln(IM).
 
-Notes
------
-None
+A fully general unit system is not yet enforced by this module. Individual
+providers must document their output convention explicitly.
+
+For the current ShakeMap provider, the default output convention is chosen to
+match the existing ShakeLab fragility models:
+
+- PGA and spectral acceleration: ``g``;
+- PGV: ``cm/s``;
+- MMI: dimensionless.
+
+ShakeMap XML acceleration values expressed in percent-g are therefore divided
+by 100. This policy is explicit and configurable pending a general ShakeLab
+unit framework.
 """
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from math import exp, isfinite
-
+from pathlib import Path
 from typing import (
     Any,
     Callable,
@@ -81,33 +84,27 @@ from shakelab.libutils.geodeticN.primitives import WgsPoint
 # Scenario primitives
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ScenarioEvent:
     """
-    Seismic event container for impact scenarios.
+    Seismic event container used by ground-motion providers.
 
-    This class represents a single seismic source used in deterministic
-    or scenario-based impact calculations.
-
-    Conventions
-    -----------
-    - Coordinates use WGS84 longitude/latitude in degrees.
-    - Elevation is expressed in meters.
-
-    Attributes
+    Parameters
     ----------
     magnitude
-        Magnitude value, assumed compatible with the selected GMPE.
+        Event magnitude.
     hypocentre
-        Hypocentral location as a WgsPoint instance.
+        Hypocentral location as WgsPoint.
     origin_time
-        Optional origin time (ISO string or Date-like object).
+        Optional origin time.
     mechanism
-        Optional focal mechanism mapping (e.g. strike/dip/rake).
+        Optional focal-mechanism mapping.
     event_id
-        Optional event identifier.
+        Optional event identifier. Providers backed by event-specific
+        products, such as ShakeMap, may require it.
     magnitude_type
-        Optional magnitude type (e.g. "Mw", "ML").
+        Optional magnitude type.
     """
 
     magnitude: float
@@ -120,47 +117,29 @@ class ScenarioEvent:
     def __post_init__(self) -> None:
         self.validate()
 
-    # ------------------------------------------------------------------
-    # Derived geometric properties
-    # ------------------------------------------------------------------
-
     @property
     def longitude(self) -> float:
-        """Return hypocentre longitude (degrees)."""
+        """Return hypocentre longitude in degrees."""
         return float(self.hypocentre.longitude)
 
     @property
     def latitude(self) -> float:
-        """Return hypocentre latitude (degrees)."""
+        """Return hypocentre latitude in degrees."""
         return float(self.hypocentre.latitude)
 
     @property
     def depth_km(self) -> float:
-        """
-        Return depth in kilometers (positive downward).
-
-        Depth is derived from hypocentre elevation as:
-            depth_km = -elevation / 1000.
-        """
+        """Return hypocentral depth in km, positive downward."""
         return -float(self.hypocentre.elevation) / 1000.0
 
     @property
     def epicentre(self) -> WgsPoint:
-        """
-        Return epicentre (surface projection) as a WgsPoint.
-
-        The returned point has the same longitude and latitude as the
-        hypocentre, with elevation set to 0.0 m.
-        """
+        """Return surface projection of the hypocentre."""
         return WgsPoint(
             longitude=self.longitude,
             latitude=self.latitude,
             elevation=0.0,
         )
-
-    # ------------------------------------------------------------------
-    # Constructors
-    # ------------------------------------------------------------------
 
     @classmethod
     def from_lonlat_depth(
@@ -171,51 +150,22 @@ class ScenarioEvent:
         depth_km: float,
         **kwargs: Any,
     ) -> "ScenarioEvent":
-        """
-        Build a ScenarioEvent from longitude, latitude and depth.
-
-        Parameters
-        ----------
-        magnitude
-            Event magnitude.
-        longitude, latitude
-            Hypocentre coordinates in degrees (WGS84).
-        depth_km
-            Depth in kilometers (positive downward).
-
-        Returns
-        -------
-        ScenarioEvent
-            New instance with hypocentre elevation set to
-            -depth_km * 1000 meters.
-        """
-        hypo = WgsPoint(
-            longitude=float(longitude),
-            latitude=float(latitude),
-            elevation=-float(depth_km) * 1000.0,
-        )
+        """Build an event from longitude, latitude and depth."""
         return cls(
             magnitude=float(magnitude),
-            hypocentre=hypo,
+            hypocentre=WgsPoint(
+                longitude=float(longitude),
+                latitude=float(latitude),
+                elevation=-float(depth_km) * 1000.0,
+            ),
             **kwargs,
         )
 
-    # ------------------------------------------------------------------
-    # Validation
-    # ------------------------------------------------------------------
-
     def validate(self) -> None:
-        """
-        Validate event geometry and numerical consistency.
-
-        The validation is intentionally lightweight and checks only:
-        - numeric type and finiteness of magnitude,
-        - presence and type of hypocentre,
-        - finite longitude, latitude and elevation,
-        - longitude/latitude ranges.
-        """
-        if not isinstance(self.magnitude, (int, float)) or isinstance(
-            self.magnitude, bool
+        """Validate basic event geometry and metadata."""
+        if (
+            not isinstance(self.magnitude, (int, float))
+            or isinstance(self.magnitude, bool)
         ):
             raise TypeError("magnitude must be a number.")
 
@@ -235,80 +185,57 @@ class ScenarioEvent:
                 "must be finite."
             )
 
-        if not (-180.0 <= lon <= 180.0):
+        if not -180.0 <= lon <= 180.0:
             raise ValueError("longitude out of range [-180, 180].")
 
-        if not (-90.0 <= lat <= 90.0):
+        if not -90.0 <= lat <= 90.0:
             raise ValueError("latitude out of range [-90, 90].")
 
         if self.mechanism is not None and not isinstance(
-            self.mechanism, Mapping
+            self.mechanism,
+            Mapping,
         ):
             raise TypeError("mechanism must be a mapping or None.")
 
+        if self.event_id is not None:
+            if not isinstance(self.event_id, str):
+                raise TypeError("event_id must be a string or None.")
+            if not self.event_id.strip():
+                raise ValueError("event_id must not be empty.")
+
 
 # ---------------------------------------------------------------------------
-# Ground-motion providers (factory + interface)
+# Provider registry and interface
 # ---------------------------------------------------------------------------
+
 
 class GroundMotionProvider:
-    """
-    Factory/registry for ground-motion evaluation backends.
-
-    This class registers provider constructors (GMPE, ShakeMap, plugins, ...)
-    and instantiates them from an identifier plus an optional configuration
-    mapping.
-
-    Output convention
-    -----------------
-    Concrete providers must implement::
-
-        evaluate(
-            imt: str,
-            sites: Sequence[WgsPoint],
-            event: ScenarioEvent,
-            **kwargs: Any,
-        ) -> Tuple[List[float], List[float]]
-
-    and return:
-    - im: median intensity-measure value (linear, NOT logarithmic)
-    - sigma_ln: standard deviation of ln(IM) (dimensionless)
-
-    No unit conversion is performed here.
-    """
+    """Factory/registry for ground-motion evaluation backends."""
 
     _REGISTRY: Dict[str, Callable[..., "_BaseProvider"]] = {}
 
     @classmethod
-    def register(cls, provider_id: str) -> Callable[..., Any]:
-        """
-        Decorator to register a provider constructor.
-
-        Parameters
-        ----------
-        provider_id
-            Registry identifier for the provider (e.g. "gmpe", "shakemap",
-            "plugin"). It must be a non-empty string.
-
-        Returns
-        -------
-        Callable
-            A decorator that registers the decorated constructor.
-        """
+    def register(
+        cls,
+        provider_id: str,
+    ) -> Callable[..., Any]:
+        """Register a provider constructor."""
         if not isinstance(provider_id, str) or not provider_id.strip():
             raise ValueError("provider_id must be a non-empty string.")
 
-        def _decorator(fn: Callable[..., "_BaseProvider"]) -> Callable[..., Any]:
-            cls._REGISTRY[provider_id] = fn
-            return fn
+        key = provider_id.strip()
+
+        def _decorator(
+            provider: Callable[..., "_BaseProvider"],
+        ) -> Callable[..., Any]:
+            cls._REGISTRY[key] = provider
+            return provider
 
         return _decorator
 
     @classmethod
     def available_ids(cls) -> List[str]:
-        """
-        Return the list of registered provider IDs (sorted).
-        """
+        """Return registered provider identifiers."""
         return sorted(cls._REGISTRY.keys())
 
     @classmethod
@@ -318,30 +245,7 @@ class GroundMotionProvider:
         *,
         config: Optional[Mapping[str, Any]] = None,
     ) -> "_BaseProvider":
-        """
-        Instantiate a provider by registry id.
-
-        Parameters
-        ----------
-        provider_id
-            The registered provider identifier.
-        config
-            Provider-specific configuration mapping. The mapping is copied
-            into a plain dict and expanded as keyword arguments to the
-            registered constructor.
-
-        Returns
-        -------
-        _BaseProvider
-            The instantiated provider.
-
-        Raises
-        ------
-        KeyError
-            If `provider_id` is not registered.
-        TypeError
-            If `config` is provided but is not a mapping.
-        """
+        """Instantiate a registered provider."""
         if provider_id not in cls._REGISTRY:
             raise KeyError(
                 f"Unknown provider_id: {provider_id!r}. Available: "
@@ -352,14 +256,10 @@ class GroundMotionProvider:
             cfg: Dict[str, Any] = {}
         else:
             if not isinstance(config, Mapping):
-                raise TypeError("config must be a mapping (dict-like).")
+                raise TypeError("config must be a mapping.")
             cfg = dict(config)
 
         return cls._REGISTRY[provider_id](**cfg)
-
-    # ------------------------------------------------------------------
-    # Convenience constructors
-    # ------------------------------------------------------------------
 
     @classmethod
     def gmpe(
@@ -369,26 +269,7 @@ class GroundMotionProvider:
         distance_approx: str = "ellipsoid",
         config: Optional[Mapping[str, Any]] = None,
     ) -> "_BaseProvider":
-        """
-        Convenience constructor for the GMPE provider.
-
-        Parameters
-        ----------
-        gmpe_name
-            Canonical GMPE name or alias, as defined by the ShakeLab GMPE
-            registry (registry.json).
-        distance_approx
-            Approximation model forwarded to hypocentral distance calculations.
-            Typical values: "ellipsoid", "sphere".
-        config
-            Optional extra configuration mapping forwarded to the GMPE provider
-            constructor (and, ultimately, to the GMPE constructor).
-
-        Returns
-        -------
-        _BaseProvider
-            The instantiated GMPE provider.
-        """
+        """Convenience constructor for the GMPE provider."""
         cfg = dict(config or {})
         cfg["gmpe_name"] = gmpe_name
         cfg["distance_approx"] = distance_approx
@@ -400,19 +281,7 @@ class GroundMotionProvider:
         *,
         config: Optional[Mapping[str, Any]] = None,
     ) -> "_BaseProvider":
-        """
-        Convenience constructor for precomputed ShakeMap providers.
-
-        Parameters
-        ----------
-        config
-            Optional provider-specific configuration mapping.
-
-        Returns
-        -------
-        _BaseProvider
-            The instantiated ShakeMap provider.
-        """
+        """Convenience constructor for the ShakeMap provider."""
         return cls.from_id("shakemap", config=config)
 
     @classmethod
@@ -422,51 +291,14 @@ class GroundMotionProvider:
         *,
         config: Optional[Mapping[str, Any]] = None,
     ) -> "_BaseProvider":
-        """
-        Convenience constructor for plugin/simulation providers.
-
-        Parameters
-        ----------
-        plugin_id
-            Identifier used by the plugin provider to select the backend
-            implementation.
-        config
-            Optional provider-specific configuration mapping.
-
-        Returns
-        -------
-        _BaseProvider
-            The instantiated plugin provider.
-        """
+        """Convenience constructor for plugin providers."""
         cfg = dict(config or {})
         cfg["plugin_id"] = plugin_id
         return cls.from_id("plugin", config=cfg)
 
 
 class _BaseProvider:
-    """
-    Provider interface (internal base class).
-
-    The concrete providers (GMPE / ShakeMap / Plugin) must implement a single
-    method, :meth:`evaluate`, with a stable output convention.
-
-    Output convention
-    -----------------
-    The provider must return:
-
-        (im, sigma_ln)
-
-    where, for each requested site:
-    - im is the **median** intensity-measure value (linear, NOT logarithmic),
-      expressed in **SI units** (no unit conversion is performed here).
-    - sigma_ln is the standard deviation of ln(IM) (dimensionless). If the
-      provider cannot supply uncertainty, it should return 0.0.
-
-    Notes
-    -----
-    Many GMPEs return (mu_ln, sigma_ln); in that case return im = exp(mu_ln)
-    while keeping sigma_ln unchanged.
-    """
+    """Internal provider interface."""
 
     def evaluate(
         self,
@@ -475,69 +307,18 @@ class _BaseProvider:
         event: ScenarioEvent,
         **kwargs: Any,
     ) -> Tuple[List[float], List[float]]:
-        """
-        Evaluate ground motion at the given sites.
-
-        Parameters
-        ----------
-        imt
-            Intensity measure type (e.g. "PGA", "PGV", "SA(0.3)").
-        sites
-            Target sites as WgsPoint objects.
-        event
-            ScenarioEvent instance (updated API: `hypocentre`, `epicentre`,
-            `depth_km`, etc.).
-        **kwargs
-            Provider-specific options.
-
-        Returns
-        -------
-        (im, sigma_ln)
-            im: list of median IM values (linear, SI units).
-            sigma_ln: list of lognormal sigmas in ln-space (dimensionless).
-
-        Raises
-        ------
-        NotImplementedError
-            If the provider does not implement this method.
-        """
+        """Evaluate median IM and sigma_ln."""
         raise NotImplementedError
+
+
+# ---------------------------------------------------------------------------
+# GMPE provider
+# ---------------------------------------------------------------------------
 
 
 @GroundMotionProvider.register("gmpe")
 class _GmpeProvider(_BaseProvider):
-    """
-    GMPE-backed ground motion provider.
-
-    The GMPE implementation is selected by name (or alias) through the
-    ShakeLab GMPE registry located in `shakelab.gmmodel.gmpe.registry`.
-
-    Output convention
-    -----------------
-    Returns:
-        (im, sigma_ln)
-
-    where:
-    - im is the median IM in linear units (NOT logarithmic)
-    - sigma_ln is the standard deviation of ln(IM)
-
-    No unit conversion is performed here. The GMPE is assumed to provide a
-    consistent unit system (ideally SI) by design.
-
-    Parameters
-    ----------
-    gmpe_name
-        Canonical GMPE name or alias as defined in registry.json.
-    gmpe_kwargs
-        Extra keyword arguments forwarded to the GMPE constructor.
-
-    Notes
-    -----
-    - Distance metric is taken from self._gmpe.DISTANCE_METRIC.
-    - Many GMPEs return (mu_ln, sigma_ln). This provider converts the mean
-      to linear median IM using:
-          im = exp(mu_ln)
-    """
+    """Ground-motion provider backed by the ShakeLab GMPE registry."""
 
     def __init__(
         self,
@@ -547,7 +328,11 @@ class _GmpeProvider(_BaseProvider):
     ) -> None:
         from shakelab.gmmodel.gmpe.registry import create_gmpe
 
-        self._gmpe = create_gmpe(gmpe_name, **gmpe_kwargs)
+        self._gmpe = create_gmpe(
+            gmpe_name,
+            **gmpe_kwargs,
+        )
+
         approx = str(distance_approx).strip().lower()
         self._distance_approx = approx or "ellipsoid"
 
@@ -558,34 +343,19 @@ class _GmpeProvider(_BaseProvider):
         event: ScenarioEvent,
         **kwargs: Any,
     ) -> Tuple[List[float], List[float]]:
-        """
-        Evaluate median IM and sigma_ln at the given sites.
-
-        Parameters
-        ----------
-        imt
-            Intensity measure type (e.g. "PGA", "PGV", "SA(0.3)").
-        sites
-            Target sites as WgsPoint objects.
-        event
-            ScenarioEvent instance (updated API).
-        **kwargs
-            Reserved for provider-specific runtime options (currently unused).
-
-        Returns
-        -------
-        (im, sigma_ln)
-            im: list of median IM values (linear).
-            sigma_ln: list of lognormal sigmas in ln-space.
-        """
-        _ = kwargs  # reserved for future runtime options
+        """Evaluate a GMPE at all requested sites."""
+        _ = kwargs
 
         metric = self._get_distance_metric()
-        im: List[float] = []
+
+        values: List[float] = []
         sigma_ln: List[float] = []
 
         for site in sites:
-            dist_km = self._compute_distance_km(
+            if not isinstance(site, WgsPoint):
+                raise TypeError("sites must contain WgsPoint objects.")
+
+            distance_km = self._compute_distance_km(
                 event,
                 site,
                 metric,
@@ -595,41 +365,35 @@ class _GmpeProvider(_BaseProvider):
             mean_ln, sig_ln = self._gmpe.ground_motion(
                 imt,
                 event.magnitude,
-                dist_km,
+                distance_km,
             )
 
             mean_ln_f = float(mean_ln)
             sig_ln_f = float(sig_ln)
 
-            if not isfinite(mean_ln_f):
-                im.append(float("nan"))
+            if isfinite(mean_ln_f):
+                values.append(exp(mean_ln_f))
             else:
-                im.append(exp(mean_ln_f))
+                values.append(float("nan"))
 
             if not isfinite(sig_ln_f) or sig_ln_f < 0.0:
                 sig_ln_f = float("nan")
+
             sigma_ln.append(sig_ln_f)
 
-        return im, sigma_ln
+        return values, sigma_ln
 
     def _get_distance_metric(self) -> str:
-        """
-        Return the distance metric required by the GMPE.
-    
-        The metric is taken from `self._gmpe.DISTANCE_METRIC` (expected to be
-        always defined and standard in ShakeLab GMPEs).
-        """
-        metric = str(getattr(self._gmpe, "DISTANCE_METRIC")).strip().lower()
-    
-        # Normalize standard synonyms
+        metric = str(
+            getattr(self._gmpe, "DISTANCE_METRIC")
+        ).strip().lower()
+
         if metric in {"repi", "epicentral"}:
             return "epicentral"
-    
+
         if metric in {"rhypo", "hypocentral"}:
             return "hypocentral"
-    
-        # If ShakeLab guarantees standard values, you may prefer raising here
-        # to catch unexpected entries early.
+
         raise ValueError(
             f"Unsupported GMPE distance metric: {metric!r}. "
             "Expected 'epicentral/repi' or 'hypocentral/rhypo'."
@@ -642,71 +406,136 @@ class _GmpeProvider(_BaseProvider):
         metric: str,
         approx: str = "ellipsoid",
     ) -> float:
-        """
-        Compute distance in km according to the requested metric.
-
-        Parameters
-        ----------
-        event
-            ScenarioEvent instance.
-        site
-            Target site as WgsPoint.
-        metric
-            Distance metric identifier.
-        approx
-            Approximation model for hypocentral distance, forwarded to
-            WgsPoint.hypocentral_distance_to(). Supported: "ellipsoid",
-            "sphere".
-
-        Returns
-        -------
-        float
-            Distance in km.
-
-        Notes
-        -----
-        geodeticN primitives operate in meters; here we convert to km.
-        Hypocentral distance uses point elevations (3-D straight-line
-        distance in ECEF/ellipsoid or sphere approximation).
-        """
         if metric == "epicentral":
-            return float(event.epicentre.epicentral_distance_to(site)) / 1000.0
-        
-        if metric == "hypocentral":
-            return float(
-                event.hypocentre.hypocentral_distance_to(
-                    site, approx=approx
+            return (
+                float(
+                    event.epicentre.epicentral_distance_to(site)
                 )
-            ) / 1000.0
-        
-        raise ValueError(f"Unsupported distance metric: {metric!r}")
+                / 1000.0
+            )
+
+        if metric == "hypocentral":
+            return (
+                float(
+                    event.hypocentre.hypocentral_distance_to(
+                        site,
+                        approx=approx,
+                    )
+                )
+                / 1000.0
+            )
+
+        raise ValueError(
+            f"Unsupported distance metric: {metric!r}."
+        )
+
+
+# ---------------------------------------------------------------------------
+# ShakeMap provider
+# ---------------------------------------------------------------------------
 
 
 @GroundMotionProvider.register("shakemap")
 class _ShakeMapProvider(_BaseProvider):
     """
-    Precomputed ShakeMap provider (skeleton).
-
-    This provider is expected to:
-    - load a ShakeMap grid/point dataset from disk or a service
-    - interpolate values to requested sites
-    - return **linear** median IM in SI units and sigma of ln(IM)
-      (if available; else sigma=0)
+    Provider backed by event-specific ShakeMap XML products.
 
     Parameters
     ----------
-    path
-        Path (or URL) to the ShakeMap source.
+    root_path
+        Root directory containing one subdirectory per ShakeMap event id.
+        For ``event.event_id == "183907"``, the provider reads
+        ``root_path/183907``.
     interp
-        Interpolation method identifier (provider-specific).
-    **kwargs
-        Provider-specific options.
+        Spatial interpolation method: ``linear`` or ``nearest``.
+    outside
+        Behavior outside the ShakeMap domain: ``raise`` or ``nan``.
+    load_uncertainty
+        Load ``uncertainty.xml`` when present.
+    require_uncertainty
+        If True, fail when the uncertainty field for the requested IMT is
+        unavailable. If False, missing uncertainty is returned as 0.0.
+    require_info
+        Require ``info.json`` in every event directory.
+    check_event_id
+        Compare event id from ``info.json`` with the requested event id when
+        metadata are available.
+    acceleration_unit
+        Output acceleration unit. Supported: ``g`` and ``percent_g``.
+        The default ``g`` matches current ShakeLab fragility examples.
+    velocity_unit
+        Output velocity unit. Supported: ``cm/s`` and ``m/s``.
     """
 
-    def __init__(self, path: str, interp: str = "bilinear", **kwargs: Any) -> None:
-        self.path = path
-        self.interp = interp
+    _IMT_FIELDS = {
+        "PGA": ("PGA", "STDPGA", "acceleration"),
+        "PGV": ("PGV", "STDPGV", "velocity"),
+        "MMI": ("MMI", "STDMMI", "intensity"),
+        "SA(0.3)": ("PSA03", "STDPSA03", "acceleration"),
+        "SA(1.0)": ("PSA10", "STDPSA10", "acceleration"),
+        "SA(3.0)": ("PSA30", "STDPSA30", "acceleration"),
+    }
+
+    def __init__(
+        self,
+        root_path: str,
+        interp: str = "linear",
+        outside: str = "raise",
+        load_uncertainty: bool = True,
+        require_uncertainty: bool = False,
+        require_info: bool = False,
+        check_event_id: bool = True,
+        acceleration_unit: str = "g",
+        velocity_unit: str = "cm/s",
+        **kwargs: Any,
+    ) -> None:
+        self.root_path = Path(root_path).expanduser().resolve()
+
+        if not self.root_path.exists():
+            raise FileNotFoundError(
+                f"ShakeMap root directory not found: "
+                f"{self.root_path}"
+            )
+
+        if not self.root_path.is_dir():
+            raise ValueError(
+                f"ShakeMap root path is not a directory: "
+                f"{self.root_path}"
+            )
+
+        interp_key = str(interp).strip().lower()
+        if interp_key == "bilinear":
+            interp_key = "linear"
+
+        if interp_key not in {"linear", "nearest"}:
+            raise ValueError(
+                "ShakeMap interp must be 'linear' or 'nearest'."
+            )
+
+        outside_key = str(outside).strip().lower()
+        if outside_key not in {"raise", "nan"}:
+            raise ValueError(
+                "ShakeMap outside must be 'raise' or 'nan'."
+            )
+
+        acceleration_key = _normalize_acceleration_unit(
+            acceleration_unit
+        )
+        velocity_key = _normalize_velocity_unit(
+            velocity_unit
+        )
+
+        self.interp = interp_key
+        self.outside = outside_key
+        self.load_uncertainty = bool(load_uncertainty)
+        self.require_uncertainty = bool(require_uncertainty)
+        self.require_info = bool(require_info)
+        self.check_event_id = bool(check_event_id)
+        self.acceleration_unit = acceleration_key
+        self.velocity_unit = velocity_key
         self.kwargs = dict(kwargs)
+
+        self._cache: Dict[str, Any] = {}
 
     def evaluate(
         self,
@@ -716,41 +545,217 @@ class _ShakeMapProvider(_BaseProvider):
         **kwargs: Any,
     ) -> Tuple[List[float], List[float]]:
         """
-        Evaluate median IM and sigma_ln at the given sites.
+        Interpolate ShakeMap median IM and sigma_ln at requested sites.
 
-        Notes
-        -----
-        This skeleton returns zeros. A real implementation should:
-        - read IM values for `imt` in SI units
-        - interpolate to each requested site
-        - return sigma_ln if provided by the ShakeMap product, else 0.0
+        Runtime keyword arguments may override ``interp`` and ``outside``.
         """
-        im = [0.0 for _ in sites]
-        sigma_ln = [0.0 for _ in sites]
-        return im, sigma_ln
+        from shakelab.gmmodel.usgs import ShakeMapEvent
+
+        _ = ShakeMapEvent
+
+        event_id = self._event_id(event)
+        shakemap = self._load_event(event_id)
+
+        imt_key = _normalize_imt(imt)
+        field, sigma_field, quantity = self._field_mapping(imt_key)
+
+        if shakemap.gm_data is None:
+            raise RuntimeError(
+                f"ShakeMap event {event_id!r} has no grid data."
+            )
+
+        if not shakemap.gm_data.has_param(field):
+            available = ", ".join(shakemap.gm_data.field_names)
+            raise KeyError(
+                f"ShakeMap field {field!r} required for IMT "
+                f"{imt_key!r} is unavailable. Available: {available}."
+            )
+
+        has_sigma = shakemap.gm_data.has_param(sigma_field)
+
+        if self.require_uncertainty and not has_sigma:
+            raise KeyError(
+                f"ShakeMap uncertainty field {sigma_field!r} "
+                f"required for IMT {imt_key!r} is unavailable."
+            )
+
+        parameters = [field]
+        if has_sigma:
+            parameters.append(sigma_field)
+
+        interp = str(
+            kwargs.get("interp", self.interp)
+        ).strip().lower()
+        if interp == "bilinear":
+            interp = "linear"
+
+        outside = str(
+            kwargs.get("outside", self.outside)
+        ).strip().lower()
+
+        coordinates: List[Tuple[float, float]] = []
+
+        for site in sites:
+            if not isinstance(site, WgsPoint):
+                raise TypeError(
+                    "sites must contain WgsPoint objects."
+                )
+            coordinates.append(
+                (
+                    float(site.longitude),
+                    float(site.latitude),
+                )
+            )
+
+        interpolated = shakemap.get_ground_motion(
+            coordinates,
+            parameters=parameters,
+            method=interp,
+            outside=outside,
+        )
+
+        native_unit = shakemap.units.get(field, "")
+
+        values = [
+            _convert_shakemap_value(
+                row[field],
+                quantity=quantity,
+                native_unit=native_unit,
+                acceleration_unit=self.acceleration_unit,
+                velocity_unit=self.velocity_unit,
+            )
+            for row in interpolated
+        ]
+
+        if has_sigma:
+            sigma_ln = [
+                _validate_sigma_ln(row[sigma_field])
+                for row in interpolated
+            ]
+        else:
+            sigma_ln = [
+                0.0
+                for _ in interpolated
+            ]
+
+        return values, sigma_ln
+
+    def event_directory(
+        self,
+        event_id: str,
+    ) -> Path:
+        """Resolve an event id safely under the configured root."""
+        key = _validate_event_directory_id(event_id)
+
+        event_dir = (self.root_path / key).resolve()
+
+        try:
+            event_dir.relative_to(self.root_path)
+        except ValueError as exc:
+            raise ValueError(
+                "ShakeMap event directory escapes root_path."
+            ) from exc
+
+        return event_dir
+
+    def clear_cache(
+        self,
+        event_id: Optional[str] = None,
+    ) -> None:
+        """Clear all cached events or one selected event."""
+        if event_id is None:
+            self._cache.clear()
+            return
+
+        self._cache.pop(str(event_id), None)
+
+    def _event_id(
+        self,
+        event: ScenarioEvent,
+    ) -> str:
+        if event.event_id is None:
+            raise ValueError(
+                "ShakeMap provider requires ScenarioEvent.event_id."
+            )
+
+        return _validate_event_directory_id(
+            event.event_id
+        )
+
+    def _load_event(
+        self,
+        event_id: str,
+    ) -> Any:
+        from shakelab.gmmodel.usgs import ShakeMapEvent
+
+        cached = self._cache.get(event_id)
+        if cached is not None:
+            return cached
+
+        event_dir = self.event_directory(event_id)
+
+        if not event_dir.exists():
+            raise FileNotFoundError(
+                f"ShakeMap event directory not found: {event_dir}"
+            )
+
+        if not event_dir.is_dir():
+            raise ValueError(
+                f"ShakeMap event path is not a directory: "
+                f"{event_dir}"
+            )
+
+        shakemap = ShakeMapEvent(
+            folder=event_dir,
+            load_stations=False,
+            load_uncertainty=self.load_uncertainty,
+            require_info=self.require_info,
+        )
+
+        if (
+            self.check_event_id
+            and shakemap.info is not None
+            and shakemap.event_id not in {"", "N/A"}
+            and str(shakemap.event_id) != event_id
+        ):
+            raise ValueError(
+                "ShakeMap event-id mismatch: requested "
+                f"{event_id!r}, info.json contains "
+                f"{shakemap.event_id!r}."
+            )
+
+        self._cache[event_id] = shakemap
+        return shakemap
+
+    @classmethod
+    def _field_mapping(
+        cls,
+        imt: str,
+    ) -> Tuple[str, str, str]:
+        try:
+            return cls._IMT_FIELDS[imt]
+        except KeyError as exc:
+            supported = ", ".join(cls._IMT_FIELDS.keys())
+            raise ValueError(
+                f"Unsupported ShakeMap IMT: {imt!r}. "
+                f"Supported: {supported}."
+            ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Plugin provider
+# ---------------------------------------------------------------------------
 
 
 @GroundMotionProvider.register("plugin")
 class _PluginProvider(_BaseProvider):
-    """
-    Plugin/simulation provider (skeleton).
+    """Placeholder provider for external or numerical backends."""
 
-    This provider is expected to dispatch to a plugin system, e.g.:
-    - numerical wave propagation
-    - analytical / Green's function models
-    - external services
-
-    The provider must return **linear** median IM in SI units and sigma_ln.
-
-    Parameters
-    ----------
-    plugin_id
-        Identifier used by the plugin system to select the backend.
-    **kwargs
-        Provider-specific options.
-    """
-
-    def __init__(self, plugin_id: str, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        plugin_id: str,
+        **kwargs: Any,
+    ) -> None:
         self.plugin_id = plugin_id
         self.kwargs = dict(kwargs)
 
@@ -761,40 +766,23 @@ class _PluginProvider(_BaseProvider):
         event: ScenarioEvent,
         **kwargs: Any,
     ) -> Tuple[List[float], List[float]]:
-        """
-        Evaluate median IM and sigma_ln at the given sites.
+        """Return placeholder values until plugin dispatch is implemented."""
+        _ = (imt, event, kwargs)
 
-        Notes
-        -----
-        This skeleton returns zeros. A real implementation should:
-        - dispatch to the selected plugin backend
-        - compute IM in SI units (linear)
-        - provide sigma_ln if available, else 0.0
-        """
-        im = [0.0 for _ in sites]
+        values = [0.0 for _ in sites]
         sigma_ln = [0.0 for _ in sites]
-        return im, sigma_ln
+
+        return values, sigma_ln
 
 
 # ---------------------------------------------------------------------------
-# GroundMotionContext
+# Ground-motion context
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class GroundMotionContext:
-    """
-    Bind an event with a provider and expose uniform evaluation methods.
-
-    This is a thin convenience layer that stores a `ScenarioEvent` and a
-    ground-motion provider, and offers helpers for evaluating IM at multiple
-    sites or a single site.
-
-    Output convention
-    -----------------
-    All methods return:
-    - im: median intensity-measure value (linear, NOT logarithmic)
-    - sigma_ln: standard deviation of ln(IM) (dimensionless)
-    """
+    """Bind one ScenarioEvent to one ground-motion provider."""
 
     event: ScenarioEvent
     provider: _BaseProvider
@@ -805,25 +793,13 @@ class GroundMotionContext:
         sites: Sequence[WgsPoint],
         **kwargs: Any,
     ) -> Tuple[List[float], List[float]]:
-        """
-        Evaluate IM and sigma_ln for an IMT at multiple sites.
-
-        Parameters
-        ----------
-        imt
-            Intensity measure type (e.g. "PGA", "PGV", "SA(0.3)").
-        sites
-            Sequence of target sites as WgsPoint objects.
-        **kwargs
-            Provider-specific options forwarded to the provider.
-
-        Returns
-        -------
-        (im, sigma_ln)
-            im: list of median IM values (linear).
-            sigma_ln: list of lognormal sigmas in ln-space.
-        """
-        return self.provider.evaluate(imt, sites, self.event, **kwargs)
+        """Evaluate one IMT at multiple sites."""
+        return self.provider.evaluate(
+            imt,
+            sites,
+            self.event,
+            **kwargs,
+        )
 
     def evaluate_at_site(
         self,
@@ -833,31 +809,237 @@ class GroundMotionContext:
         elevation_m: float = 0.0,
         **kwargs: Any,
     ) -> Tuple[float, float]:
-        """
-        Evaluate IM and sigma_ln for an IMT at a single WGS84 site.
-
-        Parameters
-        ----------
-        imt
-            Intensity measure type (e.g. "PGA", "PGV", "SA(0.3)").
-        lon, lat
-            Site longitude and latitude (WGS84).
-        elevation_m
-            Site elevation in meters.
-        **kwargs
-            Provider-specific options forwarded to the provider.
-
-        Returns
-        -------
-        (im, sigma_ln)
-            im: median IM (linear).
-            sigma_ln: sigma of ln(IM).
-        """
+        """Evaluate one IMT at one WGS84 location."""
         site = WgsPoint(
             longitude=float(lon),
             latitude=float(lat),
             elevation=float(elevation_m),
         )
-        im, sigma_ln = self.evaluate(imt, [site], **kwargs)
-        return float(im[0]), float(sigma_ln[0])
 
+        values, sigma_ln = self.evaluate(
+            imt,
+            [site],
+            **kwargs,
+        )
+
+        return (
+            float(values[0]),
+            float(sigma_ln[0]),
+        )
+
+
+# ---------------------------------------------------------------------------
+# ShakeMap helpers
+# ---------------------------------------------------------------------------
+
+
+def _normalize_imt(imt: str) -> str:
+    """Normalize supported IMT spelling."""
+    key = str(imt).strip().upper().replace(" ", "")
+
+    if key in {"PGA", "PGV", "MMI"}:
+        return key
+
+    match = re.fullmatch(
+        r"SA\((\d+(?:\.\d+)?)\)",
+        key,
+    )
+
+    if match is None:
+        return key
+
+    period = float(match.group(1))
+
+    if abs(period - 0.3) <= 1e-9:
+        return "SA(0.3)"
+
+    if abs(period - 1.0) <= 1e-9:
+        return "SA(1.0)"
+
+    if abs(period - 3.0) <= 1e-9:
+        return "SA(3.0)"
+
+    return f"SA({period:g})"
+
+
+def _validate_event_directory_id(
+    event_id: str,
+) -> str:
+    """Validate an event id used as one directory name."""
+    if not isinstance(event_id, str):
+        raise TypeError(
+            "ShakeMap event_id must be a string."
+        )
+
+    key = event_id.strip()
+
+    if not key:
+        raise ValueError(
+            "ShakeMap event_id must not be empty."
+        )
+
+    if key in {".", ".."}:
+        raise ValueError(
+            "Invalid ShakeMap event_id."
+        )
+
+    if "/" in key or "\\" in key:
+        raise ValueError(
+            "ShakeMap event_id must be a directory name, "
+            "not a path."
+        )
+
+    return key
+
+
+def _normalize_acceleration_unit(
+    unit: str,
+) -> str:
+    key = str(unit).strip().lower().replace(" ", "")
+
+    aliases = {
+        "g": "g",
+        "percent_g": "percent_g",
+        "percentg": "percent_g",
+        "%g": "percent_g",
+        "pctg": "percent_g",
+    }
+
+    try:
+        return aliases[key]
+    except KeyError as exc:
+        raise ValueError(
+            "acceleration_unit must be 'g' or 'percent_g'."
+        ) from exc
+
+
+def _normalize_velocity_unit(
+    unit: str,
+) -> str:
+    key = str(unit).strip().lower().replace(" ", "")
+
+    aliases = {
+        "cm/s": "cm/s",
+        "cm/sec": "cm/s",
+        "cms": "cm/s",
+        "m/s": "m/s",
+        "m/sec": "m/s",
+        "ms": "m/s",
+    }
+
+    try:
+        return aliases[key]
+    except KeyError as exc:
+        raise ValueError(
+            "velocity_unit must be 'cm/s' or 'm/s'."
+        ) from exc
+
+
+def _normalize_native_unit(
+    unit: str,
+) -> str:
+    key = str(unit).strip().lower().replace(" ", "")
+
+    aliases = {
+        "": "",
+        "g": "g",
+        "%g": "percent_g",
+        "pctg": "percent_g",
+        "percentg": "percent_g",
+        "percent_g": "percent_g",
+        "cm/s": "cm/s",
+        "cm/sec": "cm/s",
+        "cms": "cm/s",
+        "m/s": "m/s",
+        "m/sec": "m/s",
+        "ms": "m/s",
+        "intensity": "dimensionless",
+        "mmi": "dimensionless",
+        "unitless": "dimensionless",
+    }
+
+    return aliases.get(key, key)
+
+
+def _convert_shakemap_value(
+    value: float,
+    *,
+    quantity: str,
+    native_unit: str,
+    acceleration_unit: str,
+    velocity_unit: str,
+) -> float:
+    """Convert one native ShakeMap value to configured output units."""
+    numeric = float(value)
+
+    if not isfinite(numeric):
+        return numeric
+
+    native = _normalize_native_unit(
+        native_unit
+    )
+
+    if quantity == "acceleration":
+        # ShakeMap XML commonly stores PGA/PSA in percent-g.
+        if native == "":
+            native = "percent_g"
+
+        if native == acceleration_unit:
+            return numeric
+
+        if native == "percent_g" and acceleration_unit == "g":
+            return numeric / 100.0
+
+        if native == "g" and acceleration_unit == "percent_g":
+            return numeric * 100.0
+
+        raise ValueError(
+            "Unsupported ShakeMap acceleration-unit conversion: "
+            f"{native_unit!r} -> {acceleration_unit!r}."
+        )
+
+    if quantity == "velocity":
+        # ShakeMap XML commonly stores PGV in cm/s.
+        if native == "":
+            native = "cm/s"
+
+        if native == velocity_unit:
+            return numeric
+
+        if native == "cm/s" and velocity_unit == "m/s":
+            return numeric / 100.0
+
+        if native == "m/s" and velocity_unit == "cm/s":
+            return numeric * 100.0
+
+        raise ValueError(
+            "Unsupported ShakeMap velocity-unit conversion: "
+            f"{native_unit!r} -> {velocity_unit!r}."
+        )
+
+    if quantity == "intensity":
+        return numeric
+
+    raise ValueError(
+        f"Unsupported ShakeMap quantity: {quantity!r}."
+    )
+
+
+def _validate_sigma_ln(
+    value: float,
+) -> float:
+    sigma = float(value)
+
+    if not isfinite(sigma) or sigma < 0.0:
+        raise ValueError(
+            f"Invalid ShakeMap sigma_ln value: {value!r}."
+        )
+
+    return sigma
+
+
+__all__ = [
+    "ScenarioEvent",
+    "GroundMotionProvider",
+    "GroundMotionContext",
+]

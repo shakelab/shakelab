@@ -46,6 +46,14 @@ from .beamforming import (
     FrequencySpectrum,
     SpectralMaximum,
 )
+from .response import (
+    AmbiguityAnalysis,
+    ArrayGeometry,
+    ArrayResponse,
+    MainLobe,
+    SearchDomainAnalysis,
+    VelocityLimits,
+)
 
 
 FloatArray = NDArray[np.float64]
@@ -929,3 +937,810 @@ def _maximum_label(
         )
 
     return label
+# ---------------------------------------------------------------------------
+# Geometrical array-response graphics
+# ---------------------------------------------------------------------------
+
+
+def plot_array_geometry(
+    geometry: ArrayGeometry,
+    *,
+    principal_axes: bool = True,
+    centered: bool = False,
+    ax: Axes | None = None,
+) -> tuple[Figure, Axes]:
+    """
+    Plot the horizontal geometry of a seismic array.
+
+    Parameters
+    ----------
+    geometry
+        Geometry descriptor returned by the array-response layer.
+    principal_axes
+        Draw the principal geometry directions when True.
+    centered
+        Plot centroid-centered coordinates instead of original
+        coordinates.
+    ax
+        Existing Matplotlib axis. A new figure is created when omitted.
+
+    Returns
+    -------
+    tuple
+        Matplotlib ``(figure, axis)``.
+    """
+    if not isinstance(
+        geometry,
+        ArrayGeometry,
+    ):
+        raise TypeError(
+            "geometry must be an ArrayGeometry instance."
+        )
+
+    coordinates = (
+        geometry.centered_coordinates
+        if centered
+        else geometry.coordinates
+    )
+
+    centroid = (
+        np.zeros(2, dtype=float)
+        if centered
+        else geometry.centroid
+    )
+
+    figure, axis = _new_axes(
+        ax,
+        figsize=(7.0, 7.0),
+    )
+
+    axis.scatter(
+        coordinates[:, 0],
+        coordinates[:, 1],
+        marker="o",
+        label="Stations",
+    )
+
+    axis.plot(
+        centroid[0],
+        centroid[1],
+        marker="+",
+        markersize=10,
+        markeredgewidth=1.5,
+        linestyle="none",
+        label="Centroid",
+    )
+
+    if principal_axes:
+        _plot_geometry_principal_axes(
+            axis,
+            geometry,
+            centroid,
+        )
+
+    axis.set_aspect(
+        "equal",
+        adjustable="box",
+    )
+    axis.set_xlabel(
+        "East coordinate"
+    )
+    axis.set_ylabel(
+        "North coordinate"
+    )
+    axis.set_title(
+        "Array geometry"
+    )
+    axis.grid(
+        True,
+        alpha=0.25,
+    )
+    axis.legend()
+
+    return figure, axis
+
+
+def plot_array_response(
+    response: ArrayResponse,
+    *,
+    main_lobe: MainLobe | None = None,
+    ambiguity: AmbiguityAnalysis | None = None,
+    scale: str = "db",
+    db_floor: float = -40.0,
+    use_expected_response: bool = False,
+    show_main_lobe: bool = True,
+    show_ambiguity_regions: bool = True,
+    show_peaks: bool = True,
+    peak_number: int | None = 12,
+    ax: Axes | None = None,
+) -> tuple[Figure, Axes]:
+    """
+    Plot the two-dimensional geometric ambiguity response.
+
+    Parameters
+    ----------
+    response
+        Geometry-only array response.
+    main_lobe
+        Optional central-lobe analysis. When supplied, its threshold
+        contour can be displayed.
+    ambiguity
+        Optional ambiguity analysis. Its threshold contour and detected
+        peaks can be displayed.
+    scale
+        ``"linear"`` or ``"db"``. Decibel values are relative power.
+    db_floor
+        Lower display limit used with ``scale="db"``.
+    use_expected_response
+        Display the expected response under coordinate uncertainty.
+    show_main_lobe
+        Draw the main-lobe threshold contour when available.
+    show_ambiguity_regions
+        Draw the ambiguity-level contour when available.
+    show_peaks
+        Mark detected ambiguity peaks when available.
+    peak_number
+        Maximum number of ambiguity peaks to mark. ``None`` displays all.
+    ax
+        Existing Matplotlib axis. A new figure is created when omitted.
+
+    Returns
+    -------
+    tuple
+        Matplotlib ``(figure, axis)``.
+    """
+    if not isinstance(
+        response,
+        ArrayResponse,
+    ):
+        raise TypeError(
+            "response must be an ArrayResponse instance."
+        )
+
+    if main_lobe is not None and not isinstance(
+        main_lobe,
+        MainLobe,
+    ):
+        raise TypeError(
+            "main_lobe must be a MainLobe instance or None."
+        )
+
+    if ambiguity is not None and not isinstance(
+        ambiguity,
+        AmbiguityAnalysis,
+    ):
+        raise TypeError(
+            "ambiguity must be an AmbiguityAnalysis instance or None."
+        )
+
+    power = response.selected_power(
+        use_expected_response=use_expected_response
+    )
+
+    display, label = _response_display_values(
+        power,
+        scale=scale,
+        db_floor=db_floor,
+    )
+
+    figure, axis = _new_axes(
+        ax,
+        figsize=(7.5, 7.0),
+    )
+
+    mesh = axis.pcolormesh(
+        response.kx,
+        response.ky,
+        display,
+        shading="auto",
+    )
+
+    figure.colorbar(
+        mesh,
+        ax=axis,
+        label=label,
+    )
+
+    if show_main_lobe and main_lobe is not None:
+        axis.contour(
+            response.kx,
+            response.ky,
+            power,
+            levels=[main_lobe.level],
+            linewidths=1.2,
+        )
+
+    if show_ambiguity_regions and ambiguity is not None:
+        if (
+            main_lobe is None
+            or not np.isclose(
+                ambiguity.level,
+                main_lobe.level,
+            )
+        ):
+            axis.contour(
+                response.kx,
+                response.ky,
+                power,
+                levels=[ambiguity.level],
+                linewidths=1.0,
+                linestyles="--",
+            )
+
+    if show_peaks and ambiguity is not None:
+        peaks = ambiguity.peaks
+
+        if peak_number is not None:
+            if (
+                isinstance(peak_number, bool)
+                or not isinstance(peak_number, int)
+                or peak_number < 1
+            ):
+                raise ValueError(
+                    "peak_number must be a positive integer or None."
+                )
+
+            peaks = peaks[:peak_number]
+
+        for peak in peaks:
+            axis.plot(
+                peak.kx,
+                peak.ky,
+                marker="x",
+                markersize=7,
+                markeredgewidth=1.2,
+                linestyle="none",
+            )
+
+    axis.plot(
+        0.0,
+        0.0,
+        marker="+",
+        markersize=9,
+        markeredgewidth=1.4,
+        linestyle="none",
+    )
+
+    axis.axhline(
+        0.0,
+        linewidth=0.7,
+    )
+    axis.axvline(
+        0.0,
+        linewidth=0.7,
+    )
+    axis.set_aspect(
+        "equal",
+        adjustable="box",
+    )
+    axis.set_xlabel(
+        r"$k_x$"
+    )
+    axis.set_ylabel(
+        r"$k_y$"
+    )
+
+    response_name = (
+        "Expected geometric response"
+        if use_expected_response
+        else "Geometric array response"
+    )
+
+    axis.set_title(
+        response_name
+    )
+
+    return figure, axis
+
+
+def plot_resolution(
+    main_lobe: MainLobe,
+    *,
+    quantity: str = "radius",
+    view: str = "cartesian",
+    ax: Axes | None = None,
+) -> tuple[Figure, Axes]:
+    """
+    Plot directional main-lobe resolution.
+
+    Parameters
+    ----------
+    main_lobe
+        Main-lobe analysis returned by :func:`analyze_response`.
+    quantity
+        ``"radius"`` for one-sided threshold radius or ``"separation"``
+        for the corresponding full directional resolution separation.
+    view
+        ``"cartesian"`` for azimuth versus resolution or ``"polar"`` for
+        a directional polar representation.
+    ax
+        Existing Matplotlib axis. For ``view="polar"`` it must be polar.
+
+    Returns
+    -------
+    tuple
+        Matplotlib ``(figure, axis)``.
+    """
+    if not isinstance(
+        main_lobe,
+        MainLobe,
+    ):
+        raise TypeError(
+            "main_lobe must be a MainLobe instance."
+        )
+
+    if quantity == "radius":
+        values = main_lobe.radii
+        ylabel = "Resolution radius"
+    elif quantity == "separation":
+        values = main_lobe.resolution_separation
+        ylabel = "Resolution separation"
+    else:
+        raise ValueError(
+            "quantity must be either 'radius' or 'separation'."
+        )
+
+    if view == "cartesian":
+        figure, axis = _new_axes(
+            ax,
+            figsize=(9.0, 5.5),
+        )
+
+        azimuths, closed_values = _closed_axis_response(
+            main_lobe.azimuths,
+            values,
+        )
+
+        axis.plot(
+            azimuths,
+            closed_values,
+        )
+        axis.set_xlim(
+            0.0,
+            180.0,
+        )
+        axis.set_xlabel(
+            "Array-axis azimuth (degrees)"
+        )
+        axis.set_ylabel(
+            ylabel
+        )
+        axis.grid(
+            True,
+            alpha=0.25,
+        )
+
+    elif view == "polar":
+        figure, axis = _new_polar_axes(
+            ax
+        )
+
+        angles, closed_values = _closed_polar_response(
+            main_lobe.azimuths,
+            values,
+        )
+
+        axis.plot(
+            angles,
+            closed_values,
+        )
+        axis.set_theta_zero_location(
+            "N"
+        )
+        axis.set_theta_direction(
+            -1
+        )
+
+    else:
+        raise ValueError(
+            "view must be either 'cartesian' or 'polar'."
+        )
+
+    axis.set_title(
+        f"Directional {ylabel.lower()} at "
+        f"power level {main_lobe.level:g}"
+    )
+
+    return figure, axis
+
+
+def plot_search_domain(
+    response: ArrayResponse,
+    main_lobe: MainLobe,
+    domain: SearchDomainAnalysis,
+    *,
+    scale: str = "db",
+    db_floor: float = -40.0,
+    use_expected_response: bool = False,
+    ax: Axes | None = None,
+) -> tuple[Figure, Axes]:
+    """
+    Plot a circular search-domain difference disk over the response.
+
+    The plotted circle has radius ``2*K`` because it represents the
+    pairwise-difference domain corresponding to a full-azimuth search disk
+    of radius ``K``.
+    """
+    if not isinstance(
+        response,
+        ArrayResponse,
+    ):
+        raise TypeError(
+            "response must be an ArrayResponse instance."
+        )
+
+    if not isinstance(
+        main_lobe,
+        MainLobe,
+    ):
+        raise TypeError(
+            "main_lobe must be a MainLobe instance."
+        )
+
+    if not isinstance(
+        domain,
+        SearchDomainAnalysis,
+    ):
+        raise TypeError(
+            "domain must be a SearchDomainAnalysis instance."
+        )
+
+    power = response.selected_power(
+        use_expected_response=use_expected_response
+    )
+
+    display, label = _response_display_values(
+        power,
+        scale=scale,
+        db_floor=db_floor,
+    )
+
+    figure, axis = _new_axes(
+        ax,
+        figsize=(7.5, 7.0),
+    )
+
+    mesh = axis.pcolormesh(
+        response.kx,
+        response.ky,
+        display,
+        shading="auto",
+    )
+
+    figure.colorbar(
+        mesh,
+        ax=axis,
+        label=label,
+    )
+
+    axis.contour(
+        response.kx,
+        response.ky,
+        power,
+        levels=[main_lobe.level],
+        linewidths=1.1,
+    )
+
+    axis.contour(
+        response.kx,
+        response.ky,
+        power,
+        levels=[domain.ambiguity_level],
+        linewidths=1.0,
+        linestyles="--",
+    )
+
+    angles = np.linspace(
+        0.0,
+        2.0 * np.pi,
+        361,
+    )
+
+    radius = domain.difference_radius
+
+    axis.plot(
+        radius * np.sin(angles),
+        radius * np.cos(angles),
+        linewidth=1.4,
+        label="Difference-domain boundary",
+    )
+
+    for peak in domain.ambiguity_peaks:
+        axis.plot(
+            peak.kx,
+            peak.ky,
+            marker="x",
+            markersize=8,
+            markeredgewidth=1.3,
+            linestyle="none",
+        )
+
+    axis.set_aspect(
+        "equal",
+        adjustable="box",
+    )
+    axis.set_xlabel(
+        r"$\Delta k_x$"
+    )
+    axis.set_ylabel(
+        r"$\Delta k_y$"
+    )
+    axis.set_title(
+        "Search-domain ambiguity — "
+        + (
+            "safe"
+            if domain.is_safe
+            else "ambiguous"
+        )
+    )
+    axis.legend()
+
+    return figure, axis
+
+
+def plot_velocity_limits(
+    limits: VelocityLimits,
+    *,
+    ax: Axes | None = None,
+    log_frequency: bool = True,
+    log_velocity: bool = True,
+    fill: bool = True,
+) -> tuple[Figure, Axes]:
+    """
+    Plot geometry-only phase-velocity bounds versus frequency.
+
+    Parameters
+    ----------
+    limits
+        Velocity limits returned by :func:`velocity_limits`.
+    ax
+        Existing Matplotlib axis. A new figure is created when omitted.
+    log_frequency
+        Use a logarithmic frequency axis.
+    log_velocity
+        Use a logarithmic phase-velocity axis.
+    fill
+        Shade the geometry-only usable velocity region.
+
+    Returns
+    -------
+    tuple
+        Matplotlib ``(figure, axis)``.
+    """
+    if not isinstance(
+        limits,
+        VelocityLimits,
+    ):
+        raise TypeError(
+            "limits must be a VelocityLimits instance."
+        )
+
+    figure, axis = _new_axes(
+        ax,
+        figsize=(9.0, 6.0),
+    )
+
+    axis.plot(
+        limits.frequencies,
+        limits.minimum,
+        label="Minimum velocity",
+    )
+    axis.plot(
+        limits.frequencies,
+        limits.maximum,
+        label="Maximum velocity",
+    )
+
+    if fill:
+        axis.fill_between(
+            limits.frequencies,
+            limits.minimum,
+            limits.maximum,
+            alpha=0.15,
+        )
+
+    if log_frequency:
+        axis.set_xscale(
+            "log"
+        )
+
+    if log_velocity:
+        axis.set_yscale(
+            "log"
+        )
+
+    axis.set_xlabel(
+        "Frequency (Hz)"
+    )
+    axis.set_ylabel(
+        "Phase velocity"
+    )
+    axis.set_title(
+        "Geometry-only frequency-velocity limits"
+    )
+    axis.grid(
+        True,
+        alpha=0.25,
+    )
+    axis.legend()
+
+    return figure, axis
+
+
+def _plot_geometry_principal_axes(
+    axis: Axes,
+    geometry: ArrayGeometry,
+    centroid: FloatArray,
+) -> None:
+    """Draw principal array-geometry directions."""
+    coordinates = geometry.centered_coordinates
+
+    if coordinates.size == 0:
+        return
+
+    scale = 0.6 * geometry.maximum_aperture
+
+    for index in range(geometry.rank):
+        direction = geometry.principal_directions[:, index]
+        half = 0.5 * scale * direction
+
+        axis.plot(
+            [
+                centroid[0] - half[0],
+                centroid[0] + half[0],
+            ],
+            [
+                centroid[1] - half[1],
+                centroid[1] + half[1],
+            ],
+            linewidth=1.0,
+            linestyle="--",
+        )
+
+
+def _response_display_values(
+    power: FloatArray,
+    *,
+    scale: str,
+    db_floor: float,
+) -> tuple[FloatArray, str]:
+    """Return response values transformed for display."""
+    power = np.asarray(
+        power,
+        dtype=float,
+    )
+
+    if scale == "linear":
+        return (
+            power,
+            "Normalized response power",
+        )
+
+    if scale != "db":
+        raise ValueError(
+            "scale must be either 'linear' or 'db'."
+        )
+
+    db_floor = float(
+        db_floor
+    )
+
+    if (
+        not np.isfinite(db_floor)
+        or db_floor >= 0.0
+    ):
+        raise ValueError(
+            "db_floor must be finite and negative."
+        )
+
+    floor_power = 10.0 ** (
+        db_floor / 10.0
+    )
+
+    display = 10.0 * np.log10(
+        np.maximum(
+            power,
+            floor_power,
+        )
+    )
+
+    return (
+        display,
+        "Relative response power (dB)",
+    )
+
+
+def _closed_axis_response(
+    azimuths: FloatArray,
+    values: FloatArray,
+) -> tuple[FloatArray, FloatArray]:
+    """Close a 180-degree axis-response representation."""
+    azimuths = np.asarray(
+        azimuths,
+        dtype=float,
+    )
+
+    values = np.asarray(
+        values,
+        dtype=float,
+    )
+
+    return (
+        np.concatenate(
+            (
+                azimuths,
+                np.array([180.0]),
+            )
+        ),
+        np.concatenate(
+            (
+                values,
+                values[:1],
+            )
+        ),
+    )
+
+
+def _closed_polar_response(
+    azimuths: FloatArray,
+    values: FloatArray,
+) -> tuple[FloatArray, FloatArray]:
+    """Expand an axis response to a closed 360-degree polar curve."""
+    azimuths = np.asarray(
+        azimuths,
+        dtype=float,
+    )
+
+    values = np.asarray(
+        values,
+        dtype=float,
+    )
+
+    full_azimuth = np.concatenate(
+        (
+            azimuths,
+            azimuths + 180.0,
+            np.array([360.0]),
+        )
+    )
+
+    full_values = np.concatenate(
+        (
+            values,
+            values,
+            values[:1],
+        )
+    )
+
+    return (
+        np.deg2rad(
+            full_azimuth
+        ),
+        full_values,
+    )
+
+
+def _new_polar_axes(
+    ax: Axes | None,
+) -> tuple[Figure, Axes]:
+    """Return an existing polar axis or create a new one."""
+    if ax is None:
+        figure, axis = plt.subplots(
+            figsize=(7.0, 7.0),
+            subplot_kw={
+                "projection": "polar",
+            },
+        )
+
+        return figure, axis
+
+    if getattr(
+        ax,
+        "name",
+        None,
+    ) != "polar":
+        raise ValueError(
+            "A polar Matplotlib axis is required for view='polar'."
+        )
+
+    return ax.figure, ax

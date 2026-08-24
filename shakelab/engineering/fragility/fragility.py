@@ -76,7 +76,7 @@ __all__ = [
 
 _SCHEMA_TYPE = "ShakeLabFragility"
 _SCHEMA_VERSION = "1.0.0"
-_DEFAULT_TAIL_KEY = "GT_LAST"
+_DEFAULT_NO_DAMAGE_KEY = "D0"
 
 
 def _is_number(x: Any) -> bool:
@@ -539,33 +539,76 @@ class FragilityModel:
     def state_probabilities(
         self,
         im: Any,
-        tail_key: str = _DEFAULT_TAIL_KEY,
+        no_damage_key: str = _DEFAULT_NO_DAMAGE_KEY,
     ) -> Dict[str, np.ndarray]:
         """
-        Convert exceedance PoE into mutually exclusive state probabilities.
+        Convert exceedance PoE into mutually exclusive damage states.
 
-        For ordered levels L1..Ln with exceedance PoE(Lk):
-        - P(L1) = 1 - PoE(L1)
-        - P(Lk) = PoE(L(k-1)) - PoE(Lk) for k=2..n
-        - P(tail) = PoE(Ln)
+        The damage-scale levels are interpreted as ordered damage states
+        L1..Ln, while the fragility curves provide exceedance probabilities
 
-        The output includes an additional tail key (default: "GT_LAST").
+            q_k = P(DS >= Lk | IM).
+
+        The corresponding mutually exclusive state probabilities are
+
+            P(D0) = 1 - q_1
+            P(Lk) = q_k - q_(k+1),  k = 1..n-1
+            P(Ln) = q_n
+
+        where D0 denotes the no-damage state.
+
+        Parameters
+        ----------
+        im
+            Intensity measure values (scalar or 1D array-like).
+        no_damage_key
+            Output key used for the no-damage state. The default is "D0".
+
+        Returns
+        -------
+        dict
+            Mapping from state id to probability array. The returned keys
+            are ``no_damage_key`` followed by the ordered damage-scale
+            levels.
+
+        Notes
+        -----
+        This method assumes that ``damage_scale.levels`` are actual damage
+        states (for example D1..D5 in an EMS-98-like scale), not generic
+        limit-state interval labels.
         """
         levels = self.damage_scale.levels
         if not levels:
             raise ValueError("damage_scale.levels is empty.")
 
+        if not isinstance(no_damage_key, str) or not no_damage_key.strip():
+            raise ValueError("no_damage_key must be a non-empty string.")
+
+        no_damage_key = no_damage_key.strip()
+
+        if no_damage_key in levels:
+            raise ValueError(
+                "no_damage_key must not duplicate a damage-scale level."
+            )
+
         poe_stack = np.vstack(
             [self.damage_models[lv].poe(im) for lv in levels]
         )
 
+        # Enforce monotonic exceedance probabilities numerically:
+        # q_1 >= q_2 >= ... >= q_n.
+        poe_stack = np.minimum.accumulate(poe_stack, axis=0)
+        poe_stack = _clip01(poe_stack)
+
         out: Dict[str, np.ndarray] = {}
-        out[levels[0]] = _clip01(1.0 - poe_stack[0])
+        out[no_damage_key] = _clip01(1.0 - poe_stack[0])
 
-        for i in range(1, len(levels)):
-            out[levels[i]] = _clip01(poe_stack[i - 1] - poe_stack[i])
+        for i in range(len(levels) - 1):
+            out[levels[i]] = _clip01(
+                poe_stack[i] - poe_stack[i + 1]
+            )
 
-        out[tail_key] = _clip01(poe_stack[-1])
+        out[levels[-1]] = _clip01(poe_stack[-1])
         return out
 
     @classmethod

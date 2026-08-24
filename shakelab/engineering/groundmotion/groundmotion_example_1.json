@@ -1,0 +1,17 @@
+{
+  "type": "ShakeLabGroundMotion",
+  "schema_version": "1.0.0",
+
+  "providers": [
+    {
+      "id": "regional_gmpe",
+      "provider": "gmpe",
+      "default": true,
+
+      "config": {
+        "gmpe_name": "BragatoSlejko2005",
+        "distance_approx": "ellipsoid"
+      }
+    }
+  ]
+}

@@ -20,15 +20,17 @@ ShakeScenario: impact scenario calculator.
 
 This module computes damage probabilities (or exceedance) over an exposure
 model by combining:
-- ground-motion evaluation (GroundMotionContext)
+- ground-motion evaluation (GroundMotionRuntime)
 - explicit taxonomy->fragility mapping (TaxonomyTree)
 - fragility model database (FragilityCollection)
 
 Design choices
 --------------
-- The impact layer depends on the *ground-motion context* (already binding
-  event + provider) rather than re-creating it internally. This keeps the
-  impact module decoupled from the ground-motion factory and provider types.
+- The impact layer depends on the engineering-level ground-motion runtime,
+  which binds the event to configured shared providers and resolves the
+  provider associated with each exposure asset.
+- Ground motion is evaluated once per (asset, IMT) and the exact value stored
+  in the output is also used by the fragility calculation.
 - Damage is computed per typology and then aggregated to the asset level.
   Asset aggregation supports both:
     1) normalized damage *probabilities* (mixture over typologies)
@@ -36,7 +38,7 @@ Design choices
 
 Conventions
 -----------
-- GroundMotionContext returns (im_median_linear, sigma_ln).
+- GroundMotionRuntime returns provider-resolved (im_median_linear, sigma_ln).
 - FragilityModel is queried either deterministically (poe_all) or with
   lognormal IM uncertainty (poe_lognormal_im_all).
 - Output can be exceedance ("exceed") or mutually-exclusive states ("state").
@@ -49,7 +51,7 @@ from math import isfinite
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple
 import json, os
 
-from shakelab.gmmodel.groundmotion import GroundMotionContext
+from shakelab.engineering.groundmotion.groundmotion import GroundMotionRuntime
 from shakelab.engineering.exposure.exposure import Asset, ExposureModel
 from shakelab.engineering.taxonomy.taxonomy_tree import TaxonomyTree
 from shakelab.engineering.fragility.fragility import FragilityCollection
@@ -89,8 +91,7 @@ class ImpactConfig:
           median IM (sigma_ln ignored).
     output
         - "exceed": return exceedance probabilities P(DS >= level)
-        - "state": return mutually exclusive probabilities including
-          D0 and a tail state.
+        - "state": return mutually exclusive probabilities D0..Dn.
     typology_weighting
         How typologies are mixed at asset level:
         - "count": weights proportional to typology.count (default)
@@ -105,9 +106,6 @@ class ImpactConfig:
         TaxonomyTree ("raise" or "skip").
     no_damage_key
         Output key for the no-damage state (only for output="state").
-    tail_key
-        Output key for the tail state beyond the last damage level
-        (only for output="state").
     include_typology_breakdown
         If True, the output includes per-typology damage results
         within each asset, including ground-motion values,
@@ -125,7 +123,6 @@ class ImpactConfig:
     missing_taxonomy: MissingTaxonomyPolicy = "raise"
 
     no_damage_key: str = "D0"
-    tail_key: str = "GT_LAST"
 
     include_typology_breakdown: bool = False
 
@@ -143,11 +140,15 @@ class GroundMotionValue:
         Median IM value in linear scale.
     sigma_ln
         Logarithmic standard deviation (natural log units). May be NaN.
+    provider_id
+        Identifier of the configured ground-motion provider that produced
+        this value.
     """
 
     imt: str
     median: float
     sigma_ln: float
+    provider_id: str
 
 
 @dataclass
@@ -165,7 +166,7 @@ class TypologyImpactResult:
         Damage probabilities for this typology (keys depend on config.output).
     expected_counts
         Expected counts per state for this typology (always "state"
-        convention including D0 and tail).
+        convention D0..Dn).
     """
 
     taxonomy: str
@@ -224,7 +225,7 @@ class ImpactResult:
 # ---------------------------------------------------------------------------
 
 def compute_impact_scenario(
-    gm_context: GroundMotionContext,
+    ground_motion: GroundMotionRuntime,
     exposure_model: ExposureModel,
     taxonomy_tree: TaxonomyTree,
     fragility_collection: FragilityCollection,
@@ -235,8 +236,10 @@ def compute_impact_scenario(
 
     Parameters
     ----------
-    gm_context
-        Ground-motion context (event + provider).
+    ground_motion
+        Engineering-level ground-motion runtime bound to the scenario event.
+        It resolves the configured provider for each exposure asset and
+        evaluates the requested IMT.
     exposure_model
         ExposureModel instance.
     taxonomy_tree
@@ -255,7 +258,7 @@ def compute_impact_scenario(
     -----
     - Probability output is a *mixture* over typologies, optionally normalized.
     - Expected counts are computed as sum(count_typ * P_state_typ), and are
-      always returned in "state" convention (D0..Dn + tail).
+      always returned in "state" convention (D0..Dn).
     """
     cfg = config or ImpactConfig()
 
@@ -271,6 +274,9 @@ def compute_impact_scenario(
             "latitude": lat,
             "elevation": elev,
         }
+
+        # Ground-motion provider resolution is asset-specific in schema v1.
+        gm_resolution = ground_motion.resolve(asset_id)
 
         is_aggregated = bool(getattr(asset, "aggregated", False))
         if not is_aggregated and len(asset.typologies) > 1:
@@ -328,30 +334,29 @@ def compute_impact_scenario(
             if imt in gm_by_imt:
                 gm_val = gm_by_imt[imt]
             else:
-                im_med, sigma_ln = gm_context.evaluate_at_site(
+                im_med, sigma_ln = gm_resolution.context.evaluate_at_site(
                     imt=imt,
                     lon=float(lon),
                     lat=float(lat),
                     elevation_m=float(elev),
+                    **dict(gm_resolution.parameters),
                 )
                 gm_val = GroundMotionValue(
                     imt=imt,
                     median=float(im_med),
                     sigma_ln=float(sigma_ln),
+                    provider_id=str(gm_resolution.provider_id),
                 )
                 gm_by_imt[imt] = gm_val
 
             # Damage probabilities at this site for this typology (cfg.output)
             probs = damage_probabilities(
                 resolved=resolved,
-                gm_context=gm_context,
-                lon=lon,
-                lat=lat,
-                elevation_m=elev,
+                im_median=gm_val.median,
+                sigma_ln=gm_val.sigma_ln,
                 output=cfg.output,
                 mode=cfg.uncertainty_mode,
                 no_damage_key=cfg.no_damage_key,
-                tail_key=cfg.tail_key,
             )
 
             # Weight for asset probability mixture
@@ -379,7 +384,6 @@ def compute_impact_scenario(
                     probs,
                     levels,
                     no_damage_key=cfg.no_damage_key,
-                    tail_key=cfg.tail_key,
                 )
 
             cnt = float(getattr(typ, "count", 0.0) or 0.0)
@@ -421,14 +425,11 @@ def compute_impact_scenario(
 
 def damage_probabilities(
     resolved: List[Tuple[Any, float]],
-    gm_context: GroundMotionContext,
-    lon: float,
-    lat: float,
-    elevation_m: float = 0.0,
+    im_median: float,
+    sigma_ln: float,
     output: DamageOutput = "state",
     mode: UncertaintyMode = "lognormal",
     no_damage_key: str = "D0",
-    tail_key: str = "GT_LAST",
 ) -> Dict[str, float]:
     """
     Compute weighted damage probabilities for one site and one taxonomy.
@@ -438,19 +439,20 @@ def damage_probabilities(
     resolved
         Output of TaxonomyTree.resolve(): list of (FragilityModel, weight).
         Weights represent epistemic logic-tree weights.
-    gm_context
-        Ground-motion context returning:
-            evaluate_at_site(imt, lon, lat, elevation_m) -> (im_median, sigma_ln)
-    lon, lat, elevation_m
-        Site coordinates.
+    im_median
+        Ground-motion median in linear units for the IMT required by the
+        resolved fragility models.
+    sigma_ln
+        Standard deviation of ln(IM). May be NaN when uncertainty is not
+        available.
     output
         "exceed" -> exceedance probabilities P(DS >= level).
-        "state"  -> mutually exclusive probabilities including D0 and tail.
+        "state"  -> mutually exclusive probabilities D0..Dn.
     mode
         "lognormal" uses (median IM, sigma_ln) and poe_lognormal_im_all.
         "median_only" uses median IM deterministically via poe_all.
-    no_damage_key, tail_key
-        Keys used only for output="state".
+    no_damage_key
+        Key used for the no-damage state when output="state".
 
     Returns
     -------
@@ -488,33 +490,27 @@ def damage_probabilities(
             continue
 
         imt = str(model.imt).strip()
-        im_med, sigma_ln = gm_context.evaluate_at_site(
-            imt=imt,
-            lon=float(lon),
-            lat=float(lat),
-            elevation_m=float(elevation_m),
-        )
+        im_med = float(im_median)
+        sig = float(sigma_ln)
 
         # Scientific guards: avoid silently producing nonsense.
-        if not isfinite(float(im_med)) or float(im_med) <= 0.0:
+        if not isfinite(im_med) or im_med <= 0.0:
             raise ValueError(
-                f"Non-positive IM returned by GM context for IMT={imt}: {im_med}"
+                f"Non-positive IM supplied for IMT={imt}: {im_med}"
             )
-        if isfinite(float(sigma_ln)) and float(sigma_ln) < 0.0:
+        if isfinite(sig) and sig < 0.0:
             raise ValueError(
-                f"Negative sigma_ln returned by GM context for IMT={imt}: "
-                f"{sigma_ln}"
+                f"Negative sigma_ln supplied for IMT={imt}: {sig}"
             )
 
         # Compute exceedance probabilities for this model.
         if mode == "lognormal":
-            sig = float(sigma_ln)
             if not isfinite(sig):
-                poe = _poe_det(model, float(im_med), levels_ref)
+                poe = _poe_det(model, im_med, levels_ref)
             else:
-                poe = model.poe_lognormal_im_all(float(im_med), sig)
+                poe = model.poe_lognormal_im_all(im_med, sig)
         else:
-            poe = _poe_det(model, float(im_med), levels_ref)
+            poe = _poe_det(model, im_med, levels_ref)
 
         # Enforce PoE monotonicity before mixing/conversion.
         _enforce_poe_monotone(poe, levels_ref)
@@ -527,7 +523,6 @@ def damage_probabilities(
                 poe,
                 levels_ref,
                 no_damage_key=no_damage_key,
-                tail_key=tail_key,
             )
             for key, p in state.items():
                 combined[key] = combined.get(key, 0.0) + w_f * _clip01(p)
@@ -560,31 +555,39 @@ def _build_damage_scale(
     config: ImpactConfig,
 ) -> Dict[str, Any]:
     """
-    Build the damage-scale metadata block from an impact result.
+    Build damage-scale metadata from an impact result.
 
-    The expected-count convention is always "state", independently from
-    the probability output convention requested in ImpactConfig.
+    Fragility levels represent ordered damage states D1..Dn and their
+    associated exceedance probabilities P(DS >= Dk). Expected counts are
+    always expressed as mutually exclusive state counts D0..Dn.
+
+    The probability output may be either:
+    - "exceed": D1..Dn
+    - "state": D0..Dn
     """
     if not result.assets:
         raise ValueError("Empty ImpactResult: no assets were computed.")
 
     first_asset = next(iter(result.assets.values()))
-    keys = set(first_asset.probabilities.keys())
+
+    state_levels = list(first_asset.expected_counts.keys())
+    probability_levels = list(first_asset.probabilities.keys())
 
     no_damage_key = str(config.no_damage_key)
-    tail_key = str(config.tail_key)
 
-    mid = sorted([k for k in keys if k not in {no_damage_key, tail_key}])
-    levels = [no_damage_key] + mid + [tail_key]
+    if no_damage_key not in state_levels:
+        raise ValueError(
+            "Expected-count damage states do not contain the configured "
+            f"no-damage key {no_damage_key!r}."
+        )
 
     return {
         "output": config.output,
-        "levels": levels,
-        "tail_key": tail_key,
+        "levels": state_levels,
+        "probability_levels": probability_levels,
         "no_damage_key": no_damage_key,
         "expected_counts_convention": "state",
     }
-
 
 def _serialize_impact_assets(
     result: ImpactResult,
@@ -600,6 +603,7 @@ def _serialize_impact_assets(
             gm_out[str(imt)] = {
                 "median": float(gm_val.median),
                 "sigma_ln": float(gm_val.sigma_ln),
+                "provider_id": str(gm_val.provider_id),
             }
 
         asset_obj: Dict[str, Any] = {
@@ -877,34 +881,75 @@ def _exceed_to_state(
     poe: Mapping[str, float],
     levels: Sequence[str],
     no_damage_key: str = "D0",
-    tail_key: str = "GT_LAST",
 ) -> Dict[str, float]:
     """
-    Convert exceedance P(DS>=k) to mutually exclusive P(DS=k).
+    Convert exceedance probabilities into mutually exclusive states.
 
-    Assumes levels are ordered increasingly (D1, D2, ...).
+    Parameters
+    ----------
+    poe
+        Exceedance probabilities keyed by ordered damage state:
+        P(DS >= Dk).
+    levels
+        Ordered damage states from least to most severe, e.g.
+        ("D1", "D2", ..., "D5").
+    no_damage_key
+        Output key for the no-damage state.
+
+    Returns
+    -------
+    dict
+        Mutually exclusive probabilities with keys
+        ``no_damage_key, D1, ..., Dn``.
+
+    Notes
+    -----
+    For q_k = P(DS >= Dk):
+
+        P(D0) = 1 - q_1
+        P(Dk) = q_k - q_(k+1),  k = 1..n-1
+        P(Dn) = q_n
+
+    The input PoE is expected to be monotone. Numerical monotonicity is
+    enforced before this function is called by ``_enforce_poe_monotone``.
     """
-    out: Dict[str, float] = {}
+    if not levels:
+        raise ValueError("levels must be a non-empty sequence.")
 
-    p_prev = 1.0
-    for lv in levels:
-        p_exc = _clip01(float(poe[lv]))
-        out[lv] = _clip01(p_prev - p_exc)
-        p_prev = p_exc
+    if not isinstance(no_damage_key, str) or not no_damage_key.strip():
+        raise ValueError("no_damage_key must be a non-empty string.")
 
-    out[tail_key] = _clip01(p_prev)
-    out[no_damage_key] = _clip01(1.0 - sum(out.values()))
+    no_damage_key = no_damage_key.strip()
 
-    # Renormalization
+    if no_damage_key in levels:
+        raise ValueError(
+            "no_damage_key must not duplicate a damage-state level."
+        )
+
+    q = [_clip01(float(poe[lv])) for lv in levels]
+
+    out: Dict[str, float] = {
+        no_damage_key: _clip01(1.0 - q[0])
+    }
+
+    for i in range(len(levels) - 1):
+        out[str(levels[i])] = _clip01(q[i] - q[i + 1])
+
+    out[str(levels[-1])] = _clip01(q[-1])
+
+    # Numerical safety only. With monotone q values the sum is exactly 1
+    # apart from floating-point roundoff.
     ssum = sum(out.values())
-    if isfinite(ssum) and ssum > 0.0:
-        # Renormalize only if drifting noticeably (numerical safety)
-        if abs(ssum - 1.0) > 1e-6:
-            for k in list(out.keys()):
-                out[k] = _clip01(out[k] / ssum)
+    if not isfinite(ssum) or ssum <= 0.0:
+        raise ValueError(
+            "Invalid state-probability sum after exceedance conversion."
+        )
+
+    if abs(ssum - 1.0) > 1e-12:
+        for key in list(out.keys()):
+            out[key] = _clip01(out[key] / ssum)
 
     return out
-
 
 def _enforce_poe_monotone(poe: Dict[str, float], levels: Sequence[str]) -> None:
     # Enforce PoE(L1) >= PoE(L2) >= ... >= PoE(Ln)
@@ -922,32 +967,35 @@ def _enforce_poe_monotone(poe: Dict[str, float], levels: Sequence[str]) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    """Run a minimal direct-library impact example."""
     exposure_file = "model/exposure_example.json"
     fragility_file = "model/fragility_example.json"
     taxonomy_tree_file = "model/taxonomy_tree_example.json"
+    ground_motion_file = "model/groundmotion_example.json"
 
     exposure_model = ExposureModel.from_json(exposure_file, validate=True)
     taxonomy_tree = TaxonomyTree.from_json(taxonomy_tree_file)
     fragility_collection = FragilityCollection.from_json(fragility_file)
 
-    # Ground motion layer
-    from shakelab.gmmodel.groundmotion import (
-        GroundMotionProvider,
-        ScenarioEvent,
-    )
+    from shakelab.engineering.groundmotion.groundmotion import GroundMotionModel
+    from shakelab.gmmodel.groundmotion import ScenarioEvent
     from shakelab.libutils.geodeticN.primitives import WgsPoint
 
     event = ScenarioEvent(
-        hypocentre=WgsPoint(longitude=13.0, latitude=46.0, elevation=-1e4),
+        hypocentre=WgsPoint(
+            longitude=13.0,
+            latitude=46.0,
+            elevation=-1e4,
+        ),
         magnitude=5.5,
     )
 
-    provider = GroundMotionProvider.gmpe(
-        gmpe_name="BragatoSlejko2005",
-        distance_approx="ellipsoid",
+    ground_motion_model = GroundMotionModel.from_json(
+        ground_motion_file,
+        exposure_model=exposure_model,
+        validate=True,
     )
-
-    gm_context = GroundMotionContext(event=event, provider=provider)
+    ground_motion = ground_motion_model.runtime(event)
 
     config = ImpactConfig(
         uncertainty_mode="lognormal",
@@ -958,7 +1006,7 @@ def main() -> None:
     )
 
     res = compute_impact_scenario(
-        gm_context=gm_context,
+        ground_motion=ground_motion,
         exposure_model=exposure_model,
         taxonomy_tree=taxonomy_tree,
         fragility_collection=fragility_collection,
@@ -978,6 +1026,7 @@ def main() -> None:
         output_path="impact_summary.json",
         config=config,
     )
+
 
 if __name__ == "__main__":
     main()

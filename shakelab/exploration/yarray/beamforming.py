@@ -35,9 +35,10 @@ Propagation azimuths are measured clockwise from North.
 
 Reusable windowing, Fourier-transform, and cross-spectral-matrix
 operations are implemented in :mod:`.spectral`. This module contains
-the beamforming-specific layer: component preparation, steering,
-beam-power estimators, Rayleigh joint RTBF, uncertainty propagation,
-and spectral-maximum extraction.
+the beamforming-specific orchestration layer: component preparation,
+search-grid adaptation, Rayleigh joint RTBF, uncertainty propagation,
+and spectral-maximum extraction. Shared scalar steering and estimator
+kernels are implemented in :mod:`.estimators`.
 
 Elementary windows may use either fixed duration or a fixed number of
 cycles. Fourier realizations can be obtained by direct transforms at
@@ -58,6 +59,15 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.ndimage import maximum_filter
 
+from .estimators import (
+    BeamformingMethod,
+    bartlett_power_statistics,
+    beam_power,
+    capon_power_statistics,
+    hermitian,
+    regularized_matrix,
+    steering_vectors,
+)
 from .data import EAST, NORTH, VERTICAL
 from .spectral import (
     FFTSelection,
@@ -81,14 +91,6 @@ if TYPE_CHECKING:
 
 FloatArray = NDArray[np.float64]
 ComplexArray = NDArray[np.complex128]
-
-
-class BeamformingMethod(Enum):
-    """Available beam-power estimators."""
-
-    BARTLETT = "bartlett"
-    CAPON = "capon"
-    MUSIC = "music"
 
 
 class ComponentMode(Enum):
@@ -973,98 +975,6 @@ def _prepare_waveforms(
     }
 
 
-def _hermitian(
-    matrix: ComplexArray,
-) -> ComplexArray:
-    """Return the explicitly Hermitian part of a matrix."""
-    return 0.5 * (matrix + matrix.conj().T)
-
-
-def _regularized_matrix(
-    matrix: ComplexArray,
-    loading: float,
-) -> ComplexArray:
-    """Apply trace-scaled diagonal loading."""
-    matrix = _hermitian(matrix)
-
-    if loading == 0.0:
-        return matrix
-
-    dimension = matrix.shape[0]
-    mean_power = (
-        float(np.real(np.trace(matrix))) / dimension
-    )
-
-    if not np.isfinite(mean_power) or mean_power <= 0.0:
-        raise ValueError(
-            "Cannot apply diagonal loading to a matrix with "
-            "non-positive mean diagonal power."
-        )
-
-    return (
-        matrix
-        + loading
-        * mean_power
-        * np.eye(
-            dimension,
-            dtype=np.complex128,
-        )
-    )
-
-
-def _validate_matrix_estimate(
-    n_realizations: int,
-    dimension: int,
-    config: BeamformingConfig,
-) -> None:
-    """Validate rank conditions for high-resolution estimators."""
-    if config.method is BeamformingMethod.BARTLETT:
-        return
-
-    if config.strict and n_realizations <= dimension:
-        raise ValueError(
-            f"{config.method.value} beamforming requires more "
-            "Fourier realizations than matrix dimensions in strict "
-            f"mode: got {n_realizations} realizations for a "
-            f"{dimension} x {dimension} matrix."
-        )
-
-
-def _steering_vectors(
-    coordinates: FloatArray,
-    frequency: float,
-    grid: SearchGrid,
-) -> ComplexArray:
-    """
-    Return steering vectors for the complete polar grid.
-
-    The returned array has shape
-    ``(n_azimuths, n_values, n_stations)``.
-    """
-    coordinates = np.asarray(coordinates, dtype=float)
-
-    if coordinates.ndim != 2:
-        raise ValueError(
-            "Station coordinates must be a two-dimensional array."
-        )
-
-    if coordinates.shape[1] < 2:
-        raise ValueError(
-            "Station coordinates must include East and North."
-        )
-
-    kx, ky = grid.wavevectors(frequency)
-
-    phase = (
-        kx[:, :, None]
-        * coordinates[None, None, :, 0]
-        + ky[:, :, None]
-        * coordinates[None, None, :, 1]
-    )
-
-    return np.exp(-1j * phase)
-
-
 def _geometric_attenuation(
     coordinate_covariances: FloatArray,
     frequency: float,
@@ -1119,434 +1029,46 @@ def _geometric_attenuation(
     return np.exp(-0.5 * phase_variance)
 
 
-def _bartlett_power(
-    matrix: ComplexArray,
-    steering: ComplexArray,
-    attenuation: FloatArray | None = None,
-) -> FloatArray:
-    """Evaluate conventional or geometry-marginalized Bartlett power.
-
-    When ``attenuation`` is supplied, the returned spectrum is the
-    analytical expectation of Bartlett power over independent
-    Gaussian station-coordinate errors. Off-diagonal coherences are
-    damped according to coordinate uncertainty, while diagonal terms
-    remain unchanged exactly.
+def _search_steering_vectors(
+    coordinates: FloatArray,
+    frequency: float,
+    grid: SearchGrid,
+) -> ComplexArray:
     """
-    if attenuation is None:
-        projected = np.einsum(
-            "gsi,ij,gsj->gs",
-            steering.conj(),
-            matrix,
-            steering,
-            optimize=True,
-        )
-    else:
-        attenuation = np.asarray(attenuation, dtype=float)
+    Return shared estimator steering vectors on a YArray SearchGrid.
 
-        if attenuation.shape != steering.shape:
-            raise ValueError(
-                "Geometric attenuation must have the same shape as "
-                "the steering vectors."
-            )
-
-        effective_steering = steering * attenuation
-        projected = np.einsum(
-            "gsi,ij,gsj->gs",
-            effective_steering.conj(),
-            matrix,
-            effective_steering,
-            optimize=True,
-        )
-
-        # For i == j the same station-position error occurs in both
-        # steering factors, so E[a_i* a_i] = 1 exactly. The attenuated
-        # quadratic form incorrectly scales those diagonal terms by
-        # q_i**2; restore them analytically.
-        diagonal = np.real(np.diag(matrix))
-        correction = np.einsum(
-            "gsi,i->gs",
-            1.0 - attenuation**2,
-            diagonal,
-            optimize=True,
-        )
-        projected = projected + correction
-
-    normalization = matrix.shape[0] ** 2
-    power = np.real(projected) / normalization
-
-    return np.maximum(power, 0.0)
-
-
-
-def _bartlett_power_statistics(
-    coefficients: ComplexArray,
-    steering: ComplexArray,
-    effective_realizations: float,
-    attenuation: FloatArray | None = None,
-) -> tuple[FloatArray, FloatArray]:
-    """Return Bartlett power and empirical standard error.
-
-    Uncertainty is estimated from the dispersion of single-window
-    beam powers and scaled by the effective number of independent
-    realizations.
+    This adapter keeps grid parametrization in the beamforming layer
+    while the low-level steering kernel remains independent of
+    frequency, velocity, slowness, and SearchGrid.
     """
-    coefficients = np.asarray(
-        coefficients,
-        dtype=np.complex128,
+    kx, ky = grid.wavevectors(
+        frequency
     )
 
-    if coefficients.ndim != 2:
-        raise ValueError(
-            "Fourier coefficients must be two-dimensional."
-        )
-
-    n_realizations, n_stations = coefficients.shape
-
-    if n_realizations < 2:
-        raise ValueError(
-            "At least two realizations are required to estimate "
-            "Bartlett uncertainty."
-        )
-
-    flattened = steering.reshape(
-        -1,
-        steering.shape[-1],
-    )
-
-    if attenuation is None:
-        flattened_attenuation = None
-        effective_steering = flattened
-    else:
-        attenuation = np.asarray(attenuation, dtype=float)
-
-        if attenuation.shape != steering.shape:
-            raise ValueError(
-                "Geometric attenuation must have the same shape as "
-                "the steering vectors."
-            )
-
-        flattened_attenuation = attenuation.reshape(
-            -1,
-            attenuation.shape[-1],
-        )
-        effective_steering = (
-            flattened * flattened_attenuation
-        )
-
-    amplitudes = np.einsum(
-        "gi,mi->mg",
-        effective_steering.conj(),
-        coefficients,
-        optimize=True,
-    )
-
-    realization_power = np.abs(amplitudes) ** 2
-
-    if flattened_attenuation is not None:
-        sample_power = np.abs(coefficients) ** 2
-        realization_power += np.einsum(
-            "mi,gi->mg",
-            sample_power,
-            1.0 - flattened_attenuation**2,
-            optimize=True,
-        )
-
-    realization_power = realization_power / n_stations**2
-
-    mean = np.mean(realization_power, axis=0)
-    variance = np.var(
-        realization_power,
-        axis=0,
-        ddof=1,
-    )
-    standard_error = np.sqrt(
-        variance / effective_realizations
-    )
-
-    shape = steering.shape[:-1]
-
-    return (
-        mean.reshape(shape),
-        standard_error.reshape(shape),
-    )
-
-def _capon_power(
-    matrix: ComplexArray,
-    steering: ComplexArray,
-    loading: float,
-) -> FloatArray:
-    """Evaluate high-resolution Capon beam power."""
-    regularized = _regularized_matrix(
-        matrix,
-        loading,
-    )
-
-    shape = steering.shape
-    flattened = steering.reshape(
-        -1,
-        shape[-1],
-    )
-
-    solved = np.linalg.solve(
-        regularized,
-        flattened.T,
-    )
-
-    denominator = np.real(
-        np.einsum(
-            "gi,ig->g",
-            flattened.conj(),
-            solved,
-            optimize=True,
-        )
-    )
-
-    power = np.full(
-        denominator.shape,
-        np.nan,
-        dtype=float,
-    )
-
-    valid = denominator > 0.0
-    power[valid] = 1.0 / denominator[valid]
-
-    return power.reshape(shape[:-1])
-
-
-def _capon_power_statistics(
-    coefficients: ComplexArray,
-    steering: ComplexArray,
-    effective_realizations: float,
-    loading: float,
-) -> tuple[FloatArray, FloatArray]:
-    """Return Capon power and first-order empirical standard error.
-
-    The uncertainty is propagated analytically through the Capon
-    functional using the delta method, without constructing the full
-    covariance matrix of the cross-spectral matrix elements.
-
-    For
-
-        P = 1 / (a.H @ R^-1 @ a)
-
-    let ``b = R^-1 a``. A first-order perturbation of the loaded
-    spectral matrix gives
-
-        dP = P**2 * b.H @ dR @ b.
-
-    The variance of this scalar perturbation is estimated directly from
-    the elementary Fourier realizations. For trace-scaled diagonal
-    loading,
-
-        R = C + loading * trace(C) / N * I,
-
-    the corresponding single-realization scalar is
-
-        |b.H x_m|**2
-        + loading * ||b||**2 / N * ||x_m||**2.
-
-    This preserves the dependence of the loading term on the estimated
-    cross-spectral matrix. The returned standard error is therefore a
-    first-order sampling uncertainty of the Capon power estimate.
-    """
-    coefficients = np.asarray(
-        coefficients,
-        dtype=np.complex128,
-    )
-
-    if coefficients.ndim != 2:
-        raise ValueError(
-            "Fourier coefficients must be two-dimensional."
-        )
-
-    n_realizations, n_stations = coefficients.shape
-
-    if n_realizations < 2:
-        raise ValueError(
-            "At least two realizations are required to estimate "
-            "Capon uncertainty."
-        )
-
-    if (
-        not np.isfinite(effective_realizations)
-        or effective_realizations <= 0.0
-        or effective_realizations > n_realizations
-    ):
-        raise ValueError(
-            "effective_realizations must be finite, positive, and "
-            "not greater than the number of realizations."
-        )
-
-    matrix = cross_spectrum(coefficients)
-    regularized = _regularized_matrix(
-        matrix,
-        loading,
-    )
-
-    shape = steering.shape
-    flattened = steering.reshape(
-        -1,
-        shape[-1],
-    )
-
-    solved = np.linalg.solve(
-        regularized,
-        flattened.T,
-    )
-
-    denominator = np.real(
-        np.einsum(
-            "gi,ig->g",
-            flattened.conj(),
-            solved,
-            optimize=True,
-        )
-    )
-
-    power = np.full(
-        denominator.shape,
-        np.nan,
-        dtype=float,
-    )
-
-    valid = denominator > 0.0
-    power[valid] = 1.0 / denominator[valid]
-
-    # b.H x_m for every elementary realization and grid point.
-    projected = coefficients @ solved.conj()
-    realization_denominator = np.abs(projected) ** 2
-
-    if loading != 0.0:
-        realization_trace = np.sum(
-            np.abs(coefficients) ** 2,
-            axis=1,
-        )
-
-        solution_norm = np.sum(
-            np.abs(solved) ** 2,
-            axis=0,
-        )
-
-        realization_denominator += (
-            loading
-            * realization_trace[:, None]
-            * solution_norm[None, :]
-            / n_stations
-        )
-
-    variance_denominator = np.var(
-        realization_denominator,
-        axis=0,
-        ddof=1,
-    )
-
-    denominator_standard_error = np.sqrt(
-        variance_denominator
-        / effective_realizations
-    )
-
-    standard_error = np.full(
-        denominator.shape,
-        np.nan,
-        dtype=float,
-    )
-
-    standard_error[valid] = (
-        power[valid] ** 2
-        * denominator_standard_error[valid]
-    )
-
-    return (
-        power.reshape(shape[:-1]),
-        standard_error.reshape(shape[:-1]),
+    return steering_vectors(
+        coordinates,
+        kx,
+        ky,
     )
 
 
-def _music_power(
-    matrix: ComplexArray,
-    steering: ComplexArray,
-    n_sources: int,
-) -> FloatArray:
-    """Evaluate MUSIC pseudo-power."""
-    matrix = _hermitian(matrix)
-    dimension = matrix.shape[0]
-
-    if n_sources >= dimension:
-        raise ValueError(
-            "music_sources must be smaller than matrix dimension."
-        )
-
-    _, eigenvectors = np.linalg.eigh(matrix)
-
-    noise_subspace = eigenvectors[
-        :,
-        :dimension - n_sources,
-    ]
-
-    projection = (
-        noise_subspace
-        @ noise_subspace.conj().T
-    )
-
-    power_denominator = np.einsum(
-        "gsi,ij,gsj->gs",
-        steering.conj(),
-        projection,
-        steering,
-        optimize=True,
-    )
-
-    denominator = np.real(power_denominator)
-
-    power = np.full(
-        denominator.shape,
-        np.nan,
-        dtype=float,
-    )
-
-    valid = denominator > 0.0
-    power[valid] = 1.0 / denominator[valid]
-
-    return power
-
-
-def _beam_power(
+def _estimator_power(
     matrix: ComplexArray,
     steering: ComplexArray,
     n_realizations: int,
     config: BeamformingConfig,
     attenuation: FloatArray | None = None,
 ) -> FloatArray:
-    """Dispatch matrix processing to the selected estimator."""
-    _validate_matrix_estimate(
+    """Evaluate the configured shared scalar estimator."""
+    return beam_power(
+        matrix,
+        steering,
         n_realizations,
-        matrix.shape[0],
-        config,
-    )
-
-    if config.method is BeamformingMethod.BARTLETT:
-        return _bartlett_power(
-            matrix,
-            steering,
-            attenuation=attenuation,
-        )
-
-    if config.method is BeamformingMethod.CAPON:
-        return _capon_power(
-            matrix,
-            steering,
-            config.diagonal_loading,
-        )
-
-    if config.method is BeamformingMethod.MUSIC:
-        return _music_power(
-            matrix,
-            steering,
-            config.music_sources,
-        )
-
-    raise ValueError(
-        f"Unsupported beamforming method: {config.method!r}."
+        config.method,
+        strict=config.strict,
+        diagonal_loading=config.diagonal_loading,
+        music_sources=config.music_sources,
+        attenuation=attenuation,
     )
 
 
@@ -1606,7 +1128,7 @@ def _horizontal_matrix(
         * (blocks.en + ne)
     )
 
-    return _hermitian(matrix)
+    return hermitian(matrix)
 
 
 def _horizontal_power(
@@ -1645,7 +1167,7 @@ def _horizontal_power(
             else attenuation[index:index + 1]
         )
 
-        direction_power = _beam_power(
+        direction_power = _estimator_power(
             matrix,
             direction_steering,
             n_realizations,
@@ -1656,7 +1178,6 @@ def _horizontal_power(
         power[index] = direction_power[0]
 
     return power
-
 
 
 def _component_power_standard_error(
@@ -1687,7 +1208,7 @@ def _component_power_standard_error(
         direction_attenuation: FloatArray | None,
     ) -> FloatArray:
         if config.method is BeamformingMethod.BARTLETT:
-            _, standard_error = _bartlett_power_statistics(
+            _, standard_error = bartlett_power_statistics(
                 coefficients,
                 direction_steering,
                 effective_realizations,
@@ -1702,7 +1223,7 @@ def _component_power_standard_error(
                     "Capon beamforming."
                 )
 
-            _, standard_error = _capon_power_statistics(
+            _, standard_error = capon_power_statistics(
                 coefficients,
                 direction_steering,
                 effective_realizations,
@@ -1931,7 +1452,7 @@ def _rayleigh_joint_power(
         matrix = cross_spectrum(
             coefficients
         )
-        regularized = _regularized_matrix(
+        regularized = regularized_matrix(
             matrix,
             config.diagonal_loading,
         )
@@ -2068,7 +1589,7 @@ def _component_power(
                 "Vertical cross-spectral matrix is not available."
             )
 
-        return _beam_power(
+        return _estimator_power(
             blocks.zz,
             steering,
             n_realizations,
@@ -2316,7 +1837,7 @@ def beamform(
         windows = spectral_slice.windows
         spectral = spectral_slice.components
 
-        steering = _steering_vectors(
+        steering = _search_steering_vectors(
             coordinates,
             frequency,
             config.grid,

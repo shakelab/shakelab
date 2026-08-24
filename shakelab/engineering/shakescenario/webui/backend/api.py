@@ -111,8 +111,6 @@ def create_api_blueprint(config: WebUIConfig) -> Blueprint:
                 longitude=data["longitude"],
                 latitude=data["latitude"],
                 depth=data["depth"],
-                gmpe=data.get("gmpe"),
-                distance_approx=data.get("distance_approx"),
             )
 
             return jsonify(response), 202

@@ -45,8 +45,6 @@ class Client:
         longitude: float,
         latitude: float,
         depth: float,
-        gmpe: str | None = None,
-        distance_approx: str | None = None,
     ) -> dict[str, Any]:
         """
         Submit a new scenario.
@@ -75,18 +73,5 @@ class Client:
 
         if tag:
             payload["tag"] = tag
-
-        if gmpe is not None or distance_approx is not None:
-            ground_motion: dict[str, Any] = {
-                "provider": "gmpe",
-            }
-
-            if gmpe is not None:
-                ground_motion["gmpe_name"] = gmpe
-
-            if distance_approx is not None:
-                ground_motion["distance_approx"] = distance_approx
-
-            payload["scenario"]["ground_motion"] = ground_motion
 
         return self._client.submit(payload)
