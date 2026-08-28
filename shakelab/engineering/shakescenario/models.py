@@ -454,7 +454,7 @@ def load_model(model_root: Path, model_id: str) -> ScenarioModel:
     from shakelab.engineering.fragility.fragility import (
         FragilityCollection,
     )
-    from shakelab.engineering.groundmotion.groundmotion import (
+    from shakelab.engineering.gmdata.associator import (
         GroundMotionModel,
     )
     from shakelab.engineering.taxonomy.taxonomy_tree import (

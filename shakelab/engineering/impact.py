@@ -51,7 +51,7 @@ from math import isfinite
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple
 import json, os
 
-from shakelab.engineering.groundmotion.groundmotion import GroundMotionRuntime
+from shakelab.engineering.gmdata.associator import GroundMotionRuntime
 from shakelab.engineering.exposure.exposure import Asset, ExposureModel
 from shakelab.engineering.taxonomy.taxonomy_tree import TaxonomyTree
 from shakelab.engineering.fragility.fragility import FragilityCollection

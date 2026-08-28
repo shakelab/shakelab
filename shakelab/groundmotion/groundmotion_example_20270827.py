@@ -22,7 +22,7 @@ from shakelab.libutils.geodeticN.transform import (
     metric_to_wgs,
 )
 
-from shakelab.engineering.groundmotion import (
+from shakelab.groundmotion.providers import (
     GroundMotionContext,
     GroundMotionProvider,
     ScenarioEvent

@@ -16,11 +16,11 @@
 # with this download. If not, see <http://www.gnu.org/licenses/>
 # ****************************************************************************
 """
-ShakeLab Engineering ground-motion configuration and resolution.
+ShakeLab Engineering ground-motion data association and resolution.
 
 This module defines the engineering-level ground-motion configuration used
 by impact calculations. It intentionally builds on the generic ground-motion
-facilities provided by :mod:`shakelab.gmmodel.groundmotion` without moving or
+facilities provided by :mod:`shakelab.groundmotion.providers` without moving or
 duplicating them.
 
 Conceptual layers
@@ -57,7 +57,10 @@ Each provider contains:
 
 Each assignment contains:
 - assets: non-empty list of exposure asset ids
-- optional parameters: provider-specific runtime parameters
+- optional provider-specific fields at the same JSON level
+
+For the ``imt`` provider, each assignment must contain exactly one
+``station_code``.
 
 Resolution rules
 ----------------
@@ -91,7 +94,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Union
 
-from shakelab.gmmodel.groundmotion import (
+from shakelab.groundmotion.providers import (
     GroundMotionContext,
     GroundMotionProvider,
     ScenarioEvent,
@@ -146,6 +149,82 @@ def _as_string_list(value: Any, field_name: str) -> List[str]:
     return out
 
 
+def _assignment_parameters(
+    assignment: Mapping[str, Any],
+    field_name: str,
+) -> Dict[str, Any]:
+    """
+    Normalize provider-specific assignment fields.
+
+    ``assets`` is the only structural assignment key. Every other direct
+    field is treated as provider-specific runtime data.
+
+    The legacy nested ``parameters`` object remains accepted for backward
+    compatibility, but duplicate definitions are rejected.
+    """
+    if not isinstance(assignment, Mapping):
+        raise ValueError(
+            f"{field_name} must be a JSON object."
+        )
+
+    legacy = _as_dict(
+        assignment.get("parameters", {}),
+        f"{field_name}.parameters",
+    )
+
+    direct = {
+        str(key): value
+        for key, value in assignment.items()
+        if key not in {"assets", "parameters"}
+    }
+
+    duplicate = set(legacy) & set(direct)
+
+    if duplicate:
+        raise ValueError(
+            f"{field_name} defines fields both directly and inside "
+            f"'parameters': {sorted(duplicate)}."
+        )
+
+    parameters = dict(legacy)
+    parameters.update(direct)
+
+    return parameters
+
+
+def _resolve_provider_config(
+    provider_id: str,
+    config: Mapping[str, Any],
+    *,
+    base_directory: Path,
+) -> Dict[str, Any]:
+    """
+    Normalize provider configuration requiring file-path resolution.
+
+    Relative paths for file-backed providers are interpreted relative to the
+    ShakeLabGroundMotion configuration file.
+    """
+    out = dict(config)
+
+    if provider_id == "imt" and "root_path" in out:
+        value = out["root_path"]
+
+        if not _is_non_empty_string(value):
+            raise ValueError(
+                "IMT provider config.root_path must be a "
+                "non-empty string."
+            )
+
+        resolved = Path(str(value)).expanduser()
+
+        if not resolved.is_absolute():
+            resolved = base_directory / resolved
+
+        out["root_path"] = str(resolved.resolve())
+
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Pure configuration model
 # ---------------------------------------------------------------------------
@@ -161,8 +240,10 @@ class GroundMotionAssignment:
     assets
         Exposure asset identifiers assigned to the provider.
     parameters
-        Optional provider-specific runtime parameters for this assignment.
-        Example: {"station_code": "UD01"}.
+        Provider-specific runtime parameters normalized by the loader.
+        The public JSON representation is flat. For example,
+        ``{"assets": ["BLDG_001"], "station_code": "UD01"}`` becomes
+        ``parameters={"station_code": "UD01"}`` internally.
     """
 
     assets: tuple[str, ...]
@@ -250,6 +331,31 @@ class GroundMotionProviderConfig:
                     "GroundMotionAssignment objects."
                 )
             assignment.validate()
+
+        if self.provider == "imt":
+            if self.default:
+                raise ValueError(
+                    "The 'imt' provider cannot be a default provider. "
+                    "Each asset must be explicitly associated with one "
+                    "station_code."
+                )
+
+            for assignment in self.assignments:
+                station_code = assignment.parameters.get(
+                    "station_code"
+                )
+
+                if not _is_non_empty_string(station_code):
+                    raise ValueError(
+                        "Each 'imt' assignment must define exactly one "
+                        "non-empty station_code."
+                    )
+
+                if "station_codes" in assignment.parameters:
+                    raise ValueError(
+                        "Multiple-station association is not supported "
+                        "in schema v1."
+                    )
 
 
 @dataclass(frozen=True)
@@ -666,8 +772,9 @@ class GroundMotionRuntime:
         """
         Resolve an asset and evaluate ground motion at one site.
 
-        Assignment-specific parameters are merged with runtime keyword
-        arguments. Explicit runtime keyword arguments take precedence.
+        Assignment-specific provider data are normalized by the loader and
+        merged with runtime keyword arguments. Explicit runtime keyword
+        arguments take precedence.
         """
         resolved = self.resolve(asset_id)
 
@@ -815,6 +922,12 @@ def load_ground_motion_model(
             f"{prefix}.config",
         )
 
+        config = _resolve_provider_config(
+            str(provider_backend).strip(),
+            config,
+            base_directory=path.parent,
+        )
+
         assignments_raw = provider_raw.get("assignments", [])
         if assignments_raw is None:
             assignments_raw = []
@@ -844,9 +957,9 @@ def load_ground_motion_model(
                 f"{aprefix}.assets",
             )
 
-            parameters = _as_dict(
-                assignment_raw.get("parameters", {}),
-                f"{aprefix}.parameters",
+            parameters = _assignment_parameters(
+                assignment_raw,
+                aprefix,
             )
 
             assignments.append(

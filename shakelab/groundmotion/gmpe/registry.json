@@ -1,0 +1,196 @@
+{
+  "gmpemap": {
+    "AbrahamsonEtAl2014": {
+      "pointer": "shakelab.groundmotion.gmpe.abrahamson_et_al_2014:AbrahamsonEtAl2014",
+      "alias": [
+        "ASK14",
+        "Abrahamson2014"
+      ]
+    },
+    "AbrahamsonEtAl2014RegCHN": {
+      "pointer": "shakelab.groundmotion.gmpe.abrahamson_et_al_2014:AbrahamsonEtAl2014RegCHN",
+      "alias": [
+        "ASK14CHN"
+      ]
+    },
+    "AbrahamsonEtAl2014RegJPN": {
+      "pointer": "shakelab.groundmotion.gmpe.abrahamson_et_al_2014:AbrahamsonEtAl2014RegJPN",
+      "alias": [
+        "ASK14JPN"
+      ]
+    },
+    "AbrahamsonEtAl2014RegTWN": {
+      "pointer": "shakelab.groundmotion.gmpe.abrahamson_et_al_2014:AbrahamsonEtAl2014RegTWN",
+      "alias": [
+        "ASK14TWN"
+      ]
+    },
+    "AkkarEtAlRepi2014": {
+      "pointer": "shakelab.groundmotion.gmpe.akkar_et_al_2014:AkkarEtAlRepi2014",
+      "alias": [
+        "Akkar2014Repi"
+      ]
+    },
+    "AkkarEtAlRhypo2014": {
+      "pointer": "shakelab.groundmotion.gmpe.akkar_et_al_2014:AkkarEtAlRhypo2014",
+      "alias": [
+        "Akkar2014Rhypo"
+      ]
+    },
+    "AkkarEtAlRjb2014": {
+      "pointer": "shakelab.groundmotion.gmpe.akkar_et_al_2014:AkkarEtAlRjb2014",
+      "alias": [
+        "Akkar2014",
+        "Akkar2014Rjb"
+      ]
+    },
+    "Atkinson2015": {
+      "pointer": "shakelab.groundmotion.gmpe.atkinson_2015:Atkinson2015",
+      "alias": [
+        "Atkinson2015Induced"
+      ]
+    },
+    "Atkinson2015AltDistSat": {
+      "pointer": "shakelab.groundmotion.gmpe.atkinson_2015:Atkinson2015AltDistSat",
+      "alias": [
+        "Atkinson2015Alt"
+      ]
+    },
+    "BindiEtAl2011": {
+      "pointer": "shakelab.groundmotion.gmpe.bindi_et_al_2011:BindiEtAl2011",
+      "alias": [
+        "Bindi2011",
+        "Bindi_2011"
+      ]
+    },
+    "BindiEtAl2014Rhyp": {
+      "pointer": "shakelab.groundmotion.gmpe.bindi_et_al_2014:BindiEtAl2014Rhyp",
+      "alias": [
+        "Bindi2014Rhyp"
+      ]
+    },
+    "BindiEtAl2014Rjb": {
+      "pointer": "shakelab.groundmotion.gmpe.bindi_et_al_2014:BindiEtAl2014Rjb",
+      "alias": [
+        "Bindi2014",
+        "Bindi2014Rjb"
+      ]
+    },
+    "BooreEtAl2014": {
+      "pointer": "shakelab.groundmotion.gmpe.boore_et_al_2014:BooreEtAl2014",
+      "alias": [
+        "BSSA14",
+        "Boore2014"
+      ]
+    },
+    "BragatoSlejko2005": {
+      "pointer": "shakelab.groundmotion.gmpe.bragato_slejko_2005:BragatoSlejko2005",
+      "alias": [
+        "BS2005",
+        "Bragato2005",
+        "Bragato_Slejko_2005"
+      ]
+    },
+    "CampbellBozorgnia2014": {
+      "pointer": "shakelab.groundmotion.gmpe.campbell_bozorgnia_2014:CampbellBozorgnia2014",
+      "alias": [
+        "CB14"
+      ]
+    },
+    "CampbellBozorgnia2014HighQ": {
+      "pointer": "shakelab.groundmotion.gmpe.campbell_bozorgnia_2014:CampbellBozorgnia2014HighQ",
+      "alias": [
+        "CB14HighQ"
+      ]
+    },
+    "CampbellBozorgnia2014HighQJapanSite": {
+      "pointer": "shakelab.groundmotion.gmpe.campbell_bozorgnia_2014:CampbellBozorgnia2014HighQJapanSite",
+      "alias": [
+        "CB14HighQJapanSite"
+      ]
+    },
+    "CampbellBozorgnia2014JapanSite": {
+      "pointer": "shakelab.groundmotion.gmpe.campbell_bozorgnia_2014:CampbellBozorgnia2014JapanSite",
+      "alias": [
+        "CB14JapanSite"
+      ]
+    },
+    "CampbellBozorgnia2014LowQ": {
+      "pointer": "shakelab.groundmotion.gmpe.campbell_bozorgnia_2014:CampbellBozorgnia2014LowQ",
+      "alias": [
+        "CB14LowQ"
+      ]
+    },
+    "CampbellBozorgnia2014LowQJapanSite": {
+      "pointer": "shakelab.groundmotion.gmpe.campbell_bozorgnia_2014:CampbellBozorgnia2014LowQJapanSite",
+      "alias": [
+        "CB14LowQJapanSite"
+      ]
+    },
+    "ChiouYoungs2014": {
+      "pointer": "shakelab.groundmotion.gmpe.chiou_youngs_2014:ChiouYoungs2014",
+      "alias": [
+        "CY14"
+      ]
+    },
+    "ChiouYoungs2014Italy": {
+      "pointer": "shakelab.groundmotion.gmpe.chiou_youngs_2014:ChiouYoungs2014Italy",
+      "alias": [
+        "CY14Italy"
+      ]
+    },
+    "ChiouYoungs2014Japan": {
+      "pointer": "shakelab.groundmotion.gmpe.chiou_youngs_2014:ChiouYoungs2014Japan",
+      "alias": [
+        "CY14Japan"
+      ]
+    },
+    "ChiouYoungs2014NearFaultEffect": {
+      "pointer": "shakelab.groundmotion.gmpe.chiou_youngs_2014:ChiouYoungs2014NearFaultEffect",
+      "alias": [
+        "CY14NearFault"
+      ]
+    },
+    "ChiouYoungs2014Wenchuan": {
+      "pointer": "shakelab.groundmotion.gmpe.chiou_youngs_2014:ChiouYoungs2014Wenchuan",
+      "alias": [
+        "CY14Wenchuan"
+      ]
+    },
+    "KothaEtAl2020ESHM20": {
+      "pointer": "shakelab.groundmotion.gmpe.kotha_et_al_2020_eshm20:KothaEtAl2020ESHM20",
+      "alias": [
+        "Kotha2020ESHM20",
+        "KothaESHM20"
+      ]
+    },
+    "LanzanoEtAl2019Rjb": {
+      "pointer": "shakelab.groundmotion.gmpe.lanzano_et_al_2019:LanzanoEtAl2019Rjb",
+      "alias": [
+        "Lanzano2019",
+        "Lanzano2019Rjb"
+      ]
+    },
+    "LanzanoEtAl2019Rrup": {
+      "pointer": "shakelab.groundmotion.gmpe.lanzano_et_al_2019:LanzanoEtAl2019Rrup",
+      "alias": [
+        "Lanzano2019Rrup"
+      ]
+    },
+    "MassaEtAl2008Ml": {
+      "pointer":
+        "shakelab.groundmotion.gmpe.massa_et_al_2008:MassaEtAl2008Ml",
+      "alias": [
+        "Massa2008ML"
+      ]
+    },
+    "MassaEtAl2008Mw": {
+      "pointer":
+        "shakelab.groundmotion.gmpe.massa_et_al_2008:MassaEtAl2008Mw",
+      "alias": [
+        "Massa2008",
+        "Massa2008Mw"
+      ]
+    }
+  }
+}

@@ -534,7 +534,7 @@ class ShakeScenarioServer:
                 save_impact_result,
                 save_impact_summary,
             )
-            from shakelab.gmmodel.groundmotion import ScenarioEvent
+            from shakelab.groundmotion.providers import ScenarioEvent
             from shakelab.libutils.geodeticN.primitives import WgsPoint
             
             # Build event
