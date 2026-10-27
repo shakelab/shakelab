@@ -1,0 +1,25 @@
+{
+  "type": "ShakeLabStation",
+  "schema_version": "1.0.0",
+
+  "metadata": {
+    "name": "Friuli synthetic station network",
+    "description": "Synthetic stations used for ground-motion calculations.",
+    "source": "ShakeScenario",
+    "crs": "EPSG:4326"
+  },
+
+  "stations": [
+    {
+      "network_code": "OX",
+      "station_code": "30001",
+      "location_code": "",
+      "longitude": 13.3660171024015,
+      "latitude": 45.8726135417665,
+      "elevation": 0.0,
+      "channel_codes": ["EHN", "EHE", "EHZ"],
+      "azimuth": [0.0, 90.0, 0.0],
+      "dip": [0.0, 0.0, -90.0]
+    }
+  ]
+}

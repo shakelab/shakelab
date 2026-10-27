@@ -11,10 +11,10 @@ from shakelab.engineering.impact import (
 
 from shakelab.engineering.exposure.exposure import ExposureModel
 from shakelab.engineering.fragility.fragility import FragilityCollection
-from shakelab.engineering.groundmotion.groundmotion import GroundMotionModel
+from shakelab.engineering.gmdata.associator import GroundMotionModel
 from shakelab.engineering.taxonomy.taxonomy_tree import TaxonomyTree
 
-from shakelab.gmmodel.groundmotion import ScenarioEvent
+from shakelab.groundmotion.providers import ScenarioEvent
 from shakelab.libutils.geodeticN.primitives import WgsPoint
 
 

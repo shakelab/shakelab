@@ -24,8 +24,13 @@ This module implements a native reader for numeric TDMS files, with a focus
 on DAS-oriented waveform data. It provides three levels of access:
 
 - direct TDMS object loading;
-- DAS matrix-oriented loading;
+- conversion to a DAS matrix representation;
 - conversion to ShakeLab StreamCollection objects.
+
+Single files, file lists and wildcard patterns are supported where meaningful.
+Multiple files are processed in alphabetical order. Matrix conversion requires
+the input files to describe a compatible and temporally continuous DAS data
+set.
 
 Only standard numeric TDMS channels are currently supported. DAQmx raw data,
 multi-dimensional arrays and full TDMS writing are intentionally not covered.
@@ -33,6 +38,7 @@ multi-dimensional arrays and full TDMS writing are intentionally not covered.
 
 from __future__ import annotations
 
+import glob
 import struct
 from copy import copy
 from dataclasses import dataclass, field
@@ -146,19 +152,447 @@ class _Segment:
 # Public API
 # ============================================================================
 
-def tdms_read(path: str | Path) -> TdmsFile:
-    """Read a TDMS file into memory.
+def tdms_read(input_data_source):
+    """Read one or more TDMS files into memory.
 
     Parameters
     ----------
-    path : str or pathlib.Path
-        Input TDMS file.
+    input_data_source : str, pathlib.Path, list or tuple
+        TDMS file path, wildcard pattern, or sequence of paths and
+        patterns.
 
     Returns
     -------
-    TdmsFile
-        TDMS file represented as file, group and channel objects.
+    TdmsFile or list of TdmsFile
+        A single ``TdmsFile`` is returned for one explicit file path.
+        Lists, tuples and wildcard patterns always return a list.
+
+    Notes
+    -----
+    Multiple input files are loaded in alphabetical path order.
     """
+    paths, multiple = _resolve_tdms_paths(input_data_source)
+    files = [_read_tdms_file(path) for path in paths]
+
+    if multiple:
+        return files
+
+    return files[0]
+
+
+def tdms_to_matrix(input_data_source,
+                   group_name: str | None = None,
+                   sampling_rate: float | None = None,
+                   channel_spacing: float | None = None,
+                   gauge_length: float | None = None,
+                   start_time=None) -> DasData:
+    """Convert one or more TDMS files to a DAS matrix.
+
+    Parameters
+    ----------
+    input_data_source : str, pathlib.Path, list or tuple
+        TDMS file path, wildcard pattern, or sequence of paths and
+        patterns.
+    group_name : str, optional
+        TDMS group to convert. If None, the most DAS-like group is
+        selected automatically for each file.
+    sampling_rate : float, optional
+        Sampling rate in Hz. If None, metadata are inspected.
+    channel_spacing : float, optional
+        Channel spacing in metres. If None, metadata are inspected.
+        For Silixa/iDAS files, the fibre-length multiplier is applied
+        when found.
+    gauge_length : float, optional
+        DAS gauge length in metres. If None, metadata are inspected.
+    start_time : str or Date, optional
+        Absolute start time of the first file. If None, metadata and
+        file name are inspected.
+
+    Returns
+    -------
+    DasData
+        DAS matrix and associated temporal, spatial and acquisition
+        metadata.
+
+    Raises
+    ------
+    ValueError
+        If multiple files are not compatible in channel layout, dtype,
+        sampling rate, channel spacing, gauge length or temporal
+        continuity.
+
+    Notes
+    -----
+    Multiple files are processed in alphabetical path order and
+    concatenated along the time axis. The resulting matrix therefore
+    represents one continuous and uniformly sampled DAS acquisition.
+    """
+    paths, _ = _resolve_tdms_paths(input_data_source)
+
+    blocks = []
+    source_files = []
+
+    reference_names = None
+    reference_dtype = None
+    reference_rate = None
+    reference_spacing = None
+    reference_gauge = None
+
+    first_properties = None
+    first_group_name = None
+    first_start_time = None
+
+    previous_start_time = None
+    previous_nsamp = None
+
+    for file_index, path in enumerate(paths):
+        tdms = _read_tdms_file(path)
+        group = _select_tdms_das_group(
+            tdms,
+            preferred=group_name,
+        )
+
+        names = sorted(group.channels, key=_channel_sort_key)
+
+        if not names:
+            raise ValueError(
+                f"Selected TDMS group contains no channels: {path}"
+            )
+
+        arrays = [group.channels[name].data for name in names]
+        sizes = {array.size for array in arrays}
+
+        if len(sizes) != 1:
+            raise ValueError(
+                f"DAS channels do not have the same length: {path}"
+            )
+
+        block = np.vstack(arrays)
+        properties = _merge_properties(
+            tdms.properties,
+            group.properties,
+        )
+
+        file_rate = sampling_rate
+        if file_rate is None:
+            file_rate = _guess_sampling_rate(properties)
+
+        if file_rate is None:
+            raise ValueError(
+                f"Sampling rate is not available in TDMS file: {path}"
+            )
+
+        file_rate = float(file_rate)
+
+        file_spacing = channel_spacing
+        if file_spacing is None:
+            file_spacing = _guess_channel_spacing(properties)
+
+        if file_spacing is not None:
+            file_spacing = float(file_spacing)
+
+        file_gauge = gauge_length
+        if file_gauge is None:
+            file_gauge = _guess_gauge_length(properties)
+
+        if file_gauge is not None:
+            file_gauge = float(file_gauge)
+
+        if file_index == 0 and start_time is not None:
+            file_start_time = _to_shakelab_date(start_time)
+        else:
+            file_start_time = _guess_tdms_start_time(
+                path,
+                properties,
+            )
+            file_start_time = _to_shakelab_date(file_start_time)
+
+        if file_index == 0:
+            reference_names = names
+            reference_dtype = block.dtype
+            reference_rate = file_rate
+            reference_spacing = file_spacing
+            reference_gauge = file_gauge
+
+            first_properties = properties.copy()
+            first_group_name = group.name
+            first_start_time = file_start_time
+
+            if len(paths) > 1 and first_start_time is None:
+                raise ValueError(
+                    "Start time is required to concatenate multiple "
+                    "TDMS files"
+                )
+
+        else:
+            _check_matrix_compatibility(
+                path=path,
+                names=names,
+                dtype=block.dtype,
+                sampling_rate=file_rate,
+                channel_spacing=file_spacing,
+                gauge_length=file_gauge,
+                reference_names=reference_names,
+                reference_dtype=reference_dtype,
+                reference_rate=reference_rate,
+                reference_spacing=reference_spacing,
+                reference_gauge=reference_gauge,
+            )
+
+            if file_start_time is None:
+                raise ValueError(
+                    f"Start time is not available in TDMS file: {path}"
+                )
+
+            _check_temporal_continuity(
+                path=path,
+                current_start=file_start_time,
+                previous_start=previous_start_time,
+                previous_nsamp=previous_nsamp,
+                sampling_rate=reference_rate,
+            )
+
+        blocks.append(block)
+        source_files.append(str(path))
+
+        previous_start_time = file_start_time
+        previous_nsamp = block.shape[1]
+
+    data = blocks[0]
+    if len(blocks) > 1:
+        data = np.concatenate(blocks, axis=1)
+
+    time = np.arange(data.shape[1], dtype=float)
+    time /= reference_rate
+
+    distance = None
+    if reference_spacing is not None:
+        distance = np.arange(data.shape[0], dtype=float)
+        distance *= reference_spacing
+
+    properties = first_properties
+    properties["tdms_group"] = first_group_name
+    properties["channel_names"] = reference_names
+    properties["source_files"] = source_files
+
+    return DasData(
+        data=data,
+        time=time,
+        distance=distance,
+        sampling_rate=reference_rate,
+        channel_spacing=reference_spacing,
+        gauge_length=reference_gauge,
+        start_time=first_start_time,
+        properties=properties,
+    )
+
+
+def tdms_to_stream(input_data_source,
+                   stream_collection=None,
+                   group_name=None,
+                   sampling_rate=None,
+                   start_time=None,
+                   network="XX",
+                   station="DAS",
+                   location="",
+                   channel_prefix="",
+                   dtype=None):
+    """Convert one or more TDMS files to a StreamCollection.
+
+    Parameters
+    ----------
+    input_data_source : str, pathlib.Path, list or tuple
+        TDMS file path, wildcard pattern, or sequence of paths and
+        patterns.
+    stream_collection : StreamCollection, optional
+        Existing collection where new records are appended. If None,
+        a new ``StreamCollection`` is created.
+    group_name : str, optional
+        TDMS group to convert. If None, the most DAS-like group is
+        selected automatically for each file.
+    sampling_rate : float, optional
+        Sampling rate in Hz. If None, metadata are inspected.
+    start_time : str or Date, optional
+        Record start time for a single input file. For multiple files,
+        the value overrides only the first file; subsequent start times
+        are read from metadata or file names.
+    network : str, optional
+        Network code used to build the ShakeLab stream id.
+    station : str, optional
+        Station code used to build the ShakeLab stream id.
+    location : str, optional
+        Location code used to build the ShakeLab stream id.
+    channel_prefix : str, optional
+        Prefix added before the TDMS channel name.
+    dtype : numpy dtype, optional
+        Optional output data type. If None, the native TDMS dtype is
+        preserved.
+
+    Returns
+    -------
+    StreamCollection
+        Collection containing the converted TDMS channels.
+
+    Notes
+    -----
+    Multiple files are processed in alphabetical path order. Existing
+    streams are reused through an indexed source-id lookup. Record
+    merging and gap handling follow the normal ``Stream.append()``
+    semantics implemented by ShakeLab.
+    """
+    from shakelab.signals.base import Record, StreamCollection
+
+    paths, _ = _resolve_tdms_paths(input_data_source)
+
+    if stream_collection is None:
+        stream_collection = StreamCollection()
+
+    stream_index = {
+        stream.sid: stream
+        for stream in stream_collection.stream
+    }
+
+    for file_index, path in enumerate(paths):
+        tdms = _read_tdms_file(path)
+        group = _select_tdms_das_group(
+            tdms,
+            preferred=group_name,
+        )
+        properties = _merge_properties(
+            tdms.properties,
+            group.properties,
+        )
+
+        file_rate = sampling_rate
+        if file_rate is None:
+            file_rate = _guess_sampling_rate(properties)
+
+        if file_rate is None:
+            raise ValueError(
+                f"Sampling rate is not available in TDMS file: {path}"
+            )
+
+        delta = 1.0 / float(file_rate)
+
+        if file_index == 0 and start_time is not None:
+            file_start_time = start_time
+        else:
+            file_start_time = _guess_tdms_start_time(
+                path,
+                properties,
+            )
+
+        file_start_time = _to_shakelab_date(file_start_time)
+
+        if len(paths) > 1 and file_start_time is None:
+            raise ValueError(
+                f"Start time is not available in TDMS file: {path}"
+            )
+
+        names = sorted(group.channels, key=_channel_sort_key)
+
+        if not names:
+            raise ValueError(
+                f"Selected TDMS group contains no channels: {path}"
+            )
+
+        for name in names:
+            channel = group.channels[name]
+
+            record = Record()
+            record.head.sid = _format_tdms_sid(
+                network,
+                station,
+                location,
+                channel_prefix + str(name),
+            )
+            record.head.delta = delta
+
+            if file_start_time is not None:
+                record.head.time = file_start_time
+
+            if dtype is None:
+                record.data = np.asarray(channel.data)
+            else:
+                record.data = np.asarray(
+                    channel.data,
+                    dtype=dtype,
+                )
+
+            stream_index = _append_record(
+                stream_collection,
+                record,
+                index=stream_index,
+            )
+
+    return stream_collection
+
+
+def tdms_info(tdms) -> None:
+    """Print a compact summary of one or more TDMS files."""
+    if isinstance(tdms, (list, tuple)):
+        for index, item in enumerate(tdms):
+            if index:
+                print()
+            _tdms_info_single(item)
+        return
+
+    _tdms_info_single(tdms)
+
+
+def tdms_list_groups(tdms) -> None:
+    """Print TDMS groups and basic channel information."""
+    if isinstance(tdms, (list, tuple)):
+        for index, item in enumerate(tdms):
+            if index:
+                print()
+            print(f"TDMS file: {item.path}")
+            _tdms_list_groups_single(item)
+        return
+
+    _tdms_list_groups_single(tdms)
+
+
+def _tdms_info_single(tdms: TdmsFile) -> None:
+    """Print a compact summary of one TDMS file."""
+    print(f"TDMS file: {tdms.path}")
+    print(f"File properties: {len(tdms.properties)}")
+    _tdms_list_groups_single(tdms)
+
+
+def _tdms_list_groups_single(tdms: TdmsFile) -> None:
+    """Print groups and basic channel information for one TDMS file."""
+    for group_name, group in tdms.groups.items():
+        channels = list(group.channels.values())
+        sizes = [channel.data.size for channel in channels]
+        dtypes = [str(channel.data.dtype) for channel in channels]
+
+        print(f"\nGroup: {group_name}")
+        print(f"  properties: {len(group.properties)}")
+        print(f"  channels: {len(group.channels)}")
+
+        if sizes:
+            print(f"  sample sizes: {sorted(set(sizes))[:5]}")
+            print(f"  dtypes: {sorted(set(dtypes))}")
+
+        for index, channel in enumerate(channels):
+            print(
+                f"  {channel.name}: "
+                f"shape={channel.data.shape}, "
+                f"dtype={channel.data.dtype}"
+            )
+
+            if index >= 9:
+                print("  ...")
+                break
+
+
+# ============================================================================
+# TDMS binary parser
+# ============================================================================
+
+def _read_tdms_file(path: str | Path) -> TdmsFile:
+    """Read one explicit TDMS file into memory."""
     path = Path(path)
     file_size = path.stat().st_size
 
@@ -180,10 +614,16 @@ def tdms_read(path: str | Path) -> TdmsFile:
                     f"Invalid TDMS segment tag at byte {position}: {tag!r}"
                 )
 
-            segment = _read_lead_in(fobj, position, file_size)
+            segment = _read_lead_in(
+                fobj,
+                position,
+                file_size,
+            )
 
             if segment.toc & TOC_DAQMX_RAW_DATA:
-                raise NotImplementedError("DAQmx TDMS data are unsupported")
+                raise NotImplementedError(
+                    "DAQmx TDMS data are unsupported"
+                )
 
             segment.ordered_objects = _read_segment_objects(
                 fobj,
@@ -196,7 +636,11 @@ def tdms_read(path: str | Path) -> TdmsFile:
             _calculate_segment_chunks(segment)
 
             if segment.toc & TOC_RAW_DATA:
-                _read_segment_data(fobj, segment, data_by_path)
+                _read_segment_data(
+                    fobj,
+                    segment,
+                    data_by_path,
+                )
 
             for obj in segment.ordered_objects:
                 previous_objects[obj.path] = obj
@@ -204,254 +648,13 @@ def tdms_read(path: str | Path) -> TdmsFile:
             previous_segment_objects = segment.ordered_objects
             fobj.seek(segment.next_position)
 
-    return _build_tdms_file(path, properties_by_path, data_by_path)
-
-
-def tdms_das_read(path: str | Path,
-                  group_name: str | None = None,
-                  sampling_rate: float | None = None,
-                  channel_spacing: float | None = None,
-                  gauge_length: float | None = None,
-                  start_time=None) -> DasData:
-    """Read a TDMS file as a DAS matrix.
-
-    Parameters
-    ----------
-    path : str or pathlib.Path
-        Input TDMS file.
-    group_name : str, optional
-        TDMS group to read. If None, the most DAS-like group is selected.
-    sampling_rate : float, optional
-        Sampling rate in Hz. If None, metadata are inspected.
-    channel_spacing : float, optional
-        Channel spacing in metres. If None, metadata are inspected. For
-        Silixa/iDAS files, the fibre-length multiplier is applied when found.
-    gauge_length : float, optional
-        DAS gauge length in metres. If None, metadata are inspected.
-    start_time : str, Date or datetime, optional
-        Absolute start time. If None, metadata and file name are inspected.
-
-    Returns
-    -------
-    DasData
-        DAS matrix and related axes and metadata.
-    """
-    tdms = tdms_read(path)
-    group = _select_tdms_das_group(tdms, preferred=group_name)
-
-    names = sorted(group.channels, key=_channel_sort_key)
-    arrays = [group.channels[name].data for name in names]
-
-    sizes = {arr.size for arr in arrays}
-    if len(sizes) != 1:
-        raise ValueError("DAS channels do not have the same length")
-
-    data = np.vstack(arrays)
-    properties = _merge_properties(tdms.properties, group.properties)
-
-    if sampling_rate is None:
-        sampling_rate = _guess_sampling_rate(properties)
-
-    if channel_spacing is None:
-        channel_spacing = _guess_channel_spacing(properties)
-
-    if gauge_length is None:
-        gauge_length = _guess_gauge_length(properties)
-
-    if start_time is None:
-        start_time = _guess_tdms_start_time(path, properties)
-
-    start_time = _to_shakelab_date(start_time)
-
-    time = None
-    if sampling_rate:
-        time = np.arange(data.shape[1], dtype=float)
-        time /= float(sampling_rate)
-
-    distance = None
-    if channel_spacing:
-        distance = np.arange(data.shape[0], dtype=float)
-        distance *= float(channel_spacing)
-
-    properties["tdms_group"] = group.name
-    properties["channel_names"] = names
-
-    return DasData(
-        data=data,
-        time=time,
-        distance=distance,
-        sampling_rate=sampling_rate,
-        channel_spacing=channel_spacing,
-        gauge_length=gauge_length,
-        start_time=start_time,
-        properties=properties,
+    return _build_tdms_file(
+        path,
+        properties_by_path,
+        data_by_path,
     )
 
 
-def tdms_stream_read(input_data_source,
-                     stream_collection=None,
-                     group_name=None,
-                     sampling_rate=None,
-                     start_time=None,
-                     network="XX",
-                     station="DAS",
-                     location="",
-                     channel_prefix="",
-                     dtype=None,
-                     fast_append=True) -> StreamCollection:
-    """Read TDMS file(s) as a ShakeLab StreamCollection.
-
-    Parameters
-    ----------
-    input_data_source : str, pathlib.Path, list or tuple
-        TDMS file path, or list of TDMS file paths.
-    stream_collection : StreamCollection, optional
-        Existing StreamCollection where new records are appended.
-        If None, a new StreamCollection is created.
-    group_name : str, optional
-        TDMS group to convert. If None, the most DAS-like group is selected.
-    sampling_rate : float, optional
-        Sampling rate in Hz. If None, metadata are inspected.
-    start_time : str, Date or datetime, optional
-        Record start time. If None, metadata and file name are inspected.
-    network : str, optional
-        Network code used to build the ShakeLab stream id.
-    station : str, optional
-        Station code used to build the ShakeLab stream id.
-    location : str, optional
-        Location code used to build the ShakeLab stream id.
-    channel_prefix : str, optional
-        Prefix added before the TDMS channel name.
-    dtype : numpy dtype, optional
-        Optional output data type. If None, the native dtype is preserved.
-    fast_append : bool, optional
-        If True, an optimized bulk-loading append strategy is used.
-
-    Returns
-    -------
-    StreamCollection
-        StreamCollection containing the converted TDMS channels.
-
-    Notes
-    -----
-    This function is intended for compatibility with existing ShakeLab tools.
-    For matrix-oriented DAS processing, use ``tdms_das_read`` instead.
-    """
-    from shakelab.signals.base import Record, StreamCollection
-
-    if stream_collection is None:
-        stream_collection = StreamCollection()
-
-    if isinstance(input_data_source, (list, tuple)):
-        for path in input_data_source:
-            tdms_stream_read(
-                path,
-                stream_collection=stream_collection,
-                group_name=group_name,
-                sampling_rate=sampling_rate,
-                start_time=start_time,
-                network=network,
-                station=station,
-                location=location,
-                channel_prefix=channel_prefix,
-                dtype=dtype,
-                fast_append=fast_append,
-            )
-        return stream_collection
-
-    tdms = tdms_read(input_data_source)
-    group = _select_tdms_das_group(tdms, preferred=group_name)
-    properties = _merge_properties(tdms.properties, group.properties)
-
-    if sampling_rate is None:
-        sampling_rate = _guess_sampling_rate(properties)
-
-    if sampling_rate is None:
-        raise ValueError("sampling_rate is required or must exist in TDMS")
-
-    delta = 1.0 / float(sampling_rate)
-
-    if start_time is None:
-        start_time = _guess_tdms_start_time(input_data_source, properties)
-
-    start_time = _to_shakelab_date(start_time)
-    names = sorted(group.channels, key=_channel_sort_key)
-
-    stream_index = None
-    if fast_append:
-        stream_index = {
-            stream.sid: stream
-            for stream in stream_collection.stream
-        }
-
-    for name in names:
-        channel = group.channels[name]
-
-        record = Record()
-        record.head.sid = _format_tdms_sid(
-            network,
-            station,
-            location,
-            channel_prefix + str(name),
-        )
-        record.head.delta = delta
-
-        if start_time is not None:
-            record.head.time = start_time
-
-        if dtype is None:
-            record.data = np.asarray(channel.data)
-        else:
-            record.data = np.asarray(channel.data, dtype=dtype)
-
-        if fast_append:
-            stream_index = _append_record_fast(
-                stream_collection,
-                record,
-                index=stream_index,
-            )
-        else:
-            stream_collection.append(record)
-
-    return stream_collection
-
-
-def tdms_info(tdms: TdmsFile) -> None:
-    """Print a compact summary of a TDMS file."""
-    print(f"TDMS file: {tdms.path}")
-    print(f"File properties: {len(tdms.properties)}")
-    tdms_list_groups(tdms)
-
-
-def tdms_list_groups(tdms: TdmsFile) -> None:
-    """Print TDMS groups and basic channel information."""
-    for group_name, group in tdms.groups.items():
-        channels = list(group.channels.values())
-        sizes = [channel.data.size for channel in channels]
-        dtypes = [str(channel.data.dtype) for channel in channels]
-
-        print(f"\nGroup: {group_name}")
-        print(f"  properties: {len(group.properties)}")
-        print(f"  channels: {len(group.channels)}")
-
-        if sizes:
-            print(f"  sample sizes: {sorted(set(sizes))[:5]}")
-            print(f"  dtypes: {sorted(set(dtypes))}")
-
-        for index, channel in enumerate(channels):
-            print(
-                f"  {channel.name}: "
-                f"shape={channel.data.shape}, "
-                f"dtype={channel.data.dtype}"
-            )
-            if index >= 9:
-                print("  ...")
-                break
-
-
-# ============================================================================
-# TDMS binary parser
-# ============================================================================
 
 def _read_lead_in(fobj, position: int, file_size: int) -> _Segment:
     """Read a TDMS segment lead-in."""
@@ -953,6 +1156,165 @@ def _merge_properties(*items: dict) -> dict:
 # TDMS paths, metadata and ShakeLab helpers
 # ============================================================================
 
+def _resolve_tdms_paths(input_data_source):
+    """Resolve TDMS paths from files, sequences and wildcard patterns."""
+    is_sequence = isinstance(input_data_source, (list, tuple))
+
+    if is_sequence:
+        sources = list(input_data_source)
+        if not sources:
+            raise ValueError("TDMS input sequence cannot be empty")
+    else:
+        sources = [input_data_source]
+
+    wildcard_used = False
+    paths = []
+
+    for source in sources:
+        if not isinstance(source, (str, Path)):
+            raise TypeError(
+                "TDMS input must contain strings or pathlib.Path objects"
+            )
+
+        pattern = str(Path(source).expanduser())
+
+        if glob.has_magic(pattern):
+            wildcard_used = True
+            matches = [
+                Path(match)
+                for match in glob.glob(pattern)
+                if Path(match).is_file()
+            ]
+
+            if not matches:
+                raise FileNotFoundError(
+                    f"No TDMS files match pattern: {source}"
+                )
+
+            paths.extend(matches)
+            continue
+
+        path = Path(pattern)
+
+        if not path.exists():
+            raise FileNotFoundError(
+                f"TDMS file not found: {path}"
+            )
+
+        if not path.is_file():
+            raise ValueError(
+                f"TDMS input is not a file: {path}"
+            )
+
+        paths.append(path)
+
+    unique_paths = {
+        str(path): path
+        for path in paths
+    }
+
+    paths = sorted(
+        unique_paths.values(),
+        key=lambda path: str(path),
+    )
+
+    if not paths:
+        raise ValueError("No TDMS files were resolved")
+
+    multiple = is_sequence or wildcard_used
+
+    return paths, multiple
+
+
+def _check_matrix_compatibility(
+        path,
+        names,
+        dtype,
+        sampling_rate,
+        channel_spacing,
+        gauge_length,
+        reference_names,
+        reference_dtype,
+        reference_rate,
+        reference_spacing,
+        reference_gauge):
+    """Validate one TDMS block against the reference DAS geometry."""
+    if names != reference_names:
+        raise ValueError(
+            f"TDMS channel layout is incompatible: {path}"
+        )
+
+    if dtype != reference_dtype:
+        raise ValueError(
+            f"TDMS data dtype is incompatible: {path}"
+        )
+
+    if not np.isclose(
+        sampling_rate,
+        reference_rate,
+        rtol=1e-9,
+        atol=0.0,
+    ):
+        raise ValueError(
+            f"TDMS sampling rate is incompatible: {path}"
+        )
+
+    if not _optional_float_equal(
+        channel_spacing,
+        reference_spacing,
+    ):
+        raise ValueError(
+            f"TDMS channel spacing is incompatible: {path}"
+        )
+
+    if not _optional_float_equal(
+        gauge_length,
+        reference_gauge,
+    ):
+        raise ValueError(
+            f"TDMS gauge length is incompatible: {path}"
+        )
+
+
+def _check_temporal_continuity(path,
+                               current_start,
+                               previous_start,
+                               previous_nsamp,
+                               sampling_rate):
+    """Validate sample-grid continuity between consecutive TDMS files."""
+    expected_start = (
+        previous_start
+        + previous_nsamp / sampling_rate
+    )
+
+    offset = float(current_start - expected_start)
+    tolerance = max(
+        1e-6,
+        (1.0 / sampling_rate) * 1e-3,
+    )
+
+    if abs(offset) > tolerance:
+        raise ValueError(
+            f"TDMS files are not temporally contiguous: {path}"
+        )
+
+
+def _optional_float_equal(value_1, value_2):
+    """Compare optional floating-point metadata values."""
+    if value_1 is None or value_2 is None:
+        return value_1 is None and value_2 is None
+
+    return bool(
+        np.isclose(
+            float(value_1),
+            float(value_2),
+            rtol=1e-9,
+            atol=0.0,
+        )
+    )
+
+
+
 def _parse_channel_path(path: str) -> tuple[str, str]:
     """Parse /'group'/'channel' TDMS paths."""
     parts = _parse_path(path)
@@ -1012,9 +1374,9 @@ def _make_group_path(group_name: str) -> str:
 def _channel_sort_key(name: str):
     """Return a robust sorting key for TDMS channel names."""
     try:
-        return int(name)
+        return 0, int(name)
     except ValueError:
-        return name
+        return 1, str(name)
 
 
 def _guess_sampling_rate(properties: dict) -> float | None:
@@ -1149,7 +1511,7 @@ def _format_tdms_sid(network, station, location, channel):
     return f"{network}.{station}.{location}.{channel}"
 
 
-def _append_record_fast(stream_collection, record, index=None):
+def _append_record(stream_collection, record, index=None):
     """Append a Record to a StreamCollection using a SID index.
 
     Parameters
@@ -1159,12 +1521,17 @@ def _append_record_fast(stream_collection, record, index=None):
     record : Record
         Record to append.
     index : dict, optional
-        Mapping between stream id and stream object.
+        Mapping between stream identifiers and stream objects.
 
     Returns
     -------
     dict
         Updated stream index.
+
+    Notes
+    -----
+    The collection's internal stream factory is used so that standard
+    Stream and CircularStream configurations are both preserved.
     """
     if index is None:
         index = {
@@ -1178,15 +1545,9 @@ def _append_record_fast(stream_collection, record, index=None):
         index[sid].append(record)
         return index
 
-    if stream_collection.max_duration:
-        stream = stream_collection.stream_class(
-            id=sid,
-            max_duration=stream_collection.max_duration,
-        )
-    else:
-        stream = stream_collection.stream_class(id=sid)
-
+    stream = stream_collection._new_stream(sid)
     stream.append(record)
+
     stream_collection.stream.append(stream)
     index[sid] = stream
 

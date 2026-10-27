@@ -847,7 +847,6 @@ class _ShakeMapProvider(_BaseProvider):
         self.load_uncertainty = bool(load_uncertainty)
         self.require_uncertainty = bool(require_uncertainty)
         self.require_info = bool(require_info)
-        self.check_event_id = bool(check_event_id)
         self.acceleration_unit = acceleration_key
         self.velocity_unit = velocity_key
         self.kwargs = dict(kwargs)
@@ -1028,18 +1027,6 @@ class _ShakeMapProvider(_BaseProvider):
             load_uncertainty=self.load_uncertainty,
             require_info=self.require_info,
         )
-
-        if (
-            self.check_event_id
-            and shakemap.info is not None
-            and shakemap.event_id not in {"", "N/A"}
-            and str(shakemap.event_id) != event_id
-        ):
-            raise ValueError(
-                "ShakeMap event-id mismatch: requested "
-                f"{event_id!r}, info.json contains "
-                f"{shakemap.event_id!r}."
-            )
 
         self._cache[event_id] = shakemap
         return shakemap

@@ -1,0 +1,42 @@
+{
+  "type": "ShakeLabGroundMotion",
+  "schema_version": "1.0.0",
+
+  "metadata": {
+    "name": "Ground-motion example",
+    "description": "Example with a default GMPE and one explicit assignment",
+    "region": "Friuli Venezia Giulia",
+    "version": "1.0"
+  },
+
+  "providers": [
+    {
+      "id": "regional_gmpe",
+      "provider": "gmpe",
+      "default": true,
+
+      "config": {
+        "gmpe_name": "BragatoSlejko2005",
+        "distance_approx": "ellipsoid"
+      }
+    },
+
+    {
+      "id": "local_gmpe",
+      "provider": "gmpe",
+
+      "config": {
+        "gmpe_name": "BragatoSlejko2005",
+        "distance_approx": "sphere"
+      },
+
+      "assignments": [
+        {
+          "assets": [
+            "BLDG_001"
+          ]
+        }
+      ]
+    }
+  ]
+}

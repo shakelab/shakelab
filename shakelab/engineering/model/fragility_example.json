@@ -1,0 +1,155 @@
+{
+  "type": "ShakeLabFragility",
+  "schema_version": "1.0.0",
+  "metadata": {
+    "name": "Three-model fragility example",
+    "date": "2026-08-24",
+    "description": "Synthetic RC low-rise, RC mid-rise and URM low-rise lognormal models for ShakeScenario smoke tests."
+  },
+  "models": [
+    {
+      "id": "GENERIC_RC_LR_PGA_LN_V1",
+      "name": "Generic RC low-rise",
+      "author": "Example",
+      "year": 2026,
+      "taxonomy": "RC_LR_GENERIC",
+      "imt": "PGA",
+      "im_units": "g",
+      "model_type": "lognormal_continuous",
+      "damage_scale": {
+        "id": "D1D3",
+        "levels": [
+          "D1",
+          "D2",
+          "D3"
+        ]
+      },
+      "im_bounds": {
+        "min": 0.01,
+        "max": 5.0
+      },
+      "parameters": {
+        "D1": {
+          "theta": 0.1,
+          "beta": 0.6
+        },
+        "D2": {
+          "theta": 0.2,
+          "beta": 0.6
+        },
+        "D3": {
+          "theta": 0.4,
+          "beta": 0.6
+        }
+      }
+    },
+    {
+      "id": "GENERIC_RC_MID_PGA_LN_V1",
+      "name": "Generic RC mid-rise",
+      "author": "Example",
+      "year": 2026,
+      "taxonomy": "RC_MID_GENERIC",
+      "imt": "PGA",
+      "im_units": "g",
+      "model_type": "lognormal_continuous",
+      "damage_scale": {
+        "id": "D1D3",
+        "levels": [
+          "D1",
+          "D2",
+          "D3"
+        ]
+      },
+      "im_bounds": {
+        "min": 0.01,
+        "max": 5.0
+      },
+      "parameters": {
+        "D1": {
+          "theta": 0.12,
+          "beta": 0.6
+        },
+        "D2": {
+          "theta": 0.24,
+          "beta": 0.6
+        },
+        "D3": {
+          "theta": 0.48,
+          "beta": 0.6
+        }
+      }
+    },
+    {
+      "id": "GENERIC_URM_LR_PGA_LN_V1",
+      "name": "Generic URM low-rise",
+      "author": "Example",
+      "year": 2026,
+      "taxonomy": "URM_LR_GENERIC",
+      "imt": "PGA",
+      "im_units": "g",
+      "model_type": "lognormal_continuous",
+      "damage_scale": {
+        "id": "D1D3",
+        "levels": [
+          "D1",
+          "D2",
+          "D3"
+        ]
+      },
+      "im_bounds": {
+        "min": 0.01,
+        "max": 5.0
+      },
+      "parameters": {
+        "D1": {
+          "theta": 0.06,
+          "beta": 0.7
+        },
+        "D2": {
+          "theta": 0.12,
+          "beta": 0.7
+        },
+        "D3": {
+          "theta": 0.25,
+          "beta": 0.7
+        }
+      }
+    },
+    {
+      "id": "GENERIC_URM_LR_PGA_LN_V2",
+      "name": "Generic URM low-rise (more fragile)",
+      "author": "Example",
+      "year": 2026,
+      "taxonomy": "URM_LR_GENERIC",
+      "imt": "PGA",
+      "im_units": "g",
+      "model_type": "lognormal_continuous",
+      "damage_scale": {
+        "id": "D1D3",
+        "levels": [
+          "D1",
+          "D2",
+          "D3"
+        ]
+      },
+      "im_bounds": {
+        "min": 0.01,
+        "max": 5.0
+      },
+      "parameters": {
+        "D1": {
+          "theta": 0.05,
+          "beta": 0.75
+        },
+        "D2": {
+          "theta": 0.1,
+          "beta": 0.75
+        },
+        "D3": {
+          "theta": 0.2,
+          "beta": 0.75
+        }
+      }
+    }
+  ]
+}

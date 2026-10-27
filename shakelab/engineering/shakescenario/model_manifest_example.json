@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "metadata": {
+    "name": "Example ShakeScenario model",
+    "description": "Exposure, taxonomy, fragility and ground-motion configuration for a ShakeScenario model bundle."
+  },
+  "files": {
+    "exposure": "exposure.json",
+    "taxonomy_tree": "taxonomy_tree.json",
+    "fragility": [
+      "fragility.json"
+    ],
+    "ground_motion": "groundmotion.json",
+    "geometry": "geometry.geojson"
+  }
+}

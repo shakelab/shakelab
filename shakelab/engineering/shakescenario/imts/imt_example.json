@@ -1,0 +1,91 @@
+{
+  "type": "ShakeScenarioIMT",
+  "schema_version": "1.0.0",
+
+  "metadata": {
+    "name": "Friuli 1976 synthetic ground-motion field",
+    "description": "Ground-motion values derived from SPEED synthetic waveforms.",
+    "source": "SPEED",
+    "crs": "EPSG:4326"
+  },
+
+  "event": {
+    "id": "friuli_1976",
+    "origin_time": "1976-05-06T20:00:12.7Z",
+    "magnitude": 6.5,
+    "longitude": 13.24,
+    "latitude": 46.24,
+    "depth": 6.0
+  },
+
+  "imts": {
+    "PGA": {
+      "units": "m/s2",
+      "component": "horizontal",
+      "combination": "geometric_mean"
+    },
+
+    "PGV": {
+      "units": "m/s",
+      "component": "horizontal",
+      "combination": "geometric_mean"
+    },
+
+    "SA": {
+      "quantity": "pseudo_acceleration",
+      "units": "m/s2",
+      "component": "horizontal",
+      "combination": "geometric_mean",
+      "damping": 0.05,
+      "period_units": "s",
+      "periods": [
+        0.1,
+        0.2,
+        0.3,
+        0.5,
+        1.0,
+        2.0
+      ]
+    }
+  },
+
+  "stations": [
+    {
+      "station_code": "30001",
+      "longitude": 13.3660171024015,
+      "latitude": 45.8726135417665,
+
+      "values": {
+        "PGA": 1.234,
+        "PGV": 0.123,
+        "SA": [
+          2.143,
+          2.381,
+          2.105,
+          1.734,
+          0.921,
+          0.413
+        ]
+      }
+    },
+
+    {
+      "station_code": "30002",
+      "longitude": 13.093650962819,
+      "latitude": 46.373669585175,
+
+      "values": {
+        "PGA": 1.487,
+        "PGV": 0.156,
+        "SA": [
+          2.411,
+          2.765,
+          2.532,
+          1.982,
+          1.104,
+          0.487
+        ]
+      }
+    }
+  ]
+}

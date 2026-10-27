@@ -1,0 +1,21 @@
+{
+  "type": "ShakeLabEvent",
+  "schema_version": "1.0.0",
+
+  "metadata": {
+    "name": "Friuli synthetic event catalogue",
+    "description": "Events used for ShakeScenario ground-motion calculations.",
+    "source": "ShakeScenario"
+  },
+
+  "events": [
+    {
+      "event_id": "friuli_1976",
+      "origin_time": "1976-05-06T20:00:12.7Z",
+      "magnitude": 6.5,
+      "longitude": 13.24,
+      "latitude": 46.24,
+      "depth": 6.0
+    }
+  ]
+}
