@@ -132,6 +132,52 @@ def _server_defaults_payload(cfg) -> dict[str, Any]:
 
 
 
+def _build_scenario_event(event_data: dict[str, Any]):
+    """Convert the submitted event into a ground-motion ScenarioEvent."""
+    from shakelab.groundmotion.providers import ScenarioEvent
+    from shakelab.libutils.geodeticN.primitives import WgsPoint
+
+        ev = event_data
+        hypoc = ev.get("hypocentre", {})
+        if not isinstance(hypoc, dict):
+            raise ValueError(
+                "scenario.event.hypocentre must be an object."
+            )
+        
+        event_id = ev.get("event_id")
+        if event_id is not None:
+            if not isinstance(event_id, str):
+                raise ValueError(
+                    "scenario.event.event_id must be a string "
+                    "or omitted."
+                )
+            event_id = event_id.strip()
+            if not event_id:
+                raise ValueError(
+                    "scenario.event.event_id must not be empty."
+                )
+    
+        origin_time = ev.get("origin_time")
+        mechanism = ev.get("mechanism")
+        if mechanism is not None and not isinstance(mechanism, dict):
+            raise ValueError(
+                "scenario.event.mechanism must be an object or null."
+            )
+    
+        event = ScenarioEvent(
+            hypocentre=WgsPoint(
+                longitude=float(hypoc["longitude"]),
+                latitude=float(hypoc["latitude"]),
+                elevation=float(hypoc.get("elevation", -10000.0)),
+            ),
+            magnitude=float(ev["magnitude"]),
+            event_id=event_id,
+            origin_time=origin_time,
+            mechanism=mechanism,
+        )
+    return event
+
+
 class ShakeScenarioServer:
     """
     TCP server for ShakeScenario jobs.
@@ -538,49 +584,10 @@ class ShakeScenarioServer:
                 save_impact_result,
                 save_impact_summary,
             )
-            from shakelab.groundmotion.providers import ScenarioEvent
-            from shakelab.libutils.geodeticN.primitives import WgsPoint
             
-            # Build event
-            ev = scenario_cfg["event"]
-            hypoc = ev.get("hypocentre", {})
-            if not isinstance(hypoc, dict):
-                raise ValueError(
-                    "scenario.event.hypocentre must be an object."
-                )
-            
-            event_id = ev.get("event_id")
-            if event_id is not None:
-                if not isinstance(event_id, str):
-                    raise ValueError(
-                        "scenario.event.event_id must be a string "
-                        "or omitted."
-                    )
-                event_id = event_id.strip()
-                if not event_id:
-                    raise ValueError(
-                        "scenario.event.event_id must not be empty."
-                    )
+            # Build event from the submitted scenario parameters.
+            event = _build_scenario_event(scenario_cfg["event"])
 
-            origin_time = ev.get("origin_time")
-            mechanism = ev.get("mechanism")
-            if mechanism is not None and not isinstance(mechanism, dict):
-                raise ValueError(
-                    "scenario.event.mechanism must be an object or null."
-                )
-
-            event = ScenarioEvent(
-                hypocentre=WgsPoint(
-                    longitude=float(hypoc["longitude"]),
-                    latitude=float(hypoc["latitude"]),
-                    elevation=float(hypoc.get("elevation", -10000.0)),
-                ),
-                magnitude=float(ev["magnitude"]),
-                event_id=event_id,
-                origin_time=origin_time,
-                mechanism=mechanism,
-            )
-            
             # Ground motion
             #
             # The selected ScenarioModel owns the engineering-level
