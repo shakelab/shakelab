@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from flask import Flask, render_template
 
-from backend.api import create_api_blueprint
-from backend.config import (
+from shakelab.engineering.shakescenario.webui.backend.api import (
+    create_api_blueprint,
+)
+from shakelab.engineering.shakescenario.webui.backend.config import (
     ensure_data_root,
     load_config,
 )
@@ -34,9 +36,13 @@ def create_app() -> Flask:
 app = create_app()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Run the WebUI development server."""
     app.run(
         host=app.config["WEBUI_CONFIG"].web_host,
         port=app.config["WEBUI_CONFIG"].web_port,
         debug=app.config["WEBUI_CONFIG"].debug,
     )
+
+if __name__ == "__main__":
+    main()
