@@ -83,14 +83,10 @@ def _validate_reference_geology(
     *,
     asset_id: str,
 ) -> None:
-    """Validate optional geological site properties for an asset."""
-    allowed = {"vs30", "is_measured", "z1pt0", "z2pt5"}
+    """Validate known site properties, preserving other geology data."""
+    recognized = {"vs30", "is_measured", "z1pt0", "z2pt5"}
     for name, value in geology.items():
-        if name not in allowed:
-            raise ValueError(
-                f"Asset {asset_id}: unknown geology property {name!r}."
-            )
-        if value is None:
+        if name not in recognized or value is None:
             continue
         if name == "is_measured":
             if not isinstance(value, bool):
