@@ -708,10 +708,11 @@ def _validate_reference_site(site: Mapping[str, Any]) -> None:
 
 def _gmpe_site_parameters(site: Mapping[str, Any]) -> Dict[str, Any]:
     """Translate engineering site names to GMPE context parameter names."""
+    supported = {"vs30", "is_measured", "z1pt0", "z2pt5"}
     return {
         "vs30measured" if name == "is_measured" else name: value
         for name, value in site.items()
-        if value is not None
+        if name in supported and value is not None
     }
 
 
