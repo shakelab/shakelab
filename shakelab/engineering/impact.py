@@ -334,12 +334,9 @@ def compute_impact_scenario(
             if imt in gm_by_imt:
                 gm_val = gm_by_imt[imt]
             else:
-                im_med, sigma_ln = gm_resolution.context.evaluate_at_site(
+                im_med, sigma_ln = ground_motion.evaluate_at_asset(
+                    asset=asset,
                     imt=imt,
-                    lon=float(lon),
-                    lat=float(lat),
-                    elevation_m=float(elev),
-                    **dict(gm_resolution.parameters),
                 )
                 gm_val = GroundMotionValue(
                     imt=imt,
