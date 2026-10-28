@@ -61,8 +61,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from database import JobDatabase
-from models import (
+from shakelab.engineering.shakescenario.database import JobDatabase
+from shakelab.engineering.shakescenario.models import (
     JobStatus,
     ServerConfig,
     ServerInfo,
@@ -71,7 +71,11 @@ from models import (
     model_paths,
     list_models,
 )
-from protocol import ProtocolError, recv_message, send_message
+from shakelab.engineering.shakescenario.protocol import (
+    ProtocolError,
+    recv_message,
+    send_message,
+)
 
 
 SERVER_DEFAULT_HOST = "127.0.0.1"
