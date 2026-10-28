@@ -43,6 +43,7 @@ class ScenarioRun:
     created_at: str | None = None
     completed_at: str | None = None
     has_error: bool = False
+    error: JsonDict | None = None
 
     def to_dict(self) -> JsonDict:
         """Return a JSON-serializable representation."""
@@ -54,6 +55,7 @@ class ScenarioRun:
             "created_at": self.created_at,
             "completed_at": self.completed_at,
             "has_error": self.has_error,
+            "error": self.error,
         }
 
 
