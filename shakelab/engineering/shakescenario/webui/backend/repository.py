@@ -58,6 +58,10 @@ class ScenarioRepository:
         has_error = self._has_non_empty_file(error_path)
         has_error = has_error or self._has_non_empty_file(legacy_error_path)
 
+        error = manifest.get("error")
+        if not isinstance(error, dict):
+            error = None
+
         event_data = self._extract_event_data(request, manifest)
         hypocentre = self._first_dict(
             event_data,
@@ -119,6 +123,7 @@ class ScenarioRepository:
                 ["completed_at", "end_time", "finished_at"],
             ),
             has_error=has_error,
+            error=error,
         )
 
     def list_models(self) -> list[JsonDict]:
