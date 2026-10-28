@@ -392,6 +392,7 @@ class GroundMotionModel:
     providers: List[GroundMotionProviderConfig]
     metadata: Dict[str, Any] = field(default_factory=dict)
     reference_vs30: Optional[float] = None
+    reference_site: Dict[str, Any] = field(default_factory=dict)
 
     _provider_by_id: Dict[str, GroundMotionProviderConfig] = field(
         default_factory=dict,
@@ -1021,6 +1022,7 @@ def load_ground_motion_model(
 
     model = GroundMotionModel(
         reference_vs30=data.get("reference_vs30"),
+        reference_site=data.get("reference_site", {}),
         type=str(data.get("type")),
         schema_version=str(data.get("schema_version")),
         metadata=metadata,
