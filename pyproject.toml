@@ -49,7 +49,7 @@ source = "https://github.com/shakelab/shakelab"
 
 [project.optional-dependencies]
 all = ["wx>=4.0.7"]
-dev = ["pytest>=4.6"]
+dev = ["pytest>=6.0"]
 
 [project.scripts]
 fdsnclient = "fdsnclient:main"
