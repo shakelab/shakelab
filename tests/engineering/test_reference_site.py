@@ -174,3 +174,29 @@ def test_reference_site_parameters_passed_to_gmpe(monkeypatch):
         "z1pt0": 300.0,
         "z2pt5": 1.5,
     }
+
+
+def test_additional_geology_metadata_is_preserved(monkeypatch):
+    """Unrelated geology metadata must not reach the GMPE context."""
+    exposure, _, _ = _asset(350.0)
+    asset = exposure.assets[0]
+    asset.reference_geology.update({
+        "geological_unit": "alluvium",
+        "description": "Local geological survey",
+    })
+    asset.validate()
+
+    runtime = _runtime(760.0)
+    observed = {}
+
+    def capture_site(**kwargs):
+        observed.update(kwargs["site_parameters"])
+        return 0.1, 0.5
+
+    monkeypatch.setattr(runtime, "evaluate_at_site", capture_site)
+    runtime.evaluate_at_asset(asset, "PGA")
+
+    assert observed["vs30"] == 350.0
+    assert "geological_unit" not in observed
+    assert "description" not in observed
+    assert asset.reference_geology["geological_unit"] == "alluvium"
