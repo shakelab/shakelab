@@ -78,6 +78,35 @@ def _is_number(x: Any) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
+def _validate_reference_geology(
+    geology: Dict[str, Any],
+    *,
+    asset_id: str,
+) -> None:
+    """Validate optional geological site properties for an asset."""
+    allowed = {"vs30", "is_measured", "z1pt0", "z2pt5"}
+    for name, value in geology.items():
+        if name not in allowed:
+            raise ValueError(
+                f"Asset {asset_id}: unknown geology property {name!r}."
+            )
+        if value is None:
+            continue
+        if name == "is_measured":
+            if not isinstance(value, bool):
+                raise ValueError(
+                    f"Asset {asset_id}: is_measured must be boolean."
+                )
+        elif (
+            not _is_number(value)
+            or not math.isfinite(value)
+            or (value <= 0.0 if name == "vs30" else value < 0.0)
+        ):
+            raise ValueError(
+                f"Asset {asset_id}: invalid {name} value."
+            )
+
+
 @dataclass
 class Typology:
     """
@@ -288,25 +317,10 @@ class Asset:
                     f"Asset {self.id}: reference_geology must be an object or "
                     f"None."
                 )
-            for key, value in self.reference_geology.items():
-                if key not in ("vs30", "is_measured", "z1pt0", "z2pt5"):
-                    raise ValueError(
-                        f"Asset {self.id}: unknown geology property {key!r}."
-                    )
-                if value is None:
-                    continue
-                if key == "is_measured":
-                    if not isinstance(value, bool):
-                        raise ValueError(
-                            f"Asset {self.id}: is_measured must be boolean."
-                        )
-                elif (isinstance(value, bool) or
-                      not _is_number(value) or
-                      not math.isfinite(value) or
-                      (value <= 0 if key == "vs30" else value < 0)):
-                    raise ValueError(
-                        f"Asset {self.id}: invalid {key} value."
-                    )
+            _validate_reference_geology(
+                self.reference_geology,
+                asset_id=self.id,
+            )
 
         if not self.typologies:
             raise ValueError(f"Asset {self.id}: at least one typology is required.")
