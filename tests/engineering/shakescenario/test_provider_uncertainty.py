@@ -62,7 +62,7 @@ def _fake_shakemap(sigma):
 def test_shakemap_sigma_semantics(tmp_path, monkeypatch, event, site,
                                   sigma, expected):
     provider = GroundMotionProvider.from_id(
-        "shakemap", root_path=str(tmp_path),
+        "shakemap", config={"root_path": str(tmp_path)},
     )
     monkeypatch.setattr(
         provider, "_load_event", lambda event_id: _fake_shakemap(sigma),
@@ -79,7 +79,10 @@ def test_shakemap_required_sigma_rejects_missing(
     tmp_path, monkeypatch, event, site,
 ):
     provider = GroundMotionProvider.from_id(
-        "shakemap", root_path=str(tmp_path), require_uncertainty=True,
+        "shakemap", config={
+            "root_path": str(tmp_path),
+            "require_uncertainty": True,
+        },
     )
     monkeypatch.setattr(
         provider, "_load_event", lambda event_id: _fake_shakemap(None),
