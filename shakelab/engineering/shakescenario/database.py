@@ -52,7 +52,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from models import JobStatus
+from shakelab.engineering.shakescenario.models import JobStatus
 
 
 class JobDatabase:
