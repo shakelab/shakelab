@@ -949,8 +949,9 @@ class _ShakeMapProvider(_BaseProvider):
                 for row in interpolated
             ]
         else:
+            # No uncertainty field: unknown, not zero uncertainty.
             sigma_ln = [
-                0.0
+                float("nan")
                 for _ in interpolated
             ]
 
