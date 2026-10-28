@@ -104,7 +104,31 @@ function renderDetails(run) {
         detailRow("Status", run.status)
     ].join("");
 
-    document.getElementById("event-details").innerHTML = html;
+    const panel = document.getElementById("event-details");
+    panel.innerHTML = html;
+
+    if (String(run.status || "").toLowerCase() === "failed") {
+        const error = run.error;
+        const message = error && typeof error.message === "string"
+            ? error.message
+            : "Scenario calculation failed. No further details available.";
+
+        const diagnostic = document.createElement("div");
+        diagnostic.className = "detail-item";
+        diagnostic.setAttribute("role", "alert");
+
+        const label = document.createElement("div");
+        label.className = "detail-label";
+        label.textContent = "Calculation error";
+
+        const value = document.createElement("div");
+        value.className = "detail-value";
+        value.textContent = message;
+
+        diagnostic.appendChild(label);
+        diagnostic.appendChild(value);
+        panel.appendChild(diagnostic);
+    }
 
     setActionButtonsEnabled(true);
 }
