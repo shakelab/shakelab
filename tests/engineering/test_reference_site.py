@@ -9,7 +9,7 @@ from shakelab.engineering.gmdata.associator import (
     GroundMotionProviderConfig,
     load_ground_motion_model,
 )
-from tests.engineering.test_impact_reference_vs30 import _runtime, _asset
+from tests.engineering.test_impact_reference_vs30 import _asset, _runtime
 
 
 def _model(site):
@@ -93,3 +93,84 @@ def test_reference_site_vs30_fallback_in_runtime():
     exposure, _, _ = _asset(None)
     median, _ = runtime.evaluate_at_asset(exposure.assets[0], "PGA")
     assert median > 0
+
+
+def test_independent_site_parameter_precedence(monkeypatch):
+    """Asset values override runtime, assignment, and model defaults."""
+    from shakelab.engineering.gmdata.associator import GroundMotionRuntime
+    from shakelab.groundmotion.providers import ScenarioEvent
+
+    model = _model({
+        "vs30": 760.0,
+        "is_measured": False,
+        "z1pt0": 300.0,
+        "z2pt5": 1.5,
+    })
+    event = ScenarioEvent.from_lonlat_depth(
+        magnitude=5.5,
+        longitude=13.0,
+        latitude=46.0,
+        depth_km=10.0,
+        mechanism={"rake": 90.0},
+    )
+    runtime = GroundMotionRuntime(model, event)
+    exposure, _, _ = _asset(350.0)
+    asset = exposure.assets[0]
+    asset.reference_geology.update({
+        "is_measured": True,
+        "z1pt0": 120.0,
+    })
+    observed = {}
+
+    def capture_site(**kwargs):
+        observed.update(kwargs["site_parameters"])
+        return 0.1, 0.5
+
+    monkeypatch.setattr(runtime, "evaluate_at_site", capture_site)
+    runtime.evaluate_at_asset(
+        asset,
+        "PGA",
+        site_parameters={"vs30": 500.0, "z2pt5": 2.0},
+    )
+    assert observed == {
+        "vs30": 350.0,
+        "vs30measured": True,
+        "z1pt0": 120.0,
+        "z2pt5": 2.0,
+    }
+
+
+def test_reference_site_parameters_passed_to_gmpe(monkeypatch):
+    """Missing asset values inherit independent model defaults."""
+    from shakelab.engineering.gmdata.associator import GroundMotionRuntime
+    from shakelab.groundmotion.providers import ScenarioEvent
+
+    model = _model({
+        "vs30": 760.0,
+        "is_measured": False,
+        "z1pt0": 300.0,
+        "z2pt5": 1.5,
+    })
+    event = ScenarioEvent.from_lonlat_depth(
+        magnitude=5.5,
+        longitude=13.0,
+        latitude=46.0,
+        depth_km=10.0,
+        mechanism={"rake": 90.0},
+    )
+    runtime = GroundMotionRuntime(model, event)
+    exposure, _, _ = _asset(None)
+    observed = {}
+
+    def capture_site(**kwargs):
+        observed.update(kwargs["site_parameters"])
+        return 0.1, 0.5
+
+    monkeypatch.setattr(runtime, "evaluate_at_site", capture_site)
+    runtime.evaluate_at_asset(exposure.assets[0], "PGA")
+    assert observed == {
+        "vs30": 760.0,
+        "vs30measured": False,
+        "z1pt0": 300.0,
+        "z2pt5": 1.5,
+    }
