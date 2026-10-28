@@ -563,6 +563,11 @@ class ShakeScenarioServer:
                     )
 
             origin_time = ev.get("origin_time")
+            mechanism = ev.get("mechanism")
+            if mechanism is not None and not isinstance(mechanism, dict):
+                raise ValueError(
+                    "scenario.event.mechanism must be an object or null."
+                )
 
             event = ScenarioEvent(
                 hypocentre=WgsPoint(
@@ -573,6 +578,7 @@ class ShakeScenarioServer:
                 magnitude=float(ev["magnitude"]),
                 event_id=event_id,
                 origin_time=origin_time,
+                mechanism=mechanism,
             )
             
             # Ground motion
