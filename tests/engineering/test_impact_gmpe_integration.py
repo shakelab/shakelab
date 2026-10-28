@@ -12,6 +12,7 @@ import pytest
 from scipy.stats import norm
 
 from shakelab.engineering.gmdata.associator import (
+    GroundMotionAssignment,
     GroundMotionModel,
     GroundMotionProviderConfig,
     GroundMotionRuntime,
@@ -27,7 +28,8 @@ from tests.engineering.test_impact_integration import (
 )
 
 
-def _runtime():
+def test_real_gmpe_to_impact_probabilities():
+    _, exposure, tree, collection = _inputs(0.35)
     event = ScenarioEvent.from_lonlat_depth(
         magnitude=5.5,
         longitude=13.0,
@@ -36,26 +38,7 @@ def _runtime():
         event_id="integration-gmpe",
         mechanism={"strike": 45.0, "dip": 30.0, "rake": 90.0},
     )
-    model = GroundMotionModel(
-        type="ShakeLabGroundMotion",
-        schema_version="1.0.0",
-        providers=[
-            GroundMotionProviderConfig(
-                id="kotha",
-                provider="gmpe",
-                default=True,
-                config={"gmpe_name": "KothaEtAl2020ESHM20"},
-            ),
-        ],
-    )
-    runtime = GroundMotionRuntime(model, event)
-    return runtime, event
-
-
-def test_real_gmpe_to_impact_probabilities():
-    _, exposure, tree, collection = _inputs(0.35)
-    runtime, event = _runtime()
-    assert runtime.event.mechanism["rake"] == 90.0
+    assert event.mechanism["rake"] == 90.0
 
     # Rjb is a finite-fault metric: specify it, never approximate it.
     parameters = {
@@ -66,9 +49,7 @@ def test_real_gmpe_to_impact_probabilities():
         },
         "distances": {"rjb": 15.0},
     }
-    # Assign the site and rupture geometry to the configured provider.
-    runtime.model.providers[0].assignments  # no mutation of config
-    from shakelab.engineering.gmdata.associator import GroundMotionAssignment
+    # Assign site properties and finite-fault distance explicitly.
 
     provider_cfg = GroundMotionProviderConfig(
         id="kotha",
