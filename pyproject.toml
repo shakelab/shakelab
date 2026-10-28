@@ -61,5 +61,5 @@ python_files = [
     "test*.py"
 ]
 testpaths = [
-    "test"
+    "tests"
 ]
