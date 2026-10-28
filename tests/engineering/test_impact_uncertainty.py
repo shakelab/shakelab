@@ -16,7 +16,7 @@ def resolved():
     model = SimpleNamespace(
         imt="PGA",
         damage_scale=SimpleNamespace(levels=["D1"]),
-        poe_all=Mock(return_value={"D1": 0.2}),
+        poe_all=Mock(return_value={"D1": [0.2]}),
         poe_lognormal_im_all=Mock(return_value={"D1": 0.4}),
     )
     return [(model, 1.0)]
