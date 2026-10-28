@@ -53,6 +53,7 @@ Public API
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -287,11 +288,24 @@ class Asset:
                     f"Asset {self.id}: reference_geology must be an object or "
                     f"None."
                 )
-            if "vs30" in self.reference_geology:
-                vs30 = self.reference_geology.get("vs30")
-                if vs30 is not None and (not _is_number(vs30) or vs30 < 0):
+            for key, value in self.reference_geology.items():
+                if key not in ("vs30", "is_measured", "z1pt0", "z2pt5"):
                     raise ValueError(
-                        f"Asset {self.id}: vs30 must be >= 0 or None."
+                        f"Asset {self.id}: unknown geology property {key!r}."
+                    )
+                if value is None:
+                    continue
+                if key == "is_measured":
+                    if not isinstance(value, bool):
+                        raise ValueError(
+                            f"Asset {self.id}: is_measured must be boolean."
+                        )
+                elif (isinstance(value, bool) or
+                      not _is_number(value) or
+                      not math.isfinite(value) or
+                      (value <= 0 if key == "vs30" else value < 0)):
+                    raise ValueError(
+                        f"Asset {self.id}: invalid {key} value."
                     )
 
         if not self.typologies:
