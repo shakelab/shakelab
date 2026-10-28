@@ -874,18 +874,24 @@ class GroundMotionRuntime:
             str(asset_id)
         )
         if provider_cfg.provider == "gmpe":
-            geology = getattr(asset, "reference_geology", None)
-            site = dict(assigned.get("site_parameters", {}))
+            geology = getattr(asset, "reference_geology", None) or {}
+            if not isinstance(geology, Mapping):
+                raise ValueError("reference_geology must be an object.")
+            defaults = dict(self._model.reference_site)
+            if self._model.reference_vs30 is not None:
+                defaults.setdefault("vs30", self._model.reference_vs30)
+            site = {
+                "vs30measured" if key == "is_measured" else key: value
+                for key, value in defaults.items() if value is not None
+            }
+            site.update(assigned.get("site_parameters", {}))
             site.update(site_kwargs.pop("site_parameters", {}))
-            value = geology.get("vs30") if isinstance(
-                geology, Mapping
-            ) else None
-            if value is None:
-                value = site.get("vs30")
-            if value is None:
-                value = self._model.reference_vs30
-            if value is not None:
-                site["vs30"] = _validate_site_vs30(value)
+            site.update({
+                "vs30measured" if key == "is_measured" else key: value
+                for key, value in geology.items() if value is not None
+            })
+            if site.get("vs30") is not None:
+                site["vs30"] = _validate_site_vs30(site["vs30"])
             site_kwargs["site_parameters"] = site
 
         return self.evaluate_at_site(
