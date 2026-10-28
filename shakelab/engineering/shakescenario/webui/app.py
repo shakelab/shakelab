@@ -10,12 +10,14 @@ from shakelab.engineering.shakescenario.webui.backend.api import (
 from shakelab.engineering.shakescenario.webui.backend.config import (
     ensure_data_root,
     load_config,
+    WebUIConfig,
 )
 
 
-def create_app() -> Flask:
-    """Create and configure the ShakeScenario WebUI application."""
-    config = load_config()
+def create_app(config: WebUIConfig | None = None) -> Flask:
+    """Create the WebUI application using an optional explicit config."""
+    if config is None:
+        config = load_config()
     ensure_data_root(config)
 
     app = Flask(__name__)
@@ -33,11 +35,9 @@ def create_app() -> Flask:
     return app
 
 
-app = create_app()
-
-
 def main() -> None:
     """Run the WebUI development server."""
+    app = create_app()
     app.run(
         host=app.config["WEBUI_CONFIG"].web_host,
         port=app.config["WEBUI_CONFIG"].web_port,
