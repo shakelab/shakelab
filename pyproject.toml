@@ -55,6 +55,7 @@ dev = ["pytest>=4.6"]
 fdsnclient = "fdsnclient:main"
 shakeserver = "shakelab.engineering.shakescenario.shakeserver:main"
 shakeclient = "shakelab.engineering.shakescenario.shakeclient:main"
+shakewebui = "shakelab.engineering.shakescenario.webui.app:main"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
