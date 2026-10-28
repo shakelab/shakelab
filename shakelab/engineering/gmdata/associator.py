@@ -848,21 +848,22 @@ class GroundMotionRuntime:
             ) from exc
 
         site_kwargs = dict(kwargs)
-        resolved = self.resolve(str(asset_id))
-        if resolved.context.provider.provider_id == "gmpe":
+        provider_cfg, assigned, _ = self._model.resolve_config(
+            str(asset_id)
+        )
+        if provider_cfg.provider == "gmpe":
             geology = getattr(asset, "reference_geology", None)
-            site = dict(resolved.parameters.get("site_parameters", {}))
+            site = dict(assigned.get("site_parameters", {}))
             site.update(site_kwargs.pop("site_parameters", {}))
-            if "vs30" not in site:
-                value = None
-                if isinstance(geology, Mapping):
-                    value = geology.get("vs30")
-                if value is None:
-                    value = self._model.reference_vs30
-                if value is not None:
-                    site["vs30"] = _validate_site_vs30(value)
-            elif site["vs30"] is not None:
-                site["vs30"] = _validate_site_vs30(site["vs30"])
+            value = geology.get("vs30") if isinstance(
+                geology, Mapping
+            ) else None
+            if value is None:
+                value = site.get("vs30")
+            if value is None:
+                value = self._model.reference_vs30
+            if value is not None:
+                site["vs30"] = _validate_site_vs30(value)
             site_kwargs["site_parameters"] = site
 
         return self.evaluate_at_site(
