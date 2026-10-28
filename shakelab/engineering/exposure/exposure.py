@@ -53,6 +53,7 @@ Public API
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -75,6 +76,31 @@ def _drop_none(d: Dict[str, Any]) -> Dict[str, Any]:
 def _is_number(x: Any) -> bool:
     """Return True if x is int/float (but not bool)."""
     return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _validate_reference_geology(
+    geology: Dict[str, Any],
+    *,
+    asset_id: str,
+) -> None:
+    """Validate known site properties, preserving other geology data."""
+    recognized = {"vs30", "is_measured", "z1pt0", "z2pt5"}
+    for name, value in geology.items():
+        if name not in recognized or value is None:
+            continue
+        if name == "is_measured":
+            if not isinstance(value, bool):
+                raise ValueError(
+                    f"Asset {asset_id}: is_measured must be boolean."
+                )
+        elif (
+            not _is_number(value)
+            or not math.isfinite(value)
+            or (value <= 0.0 if name == "vs30" else value < 0.0)
+        ):
+            raise ValueError(
+                f"Asset {asset_id}: invalid {name} value."
+            )
 
 
 @dataclass
@@ -287,12 +313,10 @@ class Asset:
                     f"Asset {self.id}: reference_geology must be an object or "
                     f"None."
                 )
-            if "vs30" in self.reference_geology:
-                vs30 = self.reference_geology.get("vs30")
-                if vs30 is not None and (not _is_number(vs30) or vs30 < 0):
-                    raise ValueError(
-                        f"Asset {self.id}: vs30 must be >= 0 or None."
-                    )
+            _validate_reference_geology(
+                self.reference_geology,
+                asset_id=self.id,
+            )
 
         if not self.typologies:
             raise ValueError(f"Asset {self.id}: at least one typology is required.")

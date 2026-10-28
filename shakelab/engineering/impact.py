@@ -334,17 +334,34 @@ def compute_impact_scenario(
             if imt in gm_by_imt:
                 gm_val = gm_by_imt[imt]
             else:
-                im_med, sigma_ln = gm_resolution.context.evaluate_at_site(
-                    imt=imt,
-                    lon=float(lon),
-                    lat=float(lat),
-                    elevation_m=float(elev),
-                    **dict(gm_resolution.parameters),
+                # Preserve the original resolve/context contract for
+                # lightweight runtimes used by analytical integrations.
+                # Real runtimes additionally resolve asset site properties.
+                evaluate_asset = getattr(
+                    ground_motion, "evaluate_at_asset", None
                 )
+                if callable(evaluate_asset):
+                    im_med, sigma_ln = evaluate_asset(
+                        asset=asset,
+                        imt=imt,
+                    )
+                else:
+                    im_med, sigma_ln = (
+                        gm_resolution.context.evaluate_at_site(
+                            imt=imt,
+                            lon=float(lon),
+                            lat=float(lat),
+                            elevation_m=float(elev),
+                            **dict(gm_resolution.parameters),
+                        )
+                    )
                 gm_val = GroundMotionValue(
                     imt=imt,
                     median=float(im_med),
-                    sigma_ln=float(sigma_ln),
+                    sigma_ln=(
+                        float("nan")
+                        if sigma_ln is None else float(sigma_ln)
+                    ),
                     provider_id=str(gm_resolution.provider_id),
                 )
                 gm_by_imt[imt] = gm_val
@@ -443,8 +460,8 @@ def damage_probabilities(
         Ground-motion median in linear units for the IMT required by the
         resolved fragility models.
     sigma_ln
-        Standard deviation of ln(IM). May be NaN when uncertainty is not
-        available.
+        Standard deviation of ln(IM). Must be finite and non-negative in
+        lognormal mode; ignored in median_only mode.
     output
         "exceed" -> exceedance probabilities P(DS >= level).
         "state"  -> mutually exclusive probabilities D0..Dn.
@@ -491,24 +508,24 @@ def damage_probabilities(
 
         imt = str(model.imt).strip()
         im_med = float(im_median)
-        sig = float(sigma_ln)
 
         # Scientific guards: avoid silently producing nonsense.
         if not isfinite(im_med) or im_med <= 0.0:
             raise ValueError(
                 f"Non-positive IM supplied for IMT={imt}: {im_med}"
             )
-        if isfinite(sig) and sig < 0.0:
-            raise ValueError(
-                f"Negative sigma_ln supplied for IMT={imt}: {sig}"
-            )
 
-        # Compute exceedance probabilities for this model.
         if mode == "lognormal":
-            if not isfinite(sig):
-                poe = _poe_det(model, im_med, levels_ref)
-            else:
-                poe = model.poe_lognormal_im_all(im_med, sig)
+            if sigma_ln is None:
+                raise ValueError(
+                    f"Missing sigma_ln for lognormal IMT={imt}."
+                )
+            sig = float(sigma_ln)
+            if not isfinite(sig) or sig < 0.0:
+                raise ValueError(
+                    f"Invalid sigma_ln for lognormal IMT={imt}: {sig}"
+                )
+            poe = model.poe_lognormal_im_all(im_med, sig)
         else:
             poe = _poe_det(model, im_med, levels_ref)
 

@@ -89,6 +89,7 @@ Notes
 from __future__ import annotations
 
 import json
+import math
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -390,6 +391,8 @@ class GroundMotionModel:
     schema_version: str
     providers: List[GroundMotionProviderConfig]
     metadata: Dict[str, Any] = field(default_factory=dict)
+    reference_vs30: Optional[float] = None
+    reference_site: Dict[str, Any] = field(default_factory=dict)
 
     _provider_by_id: Dict[str, GroundMotionProviderConfig] = field(
         default_factory=dict,
@@ -464,6 +467,23 @@ class GroundMotionModel:
                 f"{EXPECTED_SCHEMA_VERSION!r}, "
                 f"got {self.schema_version!r}."
             )
+
+        if self.reference_vs30 is not None:
+            value = self.reference_vs30
+            if (isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value) or value <= 0.0):
+                raise ValueError(
+                    "reference_vs30 must be finite and strictly positive."
+                )
+
+        _validate_reference_site(self.reference_site)
+        if (
+            self.reference_vs30 is not None
+            and self.reference_site.get("vs30") is not None
+            and self.reference_site["vs30"] != self.reference_vs30
+        ):
+            raise ValueError("Conflicting reference Vs30 values.")
 
         if not isinstance(self.metadata, dict):
             raise ValueError(
@@ -661,6 +681,56 @@ class GroundMotionModel:
         )
 
 
+def _validate_reference_site(site: Mapping[str, Any]) -> None:
+    """Validate optional site properties without supplying defaults."""
+    if not isinstance(site, dict):
+        raise ValueError("reference_site must be an object.")
+
+    allowed = {"vs30", "is_measured", "z1pt0", "z2pt5"}
+    for name, value in site.items():
+        if name not in allowed:
+            raise ValueError(f"Unknown reference_site property: {name}.")
+        if value is None:
+            continue
+        if name == "is_measured":
+            if not isinstance(value, bool):
+                raise ValueError("is_measured must be boolean.")
+        elif name == "vs30":
+            _validate_site_vs30(value)
+        elif (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0.0
+        ):
+            raise ValueError(f"{name} must be finite and non-negative.")
+
+
+def _gmpe_site_parameters(site: Mapping[str, Any]) -> Dict[str, Any]:
+    """Translate engineering site names to GMPE context parameter names."""
+    supported = {"vs30", "is_measured", "z1pt0", "z2pt5"}
+    return {
+        "vs30measured" if name == "is_measured" else name: value
+        for name, value in site.items()
+        if name in supported and value is not None
+    }
+
+
+def _validate_site_vs30(value: Any) -> float:
+    """Validate a site velocity without introducing implicit defaults."""
+    if isinstance(value, bool):
+        raise ValueError("vs30 must be finite and strictly positive.")
+    try:
+        velocity = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "vs30 must be finite and strictly positive."
+        ) from exc
+    if not math.isfinite(velocity) or velocity <= 0.0:
+        raise ValueError("vs30 must be finite and strictly positive.")
+    return velocity
+
+
 # ---------------------------------------------------------------------------
 # Runtime
 # ---------------------------------------------------------------------------
@@ -821,13 +891,32 @@ class GroundMotionRuntime:
                 f"Asset {asset_id!r} has invalid elevation."
             ) from exc
 
+        site_kwargs = dict(kwargs)
+        provider_cfg, assigned, _ = self._model.resolve_config(
+            str(asset_id)
+        )
+        if provider_cfg.provider == "gmpe":
+            geology = getattr(asset, "reference_geology", None) or {}
+            if not isinstance(geology, Mapping):
+                raise ValueError("reference_geology must be an object.")
+            defaults = dict(self._model.reference_site)
+            if self._model.reference_vs30 is not None:
+                defaults.setdefault("vs30", self._model.reference_vs30)
+            site = _gmpe_site_parameters(defaults)
+            site.update(assigned.get("site_parameters", {}))
+            site.update(site_kwargs.pop("site_parameters", {}))
+            site.update(_gmpe_site_parameters(geology))
+            if site.get("vs30") is not None:
+                site["vs30"] = _validate_site_vs30(site["vs30"])
+            site_kwargs["site_parameters"] = site
+
         return self.evaluate_at_site(
             asset_id=str(asset_id),
             imt=imt,
             lon=lon,
             lat=lat,
             elevation_m=elevation_m,
-            **kwargs,
+            **site_kwargs,
         )
 
 
@@ -975,6 +1064,8 @@ def load_ground_motion_model(
         )
 
     model = GroundMotionModel(
+        reference_vs30=data.get("reference_vs30"),
+        reference_site=data.get("reference_site", {}),
         type=str(data.get("type")),
         schema_version=str(data.get("schema_version")),
         metadata=metadata,

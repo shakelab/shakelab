@@ -49,10 +49,13 @@ source = "https://github.com/shakelab/shakelab"
 
 [project.optional-dependencies]
 all = ["wx>=4.0.7"]
-dev = ["pytest>=4.6"]
+dev = ["pytest>=6.0"]
 
 [project.scripts]
 fdsnclient = "fdsnclient:main"
+shakeserver = "shakelab.engineering.shakescenario.shakeserver:main"
+shakeclient = "shakelab.engineering.shakescenario.shakeclient:main"
+shakewebui = "shakelab.engineering.shakescenario.webui.app:main"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
@@ -61,5 +64,5 @@ python_files = [
     "test*.py"
 ]
 testpaths = [
-    "test"
+    "tests"
 ]

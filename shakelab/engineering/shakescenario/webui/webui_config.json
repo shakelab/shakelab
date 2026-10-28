@@ -1,5 +1,5 @@
 {
-  "home": "/Users/grendel/Library/CloudStorage/Dropbox/Work/Develop/DamageScenario/Shakelab/Shakescenario",
+  "home": ".",
   "server_host": "127.0.0.1",
   "server_port": 6000,
   "server_timeout": 10.0,
