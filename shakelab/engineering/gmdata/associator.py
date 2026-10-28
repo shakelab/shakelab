@@ -477,6 +477,27 @@ class GroundMotionModel:
                     "reference_vs30 must be finite and strictly positive."
                 )
 
+        if not isinstance(self.reference_site, dict):
+            raise ValueError("reference_site must be an object.")
+        for key, value in self.reference_site.items():
+            if key not in ("vs30", "is_measured", "z1pt0", "z2pt5"):
+                raise ValueError(f"Unknown reference_site property: {key}.")
+            if value is None:
+                continue
+            if key == "is_measured":
+                if not isinstance(value, bool):
+                    raise ValueError("is_measured must be boolean.")
+            elif key == "vs30":
+                _validate_site_vs30(value)
+            elif (isinstance(value, bool) or
+                  not isinstance(value, (int, float)) or
+                  not math.isfinite(value) or value < 0):
+                raise ValueError(f"{key} must be finite and non-negative.")
+        if ("vs30" in self.reference_site and
+                self.reference_vs30 is not None and
+                self.reference_site["vs30"] != self.reference_vs30):
+            raise ValueError("Conflicting reference Vs30 values.")
+
         if not isinstance(self.metadata, dict):
             raise ValueError(
                 "GroundMotionModel.metadata must be a dictionary."
