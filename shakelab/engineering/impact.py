@@ -344,7 +344,10 @@ def compute_impact_scenario(
                 gm_val = GroundMotionValue(
                     imt=imt,
                     median=float(im_med),
-                    sigma_ln=float(sigma_ln),
+                    sigma_ln=(
+                        float("nan")
+                        if sigma_ln is None else float(sigma_ln)
+                    ),
                     provider_id=str(gm_resolution.provider_id),
                 )
                 gm_by_imt[imt] = gm_val
