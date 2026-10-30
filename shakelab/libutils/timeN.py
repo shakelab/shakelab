@@ -46,15 +46,21 @@ Conventions
 - Time shifts are real numbers expressed in seconds: Python ``int`` and
   ``float``, :class:`decimal.Decimal`, or NumPy integer and floating
   scalars. Booleans and non-finite values are rejected.
+- A bare number used as a date (construction, comparison, equality) is
+  always interpreted as seconds from the internal epoch, consistently
+  with :meth:`Date.to_seconds`.
+- The timing error of a date is metadata: it is preserved by copies and
+  time shifts, and ignored by comparisons and hashing.
 """
 
 from __future__ import annotations
 
 from decimal import ROUND_HALF_EVEN, Decimal
+import math
 from numbers import Integral, Real
 import re
 import time as systime
-from typing import Any, Dict, List, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 
 __all__ = [
@@ -64,10 +70,6 @@ __all__ = [
     "DAY_SECONDS",
     "YEAR_DAYS",
     "UNIX_EPOCH_SECONDS",
-    "MSEC",
-    "HSEC",
-    "DSEC",
-    "YDAYS",
     "leap_check",
     "leap_num",
     "days_in_month",
@@ -92,14 +94,6 @@ YEAR_DAYS = 365
 UNIX_EPOCH_SECONDS = Decimal("62135596800")
 
 _NANOSECONDS_PER_SECOND = Decimal(1_000_000_000)
-
-
-# Deprecated aliases kept temporarily for backward compatibility.
-# Prefer MINUTE_SECONDS, HOUR_SECONDS, DAY_SECONDS and YEAR_DAYS.
-MSEC = MINUTE_SECONDS
-HSEC = HOUR_SECONDS
-DSEC = DAY_SECONDS
-YDAYS = YEAR_DAYS
 
 
 ISO8601_PATTERN = re.compile(
@@ -146,21 +140,28 @@ class Date:
 
         If omitted, the date is left unset.
     error
-        Optional timing error, in seconds.
+        Timing error in seconds (finite, non-negative). If omitted, it
+        is inherited when ``date`` is a :class:`Date`, and is zero
+        otherwise.
     timezone
         Only ``"UTC"`` is supported.
 
     Raises
     ------
     TypeError
-        If the input format is not supported.
+        If the input format or the error type is not supported.
     ValueError
-        If the input does not describe a valid date.
+        If the input does not describe a valid date, or the error is
+        negative or not finite.
     NotImplementedError
         If a time zone other than UTC is requested.
 
     Notes
     -----
+    Bare numbers compare with dates as seconds from the internal epoch.
+    Equality with a non-finite number is False; ordering against a
+    non-finite number raises ``ValueError``.
+
     An unset date can be filled later, for example with
     :meth:`strparse`. Operations that need an instant (comparisons,
     arithmetic, hashing, conversion to seconds or strings) raise
@@ -178,7 +179,7 @@ class Date:
     def __init__(
         self,
         date: Any = None,
-        error: float = 0.0,
+        error: Optional[float] = None,
         timezone: str = "UTC",
     ) -> None:
         self.year = None
@@ -187,7 +188,11 @@ class Date:
         self.hour = None
         self.minute = None
         self.second = None
-        self.error = float(error)
+
+        if error is None:
+            error = date.error if isinstance(date, Date) else 0.0
+
+        self.error = _validate_error(error)
 
         if timezone != "UTC":
             raise NotImplementedError("Only UTC timezone is supported.")
@@ -205,11 +210,20 @@ class Date:
         if not self.is_set:
             return "Date(None)"
 
+        return f"Date({self.iso8601!r})"
+
+    def __str__(self) -> str:
+        if not self.is_set:
+            return "Date(None)"
+
         return self.iso8601
 
     def __eq__(self, value: object) -> bool:
         if not _is_time_value(value):
             return NotImplemented
+
+        if not isinstance(value, Date) and not _is_finite_number(value):
+            return False
 
         return self.to_seconds(decimal=True) == to_decimal(value)
 
@@ -244,7 +258,9 @@ class Date:
         if not _is_time_shift(value):
             return NotImplemented
 
-        return Date(self.to_seconds(decimal=True) + to_decimal(value))
+        seconds = self.to_seconds(decimal=True) + to_decimal(value)
+
+        return Date(seconds, error=self.error)
 
     __radd__ = __add__
 
@@ -255,7 +271,8 @@ class Date:
             return float(seconds)
 
         if _is_time_shift(value):
-            return Date(self.to_seconds(decimal=True) - to_decimal(value))
+            seconds = self.to_seconds(decimal=True) - to_decimal(value)
+            return Date(seconds, error=self.error)
 
         return NotImplemented
 
@@ -618,9 +635,10 @@ class Date:
         self,
         precision: int = 6,
         format: str = "calendar",
+        timezone: str = "Z",
     ) -> str:
         """
-        Return an ISO 8601 UTC string.
+        Return an ISO 8601 string.
 
         Parameters
         ----------
@@ -629,11 +647,15 @@ class Date:
             fractional part is omitted.
         format
             Either ``"calendar"`` or ``"ordinal"``.
+        timezone
+            ``"Z"`` for UTC, or a numeric offset such as ``"+01:00"``,
+            ``"-0430"`` or ``"+02"``. With an offset, the written time
+            is the local time at that offset.
 
         Returns
         -------
         str
-            ISO 8601 UTC string.
+            ISO 8601 string.
         """
         self._require_set()
 
@@ -645,6 +667,7 @@ class Date:
             self.minute,
             self.second,
             precision=precision,
+            timezone=timezone,
             format=format,
         )
 
@@ -717,9 +740,11 @@ class Date:
         Raises
         ------
         ValueError
-            If the string does not match the format or does not describe
-            a valid date.
+            If the format is invalid (missing ``%Y``, repeated
+            placeholders, or ``%j`` mixed with ``%m``/``%d``), or the
+            string does not match it or does not describe a valid date.
         """
+        _validate_parse_format(fmt)
         pattern = _format_to_regex(fmt)
         match = re.match(pattern, date_string)
 
@@ -733,7 +758,7 @@ class Date:
         second = _decimal_to_float(values.get("S") or "0")
 
         if values.get("j") is not None:
-            month, day = from_ordinal_day(year, int(values["j"]))
+            month, day = from_ordinal_day(year, values["j"])
         else:
             month = int(values.get("m") or 1)
             day = int(values.get("d") or 1)
@@ -880,8 +905,8 @@ class Date:
             return
 
         if len(values) == 5:
-            year = int(values[0])
-            month, day = from_ordinal_day(year, int(values[1]))
+            year = _to_int(values[0], "year")
+            month, day = from_ordinal_day(year, values[1])
             self._set_components(
                 year,
                 month,
@@ -898,20 +923,20 @@ class Date:
         """
         Set date fields from a dictionary.
         """
-        year = int(date["year"])
-        hour = int(date.get("hour", 0))
-        minute = int(date.get("minute", 0))
-        second = float(date.get("second", 0.0))
+        year = _to_int(date["year"], "year")
+        hour = date.get("hour", 0)
+        minute = date.get("minute", 0)
+        second = date.get("second", 0.0)
 
         if "month" in date and "day" in date:
-            month = int(date["month"])
-            day = int(date["day"])
+            month = date["month"]
+            day = date["day"]
         elif "ordinal_day" in date:
-            month, day = from_ordinal_day(year, int(date["ordinal_day"]))
+            month, day = from_ordinal_day(year, date["ordinal_day"])
         elif "day_of_year" in date:
-            month, day = from_ordinal_day(year, int(date["day_of_year"]))
+            month, day = from_ordinal_day(year, date["day_of_year"])
         elif "year_day" in date:
-            month, day = from_ordinal_day(year, int(date["year_day"]))
+            month, day = from_ordinal_day(year, date["year_day"])
         else:
             raise ValueError("Dictionary lacks calendar or ordinal fields.")
 
@@ -927,14 +952,16 @@ class Date:
         second: float,
     ) -> None:
         """
-        Set raw date components without validation.
+        Set date components, converting them to int and float.
+
+        Range checks are left to :meth:`_selfcheck`.
         """
-        self.year = int(year)
-        self.month = int(month)
-        self.day = int(day)
-        self.hour = int(hour)
-        self.minute = int(minute)
-        self.second = float(second)
+        self.year = _to_int(year, "year")
+        self.month = _to_int(month, "month")
+        self.day = _to_int(day, "day")
+        self.hour = _to_int(hour, "hour")
+        self.minute = _to_int(minute, "minute")
+        self.second = _to_float(second, "second")
 
     def _selfcheck(self) -> None:
         """
@@ -961,7 +988,7 @@ def leap_check(year: int) -> bool:
     Gregorian rules are applied to every year (proleptic calendar), so
     year ``0`` (1 BC) is a leap year.
     """
-    year = int(year)
+    year = _to_int(year, "year")
 
     divisible_by_4 = year % 4 == 0
     not_century = year % 100 != 0
@@ -979,7 +1006,7 @@ def leap_num(year: int) -> int:
     ``(year - 1) * 365 + leap_num(year)`` is always the number of days
     from the internal epoch to January 1 of ``year``.
     """
-    year = int(year)
+    year = _to_int(year, "year")
 
     # Floor division keeps the formula valid for non-positive years.
     previous = year - 1
@@ -1017,8 +1044,8 @@ def from_ordinal_day(year: int, day: int) -> Tuple[int, int]:
     ValueError
         If the ordinal day is outside the year.
     """
-    year = int(year)
-    day = int(day)
+    year = _to_int(year, "year")
+    day = _to_int(day, "ordinal day")
 
     max_day = year_days(year)
 
@@ -1040,11 +1067,9 @@ def to_ordinal_day(year: int, month: int, day: int) -> int:
     """
     Convert ``(month, day)`` to the ordinal day of year.
     """
-    year = int(year)
-    month = int(month)
-    day = int(day)
-
-    _validate_components(year, month, day, 0, 0, 0.0)
+    year, month, day, _, _, _ = _validate_components(
+        year, month, day, 0, 0, 0.0,
+    )
 
     if month == 1:
         return day
@@ -1081,10 +1106,12 @@ def date_to_second(
         Seconds from ``0001-01-01T00:00:00Z``, negative for earlier
         instants.
     """
-    _validate_components(year, month, day, hour, minute, second)
+    year, month, day, hour, minute, second = _validate_components(
+        year, month, day, hour, minute, second,
+    )
 
     month_days = [0] + days_in_month(year)[:-1]
-    days = _days_before_year(int(year))
+    days = _days_before_year(year)
     days += month_days[month - 1]
     days += day - 1
 
@@ -1229,7 +1256,7 @@ def read_iso8601_date(date_string: str) -> Tuple[Any, ...]:
     year = int(values["year"])
 
     if values["ordinal"] is not None:
-        month, day = from_ordinal_day(year, int(values["ordinal"]))
+        month, day = from_ordinal_day(year, values["ordinal"])
     else:
         month = int(values["month"])
         day = int(values["day"])
@@ -1280,7 +1307,11 @@ def write_iso8601_date(
         Number of decimal digits for seconds. With ``0`` the fractional
         part is omitted.
     timezone
-        Time zone designator appended to the string.
+        ``"Z"`` for UTC, or a numeric offset such as ``"+01:00"``,
+        ``"-0430"`` or ``"+02"``. The components are UTC; with an offset
+        they are converted to the local time at that offset, and the
+        offset is written as ``±HH:MM`` (``±HH:MM:SS`` if it has
+        seconds).
     format
         Either ``"calendar"`` or ``"ordinal"``.
 
@@ -1288,6 +1319,15 @@ def write_iso8601_date(
     -------
     str
         ISO 8601 string.
+
+    Raises
+    ------
+    TypeError
+        If ``timezone`` is not a string or ``precision`` is not an
+        integer.
+    ValueError
+        If a component, the precision, the offset or the format is
+        invalid.
 
     Notes
     -----
@@ -1297,8 +1337,29 @@ def write_iso8601_date(
     Years outside ``0``-``9999`` are written with an explicit sign and at
     least four digits (ISO 8601 expanded representation).
     """
-    _validate_components(year, month, day, hour, minute, second)
+    year, month, day, hour, minute, second = _validate_components(
+        year, month, day, hour, minute, second,
+    )
     precision = _validate_precision(precision)
+
+    if not isinstance(timezone, str):
+        raise TypeError("The timezone must be a string.")
+
+    offset = _parse_timezone_offset(timezone)
+
+    if timezone == "Z":
+        designator = "Z"
+    else:
+        designator = _format_timezone_offset(offset)
+
+    if offset:
+        local_seconds = date_to_second(
+            year, month, day, hour, minute, second, decimal=True,
+        )
+        local_seconds += offset
+        year, month, day, hour, minute, second = second_to_date(
+            local_seconds,
+        )
 
     year, month, day, hour, minute, second = _round_components(
         year,
@@ -1323,7 +1384,7 @@ def write_iso8601_date(
         f"{_format_seconds(second, precision)}"
     )
 
-    return f"{date_part}T{time_part}{timezone}"
+    return f"{date_part}T{time_part}{designator}"
 
 
 def utc_now() -> str:
@@ -1359,6 +1420,100 @@ def _is_time_value(value: Any) -> bool:
     return isinstance(value, Date) or _is_time_shift(value)
 
 
+def _is_finite_number(value: Union[Decimal, Real]) -> bool:
+    """
+    Return True if a real number or Decimal is finite.
+    """
+    if isinstance(value, Decimal):
+        return value.is_finite()
+
+    return math.isfinite(float(value))
+
+
+def _to_int(value: Any, name: str) -> int:
+    """
+    Convert an integral value to int, rejecting silent truncation.
+
+    Accepted values are integers (including NumPy integers),
+    integral-valued floats and Decimals (e.g. ``2026.0``) and strings
+    holding an integer (e.g. ``"2026"``).
+    """
+    if isinstance(value, bool):
+        raise TypeError(f"The {name} must be an integer.")
+
+    if isinstance(value, Integral):
+        return int(value)
+
+    if isinstance(value, (Decimal, Real)):
+        if not _is_finite_number(value) or value != int(value):
+            raise ValueError(f"The {name} must be an integer.")
+
+        return int(value)
+
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            raise ValueError(f"The {name} must be an integer.") from None
+
+    raise TypeError(f"The {name} must be an integer.")
+
+
+def _to_float(value: Any, name: str) -> float:
+    """
+    Convert a real value (or a numeric string) to a finite float.
+    """
+    if isinstance(value, bool):
+        raise TypeError(f"The {name} must be a real number.")
+
+    if isinstance(value, (Decimal, Real)):
+        result = float(value)
+    elif isinstance(value, str):
+        try:
+            result = float(value)
+        except ValueError:
+            raise ValueError(
+                f"The {name} must be a real number."
+            ) from None
+    else:
+        raise TypeError(f"The {name} must be a real number.")
+
+    if not math.isfinite(result):
+        raise ValueError(f"The {name} must be finite.")
+
+    return result
+
+
+def _validate_error(error: Any) -> float:
+    """
+    Validate a timing error (finite, non-negative real number).
+    """
+    if isinstance(error, bool) or not isinstance(error, (Decimal, Real)):
+        raise TypeError("The timing error must be a real number.")
+
+    error = float(error)
+
+    if not math.isfinite(error) or error < 0:
+        raise ValueError("The timing error must be finite and non-negative.")
+
+    return error
+
+
+def _validate_parse_format(fmt: str) -> None:
+    """
+    Check that a strparse format is unambiguous.
+    """
+    if "%Y" not in fmt:
+        raise ValueError("The format must contain %Y.")
+
+    for key in ("%Y", "%j", "%m", "%d", "%H", "%M", "%S"):
+        if fmt.count(key) > 1:
+            raise ValueError(f"Placeholder {key} appears more than once.")
+
+    if "%j" in fmt and ("%m" in fmt or "%d" in fmt):
+        raise ValueError("Use either %j or %m and %d, not both.")
+
+
 def _unix_ns_to_seconds(nanoseconds: int) -> Decimal:
     """
     Convert Unix integer nanoseconds to seconds from the internal epoch.
@@ -1376,16 +1531,16 @@ def _validate_components(
     hour: int,
     minute: int,
     second: float,
-) -> None:
+) -> Tuple[int, int, int, int, int, float]:
     """
-    Validate raw date components.
+    Validate date components and return them as ints and a float.
     """
-    year = int(year)
-    month = int(month)
-    day = int(day)
-    hour = int(hour)
-    minute = int(minute)
-    second = float(second)
+    year = _to_int(year, "year")
+    month = _to_int(month, "month")
+    day = _to_int(day, "day")
+    hour = _to_int(hour, "hour")
+    minute = _to_int(minute, "minute")
+    second = _to_float(second, "second")
 
     if month < 1 or month > 12:
         raise ValueError("Month must be between 1 and 12.")
@@ -1403,8 +1558,10 @@ def _validate_components(
     if minute < 0 or minute > 59:
         raise ValueError("Minute must be between 0 and 59.")
 
-    if second < 0 or second >= 60:
+    if not 0 <= second < 60:
         raise ValueError("Second must be in the range [0, 60).")
+
+    return year, month, day, hour, minute, second
 
 
 def _validate_precision(precision: int) -> int:
@@ -1541,6 +1698,21 @@ def _parse_timezone_offset(timezone: str) -> Decimal:
         offset = -offset
 
     return offset
+
+
+def _format_timezone_offset(offset: Decimal) -> str:
+    """
+    Format an offset in seconds as ``±HH:MM`` or ``±HH:MM:SS``.
+    """
+    sign = "-" if offset < 0 else "+"
+    total = int(abs(offset))
+    hour, remainder = divmod(total, 3600)
+    minute, second = divmod(remainder, 60)
+
+    if second:
+        return f"{sign}{hour:02d}:{minute:02d}:{second:02d}"
+
+    return f"{sign}{hour:02d}:{minute:02d}"
 
 
 def _format_to_regex(fmt: str) -> str:

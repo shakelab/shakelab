@@ -30,6 +30,7 @@ Conventions
 - Tests on the current time freeze the system clock with the
   ``fixed_clock`` fixture.
 - Years before 1 use astronomical numbering (year 0 is 1 BC).
+- Bare numbers compared with dates are seconds from the internal epoch.
 """
 
 from __future__ import annotations
@@ -262,6 +263,18 @@ def test_date_from_iso8601(value, expected):
     assert Date(value).get_date() == expected
 
 
+@pytest.mark.parametrize("value", [
+    "2026-10-30T15:25:07+24:00",
+    "2026-10-30T15:25:07+0",
+    "2026-10-30T15:25:07+02:3",
+    "2026-10-30T15:25:07+02:60",
+])
+def test_invalid_timezone_offsets_are_rejected(value):
+    """Malformed or out-of-range offsets are rejected."""
+    with pytest.raises(ValueError):
+        Date(value)
+
+
 def test_read_iso8601_date_returns_utc_components_and_offset():
     """The parser returns UTC components and the input offset."""
     assert read_iso8601_date("2026-10-30T17:25:07+02:00") == (
@@ -313,6 +326,56 @@ def test_date_from_components(value):
 def test_date_from_seconds(value):
     """Seconds from the internal epoch are accepted."""
     assert Date(value) == Date(REFERENCE)
+
+
+def test_alternative_constructors():
+    """from_iso8601, from_dict and from_ordinal build the same date."""
+    expected = Date(REFERENCE)
+    assert Date.from_iso8601(REFERENCE) == expected
+    assert Date.from_dict({
+        "year": 2026, "month": 10, "day": 30,
+        "hour": 15, "minute": 25, "second": 7.0,
+    }) == expected
+    assert Date.from_ordinal(2026, 303, 15, 25, 7.0) == expected
+
+
+def test_seconds_property():
+    """The seconds property reads and sets seconds from the epoch."""
+    date = Date(REFERENCE)
+    assert date.seconds == float(REFERENCE_SECONDS)
+    date.seconds = 0
+    assert date == Date("0001-01-01T00:00:00Z")
+
+
+def test_integral_components_are_accepted():
+    """Integral floats, NumPy integers and numeric strings are accepted."""
+    date = Date([2026.0, np.int64(10), "30", 15, 25, "7.0"])
+    assert date == Date(REFERENCE)
+    assert date_to_second(2026.0, 10, 30) == date_to_second(2026, 10, 30)
+
+
+@pytest.mark.parametrize("components, name", [
+    ([2026.7, 10, 30, 0, 0, 0.0], "year"),
+    ([2026, 10, 30.5, 0, 0, 0.0], "day"),
+    ([2026, 10, 30, "1.5", 0, 0.0], "hour"),
+    ([2026, 10, 30, 0, 0, "x"], "second"),
+])
+def test_non_integral_components_are_rejected(components, name):
+    """Components are never truncated silently."""
+    with pytest.raises(ValueError, match=name):
+        Date(components)
+
+
+def test_non_finite_seconds_are_rejected():
+    """A NaN second does not slip through the range check."""
+    with pytest.raises(ValueError, match="finite"):
+        Date([2026, 10, 30, 0, 0, float("nan")])
+
+
+def test_boolean_components_are_rejected():
+    """Booleans are not accepted as date components."""
+    with pytest.raises(TypeError, match="month"):
+        Date([2026, True, 1, 0, 0, 0.0])
 
 
 def test_dictionary_without_day_fields_is_rejected():
@@ -451,11 +514,12 @@ def test_to_iso8601_precision(precision, expected):
 
 
 def test_iso8601_property_repr_and_str():
-    """iso8601, repr() and str() share the ISO 8601 representation."""
+    """str() is the ISO 8601 string; repr() names the class."""
     date = Date(REFERENCE)
     assert date.iso8601 == "2026-10-30T15:25:07.000000Z"
-    assert repr(date) == date.iso8601
     assert str(date) == date.iso8601
+    assert repr(date) == "Date('2026-10-30T15:25:07.000000Z')"
+    assert str(Date()) == "Date(None)"
 
 
 def test_to_iso8601_ordinal_format():
@@ -472,6 +536,54 @@ def test_iso8601_rounding_carries_into_next_minute(precision, expected):
     """Rounding to 60 s carries into the next minute and year."""
     date = Date([2026, 12, 31, 23, 59, 59.9999996])
     assert date.to_iso8601(precision) == expected
+
+
+@pytest.mark.parametrize("timezone, expected", [
+    ("Z", "2026-10-30T15:25:07Z"),
+    ("+01:00", "2026-10-30T16:25:07+01:00"),
+    ("-0430", "2026-10-30T10:55:07-04:30"),
+    ("+02", "2026-10-30T17:25:07+02:00"),
+    ("+00:00", "2026-10-30T15:25:07+00:00"),
+    ("+05:30:15", "2026-10-30T20:55:22+05:30:15"),
+])
+def test_to_iso8601_with_offset(timezone, expected):
+    """With an offset, the local time at that offset is written."""
+    assert Date(REFERENCE).to_iso8601(0, timezone=timezone) == expected
+
+
+@pytest.mark.parametrize("timezone", ["+01:00", "-0430", "+05:30:15"])
+def test_offset_output_round_trips(timezone):
+    """A string written with an offset parses back to the same instant."""
+    date = Date("2026-10-30T15:25:07.25Z")
+    assert Date(date.to_iso8601(timezone=timezone)) == date
+
+
+def test_offset_output_crosses_the_year():
+    """The local conversion carries into the next day and year."""
+    date = Date("2026-12-31T23:30:00Z")
+    expected = "2027-01-01T00:30:00+01:00"
+    assert date.to_iso8601(0, timezone="+01:00") == expected
+
+
+def test_write_iso8601_date_converts_to_offset():
+    """write_iso8601_date converts UTC components to the given offset."""
+    text = write_iso8601_date(
+        2026, 10, 30, 15, 25, 7.0, precision=0, timezone="+02:00",
+    )
+    assert text == "2026-10-30T17:25:07+02:00"
+
+
+@pytest.mark.parametrize("timezone, error", [
+    ("CET", ValueError),
+    ("+24:00", ValueError),
+    ("+0", ValueError),
+    ("z", ValueError),
+    (2, TypeError),
+])
+def test_invalid_output_timezones_are_rejected(timezone, error):
+    """Only "Z" and numeric offsets are accepted on output."""
+    with pytest.raises(error):
+        Date(REFERENCE).to_iso8601(timezone=timezone)
 
 
 def test_write_iso8601_date_rejects_negative_precision():
@@ -514,6 +626,17 @@ def test_strparse_rejects_mismatching_strings():
     """A string that does not match the format is rejected."""
     with pytest.raises(ValueError, match="does not match"):
         Date().strparse("2026-10-30", "%Y%m%d")
+
+
+@pytest.mark.parametrize("fmt, message", [
+    ("%m%d", "%Y"),
+    ("%Y-%m-%d %H:%H", "more than once"),
+    ("%Y-%j-%m", "either"),
+])
+def test_strparse_rejects_ambiguous_formats(fmt, message):
+    """Formats without %Y or with conflicting placeholders are rejected."""
+    with pytest.raises(ValueError, match=message):
+        Date().strparse("20261030", fmt)
 
 
 def test_get_date_representations():
@@ -564,6 +687,30 @@ def test_equality_with_seconds():
     """A date equals its seconds from the internal epoch."""
     date = Date(REFERENCE)
     assert date == date.to_seconds(decimal=True)
+
+
+def test_numbers_compare_as_seconds_from_internal_epoch():
+    """Bare numbers are seconds from 0001-01-01T00:00:00Z."""
+    date = Date("0001-01-01T00:00:01Z")
+    assert date == 1
+    assert date > 0
+    assert date < 1.5
+    assert Date(REFERENCE) == REFERENCE_SECONDS
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, Decimal("NaN")])
+def test_equality_with_non_finite_numbers_is_false(value):
+    """Equality with NaN or infinity is False instead of an error."""
+    date = Date(REFERENCE)
+    assert not date == value
+    assert date != value
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf])
+def test_ordering_with_non_finite_numbers_raises(value):
+    """Ordering against NaN or infinity raises a clear error."""
+    with pytest.raises(ValueError, match="finite"):
+        Date(REFERENCE) < value
 
 
 def test_equality_with_unsupported_types_is_false():
@@ -634,6 +781,46 @@ def test_shift_time_rejects_unknown_units():
     """Unknown time units are rejected."""
     with pytest.raises(ValueError, match="time unit"):
         Date(REFERENCE).shift_time(1, "weeks")
+
+
+# ---------------------------------------------------------------------------
+# Timing error
+# ---------------------------------------------------------------------------
+
+def test_error_is_inherited_by_copies_and_shifts():
+    """copy(), Date(date) and time shifts keep the timing error."""
+    date = Date(REFERENCE, error=0.02)
+    assert date.copy().error == 0.02
+    assert Date(date).error == 0.02
+    assert (date + 1).error == 0.02
+    assert (1 + date).error == 0.02
+    assert (date - 1).error == 0.02
+
+
+def test_explicit_error_overrides_inherited_error():
+    """An explicit error takes precedence over the source date."""
+    assert Date(Date(REFERENCE, error=0.02), error=0.5).error == 0.5
+
+
+def test_error_is_ignored_by_equality_and_hash():
+    """Dates with different errors compare and hash as equal."""
+    precise = Date(REFERENCE)
+    rough = Date(REFERENCE, error=1.0)
+    assert precise == rough
+    assert hash(precise) == hash(rough)
+
+
+@pytest.mark.parametrize("error, exception", [
+    (-0.1, ValueError),
+    (float("nan"), ValueError),
+    (float("inf"), ValueError),
+    ("0.1", TypeError),
+    (True, TypeError),
+])
+def test_invalid_errors_are_rejected(error, exception):
+    """The timing error must be a finite, non-negative real number."""
+    with pytest.raises(exception):
+        Date(REFERENCE, error=error)
 
 
 # ---------------------------------------------------------------------------
