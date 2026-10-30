@@ -34,7 +34,9 @@ Design choices
 
 Conventions
 -----------
-- The internal epoch is ``0001-01-01T00:00:00Z``. This is not Unix time.
+- The internal epoch is ``0001-01-01T00:00:00Z``. This is not Unix time;
+  use :meth:`Date.from_unix`, :meth:`Date.to_unix` and their
+  nanosecond variants to exchange Unix timestamps.
 - Leap seconds are not represented: seconds lie in ``[0, 60)``.
 - Time shifts are real numbers expressed in seconds: Python ``int`` and
   ``float``, :class:`decimal.Decimal`, or NumPy integer and floating
@@ -43,7 +45,7 @@ Conventions
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from numbers import Integral, Real
 import re
 import time as systime
@@ -56,6 +58,7 @@ __all__ = [
     "HOUR_SECONDS",
     "DAY_SECONDS",
     "YEAR_DAYS",
+    "UNIX_EPOCH_SECONDS",
     "MSEC",
     "HSEC",
     "DSEC",
@@ -79,6 +82,11 @@ MINUTE_SECONDS = Decimal("60")
 HOUR_SECONDS = Decimal("3600")
 DAY_SECONDS = Decimal("86400")
 YEAR_DAYS = 365
+
+# Seconds from the internal epoch to 1970-01-01T00:00:00Z.
+UNIX_EPOCH_SECONDS = Decimal("62135596800")
+
+_NANOSECONDS_PER_SECOND = Decimal(1_000_000_000)
 
 
 # Deprecated aliases kept temporarily for backward compatibility.
@@ -183,8 +191,7 @@ class Date:
             return
 
         if isinstance(date, str) and date == "now":
-            self._set_from_sequence(_utc_now_components())
-            self._selfcheck()
+            self.from_seconds(_unix_ns_to_seconds(systime.time_ns()))
             return
 
         self.set_date(date)
@@ -255,10 +262,10 @@ class Date:
         Returns
         -------
         Date
-            Current UTC date, with the sub-second resolution of the
-            system clock.
+            Current UTC date, with the nanosecond resolution of
+            :func:`time.time_ns`.
         """
-        return cls(_utc_now_components())
+        return cls.from_unix_ns(systime.time_ns())
 
     @classmethod
     def from_iso8601(cls, date_string: str) -> Date:
@@ -325,6 +332,47 @@ class Date:
             Parsed UTC date.
         """
         return cls([year, ordinal_day, hour, minute, second])
+
+    @classmethod
+    def from_unix(cls, seconds: TimeShift) -> Date:
+        """
+        Create a Date from a Unix timestamp.
+
+        Parameters
+        ----------
+        seconds
+            Seconds from 1970-01-01T00:00:00Z. Negative values describe
+            instants before 1970.
+
+        Returns
+        -------
+        Date
+            Corresponding UTC date.
+        """
+        return cls(UNIX_EPOCH_SECONDS + to_decimal(seconds))
+
+    @classmethod
+    def from_unix_ns(cls, nanoseconds: int) -> Date:
+        """
+        Create a Date from a Unix timestamp in integer nanoseconds.
+
+        Parameters
+        ----------
+        nanoseconds
+            Nanoseconds from 1970-01-01T00:00:00Z, as returned by
+            :func:`time.time_ns`.
+
+        Returns
+        -------
+        Date
+            Corresponding UTC date.
+
+        Raises
+        ------
+        TypeError
+            If ``nanoseconds`` is not an integer.
+        """
+        return cls(_unix_ns_to_seconds(nanoseconds))
 
     @property
     def is_set(self) -> bool:
@@ -701,6 +749,13 @@ class Date:
         -------
         float or Decimal
             Seconds from ``0001-01-01T00:00:00Z``.
+
+        Notes
+        -----
+        Present-day values are about ``6.4e10`` s, so the float result
+        resolves only about 8 microseconds. Use ``decimal=True`` for
+        exact computations, or :meth:`to_unix` for a float with finer
+        resolution.
         """
         self._require_set()
 
@@ -713,6 +768,46 @@ class Date:
             self.second,
             decimal=decimal,
         )
+
+    def to_unix(self, decimal: bool = False) -> Union[float, Decimal]:
+        """
+        Return the Unix timestamp of the date.
+
+        Parameters
+        ----------
+        decimal
+            If True, return an exact :class:`decimal.Decimal`; otherwise
+            return a float.
+
+        Returns
+        -------
+        float or Decimal
+            Seconds from 1970-01-01T00:00:00Z.
+
+        Notes
+        -----
+        Present-day float timestamps resolve about 0.24 microseconds.
+        """
+        seconds = self.to_seconds(decimal=True) - UNIX_EPOCH_SECONDS
+
+        if decimal:
+            return seconds
+
+        return float(seconds)
+
+    def to_unix_ns(self) -> int:
+        """
+        Return the Unix timestamp of the date in integer nanoseconds.
+
+        Returns
+        -------
+        int
+            Nanoseconds from 1970-01-01T00:00:00Z, rounded to the
+            nearest nanosecond (ties to even).
+        """
+        nanoseconds = self.to_unix(decimal=True) * _NANOSECONDS_PER_SECOND
+
+        return int(nanoseconds.to_integral_value(rounding=ROUND_HALF_EVEN))
 
     def from_seconds(self, second: TimeShift) -> None:
         """
@@ -1223,7 +1318,7 @@ def utc_now() -> str:
     str
         Current UTC time with microsecond precision.
     """
-    return write_iso8601_date(*_utc_now_components(), precision=6)
+    return Date.now().to_iso8601(precision=6)
 
 
 # ---------------------------------------------------------------------------
@@ -1247,23 +1342,14 @@ def _is_time_value(value: Any) -> bool:
     return isinstance(value, Date) or _is_time_shift(value)
 
 
-def _utc_now_components() -> DateComponents:
+def _unix_ns_to_seconds(nanoseconds: int) -> Decimal:
     """
-    Return the current UTC time as calendar components.
-
-    Seconds keep the nanosecond resolution of :func:`time.time_ns`.
+    Convert Unix integer nanoseconds to seconds from the internal epoch.
     """
-    seconds, nanoseconds = divmod(systime.time_ns(), 1_000_000_000)
-    current = systime.gmtime(seconds)
+    if isinstance(nanoseconds, bool) or not isinstance(nanoseconds, Integral):
+        raise TypeError("Nanoseconds must be an integer.")
 
-    return [
-        current.tm_year,
-        current.tm_mon,
-        current.tm_mday,
-        current.tm_hour,
-        current.tm_min,
-        current.tm_sec + nanoseconds / 1e9,
-    ]
+    return UNIX_EPOCH_SECONDS + Decimal(int(nanoseconds)).scaleb(-9)
 
 
 def _validate_components(
