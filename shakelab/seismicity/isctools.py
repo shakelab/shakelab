@@ -23,7 +23,7 @@ import os
 import requests
 from urllib.parse import urlencode
 
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 
 class ISCDownloader:
     """

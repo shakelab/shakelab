@@ -22,7 +22,7 @@ Functionalities to handle the DYNA (1.2) file format
 (from ITACA - Italian Accelerometric Archive)
 '''
 import os
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 from shakelab.signals import base
 
 DYNA_VERSION=1.2
@@ -35,11 +35,12 @@ def dynaread(input_file, units='A'):
 
     record = base.Record()
     record.head.delta = dy.header['SAMPLING_INTERVAL_S']
-    record.head.time = Date()
-    record.head.time.strparse(
+    start_time = Date()
+    start_time.strparse(
         dy.header['DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS'],
         '%Y%m%d_%H%M%S'
         )
+    record.head.time = start_time
     record.head.sid = '{0}.{1}.{2}.{3}'.format(
         dy.header['NETWORK'],
         dy.header['STATION_CODE'],

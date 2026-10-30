@@ -25,7 +25,7 @@ import numpy as np
 import pickle
 from copy import deepcopy
 
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 from shakelab.libutils.geodetic import WgsPoint
 from shakelab.libutils.ascii import AsciiTable
 from shakelab.libutils.utils import cast_value

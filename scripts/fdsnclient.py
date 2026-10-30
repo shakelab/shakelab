@@ -26,7 +26,7 @@ fdsnclient.py INGV IV.MODE..HNN 2012-05-20T02:03:23.0Z 2012-05-20T02:06:23.0Z --
 import argparse
 import logging
 from shakelab.signals.fdsnws import FDSNClient
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 
 # Configure logging (optional)
 logging.basicConfig(level=logging.WARNING)

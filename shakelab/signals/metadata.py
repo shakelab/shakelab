@@ -27,7 +27,7 @@ from shakelab.signals import base
 from shakelab.signals.xmltemplate import initialize_metadata
 from shakelab.signals.xmlparser import read_stationxml
 from shakelab.signals.polezero import SensorResponse, paz_map
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 
 
 class Metadata():

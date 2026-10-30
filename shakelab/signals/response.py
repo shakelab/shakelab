@@ -30,7 +30,7 @@ from shakelab.libutils.utils import (cast_value,
 from shakelab.signals import fourier
 from shakelab.signals import base
 from shakelab.signals import stationxml
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 
 ACTIVE_STAGES = {
     'gain' : True,

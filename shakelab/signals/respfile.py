@@ -26,7 +26,7 @@ StageSet and StageResponse classes.
 """
 import os
 from shakelab.signals import response as rspm
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 
 
 def parse_resp(resp_input):

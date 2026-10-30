@@ -26,7 +26,7 @@ import requests
 from requests.exceptions import RequestException, Timeout
 
 import shakelab.signals.base as base
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 from shakelab.signals.io import writer
 from shakelab.signals.stationxml import parse_sxml
 from shakelab.seismicity.quakeml import parse_quakeml

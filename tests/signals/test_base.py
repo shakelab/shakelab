@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from shakelab.signals.base import Header, Record
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 from shakelab.libutils.geodetic import WgsPoint
 
 

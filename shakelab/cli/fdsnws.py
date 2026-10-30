@@ -22,7 +22,7 @@
 
 import logging
 from shakelab.signals.fdsnws import FDSNClient
-from shakelab.libutils.time import Date
+from shakelab.libutils.timeN import Date
 
 # Configure logging (optional)
 logging.basicConfig(level=logging.WARNING)
