@@ -26,9 +26,11 @@ Design choices
 --------------
 - The implementation intentionally does not use the standard
   ``datetime`` module.
-- Comparisons and arithmetic are evaluated with
-  :class:`decimal.Decimal`, so that time shifts are not affected by
-  binary floating-point rounding of large epoch offsets.
+- A :class:`Date` stores a single integer: nanoseconds from the internal
+  epoch. Comparisons, hashing and arithmetic are exact integer
+  operations; calendar fields are derived on demand and cached.
+- Conversions of real numbers and strings use :class:`decimal.Decimal`
+  with a private context, independent of the global decimal context.
 - ISO 8601 strings with an explicit offset are accepted, but they are
   converted to UTC; the offset itself is not retained.
 
@@ -43,6 +45,8 @@ Conventions
 - ISO 8601 years outside ``0000``-``9999`` carry an explicit sign and
   at least four digits (e.g. ``-0459``, ``+10000``).
 - Leap seconds are not represented: seconds lie in ``[0, 60)``.
+- The resolution of a :class:`Date` is one nanosecond. Finer inputs
+  are rounded to the nearest nanosecond, ties to even.
 - Time shifts are real numbers expressed in seconds: Python ``int`` and
   ``float``, :class:`decimal.Decimal`, or NumPy integer and floating
   scalars. Booleans and non-finite values are rejected.
@@ -55,7 +59,13 @@ Conventions
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import (
+    ROUND_HALF_EVEN,
+    Context,
+    Decimal,
+    InvalidOperation,
+    localcontext,
+)
 import math
 from numbers import Integral, Real
 import re
@@ -93,7 +103,18 @@ YEAR_DAYS = 365
 # Seconds from the internal epoch to 1970-01-01T00:00:00Z.
 UNIX_EPOCH_SECONDS = Decimal("62135596800")
 
-_NANOSECONDS_PER_SECOND = Decimal(1_000_000_000)
+_NS_PER_SECOND = 1_000_000_000
+_NS_PER_MINUTE = 60 * _NS_PER_SECOND
+_NS_PER_HOUR = 60 * _NS_PER_MINUTE
+_NS_PER_DAY = 24 * _NS_PER_HOUR
+_UNIX_EPOCH_NS = 62_135_596_800 * _NS_PER_SECOND
+_NS_DECIMAL = Decimal(_NS_PER_SECOND)
+
+# Private context: results do not depend on the global decimal context.
+_DECIMAL_CONTEXT = Context(prec=100, rounding=ROUND_HALF_EVEN)
+
+# Sentinel for optional keyword arguments of Date.replace().
+_UNSET = object()
 
 
 ISO8601_PATTERN = re.compile(
@@ -113,6 +134,7 @@ ISO8601_PATTERN = re.compile(
 
 TimeShift = Union[int, float, Decimal]
 DateComponents = List[Union[int, float]]
+DateFields = Tuple[int, int, int, int, int, int, int]
 
 
 # ---------------------------------------------------------------------------
@@ -158,18 +180,30 @@ class Date:
 
     Notes
     -----
-    Bare numbers compare with dates as seconds from the internal epoch.
-    Equality with a non-finite number is False; ordering against a
-    non-finite number raises ``ValueError``.
+    Internally a date is an integer number of nanoseconds from the
+    internal epoch. The calendar fields (:attr:`year`, :attr:`month`,
+    :attr:`day`, :attr:`hour`, :attr:`minute`, :attr:`second`,
+    :attr:`nanosecond`) are derived from it.
+
+    Assigning a field, e.g. ``date.year = 2027``, validates the
+    resulting date and updates it in place; use :meth:`replace` to
+    change several fields at once, since intermediate dates (such as
+    February 31) are rejected.
+
+    Bare numbers compare with dates as seconds from the internal epoch,
+    exactly (without rounding to nanoseconds). Equality with a
+    non-finite number is False; ordering against a non-finite number
+    raises ``ValueError``.
 
     An unset date can be filled later, for example with
-    :meth:`strparse`. Operations that need an instant (comparisons,
-    arithmetic, hashing, conversion to seconds or strings) raise
-    ``ValueError`` on an unset date.
+    :meth:`strparse` or :meth:`set_date`. Operations that need an
+    instant (comparisons, arithmetic, hashing, field assignment,
+    conversion to seconds or strings) raise ``ValueError`` on an unset
+    date, and its fields read as ``None``.
 
-    Dates are hashable and dates that compare equal have the same hash.
-    Date fields are mutable: do not modify a date while it is used as a
-    dictionary key or set member.
+    Dates are hashable and dates that compare equal (also with bare
+    numbers) have the same hash. Do not modify a date while it is used
+    as a dictionary key or set member.
     """
 
     # Make NumPy scalars defer binary operators to Date (NEP 13), so that
@@ -182,12 +216,8 @@ class Date:
         error: Optional[float] = None,
         timezone: str = "UTC",
     ) -> None:
-        self.year = None
-        self.month = None
-        self.day = None
-        self.hour = None
-        self.minute = None
-        self.second = None
+        self._ns: Optional[int] = None
+        self._fields: Optional[DateFields] = None
 
         if error is None:
             error = date.error if isinstance(date, Date) else 0.0
@@ -201,7 +231,7 @@ class Date:
             return
 
         if isinstance(date, str) and date == "now":
-            self.from_seconds(_unix_ns_to_seconds(systime.time_ns()))
+            self._set_ns(systime.time_ns() + _UNIX_EPOCH_NS)
             return
 
         self.set_date(date)
@@ -225,56 +255,66 @@ class Date:
         if not isinstance(value, Date) and not _is_finite_number(value):
             return False
 
-        return self.to_seconds(decimal=True) == to_decimal(value)
+        return self._compare(value) == 0
 
     def __hash__(self) -> int:
-        return hash(self.to_seconds(decimal=True))
+        ns = self._require_ns()
+        seconds, fraction = divmod(ns, _NS_PER_SECOND)
+
+        # Consistent with the hash of equal numbers (int, float, Decimal).
+        if fraction == 0:
+            return hash(seconds)
+
+        return hash(_ns_to_decimal(ns))
 
     def __lt__(self, value: Any) -> bool:
         if not _is_time_value(value):
             return NotImplemented
 
-        return self.to_seconds(decimal=True) < to_decimal(value)
+        return self._compare(value) < 0
 
     def __le__(self, value: Any) -> bool:
         if not _is_time_value(value):
             return NotImplemented
 
-        return self.to_seconds(decimal=True) <= to_decimal(value)
+        return self._compare(value) <= 0
 
     def __gt__(self, value: Any) -> bool:
         if not _is_time_value(value):
             return NotImplemented
 
-        return self.to_seconds(decimal=True) > to_decimal(value)
+        return self._compare(value) > 0
 
     def __ge__(self, value: Any) -> bool:
         if not _is_time_value(value):
             return NotImplemented
 
-        return self.to_seconds(decimal=True) >= to_decimal(value)
+        return self._compare(value) >= 0
 
     def __add__(self, value: TimeShift) -> Date:
         if not _is_time_shift(value):
             return NotImplemented
 
-        seconds = self.to_seconds(decimal=True) + to_decimal(value)
+        ns = self._require_ns() + _seconds_to_ns(value)
 
-        return Date(seconds, error=self.error)
+        return Date._from_ns(ns, self.error)
 
     __radd__ = __add__
 
     def __sub__(self, value: Union[Date, TimeShift]) -> Union[Date, float]:
         if isinstance(value, Date):
-            seconds = self.to_seconds(decimal=True)
-            seconds -= value.to_seconds(decimal=True)
-            return float(seconds)
+            difference = self._require_ns() - value._require_ns()
+            return difference / _NS_PER_SECOND
 
         if _is_time_shift(value):
-            seconds = self.to_seconds(decimal=True) - to_decimal(value)
-            return Date(seconds, error=self.error)
+            ns = self._require_ns() - _seconds_to_ns(value)
+            return Date._from_ns(ns, self.error)
 
         return NotImplemented
+
+    # -----------------------------------------------------------------------
+    # Alternative constructors
+    # -----------------------------------------------------------------------
 
     @classmethod
     def now(cls) -> Date:
@@ -287,7 +327,7 @@ class Date:
             Current UTC date, with the nanosecond resolution of
             :func:`time.time_ns`.
         """
-        return cls.from_unix_ns(systime.time_ns())
+        return cls._from_ns(systime.time_ns() + _UNIX_EPOCH_NS)
 
     @classmethod
     def from_iso8601(cls, date_string: str) -> Date:
@@ -371,7 +411,7 @@ class Date:
         Date
             Corresponding UTC date.
         """
-        return cls(UNIX_EPOCH_SECONDS + to_decimal(seconds))
+        return cls._from_ns(_seconds_to_ns(seconds) + _UNIX_EPOCH_NS)
 
     @classmethod
     def from_unix_ns(cls, nanoseconds: int) -> Date:
@@ -394,21 +434,156 @@ class Date:
         TypeError
             If ``nanoseconds`` is not an integer.
         """
-        return cls(_unix_ns_to_seconds(nanoseconds))
+        if (
+            isinstance(nanoseconds, bool)
+            or not isinstance(nanoseconds, Integral)
+        ):
+            raise TypeError("Nanoseconds must be an integer.")
+
+        return cls._from_ns(int(nanoseconds) + _UNIX_EPOCH_NS)
+
+    @classmethod
+    def _from_ns(cls, ns: int, error: float = 0.0) -> Date:
+        """
+        Create a Date from nanoseconds from the internal epoch.
+        """
+        date = cls(error=error)
+        date._set_ns(ns)
+
+        return date
+
+    # -----------------------------------------------------------------------
+    # Calendar fields
+    # -----------------------------------------------------------------------
 
     @property
     def is_set(self) -> bool:
         """
         Whether the date holds an instant.
         """
-        return None not in (
-            self.year,
-            self.month,
-            self.day,
-            self.hour,
-            self.minute,
-            self.second,
+        return self._ns is not None
+
+    @property
+    def year(self) -> Optional[int]:
+        """
+        Year, with astronomical numbering (year 0 is 1 BC).
+        """
+        return self._field(0)
+
+    @year.setter
+    def year(self, value: int) -> None:
+        self._set_ns(self._ns_with(year=value))
+
+    @property
+    def month(self) -> Optional[int]:
+        """
+        Month, from 1 to 12.
+        """
+        return self._field(1)
+
+    @month.setter
+    def month(self, value: int) -> None:
+        self._set_ns(self._ns_with(month=value))
+
+    @property
+    def day(self) -> Optional[int]:
+        """
+        Day of month.
+        """
+        return self._field(2)
+
+    @day.setter
+    def day(self, value: int) -> None:
+        self._set_ns(self._ns_with(day=value))
+
+    @property
+    def hour(self) -> Optional[int]:
+        """
+        Hour, from 0 to 23.
+        """
+        return self._field(3)
+
+    @hour.setter
+    def hour(self, value: int) -> None:
+        self._set_ns(self._ns_with(hour=value))
+
+    @property
+    def minute(self) -> Optional[int]:
+        """
+        Minute, from 0 to 59.
+        """
+        return self._field(4)
+
+    @minute.setter
+    def minute(self, value: int) -> None:
+        self._set_ns(self._ns_with(minute=value))
+
+    @property
+    def second(self) -> Optional[float]:
+        """
+        Second of minute, including its fractional part, as a float.
+
+        See :attr:`nanosecond` for the exact fractional part.
+        """
+        fields = self._get_fields()
+
+        if fields is None:
+            return None
+
+        return (fields[5] * _NS_PER_SECOND + fields[6]) / _NS_PER_SECOND
+
+    @second.setter
+    def second(self, value: float) -> None:
+        self._set_ns(self._ns_with(second=value))
+
+    @property
+    def nanosecond(self) -> Optional[int]:
+        """
+        Exact fractional part of the second, in nanoseconds (read-only).
+        """
+        return self._field(6)
+
+    def replace(
+        self,
+        year: Any = _UNSET,
+        month: Any = _UNSET,
+        day: Any = _UNSET,
+        hour: Any = _UNSET,
+        minute: Any = _UNSET,
+        second: Any = _UNSET,
+        error: Any = _UNSET,
+    ) -> Date:
+        """
+        Return a new date with some fields replaced.
+
+        Parameters
+        ----------
+        year, month, day, hour, minute, second
+            New values of the calendar fields. Omitted fields are kept;
+            when ``second`` is omitted its fractional part is kept too.
+        error
+            New timing error. By default the current one is kept.
+
+        Returns
+        -------
+        Date
+            New date. The original date is not modified.
+
+        Raises
+        ------
+        ValueError
+            If the date is unset or the resulting date is invalid.
+        """
+        ns = self._ns_with(
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            second=second,
         )
+
+        return Date._from_ns(ns, self.error if error is _UNSET else error)
 
     def copy(self) -> Date:
         """
@@ -423,7 +598,7 @@ class Date:
         if not self.is_set:
             return Date(error=self.error)
 
-        return Date(self.to_seconds(decimal=True), error=self.error)
+        return Date._from_ns(self._ns, self.error)
 
     @property
     def iso8601(self) -> str:
@@ -451,9 +626,7 @@ class Date:
         self._require_set()
 
         month, day = from_ordinal_day(self.year, value)
-        self.month = month
-        self.day = day
-        self._selfcheck()
+        self._set_ns(self._ns_with(month=month, day=day))
 
     @property
     def day_of_year(self) -> int:
@@ -488,6 +661,10 @@ class Date:
     def seconds(self, value: TimeShift) -> None:
         self.from_seconds(value)
 
+    # -----------------------------------------------------------------------
+    # Setting and representing the date
+    # -----------------------------------------------------------------------
+
     def set_date(self, date: Any) -> None:
         """
         Set the date from one of the supported input formats.
@@ -496,7 +673,7 @@ class Date:
         ----------
         date
             Input date, in any format accepted by :class:`Date` except
-            ``"now"``.
+            ``"now"``. The timing error is not changed.
 
         Raises
         ------
@@ -507,27 +684,24 @@ class Date:
             unset Date.
         """
         if isinstance(date, Date):
-            date._require_set()
-            self._set_from_sequence(date.get_date())
+            ns = date._require_ns()
 
         elif isinstance(date, (list, tuple)):
-            self._set_from_sequence(date)
+            ns = _sequence_to_ns(date)
 
         elif isinstance(date, dict):
-            self._set_from_dict(date)
+            ns = _dict_to_ns(date)
 
         elif isinstance(date, str):
-            values = read_iso8601_date(date)
-            self._set_from_sequence(values[:6])
+            ns, _ = _parse_iso8601(date)
 
         elif _is_time_shift(date):
-            self.from_seconds(date)
-            return
+            ns = _seconds_to_ns(date)
 
         else:
             raise TypeError("Unsupported date format.")
 
-        self._selfcheck()
+        self._set_ns(ns)
 
     def get_date(
         self,
@@ -644,7 +818,8 @@ class Date:
         ----------
         precision
             Number of decimal digits for seconds. With ``0`` the
-            fractional part is omitted.
+            fractional part is omitted; digits beyond the nanosecond
+            are zeros.
         format
             Either ``"calendar"`` or ``"ordinal"``.
         timezone
@@ -656,19 +831,17 @@ class Date:
         -------
         str
             ISO 8601 string.
-        """
-        self._require_set()
 
-        return write_iso8601_date(
-            self.year,
-            self.month,
-            self.day,
-            self.hour,
-            self.minute,
-            self.second,
-            precision=precision,
-            timezone=timezone,
-            format=format,
+        Notes
+        -----
+        Seconds are rounded exactly to ``precision`` digits (ties to
+        even); the carry propagates to the following fields.
+        """
+        return _format_iso8601(
+            self._require_ns(),
+            precision,
+            format,
+            timezone,
         )
 
     def strformat(self, fmt: str, precision: int = 4) -> str:
@@ -691,21 +864,15 @@ class Date:
 
         Notes
         -----
-        Seconds are rounded to ``precision`` digits before formatting.
-        When rounding reaches 60 seconds, the carry propagates to the
-        minute and, if needed, to the following fields.
+        Seconds are rounded exactly to ``precision`` digits (ties to
+        even) before formatting; the carry propagates to the following
+        fields.
         """
-        self._require_set()
+        ns = self._require_ns()
         precision = _validate_precision(precision)
 
-        year, month, day, hour, minute, second = _round_components(
-            self.year,
-            self.month,
-            self.day,
-            self.hour,
-            self.minute,
-            self.second,
-            precision,
+        year, month, day, hour, minute, second, fraction = _ns_to_fields(
+            _round_ns(ns, precision)
         )
 
         replacements = {
@@ -715,7 +882,7 @@ class Date:
             "%d": f"{day:02d}",
             "%H": f"{hour:02d}",
             "%M": f"{minute:02d}",
-            "%S": _format_seconds(second, precision),
+            "%S": _format_seconds(second, fraction, precision),
         }
 
         for key, value in replacements.items():
@@ -755,7 +922,7 @@ class Date:
         year = int(values["Y"])
         hour = int(values.get("H") or 0)
         minute = int(values.get("M") or 0)
-        second = _decimal_to_float(values.get("S") or "0")
+        second = values.get("S") or "0"
 
         if values.get("j") is not None:
             month, day = from_ordinal_day(year, values["j"])
@@ -763,8 +930,11 @@ class Date:
             month = int(values.get("m") or 1)
             day = int(values.get("d") or 1)
 
-        self._set_components(year, month, day, hour, minute, second)
-        self._selfcheck()
+        self._set_ns(_fields_to_ns(year, month, day, hour, minute, second))
+
+    # -----------------------------------------------------------------------
+    # Conversions to and from seconds
+    # -----------------------------------------------------------------------
 
     def to_seconds(self, decimal: bool = False) -> Union[float, Decimal]:
         """
@@ -788,17 +958,12 @@ class Date:
         exact computations, or :meth:`to_unix` for a float with finer
         resolution.
         """
-        self._require_set()
+        ns = self._require_ns()
 
-        return date_to_second(
-            self.year,
-            self.month,
-            self.day,
-            self.hour,
-            self.minute,
-            self.second,
-            decimal=decimal,
-        )
+        if decimal:
+            return _ns_to_decimal(ns)
+
+        return ns / _NS_PER_SECOND
 
     def to_unix(self, decimal: bool = False) -> Union[float, Decimal]:
         """
@@ -819,12 +984,12 @@ class Date:
         -----
         Present-day float timestamps resolve about 0.24 microseconds.
         """
-        seconds = self.to_seconds(decimal=True) - UNIX_EPOCH_SECONDS
+        ns = self.to_unix_ns()
 
         if decimal:
-            return seconds
+            return _ns_to_decimal(ns)
 
-        return float(seconds)
+        return ns / _NS_PER_SECOND
 
     def to_unix_ns(self) -> int:
         """
@@ -833,12 +998,9 @@ class Date:
         Returns
         -------
         int
-            Nanoseconds from 1970-01-01T00:00:00Z, rounded to the
-            nearest nanosecond (ties to even).
+            Nanoseconds from 1970-01-01T00:00:00Z.
         """
-        nanoseconds = self.to_unix(decimal=True) * _NANOSECONDS_PER_SECOND
-
-        return int(nanoseconds.to_integral_value(rounding=ROUND_HALF_EVEN))
+        return self._require_ns() - _UNIX_EPOCH_NS
 
     def from_seconds(self, second: TimeShift) -> None:
         """
@@ -850,9 +1012,7 @@ class Date:
             Seconds from ``0001-01-01T00:00:00Z``; negative values
             describe earlier instants.
         """
-        values = second_to_date(second)
-        self._set_from_sequence(values)
-        self._selfcheck()
+        self._set_ns(_seconds_to_ns(second))
 
     def shift_time(self, time: TimeShift, units: str = "s") -> None:
         """
@@ -873,108 +1033,133 @@ class Date:
         ValueError
             If the units are not supported or the date is unset.
         """
-        self._require_set()
+        ns = self._require_ns()
         value = to_decimal(time)
 
         if units in ("s", "second", "seconds"):
-            seconds = value
+            factor = Decimal(1)
         elif units in ("m", "minute", "minutes"):
-            seconds = value * MINUTE_SECONDS
+            factor = MINUTE_SECONDS
         elif units in ("h", "hour", "hours"):
-            seconds = value * HOUR_SECONDS
+            factor = HOUR_SECONDS
         elif units in ("d", "day", "days"):
-            seconds = value * DAY_SECONDS
+            factor = DAY_SECONDS
         else:
             raise ValueError("Unsupported time unit.")
 
-        self.from_seconds(self.to_seconds(decimal=True) + seconds)
+        with localcontext(_DECIMAL_CONTEXT):
+            seconds = value * factor
+
+        self._set_ns(ns + _seconds_to_ns(seconds))
+
+    # -----------------------------------------------------------------------
+    # Internal state
+    # -----------------------------------------------------------------------
 
     def _require_set(self) -> None:
         """
         Raise ValueError if the date is unset.
         """
-        if not self.is_set:
+        if self._ns is None:
             raise ValueError("Date is not set.")
 
-    def _set_from_sequence(self, values: Sequence[Any]) -> None:
+    def _require_ns(self) -> int:
         """
-        Set date fields from a calendar or ordinal sequence.
+        Return the internal nanoseconds, or raise if the date is unset.
         """
-        if len(values) == 6:
-            self._set_components(*values)
-            return
+        self._require_set()
 
-        if len(values) == 5:
-            year = _to_int(values[0], "year")
-            month, day = from_ordinal_day(year, values[1])
-            self._set_components(
-                year,
-                month,
-                day,
-                values[2],
-                values[3],
-                values[4],
-            )
-            return
+        return self._ns
 
-        raise ValueError("Sequence must have 5 or 6 elements.")
-
-    def _set_from_dict(self, date: Dict[str, Any]) -> None:
+    def _set_ns(self, ns: int) -> None:
         """
-        Set date fields from a dictionary.
+        Set the internal nanoseconds and invalidate the field cache.
         """
-        year = _to_int(date["year"], "year")
-        hour = date.get("hour", 0)
-        minute = date.get("minute", 0)
-        second = date.get("second", 0.0)
+        self._ns = int(ns)
+        self._fields = None
 
-        if "month" in date and "day" in date:
-            month = date["month"]
-            day = date["day"]
-        elif "ordinal_day" in date:
-            month, day = from_ordinal_day(year, date["ordinal_day"])
-        elif "day_of_year" in date:
-            month, day = from_ordinal_day(year, date["day_of_year"])
-        elif "year_day" in date:
-            month, day = from_ordinal_day(year, date["year_day"])
-        else:
-            raise ValueError("Dictionary lacks calendar or ordinal fields.")
+    def _get_fields(self) -> Optional[DateFields]:
+        """
+        Return the cached calendar fields, or None for an unset date.
+        """
+        if self._ns is None:
+            return None
 
-        self._set_components(year, month, day, hour, minute, second)
+        if self._fields is None:
+            self._fields = _ns_to_fields(self._ns)
 
-    def _set_components(
+        return self._fields
+
+    def _field(self, index: int) -> Optional[int]:
+        """
+        Return one calendar field, or None for an unset date.
+        """
+        fields = self._get_fields()
+
+        if fields is None:
+            return None
+
+        return fields[index]
+
+    def _ns_with(
         self,
-        year: int,
-        month: int,
-        day: int,
-        hour: int,
-        minute: int,
-        second: float,
-    ) -> None:
+        year: Any = _UNSET,
+        month: Any = _UNSET,
+        day: Any = _UNSET,
+        hour: Any = _UNSET,
+        minute: Any = _UNSET,
+        second: Any = _UNSET,
+    ) -> int:
         """
-        Set date components, converting them to int and float.
+        Return the nanoseconds of the date with some fields replaced.
+        """
+        self._require_set()
 
-        Range checks are left to :meth:`_selfcheck`.
-        """
-        self.year = _to_int(year, "year")
-        self.month = _to_int(month, "month")
-        self.day = _to_int(day, "day")
-        self.hour = _to_int(hour, "hour")
-        self.minute = _to_int(minute, "minute")
-        self.second = _to_float(second, "second")
+        (
+            old_year,
+            old_month,
+            old_day,
+            old_hour,
+            old_minute,
+            old_second,
+            old_fraction,
+        ) = self._get_fields()
 
-    def _selfcheck(self) -> None:
-        """
-        Validate date fields.
-        """
-        _validate_components(
-            self.year,
-            self.month,
-            self.day,
-            self.hour,
-            self.minute,
-            self.second,
+        if second is _UNSET:
+            second = _ns_to_decimal(
+                old_second * _NS_PER_SECOND + old_fraction
+            )
+
+        return _fields_to_ns(
+            old_year if year is _UNSET else year,
+            old_month if month is _UNSET else month,
+            old_day if day is _UNSET else day,
+            old_hour if hour is _UNSET else hour,
+            old_minute if minute is _UNSET else minute,
+            second,
         )
+
+    def _compare(self, value: Union[Date, TimeShift]) -> int:
+        """
+        Compare with a date or a number; return -1, 0 or 1.
+
+        Numbers are compared exactly, as seconds from the internal
+        epoch.
+        """
+        ns = self._require_ns()
+
+        if isinstance(value, Date):
+            other = value._require_ns()
+            return (ns > other) - (ns < other)
+
+        seconds = to_decimal(value)
+
+        with localcontext(_DECIMAL_CONTEXT):
+            other = seconds * _NS_DECIMAL
+
+        mine = Decimal(ns)
+
+        return (mine > other) - (mine < other)
 
 
 # ---------------------------------------------------------------------------
@@ -1110,15 +1295,13 @@ def date_to_second(
         year, month, day, hour, minute, second,
     )
 
-    month_days = [0] + days_in_month(year)[:-1]
-    days = _days_before_year(year)
-    days += month_days[month - 1]
-    days += day - 1
+    days = _days_from_date(year, month, day)
 
-    total = Decimal(days) * DAY_SECONDS
-    total += Decimal(hour) * HOUR_SECONDS
-    total += Decimal(minute) * MINUTE_SECONDS
-    total += to_decimal(second)
+    with localcontext(_DECIMAL_CONTEXT):
+        total = Decimal(days) * DAY_SECONDS
+        total += Decimal(hour) * HOUR_SECONDS
+        total += Decimal(minute) * MINUTE_SECONDS
+        total += to_decimal(second)
 
     if decimal:
         return total
@@ -1143,35 +1326,25 @@ def second_to_date(second: TimeShift) -> DateComponents:
     """
     second = to_decimal(second)
 
-    # Decimal floor division truncates towards zero: correct it so that
-    # the seconds of the day are always in [0, 86400).
-    total_days = int(second // DAY_SECONDS)
-    day_seconds = second - Decimal(total_days) * DAY_SECONDS
+    with localcontext(_DECIMAL_CONTEXT):
+        # Decimal floor division truncates towards zero: correct it so
+        # that the seconds of the day are always in [0, 86400).
+        total_days = int(second // DAY_SECONDS)
+        day_seconds = second - Decimal(total_days) * DAY_SECONDS
 
-    if day_seconds < 0:
-        total_days -= 1
-        day_seconds += DAY_SECONDS
+        if day_seconds < 0:
+            total_days -= 1
+            day_seconds += DAY_SECONDS
 
-    year = _year_from_day_count(total_days)
-    days_before_year = _days_before_year(year)
-    ordinal = total_days - days_before_year + 1
+        hour = int(day_seconds // HOUR_SECONDS)
+        day_seconds -= Decimal(hour) * HOUR_SECONDS
 
-    month, day = from_ordinal_day(year, ordinal)
+        minute = int(day_seconds // MINUTE_SECONDS)
+        day_seconds -= Decimal(minute) * MINUTE_SECONDS
 
-    hour = int(day_seconds // HOUR_SECONDS)
-    day_seconds -= Decimal(hour) * HOUR_SECONDS
+    year, month, day = _date_from_days(total_days)
 
-    minute = int(day_seconds // MINUTE_SECONDS)
-    day_seconds -= Decimal(minute) * MINUTE_SECONDS
-
-    return [
-        int(year),
-        int(month),
-        int(day),
-        int(hour),
-        int(minute),
-        float(day_seconds),
-    ]
+    return [year, month, day, hour, minute, float(day_seconds)]
 
 
 def to_decimal(value: Union[Date, TimeShift]) -> Decimal:
@@ -1239,50 +1412,20 @@ def read_iso8601_date(date_string: str) -> Tuple[Any, ...]:
     -------
     tuple
         ``(year, month, day, hour, minute, second, offset)``. The first
-        six fields are converted to UTC. The offset is expressed in
-        seconds and corresponds to the input offset from UTC.
+        six fields are converted to UTC, with seconds rounded to the
+        nanosecond. The offset is expressed in seconds and corresponds
+        to the input offset from UTC.
 
     Raises
     ------
     ValueError
         If the string is not a supported ISO 8601 date.
     """
-    match = ISO8601_PATTERN.match(date_string)
+    ns, offset = _parse_iso8601(date_string)
+    year, month, day, hour, minute, second, fraction = _ns_to_fields(ns)
+    seconds = (second * _NS_PER_SECOND + fraction) / _NS_PER_SECOND
 
-    if match is None:
-        raise ValueError("Invalid ISO 8601 date string.")
-
-    values = match.groupdict()
-    year = int(values["year"])
-
-    if values["ordinal"] is not None:
-        month, day = from_ordinal_day(year, values["ordinal"])
-    else:
-        month = int(values["month"])
-        day = int(values["day"])
-
-    hour = int(values["hour"])
-    minute = int(values["minute"])
-    second = float(values["second"])
-    timezone = values["timezone"] or "Z"
-
-    _validate_components(year, month, day, hour, minute, second)
-
-    offset = _parse_timezone_offset(timezone)
-    absolute_seconds = date_to_second(
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-        decimal=True,
-    )
-
-    absolute_seconds -= offset
-    utc_date = second_to_date(absolute_seconds)
-
-    return tuple(utc_date) + (float(offset),)
+    return (year, month, day, hour, minute, seconds, float(offset))
 
 
 def write_iso8601_date(
@@ -1297,21 +1440,20 @@ def write_iso8601_date(
     format: str = "calendar",
 ) -> str:
     """
-    Convert date components to an ISO 8601 UTC string.
+    Convert date components to an ISO 8601 string.
 
     Parameters
     ----------
     year, month, day, hour, minute, second
-        Calendar components.
+        Calendar components, in UTC.
     precision
         Number of decimal digits for seconds. With ``0`` the fractional
-        part is omitted.
+        part is omitted; digits beyond the nanosecond are zeros.
     timezone
         ``"Z"`` for UTC, or a numeric offset such as ``"+01:00"``,
-        ``"-0430"`` or ``"+02"``. The components are UTC; with an offset
-        they are converted to the local time at that offset, and the
-        offset is written as ``±HH:MM`` (``±HH:MM:SS`` if it has
-        seconds).
+        ``"-0430"`` or ``"+02"``. With an offset the components are
+        converted to the local time at that offset, and the offset is
+        written as ``±HH:MM`` (``±HH:MM:SS`` if it has seconds).
     format
         Either ``"calendar"`` or ``"ordinal"``.
 
@@ -1331,60 +1473,16 @@ def write_iso8601_date(
 
     Notes
     -----
-    Seconds are rounded to ``precision`` digits. When rounding reaches
-    60 seconds, the carry propagates to the following fields.
+    Seconds are first rounded to the nanosecond, then exactly to
+    ``precision`` digits (ties to even); the carry propagates to the
+    following fields.
 
     Years outside ``0``-``9999`` are written with an explicit sign and at
     least four digits (ISO 8601 expanded representation).
     """
-    year, month, day, hour, minute, second = _validate_components(
-        year, month, day, hour, minute, second,
-    )
-    precision = _validate_precision(precision)
+    ns = _fields_to_ns(year, month, day, hour, minute, second)
 
-    if not isinstance(timezone, str):
-        raise TypeError("The timezone must be a string.")
-
-    offset = _parse_timezone_offset(timezone)
-
-    if timezone == "Z":
-        designator = "Z"
-    else:
-        designator = _format_timezone_offset(offset)
-
-    if offset:
-        local_seconds = date_to_second(
-            year, month, day, hour, minute, second, decimal=True,
-        )
-        local_seconds += offset
-        year, month, day, hour, minute, second = second_to_date(
-            local_seconds,
-        )
-
-    year, month, day, hour, minute, second = _round_components(
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-        precision,
-    )
-
-    if format == "calendar":
-        date_part = f"{_format_year(year)}-{month:02d}-{day:02d}"
-    elif format == "ordinal":
-        ordinal = to_ordinal_day(year, month, day)
-        date_part = f"{_format_year(year)}-{ordinal:03d}"
-    else:
-        raise ValueError("Unsupported ISO 8601 date format.")
-
-    time_part = (
-        f"{hour:02d}:{minute:02d}:"
-        f"{_format_seconds(second, precision)}"
-    )
-
-    return f"{date_part}T{time_part}{designator}"
+    return _format_iso8601(ns, precision, format, timezone)
 
 
 def utc_now() -> str:
@@ -1400,7 +1498,263 @@ def utc_now() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Private helpers
+# Private helpers: nanosecond core
+# ---------------------------------------------------------------------------
+
+def _seconds_to_ns(value: Any) -> int:
+    """
+    Convert seconds to integer nanoseconds, rounding ties to even.
+
+    ``value`` may be a real number, a Decimal or a numeric string.
+    """
+    if isinstance(value, Integral) and not isinstance(value, bool):
+        return int(value) * _NS_PER_SECOND
+
+    if isinstance(value, str):
+        try:
+            seconds = Decimal(value)
+        except InvalidOperation:
+            raise ValueError("Invalid number of seconds.") from None
+
+        if not seconds.is_finite():
+            raise ValueError("Time value must be finite.")
+    else:
+        seconds = to_decimal(value)
+
+    with localcontext(_DECIMAL_CONTEXT):
+        nanoseconds = seconds * _NS_DECIMAL
+        return int(nanoseconds.to_integral_value(rounding=ROUND_HALF_EVEN))
+
+
+def _ns_to_decimal(ns: int) -> Decimal:
+    """
+    Convert integer nanoseconds to exact Decimal seconds.
+    """
+    with localcontext(_DECIMAL_CONTEXT):
+        return Decimal(ns).scaleb(-9)
+
+
+def _days_from_date(year: int, month: int, day: int) -> int:
+    """
+    Return the days from the internal epoch to a validated date.
+    """
+    month_days = [0] + days_in_month(year)[:-1]
+
+    return _days_before_year(year) + month_days[month - 1] + day - 1
+
+
+def _date_from_days(day_count: int) -> Tuple[int, int, int]:
+    """
+    Return ``(year, month, day)`` for a day counted from the epoch.
+    """
+    year = _year_from_day_count(day_count)
+    month, day = from_ordinal_day(
+        year,
+        day_count - _days_before_year(year) + 1,
+    )
+
+    return year, month, day
+
+
+def _fields_to_ns(
+    year: Any,
+    month: Any,
+    day: Any,
+    hour: Any,
+    minute: Any,
+    second: Any,
+) -> int:
+    """
+    Validate calendar fields and convert them to nanoseconds.
+
+    Seconds are rounded to the nanosecond; a value that rounds to 60 s
+    carries into the next minute.
+    """
+    year, month, day, hour, minute, _ = _validate_components(
+        year, month, day, hour, minute, second,
+    )
+
+    return (
+        _days_from_date(year, month, day) * _NS_PER_DAY
+        + hour * _NS_PER_HOUR
+        + minute * _NS_PER_MINUTE
+        + _seconds_to_ns(second)
+    )
+
+
+def _ns_to_fields(ns: int) -> DateFields:
+    """
+    Convert nanoseconds to ``(year, month, day, hour, minute, second,
+    nanosecond)``, with integer seconds and nanoseconds.
+    """
+    days, remainder = divmod(ns, _NS_PER_DAY)
+    year, month, day = _date_from_days(days)
+
+    hour, remainder = divmod(remainder, _NS_PER_HOUR)
+    minute, remainder = divmod(remainder, _NS_PER_MINUTE)
+    second, fraction = divmod(remainder, _NS_PER_SECOND)
+
+    return year, month, day, hour, minute, second, fraction
+
+
+def _sequence_to_ns(values: Sequence[Any]) -> int:
+    """
+    Convert a calendar or ordinal sequence to nanoseconds.
+    """
+    if len(values) == 6:
+        return _fields_to_ns(*values)
+
+    if len(values) == 5:
+        year = _to_int(values[0], "year")
+        month, day = from_ordinal_day(year, values[1])
+        return _fields_to_ns(
+            year,
+            month,
+            day,
+            values[2],
+            values[3],
+            values[4],
+        )
+
+    raise ValueError("Sequence must have 5 or 6 elements.")
+
+
+def _dict_to_ns(date: Dict[str, Any]) -> int:
+    """
+    Convert a calendar or ordinal dictionary to nanoseconds.
+    """
+    year = _to_int(date["year"], "year")
+    hour = date.get("hour", 0)
+    minute = date.get("minute", 0)
+    second = date.get("second", 0.0)
+
+    if "month" in date and "day" in date:
+        month = date["month"]
+        day = date["day"]
+    elif "ordinal_day" in date:
+        month, day = from_ordinal_day(year, date["ordinal_day"])
+    elif "day_of_year" in date:
+        month, day = from_ordinal_day(year, date["day_of_year"])
+    elif "year_day" in date:
+        month, day = from_ordinal_day(year, date["year_day"])
+    else:
+        raise ValueError("Dictionary lacks calendar or ordinal fields.")
+
+    return _fields_to_ns(year, month, day, hour, minute, second)
+
+
+def _parse_iso8601(date_string: str) -> Tuple[int, Decimal]:
+    """
+    Parse an ISO 8601 string into UTC nanoseconds and the input offset.
+    """
+    match = ISO8601_PATTERN.match(date_string)
+
+    if match is None:
+        raise ValueError("Invalid ISO 8601 date string.")
+
+    values = match.groupdict()
+    year = int(values["year"])
+
+    if values["ordinal"] is not None:
+        month, day = from_ordinal_day(year, values["ordinal"])
+    else:
+        month = int(values["month"])
+        day = int(values["day"])
+
+    local_ns = _fields_to_ns(
+        year,
+        month,
+        day,
+        int(values["hour"]),
+        int(values["minute"]),
+        values["second"],
+    )
+
+    offset = _parse_timezone_offset(values["timezone"] or "Z")
+
+    return local_ns - int(offset) * _NS_PER_SECOND, offset
+
+
+def _format_iso8601(
+    ns: int,
+    precision: int,
+    format: str,
+    timezone: str,
+) -> str:
+    """
+    Format nanoseconds from the internal epoch as ISO 8601.
+    """
+    precision = _validate_precision(precision)
+
+    if not isinstance(timezone, str):
+        raise TypeError("The timezone must be a string.")
+
+    offset = _parse_timezone_offset(timezone)
+
+    if timezone == "Z":
+        designator = "Z"
+    else:
+        designator = _format_timezone_offset(offset)
+
+    local_ns = _round_ns(ns + int(offset) * _NS_PER_SECOND, precision)
+    year, month, day, hour, minute, second, fraction = _ns_to_fields(
+        local_ns
+    )
+
+    if format == "calendar":
+        date_part = f"{_format_year(year)}-{month:02d}-{day:02d}"
+    elif format == "ordinal":
+        ordinal = to_ordinal_day(year, month, day)
+        date_part = f"{_format_year(year)}-{ordinal:03d}"
+    else:
+        raise ValueError("Unsupported ISO 8601 date format.")
+
+    time_part = (
+        f"{hour:02d}:{minute:02d}:"
+        f"{_format_seconds(second, fraction, precision)}"
+    )
+
+    return f"{date_part}T{time_part}{designator}"
+
+
+def _round_ns(ns: int, precision: int) -> int:
+    """
+    Round nanoseconds to ``precision`` decimal digits of a second.
+
+    Ties are rounded to even. Precisions of 9 or more leave the value
+    unchanged.
+    """
+    if precision >= 9:
+        return ns
+
+    unit = 10 ** (9 - precision)
+    quotient, remainder = divmod(ns, unit)
+    twice = 2 * remainder
+
+    if twice > unit or (twice == unit and quotient % 2 == 1):
+        quotient += 1
+
+    return quotient * unit
+
+
+def _format_seconds(second: int, fraction: int, precision: int) -> str:
+    """
+    Format integer seconds and nanoseconds with ``precision`` digits.
+
+    The value must already be rounded with :func:`_round_ns`.
+    """
+    if precision == 0:
+        return f"{second:02d}"
+
+    if precision <= 9:
+        digits = fraction // 10 ** (9 - precision)
+        return f"{second:02d}.{digits:0{precision}d}"
+
+    return f"{second:02d}.{fraction:09d}{'0' * (precision - 9)}"
+
+
+# ---------------------------------------------------------------------------
+# Private helpers: validation and parsing
 # ---------------------------------------------------------------------------
 
 def _is_time_shift(value: Any) -> bool:
@@ -1499,38 +1853,13 @@ def _validate_error(error: Any) -> float:
     return error
 
 
-def _validate_parse_format(fmt: str) -> None:
-    """
-    Check that a strparse format is unambiguous.
-    """
-    if "%Y" not in fmt:
-        raise ValueError("The format must contain %Y.")
-
-    for key in ("%Y", "%j", "%m", "%d", "%H", "%M", "%S"):
-        if fmt.count(key) > 1:
-            raise ValueError(f"Placeholder {key} appears more than once.")
-
-    if "%j" in fmt and ("%m" in fmt or "%d" in fmt):
-        raise ValueError("Use either %j or %m and %d, not both.")
-
-
-def _unix_ns_to_seconds(nanoseconds: int) -> Decimal:
-    """
-    Convert Unix integer nanoseconds to seconds from the internal epoch.
-    """
-    if isinstance(nanoseconds, bool) or not isinstance(nanoseconds, Integral):
-        raise TypeError("Nanoseconds must be an integer.")
-
-    return UNIX_EPOCH_SECONDS + Decimal(int(nanoseconds)).scaleb(-9)
-
-
 def _validate_components(
-    year: int,
-    month: int,
-    day: int,
-    hour: int,
-    minute: int,
-    second: float,
+    year: Any,
+    month: Any,
+    day: Any,
+    hour: Any,
+    minute: Any,
+    second: Any,
 ) -> Tuple[int, int, int, int, int, float]:
     """
     Validate date components and return them as ints and a float.
@@ -1579,41 +1908,19 @@ def _validate_precision(precision: int) -> int:
     return precision
 
 
-def _round_components(
-    year: int,
-    month: int,
-    day: int,
-    hour: int,
-    minute: int,
-    second: float,
-    precision: int,
-) -> Tuple[int, int, int, int, int, float]:
+def _validate_parse_format(fmt: str) -> None:
     """
-    Round seconds to ``precision`` digits, carrying into the minute.
-
-    When the rounded seconds reach 60, the date is advanced to the next
-    minute (and, if needed, hour, day, month and year) and the seconds
-    are set to zero.
+    Check that a strparse format is unambiguous.
     """
-    rounded = round(float(second), precision)
+    if "%Y" not in fmt:
+        raise ValueError("The format must contain %Y.")
 
-    if rounded < 60:
-        return year, month, day, hour, minute, rounded
+    for key in ("%Y", "%j", "%m", "%d", "%H", "%M", "%S"):
+        if fmt.count(key) > 1:
+            raise ValueError(f"Placeholder {key} appears more than once.")
 
-    next_minute = date_to_second(
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        0.0,
-        decimal=True,
-    )
-    next_minute += MINUTE_SECONDS
-
-    year, month, day, hour, minute, _ = second_to_date(next_minute)
-
-    return year, month, day, hour, minute, 0.0
+    if "%j" in fmt and ("%m" in fmt or "%d" in fmt):
+        raise ValueError("Use either %j or %m and %d, not both.")
 
 
 def _format_year(year: int) -> str:
@@ -1624,15 +1931,6 @@ def _format_year(year: int) -> str:
         return f"{year:04d}"
 
     return f"{year:+05d}"
-
-
-def _format_seconds(second: float, precision: int) -> str:
-    """
-    Format already rounded seconds with a two-digit integer part.
-    """
-    width = 2 if precision == 0 else precision + 3
-
-    return f"{second:0{width}.{precision}f}"
 
 
 def _days_before_year(year: int) -> int:
@@ -1661,7 +1959,7 @@ def _year_from_day_count(day_count: int) -> int:
     return year
 
 
-def _parse_timezone_offset(timezone: str) -> Decimal:
+def _parse_timezone_offset(timezone: Optional[str]) -> Decimal:
     """
     Parse an ISO 8601 time zone offset.
 
@@ -1680,7 +1978,7 @@ def _parse_timezone_offset(timezone: str) -> Decimal:
 
     value = timezone[1:].replace(":", "")
 
-    if len(value) not in (2, 4, 6):
+    if len(value) not in (2, 4, 6) or not value.isdigit():
         raise ValueError("Invalid timezone offset.")
 
     hour = int(value[0:2])
@@ -1690,12 +1988,13 @@ def _parse_timezone_offset(timezone: str) -> Decimal:
     if hour > 23 or minute > 59 or second > 59:
         raise ValueError("Invalid timezone offset.")
 
-    offset = Decimal(hour) * HOUR_SECONDS
-    offset += Decimal(minute) * MINUTE_SECONDS
-    offset += Decimal(second)
+    with localcontext(_DECIMAL_CONTEXT):
+        offset = Decimal(hour) * HOUR_SECONDS
+        offset += Decimal(minute) * MINUTE_SECONDS
+        offset += Decimal(second)
 
-    if sign == "-":
-        offset = -offset
+        if sign == "-":
+            offset = -offset
 
     return offset
 
@@ -1735,10 +2034,3 @@ def _format_to_regex(fmt: str) -> str:
         pattern = pattern.replace(re.escape(key), value)
 
     return f"^{pattern}$"
-
-
-def _decimal_to_float(value: str) -> float:
-    """
-    Convert a decimal string to float without binary parsing artefacts.
-    """
-    return float(Decimal(str(value)))

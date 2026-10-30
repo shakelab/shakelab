@@ -31,10 +31,13 @@ Conventions
   ``fixed_clock`` fixture.
 - Years before 1 use astronomical numbering (year 0 is 1 BC).
 - Bare numbers compared with dates are seconds from the internal epoch.
+- Dates have nanosecond resolution; finer inputs are rounded half to
+  even.
 """
 
 from __future__ import annotations
 
+import decimal
 from decimal import Decimal
 
 import numpy as np
@@ -870,6 +873,157 @@ def test_to_decimal_conversions():
     assert to_decimal(0.1) == Decimal("0.1")
     assert to_decimal(Decimal("0.25")) == Decimal("0.25")
     assert to_decimal(Date(REFERENCE)) == REFERENCE_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# Nanosecond representation
+# ---------------------------------------------------------------------------
+
+def test_nanosecond_resolution():
+    """Fractional seconds are kept exactly to the nanosecond."""
+    date = Date("2026-10-30T15:25:07.123456789Z")
+    assert date.nanosecond == 123456789
+    assert date.to_iso8601(9) == "2026-10-30T15:25:07.123456789Z"
+    assert date.to_iso8601(12) == "2026-10-30T15:25:07.123456789000Z"
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("2026-10-30T15:25:07.0000000004Z", 0),
+    ("2026-10-30T15:25:07.0000000006Z", 1),
+    ("2026-10-30T15:25:07.0000000005Z", 0),
+    ("2026-10-30T15:25:07.0000000015Z", 2),
+])
+def test_inputs_are_rounded_to_the_nanosecond(value, expected):
+    """Sub-nanosecond inputs are rounded to the nearest, ties to even."""
+    assert Date(value).nanosecond == expected
+
+
+def test_sub_nanosecond_shift_is_ignored():
+    """A shift below half a nanosecond does not change the date."""
+    assert Date(REFERENCE) + 1e-10 == Date(REFERENCE)
+
+
+def test_time_differences_are_exact():
+    """Differences between dates are exact at the nanosecond."""
+    later = Date("2026-10-30T15:25:07.000000001Z")
+    assert later - Date(REFERENCE) == 1e-9
+    assert later > Date(REFERENCE)
+
+
+def test_comparisons_with_numbers_are_exact():
+    """Numbers are compared exactly, without rounding to nanoseconds."""
+    epoch = Date("0001-01-01T00:00:00Z")
+    assert epoch != Decimal("0.0000000004")
+    assert epoch < Decimal("0.0000000004")
+    assert Date("0001-01-01T00:00:00.5Z") == 0.5
+
+
+def test_hash_matches_equal_numbers():
+    """A date and an equal number have the same hash."""
+    assert hash(Date("0001-01-01T00:00:00.5Z")) == hash(0.5)
+    assert hash(Date("0001-01-01T00:00:01Z")) == hash(1)
+
+
+def test_global_decimal_context_is_ignored():
+    """A reduced global decimal precision does not affect dates."""
+    expected_seconds = REFERENCE_SECONDS + Decimal("0.000001")
+
+    with decimal.localcontext() as context:
+        context.prec = 4
+        date = Date(REFERENCE) + Decimal("0.000001")
+        iso = date.iso8601
+        seconds = date.to_seconds(decimal=True)
+        offset_date = Date("2026-10-30T20:55:22+05:30:15")
+
+    assert iso == "2026-10-30T15:25:07.000001Z"
+    assert seconds == expected_seconds
+    assert offset_date == Date(REFERENCE)
+
+
+# ---------------------------------------------------------------------------
+# Field assignment and replace()
+# ---------------------------------------------------------------------------
+
+def test_field_assignment_updates_the_date():
+    """Assigning a field validates and updates the date in place."""
+    date = Date(REFERENCE)
+    assert date.day == 30
+    date.year = 2027
+    date.second = 30.5
+    assert date == Date("2027-10-30T15:25:30.5Z")
+    date.day = 1
+    assert date.day == 1
+
+
+def test_field_assignment_keeps_nanoseconds():
+    """Changing a field other than second keeps the exact fraction."""
+    date = Date("2026-10-30T15:25:07.123456789Z")
+    date.minute = 0
+    assert date.nanosecond == 123456789
+
+
+@pytest.mark.parametrize("field, value", [("month", 2), ("month", 13)])
+def test_invalid_field_assignment_leaves_date_unchanged(field, value):
+    """An invalid assignment raises and leaves the date untouched."""
+    date = Date("2026-01-31T00:00:00Z")
+    with pytest.raises(ValueError):
+        setattr(date, field, value)
+    assert date == Date("2026-01-31T00:00:00Z")
+
+
+def test_field_assignment_on_unset_date_raises():
+    """Fields of an unset date cannot be assigned one by one."""
+    date = Date()
+    with pytest.raises(ValueError, match="not set"):
+        date.year = 2026
+
+
+def test_unset_date_fields_are_none():
+    """Fields of an unset date read as None."""
+    date = Date()
+    assert date.year is None
+    assert date.second is None
+    assert date.nanosecond is None
+
+
+def test_nanosecond_is_read_only():
+    """The nanosecond field cannot be assigned."""
+    with pytest.raises(AttributeError):
+        Date(REFERENCE).nanosecond = 5
+
+
+def test_replace_returns_a_new_date():
+    """replace() returns a new date and keeps the original and error."""
+    original = Date(REFERENCE, error=0.1)
+    replaced = original.replace(year=2027, month=2, day=28)
+    assert replaced == Date("2027-02-28T15:25:07Z")
+    assert original == Date(REFERENCE)
+    assert replaced.error == 0.1
+    assert original.replace(error=0.5).error == 0.5
+
+
+def test_replace_changes_several_fields_at_once():
+    """replace() avoids invalid intermediate dates."""
+    date = Date("2026-01-31T00:00:00Z").replace(month=2, day=28)
+    assert date == Date("2026-02-28T00:00:00Z")
+
+
+def test_replace_rejects_invalid_dates():
+    """replace() validates the resulting date."""
+    with pytest.raises(ValueError, match="day"):
+        Date(REFERENCE).replace(month=2)
+
+
+def test_replace_rejects_unknown_fields():
+    """replace() only accepts calendar fields and the error."""
+    with pytest.raises(TypeError):
+        Date(REFERENCE).replace(nanosecond=1)
+
+
+def test_replace_on_unset_date_raises():
+    """An unset date cannot be replaced."""
+    with pytest.raises(ValueError, match="not set"):
+        Date().replace(year=2026)
 
 
 # ---------------------------------------------------------------------------
