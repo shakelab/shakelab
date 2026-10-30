@@ -29,6 +29,7 @@ Conventions
   reference instant.
 - Tests on the current time freeze the system clock with the
   ``fixed_clock`` fixture.
+- Years before 1 use astronomical numbering (year 0 is 1 BC).
 """
 
 from __future__ import annotations
@@ -79,6 +80,11 @@ def fixed_clock(monkeypatch):
     (2000, True),
     (2024, True),
     (2026, False),
+    (0, True),
+    (-1, False),
+    (-4, True),
+    (-100, False),
+    (-400, True),
 ])
 def test_leap_check(year, expected):
     """Gregorian leap-year rules are applied."""
@@ -91,11 +97,10 @@ def test_leap_num_counts_previous_leap_years(year, expected):
     assert leap_num(year) == expected
 
 
-@pytest.mark.parametrize("function", [leap_check, leap_num])
-def test_calendar_helpers_reject_year_zero(function):
-    """Year zero is outside the supported calendar."""
-    with pytest.raises(ValueError, match="Year"):
-        function(0)
+@pytest.mark.parametrize("year, expected", [(0, -1), (-3, -1), (-4, -2)])
+def test_leap_num_is_negative_before_year_one(year, expected):
+    """Before year 1, leap_num counts leap years in [year, 0] negatively."""
+    assert leap_num(year) == expected
 
 
 def test_days_in_month_is_cumulative():
@@ -158,10 +163,84 @@ def test_seconds_round_trip(components):
     assert second_to_date(seconds) == components
 
 
-def test_second_to_date_rejects_negative_values():
-    """Instants before the internal epoch are rejected."""
-    with pytest.raises(ValueError, match="greater than or equal to zero"):
-        second_to_date(-1)
+# ---------------------------------------------------------------------------
+# Years before 1
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("year, days", [(0, -366), (-3, -1461)])
+def test_days_before_year_one(year, days):
+    """January 1 of years before 1 lies a whole number of days earlier."""
+    assert date_to_second(year, 1, 1) == days * 86400
+
+
+@pytest.mark.parametrize("seconds, expected", [
+    (-1, [0, 12, 31, 23, 59, 59.0]),
+    (-0.5, [0, 12, 31, 23, 59, 59.5]),
+    (-86400, [0, 12, 31, 0, 0, 0.0]),
+    (-86400.25, [0, 12, 30, 23, 59, 59.75]),
+])
+def test_negative_seconds_are_floored_to_the_previous_day(seconds, expected):
+    """Negative seconds map to the correct day and time of day."""
+    assert second_to_date(seconds) == expected
+
+
+@pytest.mark.parametrize("components", [
+    [0, 2, 29, 12, 0, 0.0],
+    [-459, 3, 21, 6, 30, 15.25],
+    [-10000, 1, 1, 0, 0, 0.0],
+])
+def test_negative_years_round_trip(components):
+    """Components before year 1 survive a round trip through seconds."""
+    seconds = date_to_second(*components, decimal=True)
+    assert seconds < 0
+    assert second_to_date(seconds) == components
+
+
+def test_arithmetic_crosses_the_epoch():
+    """Adding one second to 0000-12-31T23:59:59 reaches the epoch."""
+    date = Date([0, 12, 31, 23, 59, 59.0])
+    assert date + 1 == Date("0001-01-01T00:00:00Z")
+    assert date.to_seconds() == -1.0
+    assert date < Date("0001-01-01T00:00:00Z")
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("-0459-03-21T06:30:15Z", [-459, 3, 21, 6, 30, 15.0]),
+    ("-0459-080T06:30:15Z", [-459, 3, 21, 6, 30, 15.0]),
+    ("0000-02-29T00:00:00Z", [0, 2, 29, 0, 0, 0.0]),
+    ("+10000-01-01T00:00:00Z", [10000, 1, 1, 0, 0, 0.0]),
+    ("0001-01-01T01:00:00+02:00", [0, 12, 31, 23, 0, 0.0]),
+])
+def test_iso8601_signed_years_are_parsed(value, expected):
+    """ISO 8601 expanded years and offsets across the epoch are parsed."""
+    assert Date(value).get_date() == expected
+
+
+@pytest.mark.parametrize("components, expected", [
+    ([-459, 3, 21, 6, 30, 15.25], "-0459-03-21T06:30:15.25Z"),
+    ([0, 1, 1, 0, 0, 0.0], "0000-01-01T00:00:00.00Z"),
+    ([10000, 1, 1, 0, 0, 0.0], "+10000-01-01T00:00:00.00Z"),
+])
+def test_iso8601_signed_years_are_written(components, expected):
+    """Years outside 0000-9999 are written with an explicit sign."""
+    date = Date(components)
+    assert date.to_iso8601(2) == expected
+    assert Date(date.iso8601) == date
+
+
+def test_strformat_and_strparse_signed_years():
+    """Custom formats handle signed four-digit years."""
+    date = Date([-459, 3, 21, 0, 0, 0.0])
+    assert date.strformat("%Y%m%d") == "-04590321"
+    parsed = Date()
+    parsed.strparse("-04590321", "%Y%m%d")
+    assert parsed == date
+
+
+def test_from_unix_before_year_one():
+    """Unix timestamps can describe instants before year 1."""
+    seconds = -timeN.UNIX_EPOCH_SECONDS - 1
+    assert Date.from_unix(seconds) == Date([0, 12, 31, 23, 59, 59.0])
 
 
 # ---------------------------------------------------------------------------
@@ -253,12 +332,6 @@ def test_only_utc_timezone_is_supported():
     """Time zones other than UTC are not implemented."""
     with pytest.raises(NotImplementedError):
         Date(REFERENCE, timezone="CET")
-
-
-def test_year_zero_is_rejected():
-    """Year zero is rejected on construction."""
-    with pytest.raises(ValueError, match="Year"):
-        Date([0, 1, 1, 0, 0, 0.0])
 
 
 def test_date_constructor_copies_another_date():

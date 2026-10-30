@@ -37,6 +37,11 @@ Conventions
 - The internal epoch is ``0001-01-01T00:00:00Z``. This is not Unix time;
   use :meth:`Date.from_unix`, :meth:`Date.to_unix` and their
   nanosecond variants to exchange Unix timestamps.
+- Dates use the proleptic Gregorian calendar with astronomical year
+  numbering, as in ISO 8601: year ``0`` is 1 BC, year ``-1`` is 2 BC.
+  Instants before the internal epoch have negative seconds.
+- ISO 8601 years outside ``0000``-``9999`` carry an explicit sign and
+  at least four digits (e.g. ``-0459``, ``+10000``).
 - Leap seconds are not represented: seconds lie in ``[0, 60)``.
 - Time shifts are real numbers expressed in seconds: Python ``int`` and
   ``float``, :class:`decimal.Decimal`, or NumPy integer and floating
@@ -99,7 +104,7 @@ YDAYS = YEAR_DAYS
 
 ISO8601_PATTERN = re.compile(
     r"^"
-    r"(?P<year>[0-9]{4})"
+    r"(?P<year>[+-][0-9]{4,}|[0-9]{4})"
     r"(?:-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})"
     r"|-?(?P<ordinal>[0-9]{3}))"
     r"T"
@@ -681,7 +686,7 @@ class Date:
         )
 
         replacements = {
-            "%Y": f"{year:04d}",
+            "%Y": _format_year(year),
             "%j": f"{to_ordinal_day(year, month, day):03d}",
             "%m": f"{month:02d}",
             "%d": f"{day:02d}",
@@ -707,6 +712,7 @@ class Date:
             Format string with fixed-width fields. Supported
             placeholders are ``%Y``, ``%j``, ``%m``, ``%d``, ``%H``,
             ``%M`` and ``%S`` (seconds may include a fractional part).
+            ``%Y`` has four digits and an optional sign.
 
         Raises
         ------
@@ -816,7 +822,8 @@ class Date:
         Parameters
         ----------
         second
-            Non-negative seconds from ``0001-01-01T00:00:00Z``.
+            Seconds from ``0001-01-01T00:00:00Z``; negative values
+            describe earlier instants.
         """
         values = second_to_date(second)
         self._set_from_sequence(values)
@@ -949,12 +956,12 @@ class Date:
 
 def leap_check(year: int) -> bool:
     """
-    Return True if ``year`` is a leap year (Gregorian rules).
+    Return True if ``year`` is a leap year.
+
+    Gregorian rules are applied to every year (proleptic calendar), so
+    year ``0`` (1 BC) is a leap year.
     """
     year = int(year)
-
-    if year < 1:
-        raise ValueError("Year must be greater than or equal to 1.")
 
     divisible_by_4 = year % 4 == 0
     not_century = year % 100 != 0
@@ -965,13 +972,16 @@ def leap_check(year: int) -> bool:
 
 def leap_num(year: int) -> int:
     """
-    Return the number of leap years before ``year``.
+    Return the number of leap years from year 1 to ``year - 1``.
+
+    For years before 1 the result is negative: its magnitude is the
+    number of leap years from ``year`` to ``0``. With this convention
+    ``(year - 1) * 365 + leap_num(year)`` is always the number of days
+    from the internal epoch to January 1 of ``year``.
     """
     year = int(year)
 
-    if year < 1:
-        raise ValueError("Year must be greater than or equal to 1.")
-
+    # Floor division keeps the formula valid for non-positive years.
     previous = year - 1
     return previous // 4 - previous // 100 + previous // 400
 
@@ -1068,13 +1078,13 @@ def date_to_second(
     Returns
     -------
     float or Decimal
-        Seconds from ``0001-01-01T00:00:00Z``.
+        Seconds from ``0001-01-01T00:00:00Z``, negative for earlier
+        instants.
     """
     _validate_components(year, month, day, hour, minute, second)
 
     month_days = [0] + days_in_month(year)[:-1]
-    days = (year - 1) * YEAR_DAYS
-    days += leap_num(year)
+    days = _days_before_year(int(year))
     days += month_days[month - 1]
     days += day - 1
 
@@ -1096,7 +1106,8 @@ def second_to_date(second: TimeShift) -> DateComponents:
     Parameters
     ----------
     second
-        Non-negative seconds from ``0001-01-01T00:00:00Z``.
+        Seconds from ``0001-01-01T00:00:00Z``; negative values describe
+        earlier instants.
 
     Returns
     -------
@@ -1105,11 +1116,14 @@ def second_to_date(second: TimeShift) -> DateComponents:
     """
     second = to_decimal(second)
 
-    if second < 0:
-        raise ValueError("Seconds must be greater than or equal to zero.")
-
+    # Decimal floor division truncates towards zero: correct it so that
+    # the seconds of the day are always in [0, 86400).
     total_days = int(second // DAY_SECONDS)
     day_seconds = second - Decimal(total_days) * DAY_SECONDS
+
+    if day_seconds < 0:
+        total_days -= 1
+        day_seconds += DAY_SECONDS
 
     year = _year_from_day_count(total_days)
     days_before_year = _days_before_year(year)
@@ -1279,6 +1293,9 @@ def write_iso8601_date(
     -----
     Seconds are rounded to ``precision`` digits. When rounding reaches
     60 seconds, the carry propagates to the following fields.
+
+    Years outside ``0``-``9999`` are written with an explicit sign and at
+    least four digits (ISO 8601 expanded representation).
     """
     _validate_components(year, month, day, hour, minute, second)
     precision = _validate_precision(precision)
@@ -1294,10 +1311,10 @@ def write_iso8601_date(
     )
 
     if format == "calendar":
-        date_part = f"{year:04d}-{month:02d}-{day:02d}"
+        date_part = f"{_format_year(year)}-{month:02d}-{day:02d}"
     elif format == "ordinal":
         ordinal = to_ordinal_day(year, month, day)
-        date_part = f"{year:04d}-{ordinal:03d}"
+        date_part = f"{_format_year(year)}-{ordinal:03d}"
     else:
         raise ValueError("Unsupported ISO 8601 date format.")
 
@@ -1369,9 +1386,6 @@ def _validate_components(
     hour = int(hour)
     minute = int(minute)
     second = float(second)
-
-    if year < 1:
-        raise ValueError("Year must be greater than or equal to 1.")
 
     if month < 1 or month > 12:
         raise ValueError("Month must be between 1 and 12.")
@@ -1445,6 +1459,16 @@ def _round_components(
     return year, month, day, hour, minute, 0.0
 
 
+def _format_year(year: int) -> str:
+    """
+    Format a year as in ISO 8601, with a sign outside ``0``-``9999``.
+    """
+    if 0 <= year <= 9999:
+        return f"{year:04d}"
+
+    return f"{year:+05d}"
+
+
 def _format_seconds(second: float, precision: int) -> str:
     """
     Format already rounded seconds with a two-digit integer part.
@@ -1463,23 +1487,21 @@ def _days_before_year(year: int) -> int:
 
 def _year_from_day_count(day_count: int) -> int:
     """
-    Return the year from the number of elapsed days since the epoch.
+    Return the year containing a day counted from the internal epoch.
+
+    ``day_count`` may be negative for days before the epoch.
     """
-    low = 1
-    high = max(2, int(day_count // 365) + 2)
+    # A Gregorian cycle has 146097 days in 400 years: the estimate is
+    # off by at most one year and is corrected below.
+    year = (day_count * 400) // 146097 + 1
 
-    while _days_before_year(high) <= day_count:
-        high *= 2
+    while _days_before_year(year) > day_count:
+        year -= 1
 
-    while low < high:
-        middle = (low + high) // 2
+    while _days_before_year(year + 1) <= day_count:
+        year += 1
 
-        if _days_before_year(middle + 1) <= day_count:
-            low = middle + 1
-        else:
-            high = middle
-
-    return low
+    return year
 
 
 def _parse_timezone_offset(timezone: str) -> Decimal:
@@ -1526,7 +1548,7 @@ def _format_to_regex(fmt: str) -> str:
     Convert a restricted date format to a regular expression.
     """
     fields = {
-        "%Y": r"(?P<Y>[0-9]{4})",
+        "%Y": r"(?P<Y>[+-]?[0-9]{4})",
         "%j": r"(?P<j>[0-9]{3})",
         "%m": r"(?P<m>[0-9]{2})",
         "%d": r"(?P<d>[0-9]{2})",
