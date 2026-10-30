@@ -24,7 +24,7 @@
 import unittest
 import numpy as np
 
-from shakelab.site import soil
+from shakelab.site import engpar
 
 
 # =============================================================================
@@ -42,9 +42,9 @@ class DepthAverageTestCase(unittest.TestCase):
                       expected_result,
                       tolerance=0.):
 
-        computed_result = soil.depth_weighted_average(thickness,
-                                                      soil_param,
-                                                      depth)
+        computed_result = engpar.depth_weighted_average(thickness,
+                                                        soil_param,
+                                                        depth)
         self.assertAlmostEqual(computed_result,
                                expected_result,
                                delta=tolerance)
@@ -116,9 +116,9 @@ class TravelTimeAverageTestCase(unittest.TestCase):
                       expected_result,
                       tolerance=0.):
 
-        computed_result = soil.traveltime_velocity(thickness,
-                                                   s_velocity,
-                                                   depth)
+        computed_result = engpar.traveltime_velocity(thickness,
+                                                     s_velocity,
+                                                     depth)
         self.assertAlmostEqual(computed_result,
                                expected_result,
                                delta=tolerance)
@@ -161,10 +161,10 @@ class SiteKappaTestCase(unittest.TestCase):
                      expected_result,
                      tolerance=0.):
 
-        kappa0 = soil.compute_site_kappa(thickness,
-                                         s_velocity,
-                                         s_quality,
-                                         depth)
+        kappa0 = engpar.compute_site_kappa(thickness,
+                                           s_velocity,
+                                           s_quality,
+                                           depth)
         self.assertAlmostEqual(kappa0,
                                expected_result,
                                delta=tolerance)
@@ -208,10 +208,10 @@ class QuarterWavelengthTestCase(unittest.TestCase):
                            expected_result,
                            tolerance=0.):
 
-        qwl_param = soil.quarter_wavelength_average(thickness,
-                                                    s_velocity,
-                                                    density,
-                                                    frequency)
+        qwl_param = engpar.quarter_wavelength_average(thickness,
+                                                      s_velocity,
+                                                      density,
+                                                      frequency)
 
         for np in [0, 1]:
             for qp, er in zip(qwl_param[np], expected_result[np]):

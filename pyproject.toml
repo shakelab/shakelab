@@ -48,8 +48,9 @@ homepage = "http://shakelab.org"
 source = "https://github.com/shakelab/shakelab"
 
 [project.optional-dependencies]
-all = ["wx>=4.0.7"]
+all = ["wx>=4.0.7", "flask"]
 dev = ["pytest>=6.0"]
+webui = ["flask"]
 
 [project.scripts]
 fdsnclient = "fdsnclient:main"

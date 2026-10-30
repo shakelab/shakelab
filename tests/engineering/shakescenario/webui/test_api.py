@@ -7,6 +7,10 @@ from pathlib import Path
 
 import pytest
 
+# The WebUI needs the optional "webui" dependencies (Flask): skip the
+# module when they are not installed.
+pytest.importorskip("flask")
+
 from shakelab.engineering.shakescenario.webui.app import create_app
 from shakelab.engineering.shakescenario.webui.backend.config import (
     WebUIConfig,

@@ -53,12 +53,12 @@ class ImpedanceAmplificationTestCase(unittest.TestCase):
                                                   inc_angle)
 
         if not isinstance(computed_result, np.ndarray):
-            self.assertAlmostEquals(computed_result,
+            self.assertAlmostEqual(computed_result,
                                     expected_result,
                                     delta=tolerance)
         else:
             for cr, er, in zip(computed_result, expected_result):
-                self.assertAlmostEquals(cr,
+                self.assertAlmostEqual(cr,
                                         er,
                                         delta=tolerance)
 

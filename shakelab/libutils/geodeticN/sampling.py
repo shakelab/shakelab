@@ -96,7 +96,13 @@ def _triangle_areas(triangles: np.ndarray) -> np.ndarray:
     v1 = triangles[:, 0, :]
     v2 = triangles[:, 1, :]
     v3 = triangles[:, 2, :]
-    area = 0.5 * np.abs(np.cross(v2 - v1, v3 - v1))
+    edge1 = v2 - v1
+    edge2 = v3 - v1
+
+    # Explicit 2D cross product: np.cross no longer accepts 2D vectors
+    # in NumPy 2.
+    cross = edge1[:, 0] * edge2[:, 1] - edge1[:, 1] * edge2[:, 0]
+    area = 0.5 * np.abs(cross)
     return area
 
 
