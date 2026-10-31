@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 # ****************************************************************************
-#
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -9,202 +7,191 @@
 # published by the Free Software Foundation, either version 3 of the
 # License, or (at your option) any later version.
 #
-# ShakeLab is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
+# ShakeLab is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
-Geometric primitives for geodetic operations in ShakeLab.
+Geometric primitives on the WGS84 ellipsoid.
 
-This module defines WGS84-based geometric objects used across the
-library. It provides light-weight containers for points, polygons,
-multipolygons and unstructured meshes, together with a few basic
-operations (distance, area, bounding boxes).
+This module defines light-weight containers for points, polygons and
+unstructured point meshes in geographic coordinates, with basic
+operations (distances, bounding box, centroid, area, point-in-polygon
+and clipping).
+
+Design choices
+--------------
+- :class:`WgsPoint` is immutable and validated: coordinates are finite
+  floats and the latitude lies in ``[-90, 90]``. The longitude is kept
+  as given, in any convention.
+- Polygon area, centroid and point-in-polygon tests are computed in the
+  equal-area sinusoidal projection, centered on the mean longitude of
+  each part (computed relative to its first vertex). This makes them
+  independent of the longitude convention, valid across the
+  antimeridian for parts spanning less than 180 degrees of longitude,
+  and symmetric for symmetric polygons.
+- Polygon edges are straight lines in the projected plane, which is an
+  approximation of geodesics adequate for regional polygons.
 
 Conventions
-----------
-* Geographic coordinates are expressed as (longitude, latitude) in
-  decimal degrees, unless explicitly stated otherwise.
-* Distances are expressed in meters.
+-----------
+- Geographic coordinates are ``(longitude, latitude)`` in decimal
+  degrees; longitudes may use ``[-180, 180)`` or ``[0, 360)``.
+- Elevation is in meters, positive upward (a hypocentre at 10 km depth
+  has ``elevation = -10000``).
+- Distances are in meters, areas in square meters.
+- A polygon ring may or may not repeat its first vertex at the end.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import IntEnum
-from typing import Iterable, List, Sequence, Tuple
+import math
+from numbers import Real
+from typing import Any, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from shakelab.libutils.geodeticN.utilities import (
-    MEAN_EARTH_RADIUS_M,
-    great_circle_distance,
+    relative_longitude,
+    sinusoidal_to_wgs84,
     wgs84_to_sinusoidal,
 )
 
 
-# ============================================================================
-# Basic types
-# ============================================================================
+__all__ = [
+    "WgsPoint",
+    "PolygonKind",
+    "WgsPolygon",
+    "WgsMesh",
+]
 
+
+# ---------------------------------------------------------------------------
+# Point
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class WgsPoint:
     """
-    Simple WGS84 point.
+    Geographic point on the WGS84 ellipsoid.
 
     Parameters
     ----------
-    longitude : float
-        Longitude in degrees.
-    latitude : float
-        Latitude in degrees.
-    elevation : float, optional
-        Elevation above the reference surface in meters. The default
-        is 0.0. The elevation is not used in most geometric
-        operations, which are based on longitude and latitude only.
+    longitude
+        Longitude in degrees, in any convention.
+    latitude
+        Latitude in degrees, in ``[-90, 90]``.
+    elevation
+        Elevation above the ellipsoid in meters, positive upward.
+
+    Raises
+    ------
+    TypeError
+        If a coordinate is not a real number.
+    ValueError
+        If a coordinate is not finite or the latitude is out of range.
     """
 
     longitude: float
     latitude: float
     elevation: float = 0.0
 
+    def __post_init__(self) -> None:
+        longitude = _finite_float(self.longitude, "longitude")
+        latitude = _finite_float(self.latitude, "latitude")
+        elevation = _finite_float(self.elevation, "elevation")
+
+        if not -90.0 <= latitude <= 90.0:
+            raise ValueError("The latitude must be in [-90, 90].")
+
+        object.__setattr__(self, "longitude", longitude)
+        object.__setattr__(self, "latitude", latitude)
+        object.__setattr__(self, "elevation", elevation)
+
     def to_tuple(self) -> Tuple[float, float]:
         """
-        Return the point as a (lon, lat) tuple.
+        Return the point as a ``(lon, lat)`` tuple.
         """
         return self.longitude, self.latitude
 
-    def to_metric(self, frame=None) -> "MetricPoint":
+    def to_metric(self, frame: Any = None) -> Any:
         """
-        Convert this WgsPoint to a MetricPoint.
+        Convert the point to Cartesian coordinates.
 
         Parameters
         ----------
-        frame : MetricFrame or None, optional
-            Output frame definition.
-
-            If None, the returned coordinates are expressed in absolute
-            ECEF (Earth-Centered, Earth-Fixed).
-
-            If a MetricFrame is provided, the returned coordinates are
-            expressed in the local Cartesian system defined by the frame
-            (translated ECEF or ENU, depending on frame.orientation).
+        frame
+            :class:`~shakelab.libutils.geodeticN.transform.MetricFrame`
+            of the output, or ``None`` for absolute ECEF.
 
         Returns
         -------
         MetricPoint
             Cartesian coordinates in meters.
         """
-        # Local import to avoid circular dependencies (transform imports
-        # WgsPoint from this module).
         from shakelab.libutils.geodeticN.transform import wgs_to_metric
 
         return wgs_to_metric(self, frame=frame)
 
-    def epicentral_distance_to(self, other: "WgsPoint") -> float:
+    def epicentral_distance_to(self, other: WgsPoint) -> float:
         """
-        Compute great-circle (epicentral) distance to another WgsPoint.
+        Return the great-circle (epicentral) distance in meters.
 
-        This is a convenience wrapper around the function
-        :func:`epicentral_distance` defined in the module
-        ``distance.py``.
-
-        Parameters
-        ----------
-        other : WgsPoint
-            Target point.
-
-        Returns
-        -------
-        float
-            Great-circle distance in meters.
+        See :func:`~shakelab.libutils.geodeticN.distance.epicentral_distance`.
         """
         from shakelab.libutils.geodeticN.distance import (
             epicentral_distance,
         )
+
         return epicentral_distance(self, other)
 
     def hypocentral_distance_to(
         self,
-        other: "WgsPoint",
+        other: WgsPoint,
         approx: str = "ellipsoid",
     ) -> float:
         """
-        Compute hypocentral (3-D straight-line) distance to another WgsPoint.
-
-        This is a wrapper around :func:`hypocentral_distance` defined
-        in ``distance.py``. The distance is evaluated either using the
-        accurate ECEF/WGS84 ellipsoid or a spherical Earth model
-        depending on the ``approx`` parameter.
+        Return the 3-D (hypocentral) distance in meters.
 
         Parameters
         ----------
-        other : WgsPoint
+        other
             Target point.
-        approx : {"ellipsoid", "sphere"}, optional
-            Approximation model. Default is "ellipsoid".
+        approx
+            Earth model: ``"ellipsoid"`` (default) or ``"sphere"``.
 
-        Returns
-        -------
-        float
-            Hypocentral (tunnel) distance in meters.
-
-        Raises
-        ------
-        ValueError
-            If ``approx`` is not one of the supported options.
+        See :func:`~shakelab.libutils.geodeticN.distance.hypocentral_distance`.
         """
         from shakelab.libutils.geodeticN.distance import (
             hypocentral_distance,
         )
+
         return hypocentral_distance(self, other, approx=approx)
 
-    def __sub__(self, other: "WgsPoint") -> float:
+    def __sub__(self, other: WgsPoint) -> float:
         """
-        Return hypocentral (3-D tunnel) distance to another WgsPoint.
-
-        This operator overload is provided as syntactic sugar so that
-        the expression ``p1 - p2`` returns the hypocentral distance
-        between two geographic points. The calculation uses the same
-        approximation model adopted by :meth:`hypocentral_distance_to`,
-        which defaults to the WGS84 ellipsoid.
-
-        Parameters
-        ----------
-        other : WgsPoint
-            Target point.
-
-        Returns
-        -------
-        float
-            Hypocentral (straight-line) distance in meters.
-
-        Raises
-        ------
-        ValueError
-            If the approximation model is not recognized.
+        Return the hypocentral distance to ``other`` (ellipsoid model).
         """
         if not isinstance(other, WgsPoint):
             return NotImplemented
+
         return self.hypocentral_distance_to(other)
 
 
+# ---------------------------------------------------------------------------
+# Polygon
+# ---------------------------------------------------------------------------
+
 class PolygonKind(IntEnum):
     """
-    Polygon type indicator.
-
-    Attributes
-    ----------
-    SIMPLE : int
-        Single simple polygon (one exterior ring).
-    MULTIPOLYGON : int
-        MultiPolygon: list of disjoint simple polygons.
+    Polygon type: a single polygon or a set of disjoint polygons.
     """
 
     SIMPLE = 0
@@ -214,88 +201,86 @@ class PolygonKind(IntEnum):
 @dataclass
 class WgsPolygon:
     """
-    WGS84 polygon or multipolygon.
+    Polygon or multipolygon in geographic coordinates.
 
-    The geometry is stored as a list of parts, where each part is a
-    sequence of vertices forming a simple polygon (exterior ring).
-    Holes are not explicitly represented at the moment. A MultiPolygon
-    is represented as multiple parts.
+    The geometry is a list of parts; each part is the exterior ring of a
+    simple polygon. Holes are not represented.
 
     Parameters
     ----------
-    parts : list of list of WgsPoint
-        List of polygon parts. For a simple polygon the list contains
-        a single part.
-    kind : PolygonKind, optional
-        Polygon type: :class:`PolygonKind.SIMPLE` or
-        :class:`PolygonKind.MULTIPOLYGON`. If not provided, the
-        kind is inferred from the number of parts.
+    parts
+        List of parts, each a list of :class:`WgsPoint`.
+    kind
+        :attr:`PolygonKind.SIMPLE` or :attr:`PolygonKind.MULTIPOLYGON`.
+        If omitted, it is inferred from the number of parts.
+
+    Raises
+    ------
+    TypeError
+        If a vertex is not a :class:`WgsPoint`.
+    ValueError
+        If ``kind`` is SIMPLE but there is more than one part.
     """
 
     parts: List[List[WgsPoint]] = field(default_factory=list)
-    kind: PolygonKind = PolygonKind.SIMPLE
+    kind: Optional[PolygonKind] = None
 
-    # ------------------------------------------------------------------
+    def __post_init__(self) -> None:
+        self.parts = [list(part) for part in self.parts]
+
+        for part in self.parts:
+            for vertex in part:
+                if not isinstance(vertex, WgsPoint):
+                    raise TypeError("Polygon vertices must be WgsPoint.")
+
+        if self.kind is None:
+            self.kind = (
+                PolygonKind.MULTIPOLYGON
+                if len(self.parts) > 1
+                else PolygonKind.SIMPLE
+            )
+        else:
+            self.kind = PolygonKind(self.kind)
+
+        if self.kind == PolygonKind.SIMPLE and len(self.parts) > 1:
+            raise ValueError("A SIMPLE polygon cannot have several parts.")
+
+    # -----------------------------------------------------------------------
     # Constructors
-    # ------------------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     @classmethod
-    def from_lonlat(
-        cls,
-        coords: Sequence[Tuple[float, float]],
-    ) -> "WgsPolygon":
+    def from_lonlat(cls, coords: Sequence[Sequence[float]]) -> WgsPolygon:
         """
-        Build a simple polygon from a sequence of (lon, lat) pairs.
-
-        Parameters
-        ----------
-        coords : sequence of (float, float)
-            Sequence of (lon, lat) vertices.
-
-        Returns
-        -------
-        WgsPolygon
-            Polygon with a single part.
+        Build a simple polygon from ``(lon, lat[, elevation])`` vertices.
         """
-        part = [WgsPoint(longitude=c[0], latitude=c[1]) for c in coords]
-        return cls(parts=[part], kind=PolygonKind.SIMPLE)
+        return cls(parts=[_points_from_coords(coords)])
 
     @classmethod
     def from_parts(
         cls,
-        parts: Sequence[Sequence[Tuple[float, float]]],
-    ) -> "WgsPolygon":
+        parts: Sequence[Sequence[Sequence[float]]],
+        kind: Optional[PolygonKind] = None,
+    ) -> WgsPolygon:
         """
-        Build a polygon or multipolygon from multiple parts.
+        Build a polygon or multipolygon from several parts.
 
         Parameters
         ----------
-        parts : sequence of sequences
-            Each element is a sequence of (lon, lat) pairs forming a
-            simple polygon.
-
-        Returns
-        -------
-        WgsPolygon
-            Polygon with one or more parts. The kind is set to
-            SIMPLE if there is a single part, MULTIPOLYGON otherwise.
+        parts
+            Each element is a sequence of ``(lon, lat[, elevation])``
+            vertices.
+        kind
+            Polygon kind; inferred from the number of parts if omitted.
         """
-        poly_parts: List[List[WgsPoint]] = []
-        for seq in parts:
-            poly_parts.append(
-                [WgsPoint(longitude=c[0], latitude=c[1]) for c in seq]
-            )
-
-        kind = (
-            PolygonKind.SIMPLE
-            if len(poly_parts) == 1
-            else PolygonKind.MULTIPOLYGON
+        return cls(
+            parts=[_points_from_coords(part) for part in parts],
+            kind=kind,
         )
-        return cls(parts=poly_parts, kind=kind)
 
-    # ------------------------------------------------------------------
+    # -----------------------------------------------------------------------
     # Basic properties
-    # ------------------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     def is_empty(self) -> bool:
         """
@@ -305,264 +290,262 @@ class WgsPolygon:
 
     def n_parts(self) -> int:
         """
-        Return the number of polygon parts.
+        Return the number of parts.
         """
         return len(self.parts)
 
-    def iter_vertices(self) -> Iterable[WgsPoint]:
+    def iter_vertices(self) -> Iterator[WgsPoint]:
         """
-        Iterate over all vertices of all parts.
-
-        Yields
-        ------
-        WgsPoint
-            Vertices in the order they appear in the parts.
+        Iterate over the vertices of all parts, in order.
         """
         for part in self.parts:
-            for pt in part:
-                yield pt
+            yield from part
 
-    # ------------------------------------------------------------------
-    # Bounding box and centroid
-    # ------------------------------------------------------------------
+    def to_arrays(self) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Return the ``(lon, lat)`` arrays of each part.
+        """
+        return [_lonlat_arrays(part) for part in self.parts]
+
+    # -----------------------------------------------------------------------
+    # Geometry
+    # -----------------------------------------------------------------------
 
     def bounding_box(self) -> Tuple[float, float, float, float]:
         """
-        Compute polygon bounding box.
+        Return ``(lon_min, lon_max, lat_min, lat_max)`` in degrees.
 
-        Returns
-        -------
-        lon_min, lon_max, lat_min, lat_max : float
-            Bounding box in degrees.
+        Longitude bounds are the plain minimum and maximum of the vertex
+        longitudes, so they are not meaningful for polygons crossing the
+        antimeridian in the ``[-180, 180)`` convention.
+
+        Raises
+        ------
+        ValueError
+            If the polygon is empty.
         """
         if self.is_empty():
             raise ValueError("Cannot compute bbox of empty polygon.")
 
-        lons = [p.longitude for p in self.iter_vertices()]
-        lats = [p.latitude for p in self.iter_vertices()]
-
-        lon_min = float(min(lons))
-        lon_max = float(max(lons))
-        lat_min = float(min(lats))
-        lat_max = float(max(lats))
-
-        return lon_min, lon_max, lat_min, lat_max
+        return _bounding_box(list(self.iter_vertices()))
 
     def centroid(self) -> WgsPoint:
         """
-        Compute an approximate centroid of the polygon.
+        Return the area-weighted centroid of the polygon.
 
-        The centroid is computed as the arithmetic mean of vertex
-        coordinates. This is a simple approximation and not the
-        exact centroid in spherical geometry.
+        The centroid is computed in the sinusoidal projection centered
+        on the mean longitude of the vertices, and returned in the
+        longitude convention of the first vertex. For degenerate
+        polygons (zero area) the mean of the vertices is returned.
 
-        Returns
-        -------
-        WgsPoint
-            Approximate centroid.
+        Raises
+        ------
+        ValueError
+            If the polygon is empty.
         """
         if self.is_empty():
             raise ValueError("Cannot compute centroid of empty polygon.")
 
-        lons = [p.longitude for p in self.iter_vertices()]
-        lats = [p.latitude for p in self.iter_vertices()]
+        vertices = [
+            vertex for part in self.parts for vertex in _open_ring(part)
+        ]
+        lon0 = _reference_longitude(vertices)
+        total_area = 0.0
+        moment_x = 0.0
+        moment_y = 0.0
 
-        lon_c = float(np.mean(lons))
-        lat_c = float(np.mean(lats))
+        for part in self.parts:
+            ring = _open_ring(part)
 
-        return WgsPoint(longitude=lon_c, latitude=lat_c)
+            if len(ring) < 3:
+                continue
 
-    # ------------------------------------------------------------------
-    # Area and point-in-polygon
-    # ------------------------------------------------------------------
+            lon, lat = _lonlat_arrays(ring)
+            x, y = wgs84_to_sinusoidal(lon, lat, lon0_deg=lon0)
+            area, cx, cy = _planar_centroid(x, y)
+
+            total_area += area
+            moment_x += area * cx
+            moment_y += area * cy
+
+        if total_area == 0.0:
+            return WgsPoint(
+                longitude=lon0,
+                latitude=float(np.mean([p.latitude for p in vertices])),
+            )
+
+        lon, lat = sinusoidal_to_wgs84(
+            moment_x / total_area,
+            moment_y / total_area,
+            lon0_deg=lon0,
+        )
+
+        return WgsPoint(longitude=float(lon), latitude=float(lat))
 
     def area(self) -> float:
         """
-        Compute polygon area in square meters.
+        Return the polygon area in square meters.
 
-        The area is computed by projecting each part onto an equal-area
-        sinusoidal projection and then summing the planar polygon areas.
-
-        Returns
-        -------
-        float
-            Total area in square meters.
+        Each part is projected with the sinusoidal (equal-area)
+        projection centered on its mean longitude, and the planar areas
+        are summed.
         """
-        if self.is_empty():
-            return 0.0
-
-        total_area = 0.0
+        total = 0.0
 
         for part in self.parts:
-            if len(part) < 3:
+            ring = _open_ring(part)
+
+            if len(ring) < 3:
                 continue
 
-            lon = np.array([p.longitude for p in part])
-            lat = np.array([p.latitude for p in part])
-            x, y = wgs84_to_sinusoidal(lon, lat)
+            lon, lat = _lonlat_arrays(ring)
+            x, y = wgs84_to_sinusoidal(
+                lon, lat, lon0_deg=_reference_longitude(ring),
+            )
+            total += abs(_signed_area(x, y))
 
-            # Shoelace formula for polygon area in the projected plane.
-            x_shift = np.roll(x, -1)
-            y_shift = np.roll(y, -1)
-            area_part = 0.5 * np.sum(x * y_shift - x_shift * y)
-
-            total_area += abs(area_part)
-
-        return float(total_area)
+        return float(total)
 
     def contains_point(self, point: WgsPoint) -> bool:
         """
-        Test whether a point lies inside the polygon.
+        Return True if ``point`` lies inside the polygon.
 
-        The test is performed in the sinusoidal projection using a
-        standard ray-casting algorithm. For a multipolygon, the point
-        is considered inside if it lies in at least one part.
+        For a multipolygon, the point is inside if it lies in any part.
+        """
+        inside = self.contains_points([point.longitude], [point.latitude])
+
+        return bool(inside[0])
+
+    def contains_points(
+        self,
+        longitudes: Sequence[float],
+        latitudes: Sequence[float],
+    ) -> np.ndarray:
+        """
+        Test many points at once.
 
         Parameters
         ----------
-        point : WgsPoint
-            Test point.
+        longitudes, latitudes
+            Coordinates of the points in degrees.
 
         Returns
         -------
-        bool
-            True if the point is inside the polygon, False otherwise.
+        numpy.ndarray
+            Boolean array, True for points inside the polygon.
         """
-        if self.is_empty():
-            return False
-
-        # Project the point once; reuse in each part.
-        x_pt, y_pt = wgs84_to_sinusoidal(
-            np.array([point.longitude]),
-            np.array([point.latitude]),
-        )
-        x0 = float(x_pt[0])
-        y0 = float(y_pt[0])
-
-        inside_any = False
+        lon = np.asarray(longitudes, dtype=float)
+        lat = np.asarray(latitudes, dtype=float)
+        inside = np.zeros(lon.shape, dtype=bool)
 
         for part in self.parts:
-            if len(part) < 3:
+            ring = _open_ring(part)
+
+            if len(ring) < 3:
                 continue
 
-            lon = np.array([p.longitude for p in part])
-            lat = np.array([p.latitude for p in part])
-            x, y = wgs84_to_sinusoidal(lon, lat)
+            lon0 = _reference_longitude(ring)
+            ring_lon, ring_lat = _lonlat_arrays(ring)
+            x, y = wgs84_to_sinusoidal(ring_lon, ring_lat, lon0_deg=lon0)
+            px, py = wgs84_to_sinusoidal(lon, lat, lon0_deg=lon0)
 
-            inside = _ray_casting_contains(x, y, x0, y0)
-            if inside:
-                inside_any = True
-                break
+            inside |= _points_in_ring(x, y, px, py)
 
-        return inside_any
+        return inside
 
 
-def _ray_casting_contains(
-    x: np.ndarray,
-    y: np.ndarray,
-    x0: float,
-    y0: float,
-) -> bool:
-    """
-    Ray-casting point-in-polygon test on planar coordinates.
-
-    Parameters
-    ----------
-    x, y : numpy.ndarray
-        Polygon vertices in the plane.
-    x0, y0 : float
-        Test point in the same plane.
-
-    Returns
-    -------
-    bool
-        True if the point is inside the polygon, False otherwise.
-    """
-    n = len(x)
-    inside = False
-
-    j = n - 1
-    for i in range(n):
-        xi = x[i]
-        yi = y[i]
-        xj = x[j]
-        yj = y[j]
-
-        intersects = (
-            (yi > y0) != (yj > y0)
-            and x0
-            < (xj - xi) * (y0 - yi) / (yj - yi + 1e-15) + xi
-        )
-        if intersects:
-            inside = not inside
-        j = i
-
-    return inside
-
-
-# ============================================================================
-# Mesh of points
-# ============================================================================
-
+# ---------------------------------------------------------------------------
+# Mesh
+# ---------------------------------------------------------------------------
 
 @dataclass
 class WgsMesh:
     """
-    Collection of WGS84 points.
-
-    This class represents an unstructured mesh of points in geographic
-    coordinates. It is primarily used as a container for grids and
-    sampling locations.
+    Unstructured collection of geographic points.
 
     Parameters
     ----------
-    points : list of WgsPoint
-        List of mesh nodes.
+    points
+        List of :class:`WgsPoint` nodes.
     """
 
     points: List[WgsPoint] = field(default_factory=list)
 
     @classmethod
-    def from_lonlat(
-        cls,
-        coords: Sequence[Tuple[float, float]],
-    ) -> "WgsMesh":
+    def from_lonlat(cls, coords: Sequence[Sequence[float]]) -> WgsMesh:
         """
-        Build a mesh from a list of (lon, lat) pairs.
+        Build a mesh from ``(lon, lat[, elevation])`` tuples.
+        """
+        return cls(points=_points_from_coords(coords))
+
+    @classmethod
+    def from_arrays(
+        cls,
+        longitudes: Sequence[float],
+        latitudes: Sequence[float],
+        elevations: Optional[Sequence[float]] = None,
+    ) -> WgsMesh:
+        """
+        Build a mesh from coordinate arrays.
 
         Parameters
         ----------
-        coords : sequence of (float, float)
-            Vertex coordinates.
+        longitudes, latitudes
+            Coordinates in degrees.
+        elevations
+            Elevations in meters; zero if omitted.
 
-        Returns
-        -------
-        WgsMesh
-            Mesh instance.
+        Raises
+        ------
+        ValueError
+            If the arrays have different lengths.
         """
-        pts = [WgsPoint(longitude=c[0], latitude=c[1]) for c in coords]
-        return cls(points=pts)
+        lon = np.asarray(longitudes, dtype=float).ravel()
+        lat = np.asarray(latitudes, dtype=float).ravel()
+
+        if elevations is None:
+            elev = np.zeros_like(lon)
+        else:
+            elev = np.asarray(elevations, dtype=float).ravel()
+
+        if not lon.size == lat.size == elev.size:
+            raise ValueError("Coordinate arrays must have the same length.")
+
+        return cls(points=[
+            WgsPoint(longitude=x, latitude=y, elevation=z)
+            for x, y, z in zip(lon, lat, elev)
+        ])
 
     def __len__(self) -> int:
         """
-        Return the number of points in the mesh.
+        Return the number of points.
         """
         return len(self.points)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[WgsPoint]:
         """
-        Iterate over mesh points.
+        Iterate over the points.
         """
         return iter(self.points)
 
+    def __getitem__(self, index: int) -> WgsPoint:
+        """
+        Return the point at ``index``.
+        """
+        return self.points[index]
+
+    def to_arrays(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Return ``(longitudes, latitudes, elevations)`` as arrays.
+        """
+        lon, lat = _lonlat_arrays(self.points)
+        elev = np.array([p.elevation for p in self.points], dtype=float)
+
+        return lon, lat, elev
+
     def bounding_box(self) -> Tuple[float, float, float, float]:
         """
-        Compute mesh bounding box.
-
-        Returns
-        -------
-        lon_min, lon_max, lat_min, lat_max : float
-            Bounding box in degrees.
+        Return ``(lon_min, lon_max, lat_min, lat_max)`` in degrees.
 
         Raises
         ------
@@ -572,12 +555,198 @@ class WgsMesh:
         if not self.points:
             raise ValueError("Cannot compute bbox of empty mesh.")
 
-        lons = [p.longitude for p in self.points]
-        lats = [p.latitude for p in self.points]
+        return _bounding_box(self.points)
 
-        lon_min = float(min(lons))
-        lon_max = float(max(lons))
-        lat_min = float(min(lats))
-        lat_max = float(max(lats))
+    def clip(self, polygon: WgsPolygon) -> WgsMesh:
+        """
+        Return a new mesh with the points inside ``polygon``.
 
-        return lon_min, lon_max, lat_min, lat_max
+        Parameters
+        ----------
+        polygon
+            Clipping polygon or multipolygon.
+
+        Returns
+        -------
+        WgsMesh
+            Points of this mesh inside the polygon, in the same order.
+        """
+        if not self.points:
+            return WgsMesh()
+
+        lon, lat, _ = self.to_arrays()
+        inside = polygon.contains_points(lon, lat)
+
+        return WgsMesh(points=[
+            point for point, keep in zip(self.points, inside) if keep
+        ])
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _finite_float(value: Any, name: str) -> float:
+    """
+    Convert a real number to a finite float.
+    """
+    if isinstance(value, bool) or not isinstance(value, (Real, Decimal)):
+        raise TypeError(f"The {name} must be a real number.")
+
+    result = float(value)
+
+    if not math.isfinite(result):
+        raise ValueError(f"The {name} must be finite.")
+
+    return result
+
+
+def _points_from_coords(coords: Sequence[Sequence[float]]) -> List[WgsPoint]:
+    """
+    Convert ``(lon, lat[, elevation])`` sequences to points.
+    """
+    points = []
+
+    for coord in coords:
+        if len(coord) not in (2, 3):
+            raise ValueError(
+                "Coordinates must be (lon, lat) or (lon, lat, elevation)."
+            )
+
+        points.append(WgsPoint(*coord))
+
+    return points
+
+
+def _lonlat_arrays(points: Sequence[WgsPoint]) -> Tuple[np.ndarray, ...]:
+    """
+    Return the longitude and latitude arrays of a list of points.
+    """
+    lon = np.array([p.longitude for p in points], dtype=float)
+    lat = np.array([p.latitude for p in points], dtype=float)
+
+    return lon, lat
+
+
+def _bounding_box(
+    points: Sequence[WgsPoint],
+) -> Tuple[float, float, float, float]:
+    """
+    Return the plain bounding box of a list of points.
+    """
+    lon, lat = _lonlat_arrays(points)
+
+    return (
+        float(lon.min()),
+        float(lon.max()),
+        float(lat.min()),
+        float(lat.max()),
+    )
+
+
+def _open_ring(part: Sequence[WgsPoint]) -> List[WgsPoint]:
+    """
+    Drop the closing vertex of a ring, if it repeats the first one.
+    """
+    ring = list(part)
+
+    if len(ring) > 1 and ring[0] == ring[-1]:
+        ring = ring[:-1]
+
+    return ring
+
+
+def _reference_longitude(points: Sequence[WgsPoint]) -> float:
+    """
+    Return the mean longitude of points, relative to the first one.
+
+    The result is in the convention of the first point and is not
+    affected by the antimeridian, for points spanning less than 180
+    degrees of longitude.
+    """
+    lon0 = points[0].longitude
+    dlon = relative_longitude([p.longitude for p in points], lon0)
+
+    return lon0 + float(np.mean(dlon))
+
+
+def _signed_area(x: np.ndarray, y: np.ndarray) -> float:
+    """
+    Return the signed planar area of a ring (shoelace formula).
+    """
+    return 0.5 * float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
+
+
+def _planar_centroid(
+    x: np.ndarray,
+    y: np.ndarray,
+) -> Tuple[float, float, float]:
+    """
+    Return ``(area, cx, cy)`` of a planar ring, area non-negative.
+    """
+    x_next = np.roll(x, -1)
+    y_next = np.roll(y, -1)
+    cross = x * y_next - x_next * y
+    signed = 0.5 * float(np.sum(cross))
+
+    if signed == 0.0:
+        return 0.0, float(np.mean(x)), float(np.mean(y))
+
+    cx = float(np.sum((x + x_next) * cross)) / (6.0 * signed)
+    cy = float(np.sum((y + y_next) * cross)) / (6.0 * signed)
+
+    return abs(signed), cx, cy
+
+
+def _points_in_ring(
+    x: np.ndarray,
+    y: np.ndarray,
+    px: np.ndarray,
+    py: np.ndarray,
+) -> np.ndarray:
+    """
+    Vectorized ray-casting test of points against a planar ring.
+
+    Parameters
+    ----------
+    x, y
+        Ring vertices (open or closed).
+    px, py
+        Test points.
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean array, True for points inside the ring.
+    """
+    px = np.asarray(px, dtype=float)
+    py = np.asarray(py, dtype=float)
+    inside = np.zeros(px.shape, dtype=bool)
+
+    j = len(x) - 1
+
+    for i in range(len(x)):
+        xi, yi = x[i], y[i]
+        xj, yj = x[j], y[j]
+
+        crosses = (yi > py) != (yj > py)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            x_cross = (xj - xi) * (py - yi) / (yj - yi) + xi
+
+        inside ^= crosses & (px < x_cross)
+        j = i
+
+    return inside
+
+
+def _ray_casting_contains(
+    x: np.ndarray,
+    y: np.ndarray,
+    x0: float,
+    y0: float,
+) -> bool:
+    """
+    Ray-casting test of a single point against a planar ring.
+    """
+    return bool(_points_in_ring(x, y, np.array([x0]), np.array([y0]))[0])

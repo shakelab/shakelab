@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 # ****************************************************************************
-#
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -9,103 +7,123 @@
 # published by the Free Software Foundation, either version 3 of the
 # License, or (at your option) any later version.
 #
-# ShakeLab is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
+# ShakeLab is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
-Mesh generation utilities for ShakeLab.
+Generation of point meshes in geographic coordinates.
 
-This module provides several algorithms to generate WGS84 spatial
-meshes, including:
-* Fibonacci global mesh (quasi-equal-area on full sphere)
-* Fibonacci spherical cap mesh (efficient local equal-area mesh)
-* Spherical cap mesh clipped to a bounding box
-* Regular Cartesian mesh in latitude and longitude
+The module provides generators of :class:`WgsMesh` nodes:
 
-All functions return mesh nodes as lists of WgsPoint or WgsMesh
-containers, without any projection or I/O. Coordinates are always
-expressed as (lon, lat) in degrees.
+- :func:`mesh_fibonacci_global`: quasi equal-area Fibonacci mesh on the
+  whole sphere;
+- :func:`mesh_fibonacci_spherical_cap`: Fibonacci mesh on a spherical
+  cap;
+- :func:`mesh_fibonacci_bbox`: Fibonacci cap mesh clipped to a box;
+- :func:`mesh_cartesian`: regular longitude-latitude grid;
+- :func:`mesh_sinusoidal`: equal-area grid in the sinusoidal projection,
+  aligned on a global grid centered at (0°, 0°).
+
+A mesh restricted to a polygon is obtained by clipping, e.g.
+``mesh_sinusoidal(...).clip(polygon)``.
+
+Design choices
+--------------
+- Spacings are expressed in kilometers, as the typical distance between
+  neighbouring nodes.
+- Generators restricted to a longitude range compute only the nodes in
+  that range; the global sinusoidal grid alignment does not depend on
+  the requested window.
+
+Conventions
+-----------
+- Coordinates are ``(lon, lat)`` in degrees.
+- A longitude range ``[lon_min, lon_max]`` with ``lon_max < lon_min``
+  crosses the antimeridian (e.g. ``170`` to ``-170``). Longitudes of
+  nodes generated in a range are returned in
+  ``[lon_min, lon_min + span]``, i.e. in the convention of ``lon_min``.
 """
 
 from __future__ import annotations
 
-from typing import List, Tuple
+import math
+from typing import List, Optional, Tuple
 
 import numpy as np
 
+from shakelab.libutils.geodeticN.primitives import WgsMesh, WgsPoint
 from shakelab.libutils.geodeticN.utilities import (
-    MEAN_EARTH_RADIUS_M,
     DEG2RAD,
+    MEAN_EARTH_RADIUS_M,
     RAD2DEG,
-    sinusoidal_to_wgs84,
-)
-from shakelab.libutils.geodeticN.primitives import (
-    WgsPoint,
-    WgsMesh,
+    great_circle_distance,
+    normalize_longitude,
 )
 
 
-# ============================================================================
-# Global Fibonacci mesh
-# ============================================================================
+__all__ = [
+    "mesh_fibonacci_global",
+    "mesh_fibonacci_spherical_cap",
+    "mesh_fibonacci_bbox",
+    "mesh_cartesian",
+    "mesh_sinusoidal",
+]
 
+
+GOLDEN_ANGLE = math.pi * (3.0 - math.sqrt(5.0))
+
+# Tolerance on grid indices, in units of grid steps.
+_INDEX_TOLERANCE = 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Fibonacci meshes
+# ---------------------------------------------------------------------------
 
 def mesh_fibonacci_global(
     spacing_km: float,
     radius_m: float = MEAN_EARTH_RADIUS_M,
 ) -> WgsMesh:
     """
-    Generate a global Fibonacci (golden-spiral) mesh on the sphere.
+    Generate a global Fibonacci (golden-spiral) mesh.
 
-    Points are distributed quasi-uniformly in area over the entire
-    sphere. This function is intended for global or continental
-    grids; for local regions, use spherical_cap_mesh_fibonacci.
+    Nodes are distributed quasi-uniformly in area over the whole sphere.
+    For regional grids use :func:`mesh_fibonacci_spherical_cap`.
 
     Parameters
     ----------
-    spacing_km : float
-        Target spacing between nodes in kilometers. The average
-        cell area is approximately (spacing_km**2).
-    radius_m : float, optional
+    spacing_km
+        Target spacing in kilometers; the mean area per node is about
+        ``spacing_km ** 2``.
+    radius_m
         Sphere radius in meters.
 
     Returns
     -------
     WgsMesh
-        Mesh containing the generated nodes.
+        Mesh nodes, with longitudes in ``[-180, 180)``.
+
+    Raises
+    ------
+    ValueError
+        If ``spacing_km`` is not positive.
     """
-    if spacing_km <= 0.0:
-        raise ValueError("spacing_km must be positive.")
+    _require_positive(spacing_km, "spacing_km")
 
-    a_target = spacing_km * spacing_km * 1e6
-    a_sphere = 4.0 * np.pi * (radius_m ** 2)
-    n_pts = max(1, int(round(a_sphere / a_target)))
+    area_node = (spacing_km * 1e3) ** 2
+    area_sphere = 4.0 * math.pi * radius_m ** 2
+    n_points = max(1, int(round(area_sphere / area_node)))
 
-    golden_angle = np.pi * (3.0 - np.sqrt(5.0))
+    index = np.arange(n_points, dtype=float)
+    lat = np.arcsin(1.0 - 2.0 * (index + 0.5) / n_points) * RAD2DEG
+    lon = normalize_longitude(GOLDEN_ANGLE * index * RAD2DEG)
 
-    pts: List[WgsPoint] = []
-    for i in range(n_pts):
-        z = 1.0 - 2.0 * (i + 0.5) / n_pts
-        lat = np.arcsin(z)
-        lon = golden_angle * i
-
-        lon_deg = float((lon * RAD2DEG + 180.0) % 360.0 - 180.0)
-        lat_deg = float(lat * RAD2DEG)
-
-        pts.append(WgsPoint(lon_deg, lat_deg))
-
-    return WgsMesh(points=pts)
-
-
-# ============================================================================
-# Local Fibonacci cap mesh (Equal-area on a spherical cap)
-# ============================================================================
+    return WgsMesh.from_arrays(np.atleast_1d(lon), lat)
 
 
 def mesh_fibonacci_spherical_cap(
@@ -116,82 +134,60 @@ def mesh_fibonacci_spherical_cap(
     radius_m: float = MEAN_EARTH_RADIUS_M,
 ) -> WgsMesh:
     """
-    Generate a quasi-equal-area Fibonacci mesh on a spherical cap.
-
-    The cap is centered at (center_lon_deg, center_lat_deg), with a
-    radius max_distance_km (great-circle distance). Points are
-    distributed using a Fibonacci spiral restricted to the cap,
-    without generating the whole sphere.
+    Generate a quasi equal-area Fibonacci mesh on a spherical cap.
 
     Parameters
     ----------
-    center_lon_deg : float
-        Longitude of cap center in degrees.
-    center_lat_deg : float
-        Latitude of cap center in degrees.
-    max_distance_km : float
-        Cap radius in kilometers.
-    spacing_km : float
-        Desired linear spacing in kilometers.
-    radius_m : float, optional
+    center_lon_deg, center_lat_deg
+        Cap center in degrees.
+    max_distance_km
+        Cap radius (great-circle distance) in kilometers.
+    spacing_km
+        Target spacing in kilometers.
+    radius_m
         Sphere radius in meters.
 
     Returns
     -------
     WgsMesh
-        Mesh containing the generated nodes.
+        Mesh nodes. Longitudes are ``center_lon_deg`` plus an offset in
+        ``[-180, 180]``, i.e. in the convention of the center.
+
+    Raises
+    ------
+    ValueError
+        If ``spacing_km`` or ``max_distance_km`` is not positive.
     """
-    if spacing_km <= 0.0:
-        raise ValueError("spacing_km must be positive.")
-    if max_distance_km <= 0.0:
-        raise ValueError("max_distance_km must be positive.")
+    _require_positive(spacing_km, "spacing_km")
+    _require_positive(max_distance_km, "max_distance_km")
 
-    alpha = max_distance_km * 1000.0 / radius_m
+    alpha = min(max_distance_km * 1e3 / radius_m, math.pi)
 
-    a_cap = 2.0 * np.pi * (radius_m ** 2) * (1.0 - np.cos(alpha))
-    a_node = spacing_km * spacing_km * 1e6
-    n_pts = max(1, int(round(a_cap / a_node)))
+    area_cap = 2.0 * math.pi * radius_m ** 2 * (1.0 - math.cos(alpha))
+    area_node = (spacing_km * 1e3) ** 2
+    n_points = max(1, int(round(area_cap / area_node)))
 
     lat0 = center_lat_deg * DEG2RAD
-    lon0 = center_lon_deg * DEG2RAD
-    sin_lat0 = np.sin(lat0)
-    cos_lat0 = np.cos(lat0)
+    sin_lat0 = math.sin(lat0)
+    cos_lat0 = math.cos(lat0)
 
-    golden_angle = np.pi * (3.0 - np.sqrt(5.0))
-    z_min = np.cos(alpha)
+    index = np.arange(n_points, dtype=float)
+    z = 1.0 - (index + 0.5) / n_points * (1.0 - math.cos(alpha))
+    theta = np.arccos(z)
+    phi = GOLDEN_ANGLE * index
 
-    pts: List[WgsPoint] = []
+    sin_lat = sin_lat0 * np.cos(theta) + cos_lat0 * np.sin(theta) * np.cos(phi)
+    lat = np.arcsin(np.clip(sin_lat, -1.0, 1.0))
 
-    for i in range(n_pts):
-        u = (i + 0.5) / n_pts
-        z = 1.0 - u * (1.0 - z_min)
-        theta = np.arccos(z)
-        phi = golden_angle * i
+    dlon = np.arctan2(
+        np.sin(phi) * np.sin(theta) * cos_lat0,
+        np.cos(theta) - sin_lat0 * sin_lat,
+    )
 
-        sin_theta = np.sin(theta)
-        cos_theta = np.cos(theta)
-        sin_phi = np.sin(phi)
-        cos_phi = np.cos(phi)
-
-        sin_lat = (
-            sin_lat0 * cos_theta +
-            cos_lat0 * sin_theta * cos_phi
-        )
-        lat = np.arcsin(sin_lat)
-
-        y = sin_phi * sin_theta * cos_lat0
-        x = cos_theta - sin_lat0 * sin_lat
-        lon = lon0 + np.arctan2(y, x)
-
-        pts.append(WgsPoint(float(lon * RAD2DEG),
-                            float(lat * RAD2DEG)))
-
-    return WgsMesh(points=pts)
-
-
-# ============================================================================
-# Fibonacci cap mesh with bounding-box clipping
-# ============================================================================
+    return WgsMesh.from_arrays(
+        center_lon_deg + dlon * RAD2DEG,
+        lat * RAD2DEG,
+    )
 
 
 def mesh_fibonacci_bbox(
@@ -200,62 +196,65 @@ def mesh_fibonacci_bbox(
     lat_min: float,
     lat_max: float,
     spacing_km: float,
-    center_lon_deg: float | None = None,
-    center_lat_deg: float | None = None,
-    max_distance_km: float | None = None,
+    center_lon_deg: Optional[float] = None,
+    center_lat_deg: Optional[float] = None,
+    max_distance_km: Optional[float] = None,
     radius_m: float = MEAN_EARTH_RADIUS_M,
 ) -> WgsMesh:
     """
-    Generate a Fibonacci cap mesh and clip nodes to a bounding box.
-
-    The center and cap radius can be automatically inferred if not
-    provided.
+    Generate a Fibonacci cap mesh clipped to a bounding box.
 
     Parameters
     ----------
-    lon_min, lon_max : float
-        Longitude bounds in degrees.
-    lat_min, lat_max : float
-        Latitude bounds in degrees.
-    spacing_km : float
+    lon_min, lon_max
+        Longitude range in degrees (see the module conventions for
+        ranges crossing the antimeridian).
+    lat_min, lat_max
+        Latitude range in degrees.
+    spacing_km
         Target spacing in kilometers.
-    center_lon_deg, center_lat_deg : float, optional
-        Center of the cap. If None, the box center is used.
-    max_distance_km : float, optional
-        Cap radius. If None, it is computed as the greatest
-        distance from the center to the four corners of the box.
-    radius_m : float, optional
+    center_lon_deg, center_lat_deg
+        Cap center; the box center if omitted.
+    max_distance_km
+        Cap radius; if omitted, the largest distance from the center to
+        the box corners and edge midpoints.
+    radius_m
         Sphere radius in meters.
 
     Returns
     -------
     WgsMesh
-        Mesh containing the clipped nodes.
+        Nodes inside the box, with longitudes in the convention of
+        ``lon_min``.
+
+    Raises
+    ------
+    ValueError
+        If ``spacing_km`` is not positive or the latitude range is
+        invalid.
     """
-    if spacing_km <= 0.0:
-        raise ValueError("spacing_km must be positive.")
+    _require_positive(spacing_km, "spacing_km")
+    _validate_lat_range(lat_min, lat_max)
+
+    span = _lon_span(lon_min, lon_max)
 
     if center_lon_deg is None:
-        center_lon_deg = lon_min + 0.5 * (lon_max - lon_min)
+        center_lon_deg = lon_min + 0.5 * span
 
     if center_lat_deg is None:
-        center_lat_deg = lat_min + 0.5 * (lat_max - lat_min)
+        center_lat_deg = 0.5 * (lat_min + lat_max)
 
     if max_distance_km is None:
-        corners = [
-            (lon_min, lat_min),
-            (lon_min, lat_max),
-            (lon_max, lat_min),
-            (lon_max, lat_max),
-        ]
-        dist_max = 0.0
-        for lon_c, lat_c in corners:
-            d = _gc_km(center_lon_deg, center_lat_deg, lon_c, lat_c)
-            if d > dist_max:
-                dist_max = d
-        max_distance_km = dist_max
+        lons = [lon_min, lon_min + 0.5 * span, lon_min + span]
+        lats = [lat_min, center_lat_deg, lat_max]
+        max_distance_km = max(
+            great_circle_distance(center_lon_deg, center_lat_deg, x, y,
+                                  radius_m=radius_m)
+            for x in lons for y in lats
+        ) / 1e3
+        max_distance_km = max(max_distance_km, spacing_km)
 
-    raw_mesh = mesh_fibonacci_spherical_cap(
+    cap = mesh_fibonacci_spherical_cap(
         center_lon_deg=center_lon_deg,
         center_lat_deg=center_lat_deg,
         max_distance_km=max_distance_km,
@@ -263,45 +262,16 @@ def mesh_fibonacci_bbox(
         radius_m=radius_m,
     )
 
-    pts = []
-    for p in raw_mesh:
-        if lon_min <= p.longitude <= lon_max:
-            if lat_min <= p.latitude <= lat_max:
-                pts.append(p)
+    lon, lat, _ = cap.to_arrays()
+    offset = _lon_offset(lon, lon_min)
+    keep = (offset <= span) & (lat >= lat_min) & (lat <= lat_max)
 
-    return WgsMesh(points=pts)
+    return WgsMesh.from_arrays(lon_min + offset[keep], lat[keep])
 
 
-def _gc_km(
-    lon1: float,
-    lat1: float,
-    lon2: float,
-    lat2: float,
-) -> float:
-    """
-    Internal helper: great-circle distance in kilometers.
-    """
-    lon1r = lon1 * DEG2RAD
-    lat1r = lat1 * DEG2RAD
-    lon2r = lon2 * DEG2RAD
-    lat2r = lat2 * DEG2RAD
-
-    dlon = lon2r - lon1r
-    dlat = lat2r - lat1r
-
-    a = (
-        np.sin(dlat * 0.5) ** 2
-        + np.cos(lat1r) * np.cos(lat2r) *
-        np.sin(dlon * 0.5) ** 2
-    )
-    c = 2.0 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
-    return float((MEAN_EARTH_RADIUS_M * c) / 1000.0)
-
-
-# ============================================================================
-# Regular Cartesian mesh (lat/lon grid)
-# ============================================================================
-
+# ---------------------------------------------------------------------------
+# Regular grids
+# ---------------------------------------------------------------------------
 
 def mesh_cartesian(
     lon_min: float,
@@ -312,42 +282,46 @@ def mesh_cartesian(
     lat_step_deg: float,
 ) -> WgsMesh:
     """
-    Generate a regular mesh in geographic coordinates.
+    Generate a regular longitude-latitude grid.
 
-    This is a simple lat/lon grid. It does not preserve area and is
-    intended mainly for quick sampling in debugging or plotting.
+    The grid does not preserve area and is meant for quick sampling,
+    debugging or plotting. Nodes start at ``(lon_min, lat_min)`` and
+    include the upper bounds when they fall on the grid.
 
     Parameters
     ----------
-    lon_min, lon_max : float
-        Longitude bounds in degrees.
-    lat_min, lat_max : float
-        Latitude bounds in degrees.
-    lon_step_deg, lat_step_deg : float
-        Step sizes in degrees.
+    lon_min, lon_max
+        Longitude range in degrees (see the module conventions).
+    lat_min, lat_max
+        Latitude range in degrees.
+    lon_step_deg, lat_step_deg
+        Grid steps in degrees.
 
     Returns
     -------
     WgsMesh
-        Regular mesh of points.
+        Grid nodes, row by row from south to north.
+
+    Raises
+    ------
+    ValueError
+        If a step is not positive or the latitude range is invalid.
     """
     if lon_step_deg <= 0.0 or lat_step_deg <= 0.0:
         raise ValueError("Step sizes must be positive.")
 
-    lons = np.arange(lon_min, lon_max + 1e-12, lon_step_deg)
-    lats = np.arange(lat_min, lat_max + 1e-12, lat_step_deg)
+    _validate_lat_range(lat_min, lat_max)
 
-    pts = []
-    for lat in lats:
-        for lon in lons:
-            pts.append(WgsPoint(float(lon), float(lat)))
+    lons = lon_min + lon_step_deg * np.arange(
+        _grid_count(_lon_span(lon_min, lon_max), lon_step_deg)
+    )
+    lats = lat_min + lat_step_deg * np.arange(
+        _grid_count(lat_max - lat_min, lat_step_deg)
+    )
 
-    return WgsMesh(points=pts)
+    grid_lon, grid_lat = np.meshgrid(lons, lats)
 
-
-# ============================================================================
-# Equal-area sinusoidal mesh (centered at 0°, 0°)
-# ============================================================================
+    return WgsMesh.from_arrays(grid_lon.ravel(), grid_lat.ravel())
 
 
 def mesh_sinusoidal(
@@ -359,122 +333,151 @@ def mesh_sinusoidal(
     radius_m: float = MEAN_EARTH_RADIUS_M,
 ) -> WgsMesh:
     """
-    Generate an approximately equal-area mesh using the sinusoidal
-    projection, with the grid centered at (0°, 0°).
+    Generate an equal-area grid in the sinusoidal projection.
 
-    The algorithm builds a regular grid in the sinusoidal (x, y)
-    plane with constant spacing in meters, symmetric around the
-    projection origin (lon=0°, lat=0°). The geographic bounds, if
-    provided, are used only to *clip* the resulting nodes.
-
-    If geographic bounds are not provided, the clipping window
-    defaults to the whole globe (lon in [-180, 180], lat in
-    [-90, 90]).
+    The grid has constant spacing in the sinusoidal (x, y) plane and is
+    aligned on a global grid centered at (0°, 0°), so that meshes over
+    different windows share their nodes. Only the nodes inside the
+    requested window are computed.
 
     Parameters
     ----------
-    spacing_km : float
-        Target linear spacing between nodes in kilometers. The
-        approximate cell area is (spacing_km**2) km².
-    lon_min, lon_max : float, optional
-        Longitude bounds in degrees for clipping. If None, default
-        to -180 and 180 degrees, respectively.
-    lat_min, lat_max : float, optional
-        Latitude bounds in degrees for clipping. If None, default
-        to -90 and 90 degrees, respectively.
-    radius_m : float, optional
-        Sphere radius in meters used in the sinusoidal projection.
-        Default is :data:`MEAN_EARTH_RADIUS_M`.
+    spacing_km
+        Grid spacing in kilometers; the area per node is about
+        ``spacing_km ** 2``.
+    lon_min, lon_max
+        Longitude range in degrees; the whole globe if omitted (see the
+        module conventions).
+    lat_min, lat_max
+        Latitude range in degrees; ``[-90, 90]`` if omitted.
+    radius_m
+        Sphere radius in meters.
 
     Returns
     -------
     WgsMesh
-        Mesh containing the generated nodes.
+        Grid nodes, row by row from south to north, with longitudes in
+        the convention of ``lon_min``.
 
     Raises
     ------
     ValueError
-        If spacing_km is not positive or if the geographic bounds
-        are invalid.
+        If ``spacing_km`` is not positive or the latitude range is
+        invalid.
     """
-    if spacing_km <= 0.0:
-        raise ValueError("spacing_km must be positive.")
+    _require_positive(spacing_km, "spacing_km")
 
-    if lon_min is None:
-        lon_min = -180.0
-    if lon_max is None:
-        lon_max = 180.0
-    if lat_min is None:
-        lat_min = -90.0
-    if lat_max is None:
-        lat_max = 90.0
+    lon_min = -180.0 if lon_min is None else lon_min
+    lon_max = 180.0 if lon_max is None else lon_max
+    lat_min = -90.0 if lat_min is None else lat_min
+    lat_max = 90.0 if lat_max is None else lat_max
 
-    if lon_max <= lon_min:
-        raise ValueError("lon_max must be greater than lon_min.")
-    if lat_max <= lat_min:
-        raise ValueError("lat_max must be greater than lat_min.")
+    _validate_lat_range(lat_min, lat_max)
 
-    dx = spacing_km * 1000.0
-    dy = spacing_km * 1000.0
+    step = spacing_km * 1e3
+    span = _lon_span(lon_min, lon_max)
+    windows = _lon_windows(lon_min, span)
 
-    # Determine symmetric latitude extent (in degrees) around 0.
-    max_lat_abs_deg = max(abs(lat_min), abs(lat_max))
-    if max_lat_abs_deg <= 0.0:
-        max_lat_abs_deg = spacing_km / 111.0
+    row_first = math.ceil(radius_m * lat_min * DEG2RAD / step
+                          - _INDEX_TOLERANCE)
+    row_last = math.floor(radius_m * lat_max * DEG2RAD / step
+                          + _INDEX_TOLERANCE)
 
-    lat_max_rad = max_lat_abs_deg * DEG2RAD
-    y_max = radius_m * lat_max_rad
+    lons: List[np.ndarray] = []
+    lats: List[np.ndarray] = []
 
-    # Symmetric y grid: from -y_max to +y_max.
-    n_y = max(1, int(np.floor(y_max / dy)))
-    ys = dy * np.arange(-n_y, n_y + 1, dtype=float)
+    for row in range(row_first, row_last + 1):
+        lat_rad = row * step / radius_m
+        scale = radius_m * max(math.cos(lat_rad), 1e-12)
 
-    # Determine symmetric longitude extent (in degrees) around 0.
-    max_lon_abs_deg = max(abs(lon_min), abs(lon_max))
-    if max_lon_abs_deg <= 0.0:
-        max_lon_abs_deg = spacing_km / 111.0
+        for start, end in windows:
+            col_first = math.ceil(scale * start * DEG2RAD / step
+                                  - _INDEX_TOLERANCE)
+            col_last = math.floor(scale * end * DEG2RAD / step
+                                  + _INDEX_TOLERANCE)
 
-    lon_max_rad_abs = max_lon_abs_deg * DEG2RAD
+            if col_last < col_first:
+                continue
 
-    pts: List[WgsPoint] = []
+            cols = np.arange(col_first, col_last + 1, dtype=float)
+            lon = cols * step / scale * RAD2DEG
+            lons.append(lon_min + _lon_offset(lon, lon_min))
+            lats.append(np.full(cols.size, lat_rad * RAD2DEG))
 
-    for y in ys:
-        lat_rad = y / radius_m
+    if not lons:
+        return WgsMesh()
 
-        # Avoid numerical issues extremely close to the poles.
-        cos_lat = np.cos(lat_rad)
-        if cos_lat <= 0.0:
-            cos_lat = max(cos_lat, 1e-12)
+    return WgsMesh.from_arrays(np.concatenate(lons), np.concatenate(lats))
 
-        x_max = radius_m * lon_max_rad_abs * cos_lat
-        if x_max <= 0.0:
-            continue
 
-        # Symmetric x grid: from -x_max to +x_max.
-        n_x = max(1, int(np.floor(x_max / dx)))
-        xs = dx * np.arange(-n_x, n_x + 1, dtype=float)
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
 
-        # Ensure we stay within [-x_max, x_max].
-        xs = np.clip(xs, -x_max, x_max)
+def _require_positive(value: float, name: str) -> None:
+    """
+    Raise ValueError if ``value`` is not strictly positive.
+    """
+    if not value > 0.0:
+        raise ValueError(f"{name} must be positive.")
 
-        ys_row = np.full_like(xs, y, dtype=float)
 
-        lon_arr, lat_arr = sinusoidal_to_wgs84(
-            xs,
-            ys_row,
-            radius_m=radius_m,
+def _validate_lat_range(lat_min: float, lat_max: float) -> None:
+    """
+    Check that ``-90 <= lat_min <= lat_max <= 90``.
+    """
+    if not -90.0 <= lat_min <= lat_max <= 90.0:
+        raise ValueError(
+            "Latitude bounds must satisfy -90 <= lat_min <= lat_max <= 90."
         )
 
-        for lon_deg, lat_deg in zip(lon_arr, lat_arr):
-            if lon_deg < lon_min - 1e-8 or lon_deg > lon_max + 1e-8:
-                continue
-            if lat_deg < lat_min - 1e-8 or lat_deg > lat_max + 1e-8:
-                continue
-            pts.append(
-                WgsPoint(
-                    longitude=float(lon_deg),
-                    latitude=float(lat_deg),
-                )
-            )
 
-    return WgsMesh(points=pts)
+def _lon_span(lon_min: float, lon_max: float) -> float:
+    """
+    Return the eastward extent from ``lon_min`` to ``lon_max``.
+
+    A range of 360 degrees or more is the whole globe; ``lon_max <
+    lon_min`` means a range crossing the antimeridian.
+    """
+    if lon_max - lon_min >= 360.0:
+        return 360.0
+
+    return (lon_max - lon_min) % 360.0
+
+
+def _lon_offset(lon: np.ndarray, lon_min: float) -> np.ndarray:
+    """
+    Return the eastward offset of ``lon`` from ``lon_min`` in [0, 360).
+
+    Offsets within a tiny tolerance of 360 are mapped to 0, so that
+    nodes on ``lon_min`` are not lost to rounding.
+    """
+    offset = (np.asarray(lon, dtype=float) - lon_min) % 360.0
+
+    return np.where(offset > 360.0 - 1e-9, 0.0, offset)
+
+
+def _lon_windows(lon_min: float, span: float) -> List[Tuple[float, float]]:
+    """
+    Split ``[lon_min, lon_min + span]`` into intervals within [-180, 180].
+
+    The whole globe is a single interval, so that no meridian is
+    generated twice.
+    """
+    if span >= 360.0:
+        return [(-180.0, 180.0)]
+
+    start = normalize_longitude(lon_min)
+    end = start + span
+
+    if end <= 180.0:
+        return [(start, end)]
+
+    return [(start, 180.0), (-180.0, end - 360.0)]
+
+
+def _grid_count(extent: float, step: float) -> int:
+    """
+    Return the number of grid nodes from 0 to ``extent`` with ``step``.
+    """
+    return int(math.floor(extent / step + _INDEX_TOLERANCE)) + 1

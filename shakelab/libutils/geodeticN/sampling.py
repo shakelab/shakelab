@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 # ****************************************************************************
-#
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -9,256 +7,296 @@
 # published by the Free Software Foundation, either version 3 of the
 # License, or (at your option) any later version.
 #
-# ShakeLab is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
+# ShakeLab is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
-Spatial sampling utilities for ShakeLab.
+Random sampling of points inside polygons.
 
-This module provides functions to draw random samples from geometric
-objects. The focus is on uniform sampling within polygons, either in
-planar coordinates or in geographic (WGS84) coordinates.
+The module draws points uniformly distributed inside polygons, either in
+planar coordinates (:func:`sample_uniform_in_polygon_xy`) or in
+geographic coordinates (:func:`sample_uniform_in_polygon_wgs84`).
+
+Design choices
+--------------
+- Planar sampling triangulates the polygon vertices (Delaunay), draws
+  candidate points uniformly in the triangles and keeps those inside the
+  polygon (rejection sampling), so concave polygons are supported.
+  Candidates are drawn and tested in vectorized batches.
+- Geographic sampling works in the equal-area sinusoidal projection
+  centered on the mean longitude of each part (as
+  :meth:`WgsPolygon.contains_points`), so that uniformity in the plane
+  is uniformity in area; parts receive samples in proportion to their
+  area.
+- The random source is the ``rng`` argument: a
+  :class:`numpy.random.Generator`, an integer seed, or ``None`` to use
+  the global NumPy random state (so that ``numpy.random.seed`` keeps
+  results reproducible).
 
 Conventions
-----------
-* Geographic coordinates are expressed as (longitude, latitude) in
-  decimal degrees.
-* Distances are expressed in meters.
+-----------
+- Geographic coordinates are ``(lon, lat)`` in degrees; sampled
+  longitudes are in the convention of the first vertex of their part.
+- Planar coordinates and distances are in meters.
 """
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from numbers import Integral
+from typing import Any, List, Optional, Union
 
 import numpy as np
 from scipy.spatial import Delaunay
 
-from shakelab.libutils.geodeticN.utilities import (
-    wgs84_to_sinusoidal,
-    sinusoidal_to_wgs84,
-)
 from shakelab.libutils.geodeticN.primitives import (
-    WgsPoint,
-    WgsPolygon,
     WgsMesh,
-    _ray_casting_contains,
+    WgsPolygon,
+    _open_ring,
+    _points_in_ring,
+    _reference_longitude,
+    _signed_area,
+)
+from shakelab.libutils.geodeticN.utilities import (
+    sinusoidal_to_wgs84,
+    wgs84_to_sinusoidal,
 )
 
 
-# ============================================================================
-# Low-level helpers
-# ============================================================================
+__all__ = [
+    "sample_uniform_in_polygon_xy",
+    "sample_uniform_in_polygon_wgs84",
+]
 
 
-def _sample_point_in_triangle(
-    v1: np.ndarray,
-    v2: np.ndarray,
-    v3: np.ndarray,
-) -> np.ndarray:
-    """
-    Uniformly sample a point inside a triangle.
-
-    Parameters
-    ----------
-    v1, v2, v3 : numpy.ndarray
-        Vertices of the triangle as 1D arrays of shape (2,).
-
-    Returns
-    -------
-    numpy.ndarray
-        Sampled point of shape (2,).
-    """
-    r1 = np.sqrt(np.random.random())
-    r2 = np.random.random()
-    return (1.0 - r1) * v1 + (r1 * (1.0 - r2)) * v2 + (r1 * r2) * v3
+RandomSource = Optional[Union[np.random.Generator, int]]
 
 
-def _triangle_areas(triangles: np.ndarray) -> np.ndarray:
-    """
-    Compute areas of triangles in the plane.
-
-    Parameters
-    ----------
-    triangles : numpy.ndarray
-        Array of shape (n_tri, 3, 2) containing triangle vertices.
-
-    Returns
-    -------
-    numpy.ndarray
-        Areas of shape (n_tri,). Values are always non-negative.
-    """
-    v1 = triangles[:, 0, :]
-    v2 = triangles[:, 1, :]
-    v3 = triangles[:, 2, :]
-    edge1 = v2 - v1
-    edge2 = v3 - v1
-
-    # Explicit 2D cross product: np.cross no longer accepts 2D vectors
-    # in NumPy 2.
-    cross = edge1[:, 0] * edge2[:, 1] - edge1[:, 1] * edge2[:, 0]
-    area = 0.5 * np.abs(cross)
-    return area
-
-
-# ============================================================================
-# Sampling in planar polygons
-# ============================================================================
-
+# ---------------------------------------------------------------------------
+# Planar polygons
+# ---------------------------------------------------------------------------
 
 def sample_uniform_in_polygon_xy(
     vertices_xy: np.ndarray,
     n_samples: int,
+    rng: RandomSource = None,
 ) -> np.ndarray:
     """
-    Uniformly sample points inside a planar polygon.
-
-    The polygon is defined by its vertices in 2D Cartesian coordinates.
-    The algorithm uses a Delaunay triangulation of the vertices as a
-    proposal distribution and rejection sampling to ensure that all
-    points lie inside the polygon.
+    Draw points uniformly inside a planar polygon.
 
     Parameters
     ----------
-    vertices_xy : numpy.ndarray
-        Polygon vertices of shape (n_vertices, 2). The polygon is
-        assumed to be simple and non self-intersecting.
-    n_samples : int
-        Number of random points to generate.
+    vertices_xy
+        Polygon vertices, shape ``(n_vertices, 2)``. The polygon must be
+        simple (non self-intersecting); a closing vertex is allowed.
+    n_samples
+        Number of points to draw.
+    rng
+        Random source (see the module design choices).
 
     Returns
     -------
     numpy.ndarray
-        Sampled points of shape (n_samples, 2).
-    """
-    if n_samples <= 0:
-        raise ValueError("n_samples must be positive.")
+        Sampled points, shape ``(n_samples, 2)``.
 
-    vertices_xy = np.asarray(vertices_xy, dtype=float)
-    if vertices_xy.ndim != 2 or vertices_xy.shape[1] != 2:
+    Raises
+    ------
+    ValueError
+        If ``n_samples`` is not positive, the vertices have a wrong
+        shape, there are fewer than three distinct vertices, or the
+        triangulation is degenerate.
+    """
+    _require_positive_count(n_samples)
+    generator = _random_source(rng)
+
+    vertices = np.asarray(vertices_xy, dtype=float)
+
+    if vertices.ndim != 2 or vertices.shape[1] != 2:
         raise ValueError("vertices_xy must have shape (n, 2).")
 
-    if vertices_xy.shape[0] < 3:
+    if len(vertices) > 1 and np.array_equal(vertices[0], vertices[-1]):
+        vertices = vertices[:-1]
+
+    if vertices.shape[0] < 3:
         raise ValueError("Polygon must have at least three vertices.")
 
-    delaunay = Delaunay(vertices_xy)
-    triangles = vertices_xy[delaunay.simplices]
+    triangles = vertices[Delaunay(vertices).simplices]
     areas = _triangle_areas(triangles)
 
     if not np.all(areas > 0.0):
         raise ValueError("Degenerate triangles found in triangulation.")
 
-    cum_areas = np.cumsum(areas)
-    total_area = cum_areas[-1]
+    cumulative = np.cumsum(areas)
+    batch = max(64, 2 * n_samples)
+    accepted: List[np.ndarray] = []
+    count = 0
 
-    samples: List[np.ndarray] = []
+    while count < n_samples:
+        index = np.searchsorted(
+            cumulative,
+            generator.random(batch) * cumulative[-1],
+        )
+        index = np.minimum(index, len(triangles) - 1)
+        candidates = _sample_in_triangles(triangles[index], generator)
 
-    while len(samples) < n_samples:
-        rnd = np.random.random() * total_area
-        idx = int(np.searchsorted(cum_areas, rnd))
-        tri = triangles[idx]
+        inside = _points_in_ring(
+            vertices[:, 0],
+            vertices[:, 1],
+            candidates[:, 0],
+            candidates[:, 1],
+        )
+        accepted.append(candidates[inside])
+        count += int(inside.sum())
 
-        p = _sample_point_in_triangle(tri[0], tri[1], tri[2])
-
-        if _ray_casting_contains(
-            vertices_xy[:, 0],
-            vertices_xy[:, 1],
-            float(p[0]),
-            float(p[1]),
-        ):
-            samples.append(p)
-
-    return np.vstack(samples)
+    return np.vstack(accepted)[:n_samples]
 
 
-# ============================================================================
-# Sampling in WGS84 polygons
-# ============================================================================
-
+# ---------------------------------------------------------------------------
+# Geographic polygons
+# ---------------------------------------------------------------------------
 
 def sample_uniform_in_polygon_wgs84(
     polygon: WgsPolygon,
     n_samples: int,
+    rng: RandomSource = None,
 ) -> WgsMesh:
     """
-    Uniformly sample points inside a WGS84 polygon or multipolygon.
-
-    The polygon is projected to an equal-area sinusoidal projection.
-    Sampling is performed in the projected plane using
-    :func:`sample_uniform_in_polygon_xy`. Samples are then mapped
-    back to geographic coordinates.
+    Draw points uniformly (in area) inside a geographic polygon.
 
     Parameters
     ----------
-    polygon : WgsPolygon
-        Target polygon or multipolygon.
-    n_samples : int
-        Number of random points to generate.
+    polygon
+        Polygon or multipolygon.
+    n_samples
+        Number of points to draw.
+    rng
+        Random source (see the module design choices).
 
     Returns
     -------
     WgsMesh
-        Mesh containing the sampled WgsPoint nodes.
+        Sampled points. An empty polygon gives an empty mesh.
+
+    Raises
+    ------
+    ValueError
+        If ``n_samples`` is not positive.
     """
-    if n_samples <= 0:
-        raise ValueError("n_samples must be positive.")
+    _require_positive_count(n_samples)
+    generator = _random_source(rng)
 
-    if polygon.is_empty():
-        return WgsMesh(points=[])
-
-    # Project each part to sinusoidal and compute area.
-    part_xy: List[Tuple[np.ndarray, np.ndarray]] = []
-    part_area: List[float] = []
+    parts = []
+    areas = []
 
     for part in polygon.parts:
-        if len(part) < 3:
+        ring = _open_ring(part)
+
+        if len(ring) < 3:
             continue
 
-        lon = np.array([p.longitude for p in part])
-        lat = np.array([p.latitude for p in part])
-        x, y = wgs84_to_sinusoidal(lon, lat)
+        lon0 = _reference_longitude(ring)
+        x, y = wgs84_to_sinusoidal(
+            [p.longitude for p in ring],
+            [p.latitude for p in ring],
+            lon0_deg=lon0,
+        )
+        parts.append((np.column_stack((x, y)), lon0))
+        areas.append(abs(_signed_area(x, y)))
 
-        part_xy.append((x, y))
+    total = float(np.sum(areas)) if areas else 0.0
 
-        x_shift = np.roll(x, -1)
-        y_shift = np.roll(y, -1)
-        area = 0.5 * np.sum(x * y_shift - x_shift * y)
-        part_area.append(abs(float(area)))
+    if total <= 0.0:
+        return WgsMesh()
 
-    if not part_area:
-        return WgsMesh(points=[])
+    counts = generator.multinomial(n_samples, np.array(areas) / total)
 
-    area_arr = np.array(part_area)
-    area_sum = float(area_arr.sum())
-    if area_sum <= 0.0:
-        return WgsMesh(points=[])
+    lons: List[np.ndarray] = []
+    lats: List[np.ndarray] = []
 
-    # Allocate samples to each part using a multinomial draw.
-    probs = area_arr / area_sum
-    counts = np.random.multinomial(n_samples, probs)
-
-    sampled_lon: List[float] = []
-    sampled_lat: List[float] = []
-
-    for (x, y), count in zip(part_xy, counts):
+    for (vertices, lon0), count in zip(parts, counts):
         if count <= 0:
             continue
 
-        verts = np.column_stack((x, y))
-        pts_xy = sample_uniform_in_polygon_xy(verts, count)
-
-        lon_deg, lat_deg = sinusoidal_to_wgs84(
-            pts_xy[:, 0],
-            pts_xy[:, 1],
+        points = sample_uniform_in_polygon_xy(
+            vertices, int(count), rng=generator,
         )
+        lon, lat = sinusoidal_to_wgs84(
+            points[:, 0], points[:, 1], lon0_deg=lon0,
+        )
+        lons.append(lon)
+        lats.append(lat)
 
-        sampled_lon.extend(float(v) for v in lon_deg)
-        sampled_lat.extend(float(v) for v in lat_deg)
+    return WgsMesh.from_arrays(np.concatenate(lons), np.concatenate(lats))
 
-    coords = list(zip(sampled_lon, sampled_lat))
-    return WgsMesh.from_lonlat(coords)
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _random_source(rng: RandomSource) -> Any:
+    """
+    Return an object with ``random`` and ``multinomial`` methods.
+
+    ``None`` returns the global :mod:`numpy.random` state, an integer is
+    used as seed of a new :class:`numpy.random.Generator`.
+    """
+    if rng is None:
+        return np.random
+
+    if isinstance(rng, np.random.Generator):
+        return rng
+
+    if isinstance(rng, Integral) and not isinstance(rng, bool):
+        return np.random.default_rng(int(rng))
+
+    if rng is np.random:
+        return rng
+
+    raise TypeError("rng must be a numpy Generator, an integer or None.")
+
+
+def _require_positive_count(n_samples: int) -> None:
+    """
+    Raise ValueError if ``n_samples`` is not a positive integer.
+    """
+    if isinstance(n_samples, bool) or not isinstance(n_samples, Integral):
+        raise TypeError("n_samples must be an integer.")
+
+    if n_samples <= 0:
+        raise ValueError("n_samples must be positive.")
+
+
+def _sample_in_triangles(
+    triangles: np.ndarray,
+    generator: Any,
+) -> np.ndarray:
+    """
+    Draw one uniform point in each triangle of shape (n, 3, 2).
+    """
+    n = len(triangles)
+    r1 = np.sqrt(generator.random(n))[:, None]
+    r2 = generator.random(n)[:, None]
+
+    return (
+        (1.0 - r1) * triangles[:, 0]
+        + r1 * (1.0 - r2) * triangles[:, 1]
+        + r1 * r2 * triangles[:, 2]
+    )
+
+
+def _triangle_areas(triangles: np.ndarray) -> np.ndarray:
+    """
+    Return the areas of planar triangles of shape (n, 3, 2).
+    """
+    edge1 = triangles[:, 1] - triangles[:, 0]
+    edge2 = triangles[:, 2] - triangles[:, 0]
+
+    # Explicit 2D cross product: np.cross no longer accepts 2D vectors
+    # in NumPy 2.
+    cross = edge1[:, 0] * edge2[:, 1] - edge1[:, 1] * edge2[:, 0]
+
+    return 0.5 * np.abs(cross)

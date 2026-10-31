@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 # ****************************************************************************
-#
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -9,298 +7,382 @@
 # published by the Free Software Foundation, either version 3 of the
 # License, or (at your option) any later version.
 #
-# ShakeLab is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
+# ShakeLab is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
-Input/output utilities for geodetic objects in ShakeLab.
+Input and output of geodetic objects (GeoJSON and CSV).
 
-This module provides simple helpers to read and write GeoJSON files
-using the WgsPoint, WgsPolygon and WgsMesh classes defined in the
-:mod:`geodeticN.geometry` module.
+GeoJSON geometries are converted to and from :class:`WgsPoint`,
+:class:`WgsMesh` and :class:`WgsPolygon`; point meshes can also be read
+from and written to CSV files.
 
-The focus is on geometry only: CRS handling, styling and extra fields
-are intentionally ignored or kept minimal. All coordinates are
-interpreted as (longitude, latitude) in decimal degrees.
+Design choices
+--------------
+- Only the geometry is handled: CRS, styling and feature properties are
+  intentionally ignored, so that the geometry classes stay independent
+  of any specific data model.
+- Polygon holes are ignored: only exterior rings are read.
+- Elevations are read from the third coordinate when present and are
+  written only for geometries with some non-zero elevation.
+
+Conventions
+-----------
+- Coordinates are ``(lon, lat[, elevation])``, longitude and latitude
+  in degrees and elevation in meters.
+- CSV files have a header; columns are identified by name
+  (``longitude``/``lon``, ``latitude``/``lat`` and optionally
+  ``elevation``/``elev``), case-insensitively and in any order.
 """
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
-from typing import Iterable, List, Sequence, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
 
 from shakelab.libutils.geodeticN.primitives import (
+    PolygonKind,
+    WgsMesh,
     WgsPoint,
     WgsPolygon,
-    WgsMesh,
-    PolygonKind,
 )
 
 
+__all__ = [
+    "read_geojson",
+    "write_geojson",
+    "read_csv",
+    "write_csv",
+]
+
+
 GeoObject = Union[WgsPoint, WgsPolygon, WgsMesh]
+PathLike = Union[str, Path]
+
+_LONGITUDE_NAMES = ("longitude", "lon")
+_LATITUDE_NAMES = ("latitude", "lat")
+_ELEVATION_NAMES = ("elevation", "elev")
 
 
-# ============================================================================
-# Reading GeoJSON
-# ============================================================================
+# ---------------------------------------------------------------------------
+# GeoJSON
+# ---------------------------------------------------------------------------
 
-
-def read_geojson(path: Union[str, Path]) -> List[GeoObject]:
+def read_geojson(path: PathLike) -> List[GeoObject]:
     """
     Read geometries from a GeoJSON file.
 
-    The file may contain a Geometry, a Feature or a
-    FeatureCollection. Geometries supported are Point, MultiPoint,
-    LineString, MultiLineString, Polygon and MultiPolygon. Unsupported
-    types are silently skipped.
+    The file may contain a Geometry, a Feature or a FeatureCollection.
+    Supported geometries are mapped as follows:
+
+    - Point → :class:`WgsPoint`;
+    - MultiPoint, LineString → :class:`WgsMesh`;
+    - MultiLineString → one :class:`WgsMesh` per line;
+    - Polygon → :class:`WgsPolygon` (exterior ring);
+    - MultiPolygon → :class:`WgsPolygon` of kind MULTIPOLYGON.
+
+    Other geometry types are skipped.
 
     Parameters
     ----------
-    path : str or pathlib.Path
-        Path to the GeoJSON file.
+    path
+        GeoJSON file path.
 
     Returns
     -------
-    list of GeoObject
-        List of WgsPoint, WgsMesh or WgsPolygon instances parsed from
-        the file.
+    list
+        Geometries in file order.
     """
-    path = Path(path)
-    with path.open("r", encoding="utf-8") as fobj:
+    with Path(path).open("r", encoding="utf-8") as fobj:
         data = json.load(fobj)
+
+    geometries: List[Dict[str, Any]] = []
+    gtype = data.get("type")
+
+    if gtype == "FeatureCollection":
+        for feature in data.get("features", []):
+            if feature.get("geometry") is not None:
+                geometries.append(feature["geometry"])
+    elif gtype == "Feature":
+        if data.get("geometry") is not None:
+            geometries.append(data["geometry"])
+    else:
+        geometries.append(data)
 
     result: List[GeoObject] = []
 
-    gtype = data.get("type")
-    if gtype == "FeatureCollection":
-        features = data.get("features", [])
-        for feat in features:
-            geom = feat.get("geometry")
-            if geom is None:
-                continue
-            result.extend(_parse_geometry(geom))
-    elif gtype == "Feature":
-        geom = data.get("geometry")
-        if geom is not None:
-            result.extend(_parse_geometry(geom))
-    else:
-        # Assume a raw Geometry object.
-        result.extend(_parse_geometry(data))
+    for geometry in geometries:
+        result.extend(_parse_geometry(geometry))
 
     return result
 
 
-def _parse_geometry(geom: dict) -> List[GeoObject]:
+def write_geojson(path: PathLike, geometries: Iterable[GeoObject]) -> None:
     """
-    Internal helper to parse a single GeoJSON geometry object.
+    Write geometries to a GeoJSON FeatureCollection.
+
+    Objects are converted as follows:
+
+    - :class:`WgsPoint` → Point;
+    - :class:`WgsMesh` → Point (one node) or MultiPoint;
+    - :class:`WgsPolygon` → Polygon, or MultiPolygon for kind
+      MULTIPOLYGON or several parts.
+
+    Empty objects are skipped; feature properties are empty.
 
     Parameters
     ----------
-    geom : dict
-        GeoJSON geometry dictionary.
+    path
+        Output file path.
+    geometries
+        Objects to write.
+    """
+    features = []
+
+    for obj in geometries:
+        geometry = _geometry_to_geojson(obj)
+
+        if geometry is not None:
+            features.append({
+                "type": "Feature",
+                "geometry": geometry,
+                "properties": {},
+            })
+
+    collection = {"type": "FeatureCollection", "features": features}
+
+    with Path(path).open("w", encoding="utf-8") as fobj:
+        json.dump(collection, fobj, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# CSV
+# ---------------------------------------------------------------------------
+
+def read_csv(path: PathLike, delimiter: str = ",") -> WgsMesh:
+    """
+    Read a point mesh from a CSV file with a header.
+
+    Parameters
+    ----------
+    path
+        CSV file path.
+    delimiter
+        Field delimiter.
 
     Returns
     -------
-    list of GeoObject
-        Parsed objects (0 or more). Multi-geometries may expand into
-        several objects.
+    WgsMesh
+        Points in file order. Missing elevations are zero.
+
+    Raises
+    ------
+    ValueError
+        If the longitude or latitude column is missing.
     """
-    gtype = geom.get("type")
-    coords = geom.get("coordinates")
+    with Path(path).open("r", encoding="utf-8", newline="") as fobj:
+        reader = csv.reader(fobj, delimiter=delimiter)
+        header = [name.strip().lower() for name in next(reader, [])]
+
+        lon_index = _column_index(header, _LONGITUDE_NAMES)
+        lat_index = _column_index(header, _LATITUDE_NAMES)
+        elev_index = _column_index(header, _ELEVATION_NAMES, required=False)
+
+        points = []
+
+        for row in reader:
+            if not row or all(not field.strip() for field in row):
+                continue
+
+            elevation = 0.0
+
+            if elev_index is not None and row[elev_index].strip():
+                elevation = float(row[elev_index])
+
+            points.append(WgsPoint(
+                longitude=float(row[lon_index]),
+                latitude=float(row[lat_index]),
+                elevation=elevation,
+            ))
+
+    return WgsMesh(points=points)
+
+
+def write_csv(
+    path: PathLike,
+    mesh: Union[WgsMesh, Sequence[WgsPoint]],
+    delimiter: str = ",",
+) -> None:
+    """
+    Write a point mesh to a CSV file.
+
+    The columns are ``longitude``, ``latitude`` and ``elevation``.
+
+    Parameters
+    ----------
+    path
+        Output file path.
+    mesh
+        Mesh or sequence of points.
+    delimiter
+        Field delimiter.
+    """
+    with Path(path).open("w", encoding="utf-8", newline="") as fobj:
+        writer = csv.writer(fobj, delimiter=delimiter)
+        writer.writerow(["longitude", "latitude", "elevation"])
+
+        for point in mesh:
+            writer.writerow([
+                repr(point.longitude),
+                repr(point.latitude),
+                repr(point.elevation),
+            ])
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _parse_geometry(geometry: Dict[str, Any]) -> List[GeoObject]:
+    """
+    Convert one GeoJSON geometry to geodetic objects.
+    """
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates")
 
     if gtype is None or coords is None:
         return []
 
-    out: List[GeoObject] = []
-
     if gtype == "Point":
-        lon, lat = coords
-        out.append(WgsPoint(longitude=float(lon), latitude=float(lat)))
+        return [_point(coords)]
 
-    elif gtype == "MultiPoint":
-        pts = [(float(c[0]), float(c[1])) for c in coords]
-        out.append(WgsMesh.from_lonlat(pts))
+    if gtype in ("MultiPoint", "LineString"):
+        return [WgsMesh(points=[_point(c) for c in coords])]
 
-    elif gtype == "LineString":
-        pts = [(float(c[0]), float(c[1])) for c in coords]
-        out.append(WgsMesh.from_lonlat(pts))
+    if gtype == "MultiLineString":
+        return [WgsMesh(points=[_point(c) for c in line]) for line in coords]
 
-    elif gtype == "MultiLineString":
-        # Each line string is returned as a separate mesh.
-        for line in coords:
-            pts = [(float(c[0]), float(c[1])) for c in line]
-            out.append(WgsMesh.from_lonlat(pts))
-
-    elif gtype == "Polygon":
-        # GeoJSON: list of linear rings. We only use the exterior ring
-        # for now and ignore possible holes.
+    if gtype == "Polygon":
         if not coords:
             return []
-        exterior = coords[0]
-        pts = [(float(c[0]), float(c[1])) for c in exterior]
-        out.append(WgsPolygon.from_lonlat(pts))
 
-    elif gtype == "MultiPolygon":
-        # Each polygon has its own list of rings. We consider only the
-        # exterior ring of each polygon and represent them as parts of
-        # a single WgsPolygon (kind=MULTIPOLYGON).
-        parts: List[Sequence[tuple[float, float]]] = []
-        for poly in coords:
-            if not poly:
-                continue
-            exterior = poly[0]
-            pts = [(float(c[0]), float(c[1])) for c in exterior]
-            parts.append(pts)
+        return [WgsPolygon(parts=[[_point(c) for c in coords[0]]])]
 
-        if parts:
-            out.append(WgsPolygon.from_parts(parts))
+    if gtype == "MultiPolygon":
+        parts = [
+            [_point(c) for c in polygon[0]]
+            for polygon in coords
+            if polygon
+        ]
 
-    # Other geometry types (e.g. GeometryCollection) are ignored.
-    return out
+        if not parts:
+            return []
+
+        return [WgsPolygon(parts=parts, kind=PolygonKind.MULTIPOLYGON)]
+
+    return []
 
 
-# ============================================================================
-# Writing GeoJSON
-# ============================================================================
-
-
-def write_geojson(
-    path: Union[str, Path],
-    geometries: Iterable[GeoObject],
-) -> None:
+def _point(coord: Sequence[float]) -> WgsPoint:
     """
-    Write a list of geodetic objects to a GeoJSON file.
-
-    The output is a FeatureCollection where each object is converted
-    to a corresponding geometry:
-
-    * WgsPoint      -> Point
-    * WgsMesh       -> Point or MultiPoint (depending on size)
-    * WgsPolygon    -> Polygon or MultiPolygon (depending on kind)
-
-    Properties are left empty (``{}``) for all features.
-
-    Parameters
-    ----------
-    path : str or pathlib.Path
-        Output file path.
-    geometries : iterable of GeoObject
-        Objects to be written.
+    Convert a GeoJSON position to a :class:`WgsPoint`.
     """
-    path = Path(path)
+    if len(coord) < 2:
+        raise ValueError("GeoJSON positions need at least two values.")
 
-    features = []
-    for obj in geometries:
-        geom = _geometry_to_geojson(obj)
-        if geom is None:
-            continue
-        feature = {
-            "type": "Feature",
-            "geometry": geom,
-            "properties": {},
-        }
-        features.append(feature)
+    elevation = float(coord[2]) if len(coord) > 2 else 0.0
 
-    collection = {
-        "type": "FeatureCollection",
-        "features": features,
-    }
-
-    with path.open("w", encoding="utf-8") as fobj:
-        json.dump(collection, fobj, indent=2)
+    return WgsPoint(
+        longitude=float(coord[0]),
+        latitude=float(coord[1]),
+        elevation=elevation,
+    )
 
 
-def _geometry_to_geojson(obj: GeoObject) -> dict | None:
+def _geometry_to_geojson(obj: GeoObject) -> Optional[Dict[str, Any]]:
     """
-    Internal helper to convert a geodetic object to GeoJSON geometry.
-
-    Parameters
-    ----------
-    obj : GeoObject
-        WgsPoint, WgsPolygon or WgsMesh instance.
-
-    Returns
-    -------
-    dict or None
-        GeoJSON geometry dictionary, or None if the object cannot be
-        represented.
+    Convert a geodetic object to a GeoJSON geometry, or None.
     """
     if isinstance(obj, WgsPoint):
-        return {
-            "type": "Point",
-            "coordinates": [obj.longitude, obj.latitude],
-        }
+        return {"type": "Point", "coordinates": _positions([obj])[0]}
 
     if isinstance(obj, WgsMesh):
         if len(obj) == 0:
             return None
-        if len(obj) == 1:
-            p = obj.points[0]
-            return {
-                "type": "Point",
-                "coordinates": [p.longitude, p.latitude],
-            }
-        coords = [[p.longitude, p.latitude] for p in obj.points]
-        return {
-            "type": "MultiPoint",
-            "coordinates": coords,
-        }
+
+        positions = _positions(obj.points)
+
+        if len(positions) == 1:
+            return {"type": "Point", "coordinates": positions[0]}
+
+        return {"type": "MultiPoint", "coordinates": positions}
 
     if isinstance(obj, WgsPolygon):
         if obj.is_empty():
             return None
 
-        if obj.kind == PolygonKind.SIMPLE:
-            ring = _ring_to_geojson(obj.parts[0])
+        with_z = any(p.elevation != 0.0 for p in obj.iter_vertices())
+        rings = [_ring(part, with_z) for part in obj.parts]
+
+        if obj.kind == PolygonKind.MULTIPOLYGON or len(rings) > 1:
             return {
-                "type": "Polygon",
-                "coordinates": [ring],
+                "type": "MultiPolygon",
+                "coordinates": [[ring] for ring in rings],
             }
 
-        # Multipolygon: one ring per part, each as an exterior ring.
-        polys = []
-        for part in obj.parts:
-            ring = _ring_to_geojson(part)
-            polys.append([ring])
-
-        return {
-            "type": "MultiPolygon",
-            "coordinates": polys,
-        }
+        return {"type": "Polygon", "coordinates": [rings[0]]}
 
     return None
 
 
-def _ring_to_geojson(points: Sequence[WgsPoint]) -> List[List[float]]:
+def _positions(
+    points: Sequence[WgsPoint],
+    with_z: Optional[bool] = None,
+) -> List[List[float]]:
     """
-    Convert a polygon ring to a GeoJSON linear ring.
-
-    A closing vertex is added if needed.
-
-    Parameters
-    ----------
-    points : sequence of WgsPoint
-        Ring vertices.
-
-    Returns
-    -------
-    list of [lon, lat]
-        GeoJSON coordinate list.
+    Return GeoJSON positions, 3-D if any elevation is non-zero.
     """
-    if not points:
-        return []
+    if with_z is None:
+        with_z = any(p.elevation != 0.0 for p in points)
 
-    coords = [[p.longitude, p.latitude] for p in points]
+    if with_z:
+        return [[p.longitude, p.latitude, p.elevation] for p in points]
 
-    # Ensure ring closure (first == last).
-    if coords[0] != coords[-1]:
-        coords.append(coords[0])
+    return [[p.longitude, p.latitude] for p in points]
 
-    return coords
+
+def _ring(points: Sequence[WgsPoint], with_z: bool) -> List[List[float]]:
+    """
+    Return a closed GeoJSON linear ring.
+    """
+    positions = _positions(points, with_z)
+
+    if positions and positions[0] != positions[-1]:
+        positions.append(list(positions[0]))
+
+    return positions
+
+
+def _column_index(
+    header: Sequence[str],
+    names: Sequence[str],
+    required: bool = True,
+) -> Optional[int]:
+    """
+    Return the index of the first header field matching ``names``.
+    """
+    for name in names:
+        if name in header:
+            return header.index(name)
+
+    if required:
+        raise ValueError(f"CSV header lacks a '{names[0]}' column.")
+
+    return None
