@@ -97,14 +97,21 @@ Optional extras:
 ## Documentation
 
 The documentation is available at [shakelab.org](http://shakelab.org)
-(under construction).
+(under construction). The repository also contains:
+
+- [Conventions](docs/conventions.md): time, coordinates, units and
+  numerical representation adopted across the library;
+- [Development guidelines](docs/development.md): architecture and
+  coding principles for contributors.
+- [Changelog](CHANGELOG.md): notable changes, deprecations and
+  scientific corrections.
 
 ## Contributing
 
 Bug reports, suggestions and contributions are welcome through
 [GitHub issues](https://github.com/shakelab/shakelab/issues) and pull
-requests. New code should follow the style of the existing modules
-and come with tests.
+requests. New code should follow the
+[development guidelines](docs/development.md) and come with tests.
 
 ## License
 
