@@ -26,7 +26,7 @@ import pickle
 from copy import deepcopy
 
 from shakelab.libutils.timeN import Date
-from shakelab.libutils.geodetic import WgsPoint
+from shakelab.libutils.geodeticN import WgsPoint
 from shakelab.libutils.ascii import AsciiTable
 from shakelab.libutils.utils import cast_value
 
@@ -139,7 +139,13 @@ class LocationSolution(BaseSolution):
 
     @property
     def hypocentre(self):
-        return WgsPoint(self.latitude, self.longitude, -self.depth)
+        # Catalogue depth is in km, positive downward; WgsPoint uses
+        # elevation in meters, positive upward.
+        return WgsPoint(
+            longitude=self.longitude,
+            latitude=self.latitude,
+            elevation=-1000.0 * self.depth,
+        )
 
 
 class BaseProperty(object):

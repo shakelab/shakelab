@@ -51,7 +51,7 @@ from shakelab.signals import fourier
 from shakelab.signals import response
 from shakelab.signals import io
 from shakelab.libutils.timeN import Date
-from shakelab.libutils.geodetic import WgsPoint
+from shakelab.libutils.geodeticN import WgsPoint
 
 
 class Header:
@@ -76,8 +76,9 @@ class Header:
         Start time of the associated record. Strings are converted to
         :class:`Date`.
     location : WgsPoint or sequence of float, optional
-        Geographic location. A two-element sequence is interpreted as
-        longitude and latitude and converted to :class:`WgsPoint`.
+        Geographic location. A sequence is interpreted as
+        ``(longitude, latitude[, elevation])`` and converted to
+        :class:`WgsPoint`.
     sid : str, optional
         Source identifier, normally expressed as an FDSN source code.
     eid : str, optional
@@ -269,19 +270,18 @@ class Header:
             return
 
         if isinstance(value, (tuple, list)):
-            if len(value) != 2:
+            if len(value) not in (2, 3):
                 raise ValueError(
-                    "location must contain longitude and latitude"
+                    "location must contain longitude, latitude and "
+                    "optionally elevation"
                 )
 
-            self._location = WgsPoint(
-                value[0],
-                value[1],
-            )
+            self._location = WgsPoint(*value)
             return
 
         raise TypeError(
-            "location must be a WgsPoint or a two-element sequence"
+            "location must be a WgsPoint or a (longitude, latitude"
+            "[, elevation]) sequence"
         )
 
     @property

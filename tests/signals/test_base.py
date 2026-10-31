@@ -25,7 +25,7 @@ import pytest
 
 from shakelab.signals.base import Header, Record
 from shakelab.libutils.timeN import Date
-from shakelab.libutils.geodetic import WgsPoint
+from shakelab.libutils.geodeticN import WgsPoint
 
 
 def test_header_initialization():
@@ -44,7 +44,21 @@ def test_header_initialization():
     assert header.eid == "event_001"
     assert header.units == "m/s"
     assert isinstance(header.time, Date)
-    assert isinstance(header.location, WgsPoint)
+    assert header.location == WgsPoint(longitude=13.0, latitude=46.0)
+
+
+def test_header_location_with_elevation():
+    header = Header(location=[13.0, 46.0, 250.0])
+
+    assert header.location == WgsPoint(13.0, 46.0, 250.0)
+
+
+def test_header_invalid_location():
+    with pytest.raises(ValueError):
+        Header(location=(13.0,))
+
+    with pytest.raises(TypeError):
+        Header(location="13.0, 46.0")
 
 
 def test_header_rate_sync():
