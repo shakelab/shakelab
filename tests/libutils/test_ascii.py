@@ -20,12 +20,14 @@ Unit tests for :mod:`shakelab.libutils.ascii`.
 
 The tests cover row and column editing, broadcasting and validation
 of column data, reading files with comments, blank lines, skipped
-lines, unnamed columns and per-column types, and the write/read round
-trip.
+lines, unnamed columns and per-column types, the write/read round
+trip, quoted fields, and the selection helpers (``add_row``,
+``to_array``, ``unique``, ``filter``, ``select``, ``sort``).
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from shakelab.libutils.ascii import AsciiTable
@@ -241,3 +243,137 @@ def test_write_without_header(table, tmp_path):
     path = tmp_path / "out.txt"
     table.write(path, header=False, delimiter=" ")
     assert path.read_text() == "1 x\n2 y\n"
+
+
+# ----------------------------------------------------------------------------
+# Quoted fields
+# ----------------------------------------------------------------------------
+
+
+def test_read_quoted_fields(tmp_path):
+    """Quoted fields may contain delimiters, blanks and quotes."""
+    path = tmp_path / "data.csv"
+    path.write_text(
+        'Id,Name,Note\n'
+        '1, "Udine, Italy" ," keep "\n'
+        '2,Gemona,"say ""hi"""\n'
+        '3,5\'3",""\n'
+    )
+
+    tab = AsciiTable()
+    tab.read(path, dtype=[int, str, str])
+
+    assert tab["Name"] == ["Udine, Italy", "Gemona", "5'3\""]
+    assert tab["Note"] == [" keep ", 'say "hi"', None]
+
+
+def test_read_quote_errors(tmp_path):
+    """Unterminated quotes and text after a closing quote raise."""
+    path = tmp_path / "data.csv"
+    path.write_text('a,b\n1,"open\n')
+    with pytest.raises(ValueError, match="line 2: unterminated"):
+        AsciiTable().read(path)
+
+    path.write_text('a,b\n1,"x"y\n')
+    with pytest.raises(ValueError, match="line 2: unexpected"):
+        AsciiTable().read(path)
+
+
+def test_read_quoting_disabled(tmp_path):
+    """With quotechar=None quotes are ordinary characters."""
+    path = tmp_path / "data.csv"
+    path.write_text('a,b\n"x",y\n')
+
+    tab = AsciiTable()
+    tab.read(path, quotechar=None)
+    assert tab["a"] == ['"x"']
+
+
+def test_write_quotes_only_when_needed(tmp_path):
+    """Fields are quoted only if they would not read back unchanged."""
+    tab = AsciiTable(["name", "note"])
+    tab.add_element(["Udine, Italy", 'say "hi"'])
+    tab.add_element(["Gemona", " padded "])
+
+    path = tmp_path / "out.csv"
+    tab.write(path)
+    assert path.read_text() == (
+        'name,note\n'
+        '"Udine, Italy","say ""hi"""\n'
+        'Gemona," padded "\n'
+    )
+
+    back = AsciiTable()
+    back.read(path)
+    assert back.db == tab.db
+
+
+# ----------------------------------------------------------------------------
+# Selection helpers
+# ----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def catalogue():
+    """Small catalogue with an empty magnitude."""
+    tab = AsciiTable(["Id", "Agency", "Mag"])
+    tab.add_element([1, "INGV", 3.2])
+    tab.add_element([2, "OGS", None])
+    tab.add_element([3, "INGV", 4.7])
+    tab.add_element([4, "OGS", 2.1])
+    return tab
+
+
+def test_add_row(catalogue):
+    """Rows given as mappings fill missing columns with None."""
+    catalogue.add_row({"Id": 5, "Mag": 1.0})
+    assert catalogue.db[-1] == {"Id": 5, "Agency": None, "Mag": 1.0}
+
+    with pytest.raises(KeyError):
+        catalogue.add_row({"Depth": 10.0})
+
+
+def test_to_array(catalogue):
+    """Columns become arrays with NaN for empty values."""
+    mag = catalogue.to_array("Mag")
+    assert mag.dtype == float
+    np.testing.assert_array_equal(mag, [3.2, np.nan, 4.7, 2.1])
+
+    ids = catalogue.to_array("Id", dtype=int)
+    np.testing.assert_array_equal(ids, [1, 2, 3, 4])
+
+
+def test_unique(catalogue):
+    """Distinct values keep the order of first appearance."""
+    assert catalogue.unique("Agency") == ["INGV", "OGS"]
+
+
+def test_filter(catalogue):
+    """Filtering returns a new table with copied rows."""
+    strong = catalogue.filter(
+        lambda r: r["Mag"] is not None and r["Mag"] >= 3.0
+    )
+    assert strong.header == catalogue.header
+    assert strong["Id"] == [1, 3]
+
+    strong.db[0]["Mag"] = 0.0
+    assert catalogue.db[0]["Mag"] == 3.2
+
+
+def test_select(catalogue):
+    """Selecting columns returns a new table in the given order."""
+    sub = catalogue.select(["Mag", "Id"])
+    assert sub.header == ["Mag", "Id"]
+    assert sub.db[0] == {"Mag": 3.2, "Id": 1}
+
+    with pytest.raises(KeyError):
+        catalogue.select(["Depth"])
+
+
+def test_sort(catalogue):
+    """Rows are sorted in place with empty values last."""
+    catalogue.sort("Mag")
+    assert catalogue["Id"] == [4, 1, 3, 2]
+
+    catalogue.sort("Mag", reverse=True)
+    assert catalogue["Id"] == [3, 1, 4, 2]
