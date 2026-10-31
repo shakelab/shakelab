@@ -1,6 +1,5 @@
 # ****************************************************************************
-#
-# Copyright (C) 2019-2020, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -15,14 +14,47 @@
 #
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
-Collection of constants
+Physical and mathematical constants used across ShakeLab.
+
+Conventions
+-----------
+- Values are in SI units unless stated otherwise.
+- Geodetic constants (Earth radii, WGS84 ellipsoid parameters) live in
+  :mod:`shakelab.libutils.geodeticN.utilities` and are not duplicated
+  here.
 """
 
-GRAVITY = 9.80665
-GRAVITY_LOW = 9.764
-GRAVITY_HIGH = 9.834
+from __future__ import annotations
 
-PI = 3.1415926535897932384626433
+import math
+
+__all__ = [
+    "GRAVITY",
+    "GRAVITY_LOW",
+    "GRAVITY_HIGH",
+    "PI",
+]
+
+
+# ----------------------------------------------------------------------------
+# Gravity
+# ----------------------------------------------------------------------------
+
+GRAVITY: float = 9.80665
+"""Standard acceleration of gravity, g0 (m/s^2), exact by definition."""
+
+GRAVITY_LOW: float = 9.764
+"""Approximate lowest gravity at the Earth's surface (m/s^2)."""
+
+GRAVITY_HIGH: float = 9.834
+"""Approximate highest gravity at the Earth's surface (m/s^2)."""
+
+
+# ----------------------------------------------------------------------------
+# Mathematical constants
+# ----------------------------------------------------------------------------
+
+PI: float = math.pi
+"""Ratio of a circle's circumference to its diameter."""
