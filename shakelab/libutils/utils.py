@@ -1,6 +1,5 @@
 # ****************************************************************************
-#
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -15,32 +14,123 @@
 #
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
+General-purpose helpers shared across ShakeLab.
+
+The module groups small utilities for value casting, empty-value
+checks, rounding, basic statistics, item selection and JSON-friendly
+(de)serialization of NumPy arrays and complex numbers.
+
+Conventions
+-----------
+- A value is *empty* when it is ``None``, NaN, an empty string, one of
+  the null markers ``'None'``, ``'none'``, ``'NaN'``, ``'nan'``, or an
+  empty list, tuple or array (see :func:`is_empty`).
+- Functions never modify their inputs in place.
 """
-import numpy as _np
+
+from __future__ import annotations
+
+import warnings
+from typing import Any, Callable, Sequence
+
+import numpy as np
+
+__all__ = [
+    "cast_value",
+    "a_round",
+    "lin_stat",
+    "log_stat",
+    "pick",
+    "slice",
+    "is_empty",
+    "none_check",
+    "serialize_ndarray",
+    "deserialize_complex",
+]
+
+_NULL_STRINGS = frozenset({"", "None", "none", "NaN", "nan"})
 
 
-def cast_value(value, dtype, default=None):
+# ----------------------------------------------------------------------------
+# Empty values and casting
+# ----------------------------------------------------------------------------
+
+
+def is_empty(value: Any) -> bool:
     """
-    Cast a value to the specified data type, handling both scalars and
-    sequences.
+    Check whether a value of arbitrary type is empty.
 
     Parameters
     ----------
-    value : any
-        The input value to cast. It can be a scalar, list, or NumPy array.
-    dtype : type
-        The target data type (e.g., int, float, complex). Applied directly
-        to scalars or element-wise to sequences.
-    default : any, optional
-        The value to return if `value` is considered empty (None, '', etc.).
+    value
+        Value to check.
 
     Returns
     -------
-    casted : dtype or np.ndarray
-        A scalar or NumPy array with all elements cast to the target dtype.
+    bool
+        True for ``None``, NaN scalars, null-marker strings and empty
+        lists, tuples or arrays; False otherwise.
+    """
+    if value is None:
+        return True
+
+    if isinstance(value, str):
+        return value in _NULL_STRINGS
+
+    if isinstance(value, np.ndarray):
+        return value.size == 0
+
+    if isinstance(value, (list, tuple)):
+        return len(value) == 0
+
+    try:
+        return bool(value != value)
+    except (TypeError, ValueError):
+        return False
+
+
+def none_check(value: Any) -> Any:
+    """
+    Replace an empty value with ``None``.
+
+    Parameters
+    ----------
+    value
+        Value to check.
+
+    Returns
+    -------
+    Any
+        ``None`` if ``value`` is empty, otherwise ``value`` unchanged.
+    """
+    return None if is_empty(value) else value
+
+
+def cast_value(value: Any, dtype: Callable, default: Any = None) -> Any:
+    """
+    Cast a scalar or a sequence to a target type.
+
+    Parameters
+    ----------
+    value
+        Scalar, list, tuple or NumPy array to cast.
+    dtype
+        Target type (e.g. ``int``, ``float``, ``complex``, ``str``),
+        applied to scalars or element-wise to sequences.
+    default
+        Value returned when ``value`` is empty (see :func:`is_empty`).
+
+    Returns
+    -------
+    Any
+        The cast scalar, or a NumPy array for sequence inputs.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is neither a scalar nor a sequence.
 
     Examples
     --------
@@ -48,163 +138,200 @@ def cast_value(value, dtype, default=None):
     3.14
     >>> cast_value([1, 2, 3], float)
     array([1., 2., 3.])
-    >>> cast_value([1+2j, 3-4j], complex)
-    array([1.+2.j, 3.-4.j])
     >>> cast_value(None, float, default=0.0)
     0.0
     """
-    # Handle null-like values
-    if value in [None, 'None', 'none', 'NaN', 'nan', '', []]:
+    if is_empty(value):
         return default
 
-    # If already of target type, return as-is
-    if isinstance(value, dtype):
+    if isinstance(dtype, type) and isinstance(value, dtype):
         return value
 
-    # Scalar casting
-    if _np.isscalar(value):
+    if np.isscalar(value):
         return dtype(value)
 
-    # Sequence casting (element-wise)
-    if isinstance(value, (list, tuple, _np.ndarray)):
-        return _np.array([dtype(v) for v in value])
+    if isinstance(value, (list, tuple, np.ndarray)):
+        return np.array([dtype(v) for v in value])
 
-    raise TypeError(f"Cannot cast value of type {type(value)}")
+    raise TypeError(f"Cannot cast value of type {type(value).__name__}")
 
 
-def a_round(number, decimals=3):
+# ----------------------------------------------------------------------------
+# Rounding and statistics
+# ----------------------------------------------------------------------------
+
+
+def a_round(number: Any, decimals: int = 3) -> Any:
     """
-    Round value or an array to a given decimal place
-    (it works also for single scalar and list)
+    Round a scalar or a sequence to a given number of decimals.
 
-    :param [float, list, tuple, numpy.ndarray] number:
-        Input; can be a number or a sequence
+    Parameters
+    ----------
+    number
+        Scalar, list, tuple or NumPy array. Nested lists and tuples are
+        rounded recursively.
+    decimals
+        Number of decimal places.
 
-    :param int decimals:
-        Rounding decimals
-
-    :return [float, list, tuple, numpy.ndarray] number:
-        Rounded output
+    Returns
+    -------
+    Any
+        Rounded copy of ``number`` with the same container type.
     """
-    if isinstance(number, (list, tuple, _np.ndarray)):
-        for i, n in enumerate(number):
-            number[i] = round(n, decimals)
-    else:
-        number = round(number, decimals)
+    if isinstance(number, np.ndarray):
+        return np.round(number, decimals)
 
-    return number
+    if isinstance(number, (list, tuple)):
+        return type(number)(a_round(n, decimals) for n in number)
+
+    return round(number, decimals)
 
 
-def lin_stat(data):
+def lin_stat(data: Any) -> tuple[Any, Any]:
     """
-    Compute mean and standard deviation of data array
-    assuming normal (linear) statistic.
+    Compute mean and standard deviation assuming normal statistics.
 
-    :param list or numpy.ndarray data:
-        The input dataset
+    Parameters
+    ----------
+    data
+        Input samples; statistics are computed along the first axis.
 
-    :return float (mn, sd):
-        Mean and standard deviation
+    Returns
+    -------
+    tuple
+        Arithmetic mean and (population) standard deviation.
     """
-    mn = _np.mean(data, axis=0)
-    sd = _np.std(data, axis=0)
-
-    return (mn, sd)
+    data = np.asarray(data, dtype=float)
+    return np.mean(data, axis=0), np.std(data, axis=0)
 
 
-def log_stat(data):
+def log_stat(data: Any) -> tuple[Any, Any]:
     """
-    Compute mean and standard deviation of data array
-    assuming log-normal statistic.
+    Compute mean and standard deviation assuming log-normal statistics.
 
-    :param list or numpy.ndarray data:
-        The input dataset
+    Parameters
+    ----------
+    data
+        Strictly positive input samples; statistics are computed along
+        the first axis.
 
-    :return float (mn, sd):
-        Mean and standard deviation
-
+    Returns
+    -------
+    tuple
+        Geometric mean and geometric standard deviation (a
+        multiplicative factor, ``exp`` of the standard deviation of the
+        natural logarithm).
     """
-    mn = _np.exp(_np.mean(_np.log(data), axis=0))
-    sd = _np.exp(_np.std(_np.log(data), axis=0))
-
-    return (mn, sd)
+    logs = np.log(np.asarray(data, dtype=float))
+    return np.exp(np.mean(logs, axis=0)), np.exp(np.std(logs, axis=0))
 
 
-def slice(data, index=[]):
+# ----------------------------------------------------------------------------
+# Item selection
+# ----------------------------------------------------------------------------
+
+
+def pick(data: Sequence[Any], index: Any = None) -> list[Any]:
     """
-    Extract items from list using an index list.
+    Select items from a sequence by index.
 
-    :param list data:
-        Input data to be sliced
+    Parameters
+    ----------
+    data
+        Input sequence.
+    index
+        Integer index or iterable of indices. If empty or ``None``,
+        all items are returned.
 
-    :param int or list index:
-        Indexes of the list items
-
-    :return list data_slice:
-        List with the sliced data
+    Returns
+    -------
+    list
+        Selected items, in the order given by ``index``.
     """
     if is_empty(index):
-        return data
-    else:
-        if not isinstance(index, list):
-            index = [index]
-        data_slice = [data[i] for i in index]
+        return list(data)
 
-    return data_slice
+    if isinstance(index, (int, np.integer)):
+        index = [index]
+
+    return [data[i] for i in index]
 
 
-def is_empty(value):
+def slice(data: Sequence[Any], index: Any = None) -> list[Any]:
     """
-    Boolean check if variable of arbitrary format is empty or None.
+    Deprecated alias of :func:`pick`.
 
-    :param [arbitrary] value:
-        Arbitrary input value for the check
-
-    :return boolean empty:
-        True if no or empty value is given
+    .. deprecated::
+        Use :func:`pick`; this name shadows the built-in ``slice``.
     """
-    C0 = (value == [])
-    C1 = (value == '')
-    C2 = (value == None)
-    C3 = (value == 'None')
-    C4 = (value != value)
-
-    empty = (C0 or C1 or C2 or C3 or C4)
-
-    return empty
+    warnings.warn(
+        "shakelab.libutils.utils.slice is deprecated; use pick",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return pick(data, index)
 
 
-def none_check(number):
+# ----------------------------------------------------------------------------
+# JSON-friendly serialization
+# ----------------------------------------------------------------------------
+
+
+def serialize_ndarray(obj: Any) -> Any:
     """
-    Replace with none if empty.
-    """
-    number = None if is_empty(number) else number
+    Recursively convert NumPy objects and complex numbers for JSON.
 
-    return number
+    Arrays and tuples become lists, NumPy scalars become Python scalars
+    and complex numbers become ``{'real': x, 'imag': y}`` mappings.
 
-def serialize_ndarray(obj):
-    """
-    Recursively convert NumPy arrays and complex numbers
-    for JSON serialization.
+    Parameters
+    ----------
+    obj
+        Object to convert (dicts, lists and tuples are traversed).
+
+    Returns
+    -------
+    Any
+        JSON-serializable copy of ``obj``.
     """
     if isinstance(obj, dict):
         return {k: serialize_ndarray(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
+
+    if isinstance(obj, (list, tuple)):
         return [serialize_ndarray(v) for v in obj]
-    elif isinstance(obj, _np.ndarray):
+
+    if isinstance(obj, np.ndarray):
         return serialize_ndarray(obj.tolist())
-    elif isinstance(obj, complex):
-        return {'real': obj.real, 'imag': obj.imag}
+
+    if isinstance(obj, np.generic):
+        return serialize_ndarray(obj.item())
+
+    if isinstance(obj, complex):
+        return {"real": obj.real, "imag": obj.imag}
+
     return obj
 
-def deserialize_complex(obj):
+
+def deserialize_complex(obj: Any) -> Any:
     """
-    Recursively convert {'real': x, 'imag': y} back to complex numbers.
+    Recursively convert ``{'real': x, 'imag': y}`` mappings to complex.
+
+    Parameters
+    ----------
+    obj
+        Object to convert (dicts and lists are traversed).
+
+    Returns
+    -------
+    Any
+        Copy of ``obj`` with complex numbers restored.
     """
     if isinstance(obj, dict):
-        if 'real' in obj and 'imag' in obj and len(obj) == 2:
-            return complex(obj['real'], obj['imag'])
+        if set(obj) == {"real", "imag"}:
+            return complex(obj["real"], obj["imag"])
         return {k: deserialize_complex(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
+
+    if isinstance(obj, list):
         return [deserialize_complex(v) for v in obj]
+
     return obj
