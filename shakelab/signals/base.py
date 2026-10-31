@@ -46,6 +46,9 @@ Conventions
   Hz, with ``rate = 1 / delta``.
 - Locations are :class:`~shakelab.libutils.geodeticN.WgsPoint`
   instances, given as ``(longitude, latitude[, elevation])``.
+- Time tolerances are fractions of the sampling interval:
+  :data:`MERGE_TOLERANCE` when joining records,
+  :data:`GRID_TOLERANCE` when matching times to samples.
 - The ``info()`` methods print a summary for interactive inspection;
   they are the only functions of the module that print.
 """
@@ -53,11 +56,13 @@ Conventions
 from __future__ import annotations
 
 from copy import deepcopy
-from numbers import Number, Real
+from fractions import Fraction
+from numbers import Integral, Number, Real
 from typing import Any, Optional
 
 import numpy as np
-from scipy import fftpack, integrate, signal
+from scipy import integrate, signal
+from scipy.signal import windows
 
 from shakelab.signals import fourier
 from shakelab.signals import response
@@ -66,12 +71,30 @@ from shakelab.libutils.timeN import Date
 from shakelab.libutils.geodeticN import WgsPoint
 
 __all__ = [
+    "MERGE_TOLERANCE",
+    "GRID_TOLERANCE",
     "Header",
     "Record",
     "Stream",
     "StreamCollection",
     "tukey_window",
 ]
+
+MERGE_TOLERANCE = 0.5
+"""
+Default tolerance for joining contiguous records, as a fraction of the
+sampling interval: two records are contiguous when the start of the
+second one is within half a sample of the expected time (as in
+libmseed). It absorbs the limited time resolution of data formats
+(e.g. 0.1 ms in MiniSEED 2).
+"""
+
+GRID_TOLERANCE = 1e-6
+"""
+Default tolerance for matching a time to a sample of the sampling grid,
+as a fraction of the sampling interval. It only absorbs floating-point
+rounding.
+"""
 
 
 # ----------------------------------------------------------------------------
@@ -386,6 +409,8 @@ class Record:
         Source identifier.
     eid : str, optional
         Event identifier.
+    units : str, optional
+        Physical units of the waveform samples.
 
     Notes
     -----
@@ -402,6 +427,7 @@ class Record:
         location=None,
         sid=None,
         eid=None,
+        units=None,
     ):
         self.head = Header(
             delta=delta,
@@ -409,6 +435,7 @@ class Record:
             location=location,
             sid=sid,
             eid=eid,
+            units=units,
             parent=self,
         )
 
@@ -676,8 +703,10 @@ class Record:
 
         Parameters
         ----------
-        value : Number or StageResponse
-            Numerical scale factor or instrumental response.
+        value : Number or response
+            Numerical scale factor, or instrumental response: a stage,
+            a stage set, a stream response or a response collection
+            (see :meth:`convolve_response`).
 
         Returns
         -------
@@ -695,7 +724,7 @@ class Record:
             record.data = record.data * value
             return record
 
-        if isinstance(value, response.StageResponse):
+        if isinstance(value, _response_types()):
             record.convolve_response(value)
             return record
 
@@ -716,8 +745,10 @@ class Record:
 
         Parameters
         ----------
-        value : Number or StageResponse
-            Numerical divisor or instrumental response.
+        value : Number or response
+            Numerical divisor, or instrumental response: a stage, a
+            stage set, a stream response or a response collection
+            (see :meth:`deconvolve_response`).
 
         Returns
         -------
@@ -742,7 +773,7 @@ class Record:
             record.data = record.data / value
             return record
 
-        if isinstance(value, response.StageResponse):
+        if isinstance(value, _response_types()):
             record.deconvolve_response(value)
             return record
 
@@ -1011,26 +1042,42 @@ class Record:
 
     def time_axis(self, reference="relative", shift=0.0):
         """
-        Generate the record time axis.
+        Generate the record time axis, in seconds.
 
         Parameters
         ----------
-        reference : {"relative", "absolute", "r", "a"}, optional
-            Time reference. Relative time starts from zero. Absolute time
-            is expressed as seconds in the internal Date reference system.
+        reference : {"relative", "absolute"} or Date, optional
+            Origin of the time axis:
+
+            - ``"relative"`` (or ``"r"``): the record start time, so the
+              axis starts from zero (default);
+            - ``"absolute"`` (or ``"a"``): the internal epoch of
+              :class:`~shakelab.libutils.timeN.Date`
+              (0001-01-01T00:00:00Z);
+            - a :class:`~shakelab.libutils.timeN.Date`, or any value
+              accepted by it (e.g. an ISO 8601 string): seconds relative
+              to that time, useful to align several records.
         shift : float, optional
             Additional shift in seconds.
 
         Returns
         -------
         numpy.ndarray
-            Time coordinate for each waveform sample.
+            Time coordinate of each waveform sample.
 
         Raises
         ------
         ValueError
-            If the reference is unsupported or absolute time is requested
-            without a start time.
+            If the sampling interval is missing, or if an absolute or
+            date reference is requested without a record start time.
+
+        Notes
+        -----
+        Absolute times are about 6e10 seconds today, so in double
+        precision they resolve only about 10 microseconds. A date
+        reference keeps the full precision: the offset between the
+        record start and the reference is computed exactly before
+        conversion to float.
         """
         if self.delta is None:
             raise ValueError(
@@ -1048,25 +1095,30 @@ class Record:
         if not np.isfinite(shift):
             raise ValueError("shift must be finite")
 
-        axis = np.arange(
-            self.nsamp,
-            dtype=float,
-        ) * self.delta
+        axis = np.arange(self.nsamp, dtype=float) * self.delta
 
-        if reference in ("relative", "r"):
+        if isinstance(reference, str) and reference in ("relative", "r"):
             return axis + shift
 
-        if reference in ("absolute", "a"):
-            if self.time is None:
-                raise ValueError(
-                    "start time is required for an absolute time axis"
-                )
+        if self.time is None:
+            raise ValueError(
+                "start time is required for an absolute or date-"
+                "referenced time axis"
+            )
 
+        if isinstance(reference, str) and reference in ("absolute", "a"):
             return axis + self.time.to_seconds() + shift
 
-        raise ValueError(
-            "reference must be 'relative' or 'absolute'"
-        )
+        try:
+            origin = Date(reference)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "reference must be 'relative', 'absolute' or a date"
+            ) from error
+
+        offset = float(self.time - origin)
+
+        return axis + offset + shift
 
     @property
     def taxis(self):
@@ -1080,7 +1132,7 @@ class Record:
         record,
         enforce=False,
         fillvalue=0.0,
-        tolerance=1e-6,
+        tolerance=None,
     ):
         """
         Append another record to the current record.
@@ -1098,7 +1150,8 @@ class Record:
             Value used to fill gaps when ``enforce=True``.
         tolerance : float, optional
             Maximum distance from an integer sample offset, expressed as
-            a fraction of one sampling interval.
+            a fraction of one sampling interval. Default is
+            :data:`MERGE_TOLERANCE` (half a sample).
 
         Returns
         -------
@@ -1126,6 +1179,9 @@ class Record:
 
         if not isinstance(enforce, bool):
             raise TypeError("enforce must be a boolean")
+
+        if tolerance is None:
+            tolerance = MERGE_TOLERANCE
 
         if (
             not isinstance(tolerance, Real)
@@ -1239,26 +1295,27 @@ class Record:
         starttime=None,
         endtime=None,
         inplace=True,
-        tolerance=1e-6,
+        tolerance=GRID_TOLERANCE,
     ):
         """
-        Cut the record to a sample-aligned time window.
+        Cut the record to the samples within a time window.
 
         Parameters
         ----------
         starttime : Date, str or float, optional
-            First sample to retain. Numerical values are interpreted as
-            seconds from record start.
+            Start of the window. Numerical values are interpreted as
+            seconds from record start. Default is the record start.
         endtime : Date, str or float, optional
-            Final sample to retain. Numerical values are interpreted as
-            seconds from record start.
+            End of the window, included. Numerical values are
+            interpreted as seconds from record start. Default is the
+            record end.
         inplace : bool, optional
             If ``True``, modify the current record. If ``False``, return
             an independent Record. Default is ``True``.
         tolerance : float, optional
-            Maximum distance from the nearest sampling-grid point,
-            expressed as a fraction of one sampling interval. Default is
-            ``1e-6``.
+            Times closer than this to a sample, as a fraction of one
+            sampling interval, are treated as coinciding with it.
+            Default is :data:`GRID_TOLERANCE`.
 
         Returns
         -------
@@ -1273,9 +1330,16 @@ class Record:
             real number.
         ValueError
             If the tolerance is invalid, the sampling interval is
-            missing, the requested interval is invalid, does not
-            intersect the record, or is not aligned with the sampling
-            grid.
+            missing, the window is reversed, or no sample of the record
+            falls within the window.
+
+        Notes
+        -----
+        The retained samples are those whose times lie within the
+        window, bounds included: the first sample at or after
+        ``starttime`` and the last sample at or before ``endtime``. The
+        window does not need to be aligned with the sampling grid; the
+        start time of the result is the time of its first sample.
         """
         if not isinstance(inplace, bool):
             raise TypeError(
@@ -1313,31 +1377,20 @@ class Record:
             endtime=endtime,
         )
 
-        if (
-            relative_end < 0.0
-            or relative_start > self.duration
-        ):
+        index_start = max(
+            int(np.ceil(relative_start / self.delta - tolerance)),
+            0,
+        )
+        index_end = min(
+            int(np.floor(relative_end / self.delta + tolerance)),
+            self.nsamp - 1,
+        )
+
+        if index_start > index_end:
             raise ValueError(
-                "requested time window does not intersect the record"
+                "no sample of the record falls within the requested "
+                "time window"
             )
-
-        relative_start = max(
-            relative_start,
-            0.0,
-        )
-        relative_end = min(
-            relative_end,
-            self.duration,
-        )
-
-        index_start = self._sample_position(
-            relative_start,
-            tolerance=tolerance,
-        )
-        index_end = self._sample_position(
-            relative_end,
-            tolerance=tolerance,
-        )
 
         target = self if inplace else self.copy()
 
@@ -1359,20 +1412,22 @@ class Record:
         self,
         starttime=None,
         endtime=None,
-        tolerance=1e-6,
+        tolerance=GRID_TOLERANCE,
     ):
         """
-        Return an independent record for a sample-aligned time window.
+        Return an independent record with the samples of a time window.
+
+        See :meth:`cut`, of which this is the non-destructive variant.
 
         Parameters
         ----------
         starttime : Date, str or float, optional
-            First sample to retain.
+            Start of the window.
         endtime : Date, str or float, optional
-            Final sample to retain.
+            End of the window, included.
         tolerance : float, optional
-            Maximum distance from the nearest sampling-grid point,
-            expressed as a fraction of one sampling interval.
+            Times closer than this to a sample, as a fraction of one
+            sampling interval, are treated as coinciding with it.
 
         Returns
         -------
@@ -1451,8 +1506,12 @@ class Record:
                 "at least one corner frequency must be provided"
             )
 
-        if not isinstance(order, int) or isinstance(order, bool):
+        if not isinstance(order, Integral) or isinstance(
+            order, (bool, np.bool_)
+        ):
             raise TypeError("order must be an integer")
+
+        order = int(order)
 
         if order <= 0:
             raise ValueError("order must be strictly positive")
@@ -1558,7 +1617,9 @@ class Record:
             Resampling method:
 
             - ``"scipy"`` or ``"fft"`` uses Fourier-domain resampling
-              through :func:`scipy.signal.resample`.
+              through :func:`scipy.signal.resample`. The ratio between
+              the new and the old sampling interval must be a fraction
+              with a denominator up to 1000 (e.g. 2, 1/2, 3/2).
             - ``"interp"`` uses linear interpolation.
 
             Default is ``"interp"``.
@@ -1577,14 +1638,20 @@ class Record:
         -----
         The operation is performed in place. The start time is preserved.
 
-        The number of output samples is chosen to preserve the original
-        first-to-last-sample duration as closely as possible:
+        The output samples cover the original record without
+        extrapolation:
 
-        ``new_nsamp = round(duration / new_delta) + 1``
+        ``new_nsamp = floor(duration / new_delta) + 1``
 
-        If the original duration is not an exact multiple of
-        ``new_delta``, the final sample time changes by at most half a new
-        sampling interval.
+        so the final sample lies at or before the original final
+        sample, by less than one new sampling interval.
+
+        Fourier-domain resampling treats the record as periodic, so
+        records that do not start and end smoothly (e.g. not tapered)
+        show oscillations near their ends. Before the transform the
+        record is extended with zeros by fewer samples than the
+        denominator of the interval ratio, so that its total length is
+        a whole number of new sampling intervals.
         """
         if (
             not isinstance(new_delta, Real)
@@ -1643,14 +1710,15 @@ class Record:
         old_delta = self.delta
         old_duration = self.duration
 
-        new_nsamp = max(
-            1,
-            int(round(old_duration / new_delta)) + 1,
-        )
+        new_nsamp = int(
+            np.floor(old_duration / new_delta + GRID_TOLERANCE)
+        ) + 1
 
         if method in ("scipy", "fft"):
-            self.data = signal.resample(
+            self.data = _fft_resample(
                 self.data,
+                old_delta,
+                new_delta,
                 new_nsamp,
             )
 
@@ -1692,8 +1760,7 @@ class Record:
                 dtype=float,
             ) * new_delta
 
-            # The rounding used to determine new_nsamp can place the
-            # final target point marginally beyond the original record.
+            # Guard against floating-point rounding of the final time.
             new_time = np.minimum(
                 new_time,
                 old_duration,
@@ -1901,7 +1968,6 @@ class Record:
             )
 
         original_nsamp = self.nsamp
-        original_is_real = np.isrealobj(self.data)
 
         if padding:
             data = np.concatenate(
@@ -1916,21 +1982,17 @@ class Record:
         else:
             data = self.data
 
-        shifted = fourier.shift_time(
-            data,
-            self.delta,
-            time,
-        )
-
-        shifted = shifted[:original_nsamp]
-
-        if original_is_real:
-            shifted = np.real_if_close(
-                shifted,
-                tol=1000,
+        if np.iscomplexobj(data):
+            # The shift is linear: real and imaginary parts are shifted
+            # separately by the real-valued Fourier implementation.
+            shifted = (
+                fourier.shift_time(data.real, self.delta, time)
+                + 1j * fourier.shift_time(data.imag, self.delta, time)
             )
+        else:
+            shifted = fourier.shift_time(data, self.delta, time)
 
-        self.data = shifted
+        self.data = shifted[:original_nsamp]
 
     def integrate(self, method="fft"):
         """
@@ -1987,7 +2049,7 @@ class Record:
             )
             return
 
-        self.data = fftpack.diff(
+        self.data = _fft_derivative(
             self.data,
             order=-1,
             period=self.nsamp * self.delta,
@@ -2045,7 +2107,7 @@ class Record:
             )
             return
 
-        self.data = fftpack.diff(
+        self.data = _fft_derivative(
             self.data,
             order=1,
             period=self.nsamp * self.delta,
@@ -2880,7 +2942,7 @@ class Stream:
         record,
         enforce=False,
         fillvalue=0.0,
-        tolerance=1e-6,
+        tolerance=None,
     ):
         """
         Append a record to the stream.
@@ -2898,7 +2960,8 @@ class Stream:
             Value used to fill gaps when ``enforce=True``.
         tolerance : float, optional
             Maximum distance from an integer sample offset, expressed as
-            a fraction of one sampling interval.
+            a fraction of one sampling interval. Default is
+            :data:`MERGE_TOLERANCE`.
 
         Raises
         ------
@@ -3494,7 +3557,7 @@ class StreamCollection:
         data,
         enforce=False,
         fillvalue=0.0,
-        tolerance=1e-6,
+        tolerance=None,
     ):
         """
         Append a record or stream to the collection.
@@ -3510,7 +3573,8 @@ class StreamCollection:
             Value used to fill gaps by standard Stream objects when
             ``enforce=True``.
         tolerance : float, optional
-            Sampling-grid tolerance passed to the destination stream.
+            Tolerance for joining contiguous records, as a fraction of
+            the sampling interval. Default is :data:`MERGE_TOLERANCE`.
 
         Raises
         ------
@@ -3727,7 +3791,7 @@ class StreamCollection:
         collection,
         enforce=False,
         fillvalue=0.0,
-        tolerance=1e-6,
+        tolerance=None,
     ):
         """
         Append all streams from another collection.
@@ -3741,7 +3805,8 @@ class StreamCollection:
         fillvalue : scalar, optional
             Gap fill value used by standard streams.
         tolerance : float, optional
-            Sampling-grid tolerance.
+            Tolerance for joining contiguous records, as a fraction of
+            the sampling interval. Default is :data:`MERGE_TOLERANCE`.
 
         Raises
         ------
@@ -4022,26 +4087,120 @@ class StreamCollection:
         )
 
 
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+
+
 def tukey_window(N, alpha=0.5):
     """
-    Replicates scipy.signal.tukey(N, alpha)
+    Return a Tukey (tapered cosine) window.
+
+    Parameters
+    ----------
+    N : int
+        Number of points.
+    alpha : float, optional
+        Fraction of the window inside the cosine tapered region; 0
+        gives a rectangular window, 1 a Hann window.
+
+    Returns
+    -------
+    numpy.ndarray
+        Window values; equivalent to
+        :func:`scipy.signal.windows.tukey`.
     """
-    if alpha <= 0:
-        return np.ones(N)
-    elif alpha >= 1:
-        return np.hanning(N)
+    return windows.tukey(N, alpha)
 
-    x = np.linspace(0, 1, N)
-    w = np.ones(x.shape)
 
-    # first condition 0 <= x < alpha/2
-    mask = x < alpha / 2
-    w[mask] = 0.5 * (1 + np.cos(
-        2 * np.pi / alpha * (x[mask] - alpha / 2)))
+def _response_types():
+    """Return the response classes accepted by Record operators."""
+    return (
+        response.StageResponse,
+        response.StageSet,
+        response.StreamResponse,
+        response.ResponseCollection,
+    )
 
-    # second condition 1 - alpha/2 < x <= 1
-    mask = x > (1 - alpha / 2)
-    w[mask] = 0.5 * (1 + np.cos(
-        2 * np.pi / alpha * (x[mask] - 1 + alpha / 2)))
 
-    return w
+def _fft_derivative(data, order, period):
+    """
+    Differentiate (order 1) or integrate (order -1) periodic data.
+
+    The zero-frequency component is removed and, for an even number of
+    samples, the Nyquist component is set to zero, as in the former
+    ``scipy.fftpack.diff``. Complex data are processed part by part.
+    """
+    data = np.asarray(data)
+
+    if np.iscomplexobj(data):
+        return (
+            _fft_derivative(data.real, order, period)
+            + 1j * _fft_derivative(data.imag, order, period)
+        )
+
+    nsamp = data.size
+    spectrum = np.fft.rfft(data)
+    omega = 2.0 * np.pi * np.arange(spectrum.size) / period
+
+    factor = np.zeros(spectrum.size, dtype=complex)
+    factor[1:] = (1j * omega[1:]) ** order
+
+    if nsamp % 2 == 0:
+        factor[-1] = 0.0
+
+    return np.fft.irfft(spectrum * factor, nsamp)
+
+
+def _fft_resample(data, old_delta, new_delta, new_nsamp):
+    """
+    Resample data in the Fourier domain to a new sampling interval.
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        Samples at interval ``old_delta``.
+    old_delta, new_delta : float
+        Old and new sampling intervals.
+    new_nsamp : int
+        Number of output samples to return.
+
+    Returns
+    -------
+    numpy.ndarray
+        Resampled data.
+
+    Raises
+    ------
+    ValueError
+        If the interval ratio is not a simple fraction.
+    """
+    ratio = Fraction(new_delta / old_delta).limit_denominator(1000)
+
+    if not np.isclose(
+        float(ratio),
+        new_delta / old_delta,
+        rtol=1e-9,
+        atol=0.0,
+    ):
+        raise ValueError(
+            "Fourier resampling requires the ratio of the sampling "
+            "intervals to be a simple fraction; use method='interp'"
+        )
+
+    # new_delta / old_delta = down / up: a block of `down` old samples
+    # spans `up` new samples.
+    down = ratio.numerator
+    up = ratio.denominator
+
+    nsamp = data.size
+    padded = -(-nsamp // down) * down
+
+    if padded > nsamp:
+        data = np.concatenate(
+            (data, np.zeros(padded - nsamp, dtype=data.dtype))
+        )
+
+    resampled = signal.resample(data, padded // down * up)
+
+    return resampled[:new_nsamp]

@@ -35,12 +35,22 @@ corrections. The format follows
   (strings, seconds, sequences, dictionaries) and stores its own copy,
   so later changes to the assigned `Date` no longer move the record;
   `Header.location` also accepts NumPy arrays.
+- `signals.base`: contiguous records are joined when the start time is
+  within half a sample of the expected one (previously 1e-6 samples),
+  absorbing the time resolution of data formats.
+- `signals.base.Record.cut`/`extract` accept windows not aligned with
+  the sampling grid and keep the samples inside the window.
+- `signals.base.Record` operators `*` and `/` accept every response
+  container (stage, stage set, stream response, response collection).
 - `libutils.timezones.TIMEZONE`: outdated offsets updated (e.g.
   Caracas, Amman, Damascus, Casablanca, Samoa, Minsk, Novosibirsk,
   Astana, Greenland, Asuncion) and an IANA name added to each entry.
 
 ### Added
 
+- `signals.base`: `MERGE_TOLERANCE` (0.5 samples, used when joining
+  records) and `GRID_TOLERANCE`; `Record(units=...)`;
+  `Record.time_axis(reference=date)` for seconds relative to any date.
 - `docs/conventions.md` (library-wide conventions) and
   `docs/development.md` (development and architecture guidelines,
   version 2.1), replacing the former Word document; the normative
@@ -63,6 +73,12 @@ corrections. The format follows
 
 ### Fixed
 
+- `signals.base.Record.resample`: Fourier resampling produced a
+  sampling interval different from the declared one; linear
+  interpolation could assign the last value to a time beyond the end
+  of the data.
+- `signals.base.Record.shift` failed on complex data; `filter`
+  rejected NumPy integer orders.
 - `signals.base.Header.location`: a `(longitude, latitude)` sequence
   was stored with longitude and latitude swapped.
 - `seismicity.catalogue` hypocentre: longitude and latitude were
