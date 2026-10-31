@@ -6,8 +6,7 @@ This document defines the design philosophy of ShakeLab and the
 principles that all contributions follow. Parts I to III state
 principles. The concrete scientific and technical conventions (time,
 coordinates, units, numerical representation, supported versions) are
-normative and are listed in [conventions.md](conventions.md). The
-changes from previous versions are summarized at the end.
+normative and are listed in [conventions.md](conventions.md).
 
 The guidelines apply to human developers and to AI assistants working
 on the code base alike.
@@ -17,7 +16,6 @@ on the code base alike.
 - [Part I. Architecture](#part-i-architecture)
 - [Part II. Scientific semantics](#part-ii-scientific-semantics)
 - [Part III. Engineering practice](#part-iii-engineering-practice)
-- [Changes](#changes)
 
 ---
 
@@ -651,51 +649,3 @@ A user should not need to understand an application to use a
 scientific algorithm, and an application should not need to reproduce
 an algorithm to use it.
 
----
-
-## Changes
-
-### Version 2.1 (31 October 2026)
-
-- Guidelines moved from a Word document into the repository
-  (`docs/development.md`); the normative conventions (former
-  Appendix A) moved to [conventions.md](conventions.md).
-- Section 1: modules not used elsewhere in the code base are library
-  functionality and are maintained as such.
-- Conventions: longitudes accepted in `[-180, 180)` or `[0, 360)` and
-  kept as given; local times through numeric offsets and the
-  `timezones` module; `pyproject.toml` as single source also of the
-  package version.
-- Section 19: `pyproject.toml` single source of metadata, version and
-  requirements.
-- Section 21: examples in `docs/`.
-- Section 22: continuous integration with GitHub Actions.
-- Section 23: organization of the repository documentation (`README`,
-  `docs/`, subpackage READMEs, `CHANGELOG.md`).
-- Section 24: license header text (LGPL-3.0-or-later since October
-  2026); third-party files keep their own header.
-
-### Version 2.0 (30 October 2026)
-
-- Text reorganized into three parts and shortened; repeated statements
-  of the canonical-implementation principle merged into Section 4.
-- New appendix with binding conventions for time, coordinates, units,
-  numerical representation and supported versions. Coordinate order
-  fixed to (longitude, latitude); vertical reference fixed to the
-  WGS84 ellipsoid; depth in km positive downward.
-- New Section 13 (Reproducibility): explicit random generators.
-- Section 16 extended with warnings and logging; `print` forbidden in
-  library code.
-- Section 17 (Public API) defines what is public and states that
-  public names are not removed because unused in the repository.
-- New Section 18: deprecation procedure and life cycle of transitional
-  `N` modules.
-- Section 19 distinguishes core and optional dependencies; minimum
-  Python raised to 3.10.
-- Section 21: dated module copies and examples outside the package;
-  marking of experimental and unmaintained modules.
-- Section 22 (Testing) made concrete: pytest, regression tests,
-  reference values, justified tolerances.
-- Section 24 codifies the reference coding style of
-  `engineering/impact.py` and unit suffixes in names.
-- ObsPy interoperability through optional adapters only.

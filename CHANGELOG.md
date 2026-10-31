@@ -38,7 +38,10 @@ corrections. The format follows
 ### Added
 
 - `docs/conventions.md` (library-wide conventions) and
-  `docs/development.md` (development and architecture guidelines).
+  `docs/development.md` (development and architecture guidelines,
+  version 2.1), replacing the former Word document; the normative
+  conventions, previously an appendix of the guidelines, are now in
+  `docs/conventions.md`.
 - `libutils.timeN.Date`: Unix time conversions (`from_unix`,
   `to_unix` and nanosecond variants), `replace`, `nanosecond`,
   `is_set`.
