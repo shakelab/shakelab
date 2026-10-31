@@ -1,6 +1,6 @@
 <img alt="ShakeLab - Tools for Engineering Seismology" class="right" style="width: 100%" src="https://raw.githubusercontent.com/klunk386/shakelab/master/logo/shakelab-header.png#1" />
 
-[![AGPLv3](https://www.gnu.org/graphics/agplv3-88x31.png)](https://www.gnu.org/licenses/agpl.html)
+[![LGPLv3](https://www.gnu.org/graphics/lgplv3-88x31.png)](https://www.gnu.org/licenses/lgpl-3.0.html)
 [![Build Status](https://travis-ci.org/shakelab/shakelab.svg?branch=master)](https://travis-ci.org/shakelab/shakelab)
 [![Supported Python versions](https://img.shields.io/pypi/pyversions/shakelab.svg)](https://pypi.python.org/pypi/shakelab)
 [![PyPI Version](https://img.shields.io/pypi/v/shakelab.svg)](https://pypi.python.org/pypi/shakelab)
@@ -81,10 +81,11 @@ Official documentation is available at: [shakelab.org](http://shakelab.org)
 
 ##  License
 
-ShakeLab is free software, released under the **GNU Affero General Public License v3.0**.  
+ShakeLab is free software, released under the **GNU Lesser General Public License v3.0** or (at your option) any later version.  
 You can redistribute it and/or modify it under the terms of the license.
 
-See <https://www.gnu.org/licenses/agpl-3.0.html> for full details.
+The license text is in `COPYING.LESSER`, which supplements the GNU General Public License v3.0 in `COPYING`.
+See <https://www.gnu.org/licenses/lgpl-3.0.html> for full details.
 
 ## ⚠️ Disclaimer
 

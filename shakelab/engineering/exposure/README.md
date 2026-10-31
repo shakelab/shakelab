@@ -304,4 +304,4 @@ or vulnerability models by downstream components.
 ---
 
 © 2026 ShakeLab Developers  
-Licensed under the GNU General Public License v3
+Licensed under the GNU Lesser General Public License v3
