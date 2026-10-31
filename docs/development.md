@@ -377,7 +377,10 @@ Raise an exception when the result would be wrong. Issue a warning
 valid but the user should know something: an approximation, a
 deprecated call, a value outside the calibrated range of a model. Use
 the `logging` module, with per-module loggers, for operational
-information. Library code never uses `print`.
+information. Library code does not use `print` for debugging or error
+reporting; the only exception are methods whose purpose is to show a
+summary to the user, such as the `info()` methods of the waveform
+classes.
 
 ### 17. Public API
 

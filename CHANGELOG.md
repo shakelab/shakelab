@@ -31,6 +31,10 @@ corrections. The format follows
   printed messages.
 - `libutils.utils.a_round` returns a rounded copy instead of modifying
   its input.
+- `signals.base.Header.time` accepts every format accepted by `Date`
+  (strings, seconds, sequences, dictionaries) and stores its own copy,
+  so later changes to the assigned `Date` no longer move the record;
+  `Header.location` also accepts NumPy arrays.
 - `libutils.timezones.TIMEZONE`: outdated offsets updated (e.g.
   Caracas, Amman, Damascus, Casablanca, Samoa, Minsk, Novosibirsk,
   Astana, Greenland, Asuncion) and an IANA name added to each entry.
