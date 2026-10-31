@@ -29,7 +29,8 @@ Conventions
 -----------
 - Input must be standard JSON (RFC 8259), with one extension: the
   tokens ``NaN``, ``Infinity`` and ``-Infinity`` are accepted, as in
-  the output of most scientific tools.
+  the output of most scientific tools. Line comments starting with
+  ``//`` or ``#`` can be enabled with ``allow_comments``.
 - Integers are returned as ``int``, other numbers as ``float``;
   duplicate object keys keep the last value.
 - Strings are written as UTF-8 without escaping non-ASCII characters.
@@ -38,6 +39,10 @@ Conventions
   ``None``) are converted to strings.
 - Arrays whose items are all numbers are written on a single line
   (e.g. ``[12.0, 45.0, 0.0]``) unless ``inline_numbers`` is False.
+- Floats are written with full precision by default, with a fixed
+  number of decimals (``float_precision``) or with any format
+  specification (``float_format``, e.g. ``".6g"``); a float is always
+  written so that it reads back as a float.
 """
 
 from __future__ import annotations
@@ -104,9 +109,10 @@ _LITERALS = (
 class _Parser:
     """Recursive-descent JSON parser over a string."""
 
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, allow_comments: bool = False) -> None:
         self.text = text
         self.pos = 0
+        self.allow_comments = allow_comments
 
     def error(self, msg: str, pos: int | None = None) -> JsonParseError:
         return JsonParseError(
@@ -114,9 +120,18 @@ class _Parser:
         )
 
     def skip_whitespace(self) -> None:
+        """Skip blanks and, if enabled, line comments."""
         text, pos = self.text, self.pos
-        while pos < len(text) and text[pos] in _WHITESPACE:
-            pos += 1
+        while pos < len(text):
+            if text[pos] in _WHITESPACE:
+                pos += 1
+            elif self.allow_comments and (
+                text[pos] == "#" or text.startswith("//", pos)
+            ):
+                end = text.find("\n", pos)
+                pos = len(text) if end < 0 else end + 1
+            else:
+                break
         self.pos = pos
 
     def parse(self) -> Any:
@@ -261,7 +276,7 @@ class _Parser:
                 raise self.error("Expected ',' or '}'", self.pos - 1)
 
 
-def read_str(text: str) -> Any:
+def read_str(text: str, allow_comments: bool = False) -> Any:
     """
     Parse JSON content from a string.
 
@@ -269,6 +284,9 @@ def read_str(text: str) -> Any:
     ----------
     text
         JSON document.
+    allow_comments
+        Ignore line comments starting with ``//`` or ``#`` outside
+        strings.
 
     Returns
     -------
@@ -280,10 +298,10 @@ def read_str(text: str) -> Any:
     JsonParseError
         If the document is malformed.
     """
-    return _Parser(text).parse()
+    return _Parser(text, allow_comments).parse()
 
 
-def read(file: FileLike) -> Any:
+def read(file: FileLike, allow_comments: bool = False) -> Any:
     """
     Parse JSON content from a file.
 
@@ -291,6 +309,9 @@ def read(file: FileLike) -> Any:
     ----------
     file
         Path to a UTF-8 file, or an open readable text stream.
+    allow_comments
+        Ignore line comments starting with ``//`` or ``#`` outside
+        strings.
 
     Returns
     -------
@@ -304,8 +325,8 @@ def read(file: FileLike) -> Any:
     """
     if isinstance(file, (str, Path)):
         with open(file, "r", encoding="utf-8") as fobj:
-            return read_str(fobj.read())
-    return read_str(file.read())
+            return read_str(fobj.read(), allow_comments)
+    return read_str(file.read(), allow_comments)
 
 
 # ----------------------------------------------------------------------------
@@ -325,13 +346,25 @@ class _Writer:
         self,
         indent: Optional[int],
         float_precision: Optional[int],
+        float_format: Optional[str],
         inline_numbers: bool,
         allow_nan: bool,
+        sort_keys: bool,
     ) -> None:
+        if float_precision is not None and float_format is not None:
+            raise ValueError(
+                "float_precision and float_format are mutually exclusive"
+            )
+        if float_precision is not None:
+            float_format = f".{int(float_precision)}f"
+        if float_format is not None:
+            format(1.0, float_format)
+
         self.indent = indent if indent else None
-        self.float_precision = float_precision
+        self.float_format = float_format
         self.inline_numbers = inline_numbers
         self.allow_nan = allow_nan
+        self.sort_keys = sort_keys
 
     def encode(self, obj: Any, level: int = 0) -> str:
         obj = _to_python(obj)
@@ -365,19 +398,25 @@ class _Writer:
                 return "NaN"
             return "Infinity" if x > 0 else "-Infinity"
 
-        if self.float_precision is None:
+        if self.float_format is None:
             return repr(float(x))
 
-        p = self.float_precision
-        return f"{round(x, p) + 0.0:.{p}f}"
+        text = format(float(x), self.float_format)
+        if float(text) == 0.0:
+            text = format(0.0, self.float_format)
+        if not any(c in text for c in ".eE"):
+            text += ".0"
+        return text
 
     def encode_object(self, obj: dict, level: int) -> str:
         if not obj:
             return "{}"
+        pairs = [(_key_to_str(k), v) for k, v in obj.items()]
+        if self.sort_keys:
+            pairs.sort(key=lambda kv: kv[0])
         items = [
-            f"{_encode_string(_key_to_str(k))}: "
-            f"{self.encode(v, level + 1)}"
-            for k, v in obj.items()
+            f"{_encode_string(k)}: {self.encode(v, level + 1)}"
+            for k, v in pairs
         ]
         return self.wrap("{", items, "}", level)
 
@@ -447,6 +486,8 @@ def write_str(
     float_precision: Optional[int] = None,
     inline_numbers: bool = True,
     allow_nan: bool = True,
+    float_format: Optional[str] = None,
+    sort_keys: bool = False,
 ) -> str:
     """
     Serialize a Python object to a JSON string.
@@ -465,6 +506,11 @@ def write_str(
     allow_nan
         Write NaN and infinities as ``NaN``, ``Infinity`` and
         ``-Infinity``; if False they raise ValueError.
+    float_format
+        Format specification for floats (e.g. ``".6g"`` for six
+        significant digits); exclusive with ``float_precision``.
+    sort_keys
+        Write object keys in sorted order.
 
     Returns
     -------
@@ -475,8 +521,17 @@ def write_str(
     ------
     TypeError
         If an object cannot be serialized.
+    ValueError
+        If both float options are given or the format is invalid.
     """
-    writer = _Writer(indent, float_precision, inline_numbers, allow_nan)
+    writer = _Writer(
+        indent,
+        float_precision,
+        float_format,
+        inline_numbers,
+        allow_nan,
+        sort_keys,
+    )
     return writer.encode(data)
 
 
@@ -487,6 +542,8 @@ def write(
     float_precision: Optional[int] = None,
     inline_numbers: bool = True,
     allow_nan: bool = True,
+    float_format: Optional[str] = None,
+    sort_keys: bool = False,
 ) -> None:
     """
     Write a Python object to a file in JSON format.
@@ -505,6 +562,11 @@ def write(
         Write arrays of numbers on a single line.
     allow_nan
         Write NaN and infinities instead of raising ValueError.
+    float_format
+        Format specification for floats; exclusive with
+        ``float_precision``.
+    sort_keys
+        Write object keys in sorted order.
     """
     text = write_str(
         data,
@@ -512,6 +574,8 @@ def write(
         float_precision=float_precision,
         inline_numbers=inline_numbers,
         allow_nan=allow_nan,
+        float_format=float_format,
+        sort_keys=sort_keys,
     ) + "\n"
 
     if isinstance(file, (str, Path)):

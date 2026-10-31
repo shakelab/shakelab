@@ -22,8 +22,9 @@ The reader is checked against standard JSON documents, escapes,
 numbers and the NaN/Infinity extension, and must reject malformed
 input with a positioned error. The writer is checked for valid
 escaping, float precision, NumPy support, layout options and the
-round trip through the reader. The standard ``json`` module is used
-only as an independent reference.
+round trip through the reader, plus the optional features (comments,
+float formats, sorted keys). The standard ``json`` module is used only
+as an independent reference.
 """
 
 from __future__ import annotations
@@ -259,3 +260,75 @@ def test_write_read_round_trip(tmp_path):
     stream = io.StringIO()
     write(data, stream, indent=None)
     assert read_str(stream.getvalue()) == data
+
+
+# ----------------------------------------------------------------------------
+# Optional features
+# ----------------------------------------------------------------------------
+
+
+def test_read_comments():
+    """Line comments are skipped only when enabled and outside strings."""
+    text = (
+        "# configuration\n"
+        "{\n"
+        '  "url": "http://host/#x",  // not a comment inside strings\n'
+        "  # magnitude threshold\n"
+        '  "mmin": 3.0\n'
+        "} // end"
+    )
+    assert read_str(text, allow_comments=True) == {
+        "url": "http://host/#x",
+        "mmin": 3.0,
+    }
+    with pytest.raises(JsonParseError):
+        read_str(text)
+
+
+def test_read_comments_from_file(tmp_path):
+    """read forwards allow_comments."""
+    path = tmp_path / "config.json"
+    path.write_text("[1, // one\n 2]", encoding="utf-8")
+    assert read(path, allow_comments=True) == [1, 2]
+
+
+def test_write_float_format_significant_digits():
+    """Significant-digit formats keep small values and float type."""
+    text = write_str(
+        [1.2e-7, 2.0, 1234567.0, -0.0, 3],
+        float_format=".6g",
+    )
+    assert text == "[1.2e-07, 2.0, 1.23457e+06, 0.0, 3]"
+
+    values = read_str(text)
+    assert all(type(v) is float for v in values[:4])
+
+
+def test_write_float_options_validation():
+    """Float options are exclusive and formats are validated."""
+    with pytest.raises(ValueError):
+        write_str([1.0], float_precision=2, float_format=".3g")
+    with pytest.raises(ValueError):
+        write_str([1.0], float_format="not a format")
+
+
+def test_write_zero_decimals_keeps_float():
+    """A float written with no decimals still reads back as float."""
+    assert write_str([2.4], float_precision=0) == "[2.0]"
+
+
+def test_write_sort_keys(tmp_path):
+    """Keys are written in sorted order at every level."""
+    data = {"b": 1, "a": {"d": 2, "c": 3}}
+    assert write_str(data, indent=None, sort_keys=True) == (
+        '{"a": {"c": 3, "d": 2}, "b": 1}'
+    )
+    assert write_str(data, indent=None) == (
+        '{"b": 1, "a": {"d": 2, "c": 3}}'
+    )
+
+    path = tmp_path / "sorted.json"
+    write(data, path, indent=None, sort_keys=True)
+    assert path.read_text(encoding="utf-8") == (
+        '{"a": {"c": 3, "d": 2}, "b": 1}\n'
+    )
