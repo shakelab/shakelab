@@ -9,8 +9,10 @@ dist
 *.egg-info
 *.whl
 
-# Travis configuration
-#.travis.yml
+# Test and environment caches
+.pytest_cache/
+venv/
+.venv/
 
 # Mac stuff
 .DS_Store

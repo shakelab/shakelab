@@ -12,7 +12,9 @@ keywords = [
     "Signal Processing"
 ]
 authors = [
-    { name = "Valerio Poggi", email = "vpoggi@ogs.it" }
+    { name = "Valerio Poggi", email = "vpoggi@ogs.it" },
+    { name = "Chiara Scaini" },
+    { name = "Laura Cataldi" },
 ]
 maintainers = [{ name = "shakelab contributors" }]
 license = { text = "LGPL-3.0-or-later" }
@@ -37,13 +39,16 @@ classifiers=[
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Geophysics",
     "Natural Language :: English"
 ]
 
 [project.urls]
 homepage = "http://shakelab.org"
+documentation = "http://shakelab.org"
 source = "https://github.com/shakelab/shakelab"
+issues = "https://github.com/shakelab/shakelab/issues"
 
 [project.optional-dependencies]
 all = ["wxPython>=4.0.7", "flask"]
