@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 # ****************************************************************************
-#
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -9,131 +7,104 @@
 # published by the Free Software Foundation, either version 3 of the
 # License, or (at your option) any later version.
 #
-# ShakeLab is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
+# ShakeLab is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
+# GNU Affero General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
-Distance helpers for geodetic coordinates.
+Seismological distances between geographic points.
 
-This module provides high-level wrappers to compute seismology-oriented
-distances between geographic objects, consistently with the ShakeLab
-geodetic conventions.
+This module provides the distances used in seismology between an event
+and a site:
 
-The main helpers are:
+- :func:`epicentral_distance`: great-circle (surface) distance;
+- :func:`hypocentral_distance`: 3-D straight-line distance including
+  elevation, on the WGS84 ellipsoid or on a sphere;
+- :func:`tunnel_distance_sphere` and :func:`tunnel_distance_ellipsoid`:
+  the two 3-D straight-line distances used by
+  :func:`hypocentral_distance`.
 
-* :func:`epicentral_distance`:
-  great-circle (surface) distance between event and station;
-* :func:`hypocentral_distance`:
-  thin wrapper around the tunnel-distance functions;
-* :func:`tunnel_distance_sphere`:
-  straight-line 3-D distance on a spherical Earth (with elevation);
-* :func:`tunnel_distance_ellipsoid`:
-  straight-line 3-D distance on the WGS84 ellipsoid (with elevation).
+Design choices
+--------------
+- The functions accept any object exposing ``longitude`` and
+  ``latitude`` (and optionally ``elevation``), such as
+  :class:`WgsPoint`.
+- The epicentral distance is computed on a sphere of mean radius, while
+  the hypocentral distance uses the WGS84 ellipsoid by default. The two
+  models differ by a few tenths of a percent; use
+  ``hypocentral_distance(..., approx="sphere")`` for a distance
+  consistent with the epicentral one.
 
-All geodetic coordinates follow the convention ``(lon, lat, h)``, i.e.
-longitude first, then latitude, then ellipsoidal height in meters.
+Conventions
+-----------
+- Longitude and latitude in degrees, in any longitude convention.
+- Elevation in meters, positive upward; a hypocentre at 10 km depth has
+  ``elevation = -10000``.
+- Distances in meters.
 """
 
 from __future__ import annotations
 
-import math
 from typing import Any
-
-import numpy as np
 
 from shakelab.libutils.geodeticN.primitives import WgsPoint
 from shakelab.libutils.geodeticN.transform import geo_to_ecef
-from shakelab.libutils.geodeticN.utilities import (
-    MEAN_EARTH_RADIUS_M,
-    great_circle_distance,
-    wgs84_to_cartesian_sphere,
-)
+from shakelab.libutils.geodeticN import utilities
 
 
-# ============================================================================
-# Internal helpers
-# ============================================================================
+__all__ = [
+    "epicentral_distance",
+    "hypocentral_distance",
+    "tunnel_distance_sphere",
+    "tunnel_distance_ellipsoid",
+]
 
 
-def _as_wgs_point(obj: Any) -> WgsPoint:
-    """
-    Convert a generic object with attributes
-    (longitude, latitude, elevation) into a WgsPoint.
-
-    Parameters
-    ----------
-    obj : Any
-        An object carrying geodetic information. Must expose
-        attributes 'longitude' and 'latitude'. Elevation defaults to 0.
-
-    Returns
-    -------
-    WgsPoint
-        A WgsPoint instance with the canonical ShakeLab attributes.
-    """
-    try:
-        lon = obj.longitude
-        lat = obj.latitude
-    except AttributeError:
-        raise TypeError(
-            f"Object of type {type(obj)} does not expose "
-            "'longitude' and 'latitude' attributes."
-        )
-
-    elev = getattr(obj, "elevation", 0.0)
-
-    return WgsPoint(
-        longitude=float(lon),
-        latitude=float(lat),
-        elevation=float(elev),
-    )
-
-
-# ============================================================================
-# Seismological distance wrapper functions
-# ============================================================================
-
+# ---------------------------------------------------------------------------
+# Public distances
+# ---------------------------------------------------------------------------
 
 def epicentral_distance(
     hypocenter: Any,
     station: Any,
-    radius_m: float = MEAN_EARTH_RADIUS_M,
+    radius_m: float = utilities.MEAN_EARTH_RADIUS_M,
 ) -> float:
     """
-    Compute epicentral distance between two geographic points.
+    Compute the epicentral (great-circle) distance.
 
-    This function returns the surface (great-circle) distance between
-    two points defined by longitude and latitude. It accepts any
-    objects that provide ``.lon`` and ``.lat`` attributes, such as
-    :class:`WgsPoint`, without requiring a specific class type.
+    Elevations are ignored.
 
     Parameters
     ----------
-    hypocenter : object
-        Object with ``lon`` and ``lat`` attributes representing the
-        event location.
-    station : object
-        Object with ``lon`` and ``lat`` attributes representing the
-        station location.
-    radius_m : float, optional
-        Sphere radius in meters. Default is the mean Earth radius.
+    hypocenter
+        Event location: an object with ``longitude`` and ``latitude``.
+    station
+        Site location: an object with ``longitude`` and ``latitude``.
+    radius_m
+        Sphere radius in meters.
 
     Returns
     -------
     float
-        Epicentral distance in meters along the spherical surface.
+        Epicentral distance in meters.
+
+    Raises
+    ------
+    TypeError
+        If an input does not expose ``longitude`` and ``latitude``.
     """
-    return great_circle_distance(
-        hypocenter.longitude,
-        hypocenter.latitude,
-        station.longitude,
-        station.latitude,
+    hyp = _as_wgs_point(hypocenter)
+    sta = _as_wgs_point(station)
+
+    return utilities.great_circle_distance(
+        hyp.longitude,
+        hyp.latitude,
+        sta.longitude,
+        sta.latitude,
         radius_m=radius_m,
     )
 
@@ -142,25 +113,22 @@ def hypocentral_distance(
     hypocenter: Any,
     station: Any,
     approx: str = "ellipsoid",
-    radius_m: float = MEAN_EARTH_RADIUS_M,
+    radius_m: float = utilities.MEAN_EARTH_RADIUS_M,
 ) -> float:
     """
-    Compute hypocentral distance between an event and a station.
+    Compute the hypocentral (3-D straight-line) distance.
 
     Parameters
     ----------
-    hypocenter : object
-        Object convertible to :class:`WgsPoint` via ``_as_wgs_point``.
-    station : object
-        Object convertible to :class:`WgsPoint` via ``_as_wgs_point``.
-    approx : str, optional
-        Method to use for the 3-D distance. Valid options:
-        * "ellipsoid"  → use :func:`tunnel_distance_ellipsoid`
-        * "sphere"     → use :func:`tunnel_distance_sphere`
-        Default is "ellipsoid".
-    radius_m : float, optional
-        Sphere radius in meters used when ``approx="sphere"``.
-        Default is :data:`MEAN_EARTH_RADIUS_M`.
+    hypocenter
+        Event location: an object with ``longitude``, ``latitude`` and
+        optionally ``elevation`` (default 0).
+    station
+        Site location, as ``hypocenter``.
+    approx
+        Earth model: ``"ellipsoid"`` (WGS84, default) or ``"sphere"``.
+    radius_m
+        Sphere radius in meters, used when ``approx="sphere"``.
 
     Returns
     -------
@@ -169,19 +137,20 @@ def hypocentral_distance(
 
     Raises
     ------
+    TypeError
+        If an input does not expose ``longitude`` and ``latitude``.
     ValueError
-        If ``approx`` is not one of {"ellipsoid", "sphere"}.
+        If ``approx`` is not ``"ellipsoid"`` or ``"sphere"``.
     """
-    hyp_pt = _as_wgs_point(hypocenter)
-    sta_pt = _as_wgs_point(station)
+    hyp = _as_wgs_point(hypocenter)
+    sta = _as_wgs_point(station)
+    model = str(approx).lower().strip()
 
-    approx = approx.lower().strip()
+    if model == "ellipsoid":
+        return tunnel_distance_ellipsoid(hyp, sta)
 
-    if approx == "ellipsoid":
-        return tunnel_distance_ellipsoid(hyp_pt, sta_pt)
-
-    if approx == "sphere":
-        return tunnel_distance_sphere(hyp_pt, sta_pt, radius_m=radius_m)
+    if model == "sphere":
+        return tunnel_distance_sphere(hyp, sta, radius_m=radius_m)
 
     raise ValueError(
         "Invalid 'approx' option. Expected 'ellipsoid' or 'sphere', "
@@ -189,76 +158,89 @@ def hypocentral_distance(
     )
 
 
-# ============================================================================
-# Metric distance wrapper functions
-# ============================================================================
-
-
 def tunnel_distance_sphere(
-    point1: WgsPoint,
-    point2: WgsPoint,
-    radius_m: float = MEAN_EARTH_RADIUS_M,
+    point1: Any,
+    point2: Any,
+    radius_m: float = utilities.MEAN_EARTH_RADIUS_M,
 ) -> float:
     """
-    Compute 3-D straight-line distance between two points using a
-    spherical Earth with elevation included.
+    Compute the 3-D straight-line distance on a spherical Earth.
+
+    This is the point-based counterpart of
+    :func:`shakelab.libutils.geodeticN.utilities.tunnel_distance_sphere`.
 
     Parameters
     ----------
-    point1, point2 : WgsPoint
-        Geographic points, with ``lon``, ``lat`` and ``elev``.
-    radius_m : float, optional
-        Sphere radius in meters. Default is the mean Earth radius.
+    point1, point2
+        Objects with ``longitude``, ``latitude`` and optionally
+        ``elevation``.
+    radius_m
+        Sphere radius in meters.
 
     Returns
     -------
     float
-        Euclidean distance in meters (includes elevation).
+        Euclidean distance in meters, including elevation.
     """
-    x1, y1, z1 = wgs84_to_cartesian_sphere(
-        point1.longitude,
-        point1.latitude,
-        point1.elevation,
-        radius_m,
+    p1 = _as_wgs_point(point1)
+    p2 = _as_wgs_point(point2)
+
+    return utilities.tunnel_distance_sphere(
+        p1.longitude,
+        p1.latitude,
+        p2.longitude,
+        p2.latitude,
+        elev1_m=p1.elevation,
+        elev2_m=p2.elevation,
+        radius_m=radius_m,
     )
-    x2, y2, z2 = wgs84_to_cartesian_sphere(
-        point2.longitude,
-        point2.latitude,
-        point2.elevation,
-        radius_m,
-    )
-
-    dx = x2 - x1
-    dy = y2 - y1
-    dz = z2 - z1
-
-    return float(math.sqrt(dx * dx + dy * dy + dz * dz))
 
 
-def tunnel_distance_ellipsoid(
-    point1: WgsPoint,
-    point2: WgsPoint,
-) -> float:
+def tunnel_distance_ellipsoid(point1: Any, point2: Any) -> float:
     """
-    Compute 3-D straight-line distance between two points on the WGS84
-    ellipsoid, including elevation.
+    Compute the 3-D straight-line distance on the WGS84 ellipsoid.
 
     Parameters
     ----------
-    point1, point2 : WgsPoint
-        Points with ``lon``, ``lat`` and ``elev``.
+    point1, point2
+        Objects with ``longitude``, ``latitude`` and optionally
+        ``elevation``.
 
     Returns
     -------
     float
-        Euclidean distance in meters.
+        Euclidean distance in meters, including elevation.
     """
-    x1, y1, z1 = geo_to_ecef(point1, frame=None)
-    x2, y2, z2 = geo_to_ecef(point2, frame=None)
+    x1, y1, z1 = geo_to_ecef(_as_wgs_point(point1))
+    x2, y2, z2 = geo_to_ecef(_as_wgs_point(point2))
 
-    dx = x2 - x1
-    dy = y2 - y1
-    dz = z2 - z1
+    return ((x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2) ** 0.5
 
-    return float(math.sqrt(dx * dx + dy * dy + dz * dz))
 
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _as_wgs_point(obj: Any) -> WgsPoint:
+    """
+    Convert an object with ``longitude``/``latitude`` to a WgsPoint.
+
+    ``elevation`` defaults to 0 when missing.
+    """
+    if isinstance(obj, WgsPoint):
+        return obj
+
+    try:
+        lon = obj.longitude
+        lat = obj.latitude
+    except AttributeError:
+        raise TypeError(
+            f"Object of type {type(obj).__name__} does not expose "
+            "'longitude' and 'latitude' attributes."
+        ) from None
+
+    return WgsPoint(
+        longitude=float(lon),
+        latitude=float(lat),
+        elevation=float(getattr(obj, "elevation", 0.0)),
+    )

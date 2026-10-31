@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 # ****************************************************************************
-#
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -9,134 +7,142 @@
 # published by the Free Software Foundation, either version 3 of the
 # License, or (at your option) any later version.
 #
-# ShakeLab is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
+# ShakeLab is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU Affero General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
-Coordinate transformation utilities for ShakeLab.
+Coordinate transformations between geodetic and Cartesian frames.
 
-This module provides basic tools to convert between geodetic WGS84
-coordinates (longitude, latitude, elevation) and local Cartesian
-frames. Two types of local Cartesian frames are supported:
+This module converts geodetic WGS84 coordinates (longitude, latitude,
+ellipsoidal height) to and from:
 
-- **ECEF-shifted**: the point is converted to global ECEF coordinates
-  and optionally translated so that a given reference point is the
-  origin. Axes remain aligned with the global Earth-Centered
-  Earth-Fixed frame.
+- **ECEF** (Earth-Centered, Earth-Fixed) coordinates, absolute or
+  translated so that a reference point is the origin;
+- **ENU** (East-North-Up) local topocentric coordinates around a
+  reference point, convenient for local seismic and engineering work.
 
-- **ENU (East–North–Up)**: the point is expressed in a local
-  topocentric frame defined around a reference geodetic point.
-  Axes are oriented toward East, North, and Up respectively. This
-  frame is particularly useful for local seismic, geodetic and
-  engineering applications, as it cleanly separates horizontal and
-  vertical components.
+The high-level helpers :func:`wgs_to_metric` and :func:`metric_to_wgs`
+select ECEF or ENU through an optional :class:`MetricFrame`.
 
-The functions :func:`wgs_to_metric` and :func:`metric_to_wgs` expose
-these options through the optional ``frame`` argument.
+Design choices
+--------------
+- The local reference point is stored only in :class:`MetricFrame`.
+- Local metric coordinates are obtained through :class:`MetricFrame`
+  (translated ECEF or ENU); map projections such as UTM are
+  intentionally not provided.
+- ECEF to geodetic uses Bowring's closed form for the latitude and a
+  height formula that remains stable near the poles.
 
-Refactoring note
-----------------
-The local reference point is stored only in :class:`MetricFrame`.
-Legacy APIs that passed the reference point separately have been
-removed in this module revision.
+Conventions
+-----------
+- Geodetic triples are ``(lon, lat, h)``: longitude and latitude in
+  degrees, ellipsoidal height in meters (positive upward). Two-element
+  tuples ``(lon, lat)`` are accepted with ``h = 0``.
+- Longitudes may use the ``[-180, 180)`` or ``[0, 360)`` convention;
+  returned longitudes are in ``[-180, 180]``.
+- Cartesian coordinates are in meters.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from typing import Optional, Tuple, Union
-
+import math
+from typing import Optional, Sequence, Tuple, Union
 
 from shakelab.libutils.geodeticN.primitives import WgsPoint
+from shakelab.libutils.geodeticN.utilities import (
+    WGS84_A,
+    WGS84_B,
+    WGS84_E2,
+    WGS84_EP2,
+    WGS84_F,
+)
 
 
-# ============================================================================
-# WGS84 ellipsoid parameters
-# ============================================================================
+__all__ = [
+    "WGS84_A",
+    "WGS84_F",
+    "WGS84_B",
+    "WGS84_E2",
+    "WGS84_EP2",
+    "MetricFrame",
+    "MetricPoint",
+    "geo_to_ecef",
+    "ecef_to_geo",
+    "geo_to_enu",
+    "enu_to_geo",
+    "wgs_to_metric",
+    "metric_to_wgs",
+]
 
 
-WGS84_A: float = 6378137.0              # semi-major axis [m]
-WGS84_F: float = 1.0 / 298.257223563    # flattening [-]
-WGS84_E2: float = WGS84_F * (2.0 - WGS84_F)  # first ecc. squared
-
-WGS84_B: float = WGS84_A * (1.0 - WGS84_F)   # semi-minor axis [m]
-WGS84_EP2: float = (WGS84_A**2 - WGS84_B**2) / (WGS84_B**2)
+GeoLike = Union[WgsPoint, Sequence[float]]
 
 
-# ============================================================================
-# Basic metric containers
-# ============================================================================
-
-
-GeoLike = Union[WgsPoint, Tuple[float, float, float]]
-
+# ---------------------------------------------------------------------------
+# Metric containers
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class MetricFrame:
     """
     Definition of a local Cartesian reference frame.
 
-    A MetricFrame defines both the origin and the orientation of a
-    local Cartesian system used to represent geodetic positions in
-    meters.
-
-    The reference point is normalized at initialization time, so
-    ``ref_geo`` is always stored internally as a numeric triple
-    ``(lon, lat, h)`` with lon/lat in degrees and h in meters.
-
     Attributes
     ----------
-    ref_geo : tuple
-        Reference geodetic point defining the origin of the local
-        frame, stored as ``(lon, lat, h)`` with lon/lat in degrees and
-        h in meters.
-    orientation : {"ecef", "enu"}
-        Orientation of the Cartesian axes:
+    ref_geo
+        Reference geodetic point defining the origin of the frame: a
+        :class:`WgsPoint` or a ``(lon, lat[, h])`` sequence. It is
+        normalized at initialization to a ``(lon, lat, h)`` tuple of
+        floats.
+    orientation
+        Orientation of the axes: ``"ecef"`` (translated ECEF, axes
+        aligned with global ECEF) or ``"enu"`` (local East-North-Up).
 
-        - ``"ecef"``: translated ECEF frame (axes aligned with global
-          ECEF; origin at ``ref_geo``).
-        - ``"enu"``: local East-North-Up frame defined at ``ref_geo``.
+    Raises
+    ------
+    TypeError
+        If ``orientation`` is not a string.
+    ValueError
+        If ``orientation`` is not ``"ecef"`` or ``"enu"``.
     """
 
     ref_geo: GeoLike
     orientation: str = "ecef"
 
     def __post_init__(self) -> None:
-        lon, lat, h = _coerce_geo(self.ref_geo)
-        object.__setattr__(self, "ref_geo", (lon, lat, h))
+        object.__setattr__(self, "ref_geo", _coerce_geo(self.ref_geo))
 
-        orient = self.orientation.lower().strip()
-        if orient not in ("ecef", "enu"):
+        if not isinstance(self.orientation, str):
+            raise TypeError("MetricFrame.orientation must be a string.")
+
+        orientation = self.orientation.lower().strip()
+
+        if orientation not in ("ecef", "enu"):
             raise ValueError(
                 "MetricFrame.orientation must be 'ecef' or 'enu'."
             )
-        object.__setattr__(self, "orientation", orient)
+
+        object.__setattr__(self, "orientation", orientation)
 
 
 @dataclass
 class MetricPoint:
     """
-    A point expressed in a local 3-D Cartesian frame.
-
-    The coordinates (x, y, z) represent the position of a point in
-    meters in a Cartesian system. The definition of the local
-    frame (origin and axis orientation) can be carried explicitly via
-    the optional :class:`MetricFrame` attribute.
+    Point in a 3-D Cartesian frame.
 
     Attributes
     ----------
-    x, y, z : float
+    x, y, z
         Cartesian coordinates in meters.
-    frame : MetricFrame or None
-        Optional frame definition associated with this point.
-        If None, coordinates are interpreted as absolute ECEF.
+    frame
+        Frame in which the coordinates are expressed. ``None`` means
+        absolute ECEF.
     """
 
     x: float
@@ -144,183 +150,57 @@ class MetricPoint:
     z: float
     frame: Optional[MetricFrame] = None
 
-    def to_wgs(self, frame=None) -> "WgsPoint":
+    def to_wgs(self, frame: Optional[MetricFrame] = None) -> WgsPoint:
         """
-        Convert this MetricPoint to a WgsPoint.
+        Convert the point to geodetic coordinates.
 
         Parameters
         ----------
-        frame : MetricFrame or None, optional
-            Frame in which the metric coordinates are expressed.
-
-            If None and this point carries a non-null ``self.frame``,
-            that frame is used. Otherwise, the coordinates are
-            interpreted as absolute ECEF.
+        frame
+            Frame of the coordinates. If omitted, :attr:`frame` is used.
 
         Returns
         -------
         WgsPoint
-            Geodetic coordinates (longitude, latitude, elevation) in
-            the WGS84 system.
+            Geodetic point.
         """
-        # Local import to avoid circular dependencies (transform imports
-        # WgsPoint from primitives).
-        from shakelab.libutils.geodeticN.transform import metric_to_wgs
-
         return metric_to_wgs(self, frame=frame)
 
 
-MetricLike = Union[MetricPoint, Tuple[float, float, float]]
+MetricLike = Union[MetricPoint, Sequence[float]]
 
 
-# ============================================================================
-# Internal coercion helpers
-# ============================================================================
-
-
-def _coerce_geo(geo: GeoLike) -> Tuple[float, float, float]:
-    """
-    Normalize a geodetic input to (lon, lat, h) floats.
-
-    Parameters
-    ----------
-    geo : WgsPoint or tuple
-        Either a :class:`WgsPoint` instance or a tuple
-        ``(lon, lat, h)`` with lon/lat in degrees and h in meters.
-
-    Returns
-    -------
-    lon, lat, h : float
-        Normalized geodetic coordinates.
-    """
-    if isinstance(geo, WgsPoint):
-        return float(geo.longitude), float(geo.latitude), float(geo.elevation)
-
-    lon, lat, h = geo
-    return float(lon), float(lat), float(h)
-
-
-def _coerce_metric(metric: MetricLike) -> Tuple[float, float, float]:
-    """
-    Normalize a metric input to a 3-element tuple ``(x, y, z)``.
-
-    Parameters
-    ----------
-    metric : MetricPoint or tuple
-        Either a :class:`MetricPoint` instance or a tuple
-        ``(x, y, z)`` in meters.
-
-    Returns
-    -------
-    x, y, z : float
-        Normalized Cartesian coordinates in meters.
-    """
-    if isinstance(metric, MetricPoint):
-        return float(metric.x), float(metric.y), float(metric.z)
-
-    x, y, z = metric
-    return float(x), float(y), float(z)
-
-
-def _coerce_frame(frame: Optional[MetricFrame]) -> Optional[MetricFrame]:
-    """
-    Validate a MetricFrame argument.
-
-    Parameters
-    ----------
-    frame : MetricFrame or None
-        Frame to validate. If None, coordinates are interpreted as
-        absolute ECEF.
-
-    Returns
-    -------
-    MetricFrame or None
-        The validated frame.
-
-    Raises
-    ------
-    TypeError
-        If frame is not a MetricFrame and not None.
-    """
-    if frame is None or isinstance(frame, MetricFrame):
-        return frame
-    raise TypeError("frame must be a MetricFrame or None.")
-
-
-# ============================================================================
-# Core WGS84 <-> ECEF transforms (absolute)
-# ============================================================================
-
-
-def _geo_to_ecef_raw(
-    lon: float,
-    lat: float,
-    h: float,
-) -> Tuple[float, float, float]:
-    """
-    Convert geodetic coordinates to absolute ECEF (WGS84).
-
-    Parameters
-    ----------
-    lon, lat : float
-        Longitude and latitude in degrees.
-    h : float
-        Ellipsoidal height above WGS84 in meters.
-
-    Returns
-    -------
-    x, y, z : float
-        Absolute ECEF coordinates in meters.
-    """
-    lat_rad = math.radians(lat)
-    lon_rad = math.radians(lon)
-
-    sin_lat = math.sin(lat_rad)
-    cos_lat = math.cos(lat_rad)
-
-    n = WGS84_A / math.sqrt(1.0 - WGS84_E2 * sin_lat * sin_lat)
-
-    x = (n + h) * cos_lat * math.cos(lon_rad)
-    y = (n + h) * cos_lat * math.sin(lon_rad)
-    z = (n * (1.0 - WGS84_E2) + h) * sin_lat
-
-    return x, y, z
-
+# ---------------------------------------------------------------------------
+# Absolute and translated ECEF
+# ---------------------------------------------------------------------------
 
 def geo_to_ecef(
     geo: GeoLike,
     frame: Optional[MetricFrame] = None,
 ) -> Tuple[float, float, float]:
     """
-    Convert geodetic coordinates to ECEF, with optional local shift.
-
-    If ``frame`` is None, this function returns absolute ECEF
-    coordinates. If ``frame`` is provided, its orientation must be
-    ``"ecef"`` and the returned coordinates are expressed in a local
-    translated ECEF system whose origin is ``frame.ref_geo``.
+    Convert geodetic coordinates to ECEF, optionally translated.
 
     Parameters
     ----------
-    geo : WgsPoint or tuple
-        Geodetic coordinates of the point to be converted.
-    frame : MetricFrame or None, optional
-        Local frame definition. Only ``orientation="ecef"`` is valid.
+    geo
+        Geodetic point: :class:`WgsPoint` or ``(lon, lat[, h])``.
+    frame
+        If given, it must have ``orientation="ecef"`` and the result is
+        translated so that ``frame.ref_geo`` is the origin.
 
     Returns
     -------
     x, y, z : float
-        ECEF coordinates in meters (absolute if frame is None, local
-        translated if frame is provided).
+        ECEF coordinates in meters.
 
     Raises
     ------
     ValueError
-        If ``frame.orientation`` is not "ecef".
+        If ``frame.orientation`` is not ``"ecef"``.
     """
     frame = _coerce_frame(frame)
-
-    lon, lat, h = _coerce_geo(geo)
-    x, y, z = _geo_to_ecef_raw(lon, lat, h)
+    x, y, z = _geo_to_ecef_raw(*_coerce_geo(geo))
 
     if frame is None:
         return x, y, z
@@ -328,8 +208,7 @@ def geo_to_ecef(
     if frame.orientation != "ecef":
         raise ValueError("geo_to_ecef requires orientation='ecef'.")
 
-    lon0, lat0, h0 = _coerce_geo(frame.ref_geo)
-    x0, y0, z0 = _geo_to_ecef_raw(lon0, lat0, h0)
+    x0, y0, z0 = _geo_to_ecef_raw(*frame.ref_geo)
 
     return x - x0, y - y0, z - z0
 
@@ -341,70 +220,65 @@ def ecef_to_geo(
     """
     Convert ECEF coordinates to geodetic coordinates.
 
-    If ``frame`` is None, the input is interpreted as absolute ECEF.
-    If ``frame`` is provided, its orientation must be ``"ecef"`` and the
-    input is interpreted as local translated ECEF coordinates relative
-    to ``frame.ref_geo``.
-
     Parameters
     ----------
-    ecef : MetricPoint or tuple
-        ECEF coordinates to be converted.
-    frame : MetricFrame or None, optional
-        Local frame definition. Only ``orientation="ecef"`` is valid.
+    ecef
+        ECEF coordinates: :class:`MetricPoint` or ``(x, y, z)``.
+    frame
+        If given, it must have ``orientation="ecef"`` and the input is
+        interpreted relative to ``frame.ref_geo``.
 
     Returns
     -------
     lon, lat, h : float
-        Geodetic coordinates (longitude, latitude in degrees; height in
-        meters).
+        Longitude and latitude in degrees, ellipsoidal height in meters.
 
     Raises
     ------
     ValueError
-        If ``frame.orientation`` is not "ecef".
+        If ``frame.orientation`` is not ``"ecef"``.
     """
     frame = _coerce_frame(frame)
-
     x, y, z = _coerce_metric(ecef)
 
     if frame is not None:
         if frame.orientation != "ecef":
             raise ValueError("ecef_to_geo requires orientation='ecef'.")
-        lon0, lat0, h0 = _coerce_geo(frame.ref_geo)
-        x0, y0, z0 = _geo_to_ecef_raw(lon0, lat0, h0)
+
+        x0, y0, z0 = _geo_to_ecef_raw(*frame.ref_geo)
         x += x0
         y += y0
         z += z0
 
     p = math.hypot(x, y)
+
     if p == 0.0:
-        lat_rad = math.copysign(math.pi / 2.0, z)
-        lon_rad = 0.0
-        h = abs(z) - WGS84_B
-        return math.degrees(lon_rad), math.degrees(lat_rad), float(h)
+        lat = math.copysign(math.pi / 2.0, z)
+        return 0.0, math.degrees(lat), abs(z) - WGS84_B
 
+    # Bowring's closed-form latitude.
     theta = math.atan2(z * WGS84_A, p * WGS84_B)
-    sin_theta = math.sin(theta)
-    cos_theta = math.cos(theta)
-
-    lat_rad = math.atan2(
-        z + WGS84_EP2 * WGS84_B * sin_theta**3,
-        p - WGS84_E2 * WGS84_A * cos_theta**3,
+    lat = math.atan2(
+        z + WGS84_EP2 * WGS84_B * math.sin(theta) ** 3,
+        p - WGS84_E2 * WGS84_A * math.cos(theta) ** 3,
     )
-    lon_rad = math.atan2(y, x)
+    lon = math.atan2(y, x)
 
-    sin_lat = math.sin(lat_rad)
-    n = WGS84_A / math.sqrt(1.0 - WGS84_E2 * sin_lat * sin_lat)
-    h = p / math.cos(lat_rad) - n
+    # Height formula stable at all latitudes (no division by cos(lat)).
+    sin_lat = math.sin(lat)
+    cos_lat = math.cos(lat)
+    h = (
+        p * cos_lat
+        + z * sin_lat
+        - WGS84_A * math.sqrt(1.0 - WGS84_E2 * sin_lat * sin_lat)
+    )
 
-    return math.degrees(lon_rad), math.degrees(lat_rad), float(h)
+    return math.degrees(lon), math.degrees(lat), h
 
 
-# ============================================================================
-# Core WGS84 <-> ENU transforms
-# ============================================================================
-
+# ---------------------------------------------------------------------------
+# Local East-North-Up
+# ---------------------------------------------------------------------------
 
 def geo_to_enu(
     geo: GeoLike,
@@ -415,46 +289,38 @@ def geo_to_enu(
 
     Parameters
     ----------
-    geo : WgsPoint or tuple
-        Geodetic coordinates of the point to be converted.
-    frame : MetricFrame
-        Local frame definition. Must have ``orientation="enu"``.
+    geo
+        Geodetic point: :class:`WgsPoint` or ``(lon, lat[, h])``.
+    frame
+        Local frame with ``orientation="enu"``.
 
     Returns
     -------
     e, n, u : float
-        Local East, North and Up coordinates in meters.
+        East, North and Up coordinates in meters.
 
     Raises
     ------
+    TypeError
+        If ``frame`` is not a :class:`MetricFrame`.
     ValueError
-        If ``frame.orientation`` is not "enu".
+        If ``frame.orientation`` is not ``"enu"``.
     """
-    if frame.orientation != "enu":
-        raise ValueError("geo_to_enu requires orientation='enu'.")
+    frame = _require_enu_frame(frame, "geo_to_enu")
 
-    lon, lat, h = _coerce_geo(geo)
-    lon0, lat0, h0 = _coerce_geo(frame.ref_geo)
-
-    x, y, z = _geo_to_ecef_raw(lon, lat, h)
-    x0, y0, z0 = _geo_to_ecef_raw(lon0, lat0, h0)
+    x, y, z = _geo_to_ecef_raw(*_coerce_geo(geo))
+    x0, y0, z0 = _geo_to_ecef_raw(*frame.ref_geo)
 
     dx = x - x0
     dy = y - y0
     dz = z - z0
 
-    lat0_rad = math.radians(lat0)
-    lon0_rad = math.radians(lon0)
-
-    sin_lat0 = math.sin(lat0_rad)
-    cos_lat0 = math.cos(lat0_rad)
-    sin_lon0 = math.sin(lon0_rad)
-    cos_lon0 = math.cos(lon0_rad)
+    sin_lat0, cos_lat0, sin_lon0, cos_lon0 = _frame_trig(frame)
 
     e = -sin_lon0 * dx + cos_lon0 * dy
     n = (
         -sin_lat0 * cos_lon0 * dx
-        -sin_lat0 * sin_lon0 * dy
+        - sin_lat0 * sin_lon0 * dy
         + cos_lat0 * dz
     )
     u = (
@@ -471,103 +337,80 @@ def enu_to_geo(
     frame: MetricFrame,
 ) -> Tuple[float, float, float]:
     """
-    Convert local ENU coordinates back to geodetic.
+    Convert local ENU coordinates to geodetic coordinates.
 
     Parameters
     ----------
-    enu : MetricPoint or tuple
-        Local ENU coordinates to be converted (E, N, U) in meters.
-    frame : MetricFrame
-        Local frame definition. Must have ``orientation="enu"``.
+    enu
+        ENU coordinates: :class:`MetricPoint` or ``(e, n, u)``.
+    frame
+        Local frame with ``orientation="enu"``.
 
     Returns
     -------
     lon, lat, h : float
-        Geodetic coordinates (longitude, latitude in degrees; height in
-        meters).
+        Longitude and latitude in degrees, ellipsoidal height in meters.
 
     Raises
     ------
+    TypeError
+        If ``frame`` is not a :class:`MetricFrame`.
     ValueError
-        If ``frame.orientation`` is not "enu".
+        If ``frame.orientation`` is not ``"enu"``.
     """
-    if frame.orientation != "enu":
-        raise ValueError("enu_to_geo requires orientation='enu'.")
+    frame = _require_enu_frame(frame, "enu_to_geo")
 
     e, n, u = _coerce_metric(enu)
-    lon0, lat0, h0 = _coerce_geo(frame.ref_geo)
+    x0, y0, z0 = _geo_to_ecef_raw(*frame.ref_geo)
 
-    x0, y0, z0 = _geo_to_ecef_raw(lon0, lat0, h0)
-
-    lat0_rad = math.radians(lat0)
-    lon0_rad = math.radians(lon0)
-
-    sin_lat0 = math.sin(lat0_rad)
-    cos_lat0 = math.cos(lat0_rad)
-    sin_lon0 = math.sin(lon0_rad)
-    cos_lon0 = math.cos(lon0_rad)
+    sin_lat0, cos_lat0, sin_lon0, cos_lon0 = _frame_trig(frame)
 
     dx = (
         -sin_lon0 * e
-        -sin_lat0 * cos_lon0 * n
+        - sin_lat0 * cos_lon0 * n
         + cos_lat0 * cos_lon0 * u
     )
     dy = (
         cos_lon0 * e
-        -sin_lat0 * sin_lon0 * n
+        - sin_lat0 * sin_lon0 * n
         + cos_lat0 * sin_lon0 * u
     )
     dz = cos_lat0 * n + sin_lat0 * u
 
-    x = x0 + dx
-    y = y0 + dy
-    z = z0 + dz
-
-    return ecef_to_geo((x, y, z), frame=None)
+    return ecef_to_geo((x0 + dx, y0 + dy, z0 + dz), frame=None)
 
 
-# ============================================================================
-# High-level helpers using WgsPoint / MetricPoint
-# ============================================================================
-
+# ---------------------------------------------------------------------------
+# High-level helpers
+# ---------------------------------------------------------------------------
 
 def wgs_to_metric(
-    point: WgsPoint,
+    point: GeoLike,
     frame: Optional[MetricFrame] = None,
 ) -> MetricPoint:
     """
-    Convert a WgsPoint to a MetricPoint, in a chosen frame.
+    Convert a geodetic point to a :class:`MetricPoint`.
 
     Parameters
     ----------
-    point : WgsPoint
-        Geodetic coordinates to be converted.
-    frame : MetricFrame or None, optional
-        Local frame definition. If None, absolute ECEF coordinates are
-        returned.
+    point
+        Geodetic point: :class:`WgsPoint` or ``(lon, lat[, h])``.
+    frame
+        Output frame. ``None`` returns absolute ECEF coordinates.
 
     Returns
     -------
     MetricPoint
-        Cartesian coordinates in meters, in the requested frame.
+        Cartesian coordinates in meters, carrying ``frame``.
     """
     frame = _coerce_frame(frame)
 
-    if frame is None:
-        x, y, z = geo_to_ecef(point, frame=None)
-        return MetricPoint(float(x), float(y), float(z), frame=None)
-
-    if frame.orientation == "ecef":
+    if frame is None or frame.orientation == "ecef":
         x, y, z = geo_to_ecef(point, frame=frame)
-        return MetricPoint(float(x), float(y), float(z), frame=frame)
+    else:
+        x, y, z = geo_to_enu(point, frame=frame)
 
-    if frame.orientation == "enu":
-        e, n, u = geo_to_enu(point, frame=frame)
-        return MetricPoint(float(e), float(n), float(u), frame=frame)
-
-    raise ValueError(
-        f"Unknown frame '{frame.orientation}' (expected 'ecef' or 'enu')."
-    )
+    return MetricPoint(float(x), float(y), float(z), frame=frame)
 
 
 def metric_to_wgs(
@@ -575,60 +418,139 @@ def metric_to_wgs(
     frame: Optional[MetricFrame] = None,
 ) -> WgsPoint:
     """
-    Convert a MetricPoint to a WgsPoint, in a chosen frame.
-
-    If ``frame`` is None and the input point carries a non-null
-    ``point.frame``, the point frame is used.
+    Convert a :class:`MetricPoint` to a :class:`WgsPoint`.
 
     Parameters
     ----------
-    point : MetricPoint
-        Cartesian coordinates to be converted.
-    frame : MetricFrame or None, optional
-        Frame in which the point coordinates are expressed. If None,
-        the point's own frame is used (if present); otherwise the
-        coordinates are interpreted as absolute ECEF.
+    point
+        Cartesian point.
+    frame
+        Frame of the coordinates. If omitted, ``point.frame`` is used;
+        if that is also ``None``, absolute ECEF is assumed.
 
     Returns
     -------
     WgsPoint
-        Geodetic coordinates (lon, lat, elev) in the WGS84 system.
+        Geodetic point.
 
     Raises
     ------
     ValueError
-        If the effective frame is inconsistent.
+        If ``frame`` and ``point.frame`` are both given and differ.
     """
     if frame is None:
         frame = point.frame
+
     frame = _coerce_frame(frame)
 
-    if frame is not None and point.frame is not None:
-        if point.frame != frame:
-            raise ValueError(
-                "metric_to_wgs: point.frame is incompatible with the "
-                "provided frame."
-            )
-
-    if frame is None:
-        lon, lat, h = ecef_to_geo(point, frame=None)
-        return WgsPoint(
-            longitude=float(lon),
-            latitude=float(lat),
-            elevation=float(h),
-        )
-
-    if frame.orientation == "ecef":
-        lon, lat, h = ecef_to_geo(point, frame=frame)
-    elif frame.orientation == "enu":
-        lon, lat, h = enu_to_geo(point, frame=frame)
-    else:
+    if (
+        frame is not None
+        and point.frame is not None
+        and point.frame != frame
+    ):
         raise ValueError(
-            f"Unknown frame '{frame.orientation}' (expected 'ecef' or 'enu')."
+            "metric_to_wgs: point.frame is incompatible with the "
+            "provided frame."
         )
 
-    return WgsPoint(
-        longitude=float(lon),
-        latitude=float(lat),
-        elevation=float(h),
-    )
+    if frame is None or frame.orientation == "ecef":
+        lon, lat, h = ecef_to_geo(point, frame=frame)
+    else:
+        lon, lat, h = enu_to_geo(point, frame=frame)
+
+    return WgsPoint(longitude=lon, latitude=lat, elevation=h)
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _coerce_geo(geo: GeoLike) -> Tuple[float, float, float]:
+    """
+    Normalize a geodetic input to a ``(lon, lat, h)`` tuple of floats.
+    """
+    if isinstance(geo, WgsPoint):
+        return (
+            float(geo.longitude),
+            float(geo.latitude),
+            float(geo.elevation),
+        )
+
+    values = tuple(geo)
+
+    if len(values) == 2:
+        return float(values[0]), float(values[1]), 0.0
+
+    if len(values) == 3:
+        return float(values[0]), float(values[1]), float(values[2])
+
+    raise ValueError("Geodetic tuples must be (lon, lat) or (lon, lat, h).")
+
+
+def _coerce_metric(metric: MetricLike) -> Tuple[float, float, float]:
+    """
+    Normalize a metric input to an ``(x, y, z)`` tuple of floats.
+    """
+    if isinstance(metric, MetricPoint):
+        return float(metric.x), float(metric.y), float(metric.z)
+
+    x, y, z = metric
+
+    return float(x), float(y), float(z)
+
+
+def _coerce_frame(frame: Optional[MetricFrame]) -> Optional[MetricFrame]:
+    """
+    Check that ``frame`` is a :class:`MetricFrame` or None.
+    """
+    if frame is None or isinstance(frame, MetricFrame):
+        return frame
+
+    raise TypeError("frame must be a MetricFrame or None.")
+
+
+def _require_enu_frame(frame: MetricFrame, name: str) -> MetricFrame:
+    """
+    Check that ``frame`` is an ENU :class:`MetricFrame`.
+    """
+    if not isinstance(frame, MetricFrame):
+        raise TypeError(f"{name} requires a MetricFrame.")
+
+    if frame.orientation != "enu":
+        raise ValueError(f"{name} requires orientation='enu'.")
+
+    return frame
+
+
+def _frame_trig(frame: MetricFrame) -> Tuple[float, float, float, float]:
+    """
+    Return sin/cos of the latitude and longitude of the frame origin.
+    """
+    lon0, lat0, _ = frame.ref_geo
+    lat0 = math.radians(lat0)
+    lon0 = math.radians(lon0)
+
+    return math.sin(lat0), math.cos(lat0), math.sin(lon0), math.cos(lon0)
+
+
+def _geo_to_ecef_raw(
+    lon: float,
+    lat: float,
+    h: float,
+) -> Tuple[float, float, float]:
+    """
+    Convert geodetic coordinates to absolute ECEF (WGS84).
+    """
+    lat_rad = math.radians(lat)
+    lon_rad = math.radians(lon)
+
+    sin_lat = math.sin(lat_rad)
+    cos_lat = math.cos(lat_rad)
+
+    n = WGS84_A / math.sqrt(1.0 - WGS84_E2 * sin_lat * sin_lat)
+
+    x = (n + h) * cos_lat * math.cos(lon_rad)
+    y = (n + h) * cos_lat * math.sin(lon_rad)
+    z = (n * (1.0 - WGS84_E2) + h) * sin_lat
+
+    return x, y, z
