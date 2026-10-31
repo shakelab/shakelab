@@ -53,7 +53,7 @@ If you want to modify the code and test it locally:
 ```bash
 git clone https://github.com/shakelab/shakelab.git
 cd shakelab
-pip install -r requirements.txt -e .
+pip install -e ".[dev]"
 ```
 
 This will install the package in "editable mode", so any changes to the source code will be reflected immediately.

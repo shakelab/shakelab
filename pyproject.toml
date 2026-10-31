@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -22,11 +22,10 @@ readme = "README.md"
 dependencies = [
     "numpy>=1.24.0",
     "scipy>=1.10.0",
-    "shapely>=2.0.0",
     "requests>=2.32.0",
     "cymseed3>=0.1.4"
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 
 classifiers=[
     "Development Status :: 3 - Alpha",
@@ -34,11 +33,10 @@ classifiers=[
     "License :: OSI Approved :: GNU General Public License v3",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Geophysics",
     "Natural Language :: English"
 ]
@@ -48,15 +46,39 @@ homepage = "http://shakelab.org"
 source = "https://github.com/shakelab/shakelab"
 
 [project.optional-dependencies]
-all = ["wx>=4.0.7", "flask"]
+all = ["wxPython>=4.0.7", "flask"]
 dev = ["pytest>=6.0"]
 webui = ["flask"]
 
 [project.scripts]
-fdsnclient = "fdsnclient:main"
 shakeserver = "shakelab.engineering.shakescenario.shakeserver:main"
 shakeclient = "shakelab.engineering.shakescenario.shakeclient:main"
 shakewebui = "shakelab.engineering.shakescenario.webui.app:main"
+
+[tool.setuptools]
+# Legacy script, installed as is until the FDSN client is revised.
+script-files = ["scripts/fdsnclient.py"]
+
+[tool.setuptools.packages.find]
+include = ["shakelab", "shakelab.*"]
+
+[tool.setuptools.package-data]
+# Data files used at run time (GMPE coefficients, web UI assets,
+# example records, ...).
+shakelab = [
+    "**/*.json",
+    "**/*.txt",
+    "**/*.md",
+    "**/*.xml",
+    "**/*.html",
+    "**/*.css",
+    "**/*.js",
+    "**/*.map",
+    "**/*.png",
+    "**/*.mseed",
+    "**/*.zip",
+    "**/*.sh",
+]
 
 [tool.pytest.ini_options]
 minversion = "6.0"
