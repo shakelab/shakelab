@@ -31,6 +31,18 @@ corrections. The format follows
   printed messages.
 - `libutils.utils.a_round` returns a rounded copy instead of modifying
   its input.
+- `signals.Spectrum` moved from `signals.fourier` to the new module
+  `signals.spectrum`; `signals.fourier` now holds only array functions.
+  The constructor takes spectral values (`Spectrum(data, delta,
+  nsamp)`); spectra of time series are built with
+  `Spectrum.from_record`, `Spectrum.from_samples` or
+  `Record.to_spectrum`. `nsamp` is stored explicitly. Removed the
+  `norm` option and `set_data`/`fft`/`ifft` methods (replaced by the
+  constructor, `from_samples` and `to_samples`); `resample` renamed
+  `interpolate`; `filter(filt_type=...)` renamed `filter(method=...)`
+  with `minphase`.
+- `signals.fourier.butterworth(freq, corner, order, btype, minphase)`:
+  explicit filter type instead of negative orders.
 - `signals.Header` moved to the new module `signals.header` (it
   depends only on time and geodetic primitives); it is still available
   from `signals.base`.
@@ -72,6 +84,12 @@ corrections. The format follows
   records) and `SNAP_TOLERANCE` (snapping times to samples);
   `Record(units=...)`;
   `Record.time_axis(reference=date)` for seconds relative to any date.
+- `signals.fourier`: `fft`/`ifft` with the `delta * DFT` scaling,
+  `smooth` (Gaussian in log-frequency and Konno-Ohmachi windows, at the
+  input or at chosen frequencies), `smooth_amplitude` and
+  `smooth_amplitude_phase`; `inverse_spectrum` moved here from
+  `signals.response`. `Spectrum.logsmooth` gains `method`, `bandwidth`
+  and `phase`.
 - `signals.circular.CircularStream` (experimental): time-limited
   buffer of waveform blocks for real-time acquisition, used by
   `StreamCollection(max_duration=...)`. It copies appended records and
@@ -102,6 +120,15 @@ corrections. The format follows
   sampling interval different from the declared one; linear
   interpolation could assign the last value to a time beyond the end
   of the data.
+- `signals.fourier.butterworth` failed with NumPy 2 (`np.complex_`)
+  and returned |H|^2 instead of |H| (-6 dB at the corner); for odd
+  orders it was infinite at the corner and negative above it. The
+  minimum-phase option now gives the causal analog response.
+- `signals.Spectrum`: the constructor with an array failed; `resample`
+  used a missing attribute; `filter` ignored unknown types; the header
+  copied from a record held a full copy of the record; `logsmooth`
+  averaged the wrapped phase. `site.soil.Model1D.soil_response`, which
+  failed through the constructor, works again.
 - `signals.base.Record.shift` failed on complex data; `filter`
   rejected NumPy integer orders.
 - `signals.base.Stream.append` stored the caller's record and extended

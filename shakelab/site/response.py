@@ -25,7 +25,7 @@ one-dimensional soil column.
 import numpy as _np
 
 from shakelab.site.psvq.psvqlib import psvq_soil_response
-from shakelab.signals.fourier import Spectrum
+from shakelab.signals.spectrum import Spectrum
 
 
 def soil_response(freq, model1d, iwave='sh', iangle=0., elastic=False):

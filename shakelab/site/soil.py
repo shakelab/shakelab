@@ -26,7 +26,8 @@ from shakelab.site import engpar
 from shakelab.site.cps.surf96 import surf96
 from shakelab.site.response import soil_response
 from shakelab.site.engpar import compute_site_kappa
-from shakelab.signals.fourier import frequency_axis, Spectrum
+from shakelab.signals.fourier import frequency_axis
+from shakelab.signals.spectrum import Spectrum
 from shakelab.libutils import utils
 
 # Precision for decimal rounding

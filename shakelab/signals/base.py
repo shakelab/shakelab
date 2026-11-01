@@ -1917,15 +1917,15 @@ class Record:
 
         Notes
         -----
-        The exact Record-Spectrum metadata contract will be reviewed in
-        the dedicated refactoring of the Fourier module.
+        The conversion is implemented by
+        :meth:`shakelab.signals.spectrum.Spectrum.from_record`; the
+        spectrum receives a copy of the record header.
         """
-        if self.delta is None:
-            raise ValueError(
-                "sampling interval is required to compute a spectrum"
-            )
+        # Spectrum sits above Record in the import hierarchy: the
+        # conversion is delegated with a local import.
+        from shakelab.signals.spectrum import Spectrum
 
-        return fourier.Spectrum(self)
+        return Spectrum.from_record(self)
 
     def from_spectrum(self, spectrum):
         """

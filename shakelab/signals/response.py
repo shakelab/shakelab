@@ -498,9 +498,10 @@ class StagePoleZero(StageResponse):
         frequency = fourier.frequency_axis(delta, nsamp)
         rf = self.response_function(frequency)
 
-        sp = fourier.Spectrum()
-        sp.set_data(rf, delta, nsamp)
-        return sp
+        # Local import: Spectrum sits above response in the hierarchy.
+        from shakelab.signals.spectrum import Spectrum
+
+        return Spectrum(rf, delta=delta, nsamp=nsamp)
 
     def convolve_record(self, record):
         """
@@ -548,9 +549,10 @@ class StagePolynomial(StageResponse):
                                          self.denominator,
                                          freq)
 
-        sp = fourier.Spectrum()
-        sp.set_data(h, delta, nsamp)
-        return sp
+        # Local import: Spectrum sits above response in the hierarchy.
+        from shakelab.signals.spectrum import Spectrum
+
+        return Spectrum(h, delta=delta, nsamp=nsamp)
 
     def convolve_record(self, record):
         """
@@ -601,9 +603,10 @@ class StageFIR(StageResponse):
             delta
         )
 
-        sp = fourier.Spectrum()
-        sp.set_data(h, delta, nsamp)
-        return sp
+        # Local import: Spectrum sits above response in the hierarchy.
+        from shakelab.signals.spectrum import Spectrum
+
+        return Spectrum(h, delta=delta, nsamp=nsamp)
 
     def convolve_record(self, record):
         """
@@ -749,35 +752,12 @@ def fir_transfer_function(ncoeff, dcoeff, nsamp, delta=1.0):
 
 def inverse_spectrum(spectrum, waterlevel=120, method='smooth'):
     """
-    THIS COULD BE MOVED TO FOURIER MODULE
+    Return a regularized inverse of a spectrum.
+
+    See :func:`shakelab.signals.fourier.inverse_spectrum`, where the
+    operation is implemented.
     """
-    if not isinstance(spectrum, np.ndarray):
-        spectrum = np.array(spectrum)
-
-    abs_spec = np.abs(spectrum)
-
-    # Conversion from Db to actual spectrum level (to check!)
-    #wlev_db = abs_spec.max() * 10.0 ** (-waterlevel / 20.0)
-    wlev_db = 10.0 ** (-waterlevel / 20.0)
-
-    if method == 'sharp':
-        # Preallocation of the inverse spectrum
-        inv_spec = np.array([0+1j*0] * len(spectrum))
-
-        # Identification of the spectrum above waterlevel
-        i0 = (abs_spec >= wlev_db)
-
-        inv_spec[i0] = 1/spectrum[i0]
-
-    elif method == 'smooth':
-        inv_spec = spectrum.conj()/(spectrum*spectrum.conj() + wlev_db)
-
-        # Removing values below waterlevel (to check!)
-        i0 = (abs_spec <= wlev_db)
-        inv_spec[i0] = 0.
-
-    else:
-        raise ValueError('Not a valid method')
-
-    return inv_spec
+    return fourier.inverse_spectrum(
+        spectrum, waterlevel=waterlevel, method=method
+    )
 

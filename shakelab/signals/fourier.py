@@ -1,6 +1,5 @@
 # ****************************************************************************
-#
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -15,450 +14,570 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
+Fourier-domain primitives.
+
+This module collects the functions on which the spectral objects of
+:mod:`shakelab.signals` are built: frequency axes, the scaled discrete
+Fourier transform, time shifts, Butterworth transfer functions,
+regularized inversion and spectral smoothing. All functions work on
+NumPy arrays and do not depend on other ShakeLab classes.
+
+Conventions
+-----------
+- Spectra are one-sided (``numpy.fft.rfft`` layout) for real signals
+  of ``nsamp`` samples at interval ``delta``: frequencies
+  ``k / (nsamp * delta)``, ``k = 0, ..., rfft_length(nsamp) - 1``.
+- The forward transform is scaled by the sampling interval,
+  ``X(f) = delta * DFT(x)``, approximating the continuous Fourier
+  transform: a signal in m/s gives a spectrum in m/s * s. The inverse
+  divides by ``delta``, so the two are exact inverses.
+- The kernel is ``exp(-2j * pi * f * t)``: a causal filter with
+  Laplace transfer function ``H(s)`` acts through ``H(2j * pi * f)``.
+- Frequencies are in Hz.
 """
+
+from __future__ import annotations
+
+from typing import Optional
+
 import numpy as np
-from scipy import interpolate
-from copy import deepcopy
+from scipy import signal as _signal
 
-import shakelab.signals.base as base
-from shakelab.signals import response
+__all__ = [
+    "rfft_length",
+    "irfft_length",
+    "frequency_axis",
+    "frequency_range",
+    "fft",
+    "ifft",
+    "shift_time",
+    "butterworth",
+    "inverse_spectrum",
+    "smooth",
+    "smooth_amplitude",
+    "smooth_amplitude_phase",
+]
 
-numeric_type = (int, float, complex,
-                np.int8, np.int16, np.int32, np.int64,
-                np.uint8, np.uint16, np.uint32, np.uint64)
+
+# ----------------------------------------------------------------------------
+# Axes and lengths
+# ----------------------------------------------------------------------------
 
 
-class Spectrum():
+def rfft_length(nsamp: int) -> int:
     """
-    A class for Discrete Fourier spectrum in RFFT format (one-sided positive).
+    Return the number of frequencies of the one-sided spectrum.
 
-    Attributes:
-        head (base.Header): The ShakeLab signal's header object.
-        data (array-like): The RFFT complex spectrum
-        dfreq (float): The frequency spacing.
+    Parameters
+    ----------
+    nsamp
+        Number of samples of the time series.
 
-    Methods:
-        __init__(self, record=None):
-            Initialize a Spectrum object.
-        __len__(self):
-            Get the actual length of the spectrum.
-        __getitem__(self, sliced):
-            Get a slice of the spectrum.
-        fft(self, data, delta=None, norm=False):
-            Perform the FFT on the input data.
-        ifft(self, norm=False):
-            Perform the IFFT on the spectrum.
-        from_record(self, record, norm=False):
-            Initialize the Spectrum from a Record.
-        to_record(self, norm=False):
-            Create a Record object from the Spectrum.
-        filter(self, highpass=None, lowpass=None):
-            Apply highpass and lowpass filtering.
-        resample(self, frequency):
-            Extract spectrum samples at specific frequencies.
-        logsmooth(self, sigma=0.2, truncation=3):
-            Logarithm smoothing of (complex) spectra.
+    Returns
+    -------
+    int
+        ``nsamp // 2 + 1``.
+
+    Examples
+    --------
+    >>> rfft_length(10), rfft_length(11)
+    (6, 6)
     """
-
-    def __init__(self, data=None, delta=None, nsamp=None):
-        """
-        Initialize a Spectrum object.
-
-        Args:
-            record (base.Record, optional): A record object to initialize the
-                spectrum from.
-        """
-        self.head = base.Header()
-        self.data = np.array([], dtype="complex")
-        self.dfreq = None
-
-        if isinstance(data, base.Record):
-            self.from_record(data)
-
-        elif isinstance(data, (list, np.ndarray)):
-            if delta is None:
-                raise ValueError('Delta must be provided')
-            else:
-                self._fft(data, delta)
-
-    def __len__(self):
-        return self.nfreq
-
-    def __getitem__(self, sliced):
-        return self.data[sliced]
-
-    def __truediv__(self, value):
-        """
-        """
-        spec_mod = self.copy()
-        if isinstance(value, numeric_type):
-            spec_mod.data = spec_mod.data / value
-        elif isinstance(value, Spectrum):
-            spec_mod.data /= value.data
-        else:
-            raise TypeError('unsupported operand type(s) for /')
-
-        return spec_mod
-
-    @property
-    def nfreq(self):
-        """
-        Return the actual length of the spectrum.
-        """
-        return len(self.data)
-
-    @property
-    def nsamp(self):
-        """
-        Return the length of the corresponding time series.
-        """
-        #return 2*(self.nfreq-1) + self._parity
-        return _nsamp(self.head.delta, self.dfreq)
-
-    @property
-    def amplitude(self):
-        """
-        Property to compute the amplitude (modulus) of the spectrum.
-        """
-        return np.abs(self.data)
-
-    @property
-    def phase(self):
-        """
-        Property to compute the phase of the spectrum.
-        """
-        return np.angle(self.data)
-
-    @property
-    def phase_unwrap(self):
-        """
-        Property to compute the unwrapped phase of the spectrum.
-        """
-        return np.unwrap(self.phase)
-
-    @property
-    def frequency_axis(self):
-        """
-        Property to compute the frequency axis of the spectrum.
-        """
-        return frequency_axis(self.head.delta, self.nsamp)
-
-    def set_data(self, data, delta, nsamp=None):
-        """
-        """
-        if nsamp is None:
-            nsamp = (len(data)-1) * 2
-
-        self.data = data
-        self.head.delta = delta
-        self.dfreq = _dfreq(delta, nsamp)
-
-    def fft(self, data, delta=None, nsamp=None, norm=False):
-        """
-        Compute the FFT spectrum from real value input data.
-
-        Args:
-            data (array-like): The input time-series data (must be real)
-            delta (float, optional): The time step. If provided, it updates
-                the internal time step.
-            norm (bool, optional): If True, normalizes the result.
-
-        Returns:
-            None
-        """
-        if nsamp is None:
-            nsamp = len(data)
-
-        if delta is not None:
-            self.head.delta = delta
-
-        self.dfreq = _dfreq(self.head.delta, nsamp)
-
-        self.data = _fft(data, nsamp) * self.head.delta
-
-        if norm:
-            # to check
-            self.data =  self.data / self.nsamp
-
-    def ifft(self, nsamp=None, norm=False):
-        """
-        Compute the IFFT of the spectrum.
-
-        Args:
-            norm (bool, optional): If True, normalizes the result.
-
-        Returns:
-            array-like: The inverse FFT result.
-        """
-        if nsamp is None:
-            nsamp = self.nsamp
-
-        data = _ifft(self.data, nsamp) / self.head.delta
-
-        if norm:
-            # to check
-            data = data * self.nsamp
-
-        return data
-
-    def invert(self, waterlevel=100, method='smooth'):
-        """
-        """
-        self.data = response.inverse_spectrum(self.data,
-                                              waterlevel=waterlevel,
-                                              method=method)
-
-    def from_record(self, record, norm=False):
-        """
-        Initialize the spectrum from a Record.
-
-        Args:
-            record (base.Record): The Record object to initialize from.
-            norm (bool, optional): If True, normalizes the spectrum.
-        """
-        if isinstance(record, base.Record):
-            self.head = deepcopy(record.head)
-            self.fft(record.data, norm=norm)
-        else:
-            pass
-
-    def to_record(self, norm=False):
-        """
-        Create a Record object from the Spectrum.
-
-        Args:
-            norm (bool, optional): If True, normalizes the data in the Record.
-
-        Returns:
-            base.Record: The created Record object.
-        """
-        record = base.Record()
-        record.head = deepcopy(self.head)
-        record.data = self.ifft(norm=norm)
-
-        return record
-
-    def copy(self):
-        """
-        """
-        return deepcopy(self)
-
-    def filter(self, highpass=None, lowpass=None, order=4, filt_type='bw'):
-        """
-        In-place highpass and lowpass filtering to the spectrum.
-
-        Args:
-            highpass (float, optional): The highpass frequency cutoff.
-            lowpass (float, optional): The lowpass frequency cutoff.
-        """
-        freq = self.frequency_axis
-
-        if filt_type == 'sharp':
-            if (highpass is not None):
-                self.data[freq < highpass] = 0.
-
-            if (lowpass is not None):
-                self.data[freq > lowpass] = 0.
-
-        elif filt_type == 'bw':
-            if (highpass is not None):
-                self.data *= butterworth(freq, highpass, order=-order)
-
-            if (lowpass is not None):
-                self.data *= butterworth(freq, lowpass, order=order)
-
-        else:
-            assert TypeError('Not implemented filter type')
-
-    def resample(self, frequency):
-        """
-        Extract spectrum samples at specific frequencies.
-        """
-        f = interpolate.interp1d(self.frequency, self.data)
-        return f(frequency)
-
-    def logsmooth(self, sigma=0.2, truncation=3):
-        """
-        Fast logarithmic smoothing using local Gaussian kernel
-        (sliding window).
-        
-        Args:
-            sigma (float): Gaussian std dev in log-frequency units.
-            truncation (int): Number of std devs to include in window.
-            
-        Returns:
-            array-like: Smoothed complex spectrum.
-        """
-        freq = self.frequency_axis
-        spec = self.data
-
-        if freq[0] != 0:
-            raise ValueError("First frequency must be zero.")
-
-        f = freq[1:]
-        s = spec[1:]
-        N = len(f)
-    
-        logf = np.log(f)
-        logs = np.log(s)
-
-        smoothed_log = np.empty(N, dtype=complex)
-
-        for i in range(N):
-            center = logf[i]
-            dlog = logf - center
-            in_band = np.abs(dlog) <= truncation * sigma
-            if not np.any(in_band):
-                smoothed_log[i] = logs[i]
-                continue
-            weights = np.exp(-(dlog[in_band] / (np.sqrt(2) * sigma))**2)
-            weights /= np.sum(weights)
-            smoothed_log[i] = np.sum(weights * logs[in_band])
-
-        smoothed = np.exp(smoothed_log)
-        self.data = np.insert(smoothed, 0, spec[0])
+    return int(nsamp) // 2 + 1
 
 
-def rfft_length(nsamp):
+def irfft_length(delta: float, dfreq: float) -> int:
     """
-    Calculate the length of the Real Fast Fourier Transform (RFFT) positive
-    frequency axis, accounting for odd/even numbers of samples.
+    Return the number of samples for a given time and frequency step.
 
-    Parameters:
-    - nsamp (int): The number of samples in the input signal.
+    Parameters
+    ----------
+    delta
+        Sampling interval in seconds.
+    dfreq
+        Frequency step in Hz.
 
-    Returns:
-    - int: The length of the positive frequency axis in the RFFT.
+    Returns
+    -------
+    int
+        ``round(1 / (dfreq * delta))``.
 
-    Example:
-    >>> rfft_length(10)
-    6
-    """
-    if nsamp % 2 == 1:
-        return (nsamp + 1) // 2
-    else:
-        return nsamp // 2 + 1
-
-def irfft_length(delta, dfreq):
-    """
-    Calculate the length of the time series corresponding to a rfft
-    spectrum of given time spacing (delta) and frequency spacing (dfreq).
-
-    Parameters:
-    - delta (float): Time spacing between samples.
-    - dfreq (float): Frequency spacing between samples.
-
-    Returns:
-    - int: The number of samples needed to satisfy the specified spacing.
-
-    Example:
-    >>> irfft_length(0.01, 10)
+    Examples
+    --------
+    >>> irfft_length(0.01, 1.0)
     100
     """
-    return round(1 / (dfreq * delta))
+    return int(round(1.0 / (dfreq * delta)))
 
-def _fnum(nsamp):
-    """
-    Wrapper function to compute the length of the expected RFFT spectrum.
-    """
-    return rfft_length(nsamp)
 
-def _nsamp(delta, dfreq):
+def frequency_axis(delta: float, nsamp: int) -> np.ndarray:
     """
-    Wrapper function to comnpute the length of the time series from a RFFT spectrum.
-    """
-    return irfft_length(delta, dfreq)
+    Return the frequencies of the one-sided spectrum.
 
-def _dfreq(delta, nsamp):
-    """
-    """
-    return 1 / (delta * nsamp)
+    Parameters
+    ----------
+    delta
+        Sampling interval in seconds.
+    nsamp
+        Number of samples of the time series.
 
-def _delta(dfreq, nsamp):
+    Returns
+    -------
+    numpy.ndarray
+        Frequencies in Hz, from 0 to the Nyquist frequency (included
+        only for even ``nsamp``).
     """
-    """
-    return 1 / (dfreq * nsamp)
+    return np.fft.rfftfreq(int(nsamp), delta)
 
-def _fft(data, nsamp=None):
-    """
-    Wrapper to numpy's rfft'.
-    """
-    return np.fft.rfft(data, nsamp)
 
-def _ifft(data, nsamp=None):
+def frequency_range(
+    fmin: float,
+    fmax: float,
+    fnum: int,
+    log: bool = True,
+) -> np.ndarray:
     """
-    Wrapper to numpy's irfft'.
+    Return a linearly or logarithmically spaced frequency range.
+
+    Parameters
+    ----------
+    fmin, fmax
+        First and last frequency in Hz (both strictly positive for a
+        logarithmic range).
+    fnum
+        Number of frequencies.
+    log
+        Logarithmic spacing (default) or linear spacing.
+
+    Returns
+    -------
+    numpy.ndarray
+        Frequencies in Hz.
     """
-    return np.fft.irfft(data, nsamp)
+    if log:
+        return np.logspace(np.log10(fmin), np.log10(fmax), fnum)
 
-def frequency_axis(delta, nsamp):
+    return np.linspace(fmin, fmax, fnum)
+
+
+# ----------------------------------------------------------------------------
+# Transforms
+# ----------------------------------------------------------------------------
+
+
+def fft(
+    data: np.ndarray,
+    delta: float,
+    nsamp: Optional[int] = None,
+) -> np.ndarray:
     """
+    Return the scaled one-sided Fourier transform of a real signal.
+
+    Parameters
+    ----------
+    data
+        Real samples.
+    delta
+        Sampling interval in seconds.
+    nsamp
+        Transform length; the signal is zero-padded or truncated to it.
+        Default is the number of samples.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``delta * numpy.fft.rfft(data, nsamp)``.
     """
-    return np.fft.rfftfreq(nsamp, delta)
+    return np.fft.rfft(data, nsamp) * delta
 
-def frequency_range(fmin, fmax, fnum, log=True):
+
+def ifft(spectrum: np.ndarray, delta: float, nsamp: int) -> np.ndarray:
     """
-    Compute a linear or logarithmic frequency range
+    Return the real signal of a scaled one-sided spectrum.
 
-    :param float fmin:
-        Minimum frequency
+    Parameters
+    ----------
+    spectrum
+        One-sided spectrum, as returned by :func:`fft`.
+    delta
+        Sampling interval in seconds.
+    nsamp
+        Number of samples of the signal (needed to distinguish even and
+        odd lengths).
 
-    :param float fmax:
-        Maximum frequency
-
-    :param int fnum:
-        Number of frequencies
-
-    :param boolean log:
-        Select between linear or logarithmic spacing
-        (default is logarithmic)
-
-    :return numpy.array freq:
-        The frequency axis
+    Returns
+    -------
+    numpy.ndarray
+        ``numpy.fft.irfft(spectrum, nsamp) / delta``.
     """
+    return np.fft.irfft(spectrum, int(nsamp)) / delta
+
+
+def shift_time(data: np.ndarray, delta: float, shift: float) -> np.ndarray:
+    """
+    Shift a real signal in time by a phase rotation of its spectrum.
+
+    Parameters
+    ----------
+    data
+        Real samples.
+    delta
+        Sampling interval in seconds.
+    shift
+        Time shift in seconds (positive delays the signal); fractional
+        samples are allowed.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shifted samples. The shift is circular: samples moved past one
+        end reappear at the other (pad with zeros to avoid it).
+    """
+    nsamp = len(data)
+    freq = frequency_axis(delta, nsamp)
+    rotation = np.exp(-2j * np.pi * shift * freq)
+
+    return np.fft.irfft(np.fft.rfft(data) * rotation, nsamp)
+
+
+# ----------------------------------------------------------------------------
+# Filters and inversion
+# ----------------------------------------------------------------------------
+
+
+def butterworth(
+    freq: np.ndarray,
+    corner: float,
+    order: int = 4,
+    btype: str = "lowpass",
+    minphase: bool = False,
+) -> np.ndarray:
+    """
+    Return the transfer function of a Butterworth filter.
+
+    Parameters
+    ----------
+    freq
+        Frequencies in Hz (non-negative).
+    corner
+        Corner frequency in Hz, where the amplitude is ``1 / sqrt(2)``
+        (-3 dB).
+    order
+        Filter order (strictly positive).
+    btype
+        ``"lowpass"`` or ``"highpass"``.
+    minphase
+        If False (default), return the zero-phase response, i.e. the
+        real amplitude ``1 / sqrt(1 + (f / corner) ** (2 * order))``
+        (low-pass) or ``1 / sqrt(1 + (corner / f) ** (2 * order))``
+        (high-pass): the filtered signal is not delayed. If True,
+        return the complex response of the causal analog Butterworth
+        filter, which has the same amplitude and minimum phase, as a
+        physical filter.
+
+    Returns
+    -------
+    numpy.ndarray
+        Complex transfer function at ``freq``.
+
+    Raises
+    ------
+    ValueError
+        If the corner, the order or the filter type are invalid.
+
+    References
+    ----------
+    Butterworth, S. (1930). On the theory of filter amplifiers.
+    Wireless Engineer, 7, 536-541.
+    """
+    if not np.isfinite(corner) or corner <= 0.0:
+        raise ValueError("corner must be finite and strictly positive")
+
+    if int(order) != order or order <= 0:
+        raise ValueError("order must be a strictly positive integer")
+
+    if btype not in ("lowpass", "highpass"):
+        raise ValueError("btype must be 'lowpass' or 'highpass'")
+
+    freq = np.asarray(freq, dtype=float)
+    order = int(order)
+
+    if minphase:
+        b, a = _signal.butter(
+            order, 2.0 * np.pi * corner, btype=btype, analog=True
+        )
+        _, response = _signal.freqs(b, a, worN=2.0 * np.pi * freq)
+        return response.astype(complex)
+
+    if btype == "lowpass":
+        ratio = freq / corner
+        amplitude = 1.0 / np.sqrt(1.0 + ratio ** (2 * order))
+    else:
+        amplitude = np.zeros(freq.shape)
+        positive = freq > 0.0
+        ratio = corner / freq[positive]
+        amplitude[positive] = 1.0 / np.sqrt(1.0 + ratio ** (2 * order))
+
+    return amplitude.astype(complex)
+
+
+def inverse_spectrum(
+    spectrum: np.ndarray,
+    waterlevel: float = 120.0,
+    method: str = "smooth",
+) -> np.ndarray:
+    """
+    Return a regularized inverse of a spectrum.
+
+    Parameters
+    ----------
+    spectrum
+        Complex spectrum ``S``.
+    waterlevel
+        Level in dB defining the threshold ``w = 10 ** (-waterlevel /
+        20)``.
+    method
+        ``"sharp"``: ``1 / S`` where ``|S| >= w``, zero elsewhere;
+        ``"smooth"``: ``conj(S) / (|S| ** 2 + w)``, set to zero where
+        ``|S| <= w``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Inverse spectrum.
+
+    Raises
+    ------
+    ValueError
+        If the method is unknown.
+
+    Notes
+    -----
+    The threshold is absolute, so its effect depends on the units of
+    the spectrum; its definition is to be reviewed together with the
+    instrument response correction.
+    """
+    spectrum = np.asarray(spectrum, dtype=complex)
+    amplitude = np.abs(spectrum)
+    level = 10.0 ** (-waterlevel / 20.0)
+
+    if method == "sharp":
+        inverse = np.zeros(spectrum.shape, dtype=complex)
+        valid = amplitude >= level
+        inverse[valid] = 1.0 / spectrum[valid]
+        return inverse
+
+    if method == "smooth":
+        inverse = spectrum.conj() / (amplitude ** 2 + level)
+        inverse[amplitude <= level] = 0.0
+        return inverse
+
+    raise ValueError("method must be 'sharp' or 'smooth'")
+
+
+# ----------------------------------------------------------------------------
+# Smoothing
+# ----------------------------------------------------------------------------
+
+
+def smooth(
+    freq: np.ndarray,
+    values: np.ndarray,
+    method: str = "gaussian",
+    center: Optional[np.ndarray] = None,
+    sigma: float = 0.2,
+    truncation: float = 3.0,
+    bandwidth: float = 40.0,
+) -> np.ndarray:
+    """
+    Smooth real values defined on a frequency axis.
+
+    The smoothed value at a center frequency ``fc`` is the weighted
+    mean of the values at the positive frequencies ``f``, with weights
+    given by a kernel of ``f / fc``.
+
+    Parameters
+    ----------
+    freq
+        Frequencies in Hz.
+    values
+        Real values at ``freq``.
+    method
+        Smoothing kernel:
+
+        - ``"gaussian"``: Gaussian in natural-log frequency,
+          ``exp(-(ln(f / fc) / sigma) ** 2 / 2)``, truncated at
+          ``truncation * sigma``;
+        - ``"konno-ohmachi"``: the window of Konno and Ohmachi (1998),
+          ``(sin(b * log10(f / fc)) / (b * log10(f / fc))) ** 4`` with
+          ``b = bandwidth``.
+    center
+        Frequencies at which the smoothed values are computed. Default
+        is ``freq``.
+    sigma
+        Standard deviation of the Gaussian kernel, in natural-log
+        frequency units.
+    truncation
+        Truncation of the Gaussian kernel, in units of ``sigma``.
+    bandwidth
+        Bandwidth coefficient ``b`` of the Konno-Ohmachi window (larger
+        values give a narrower window).
+
+    Returns
+    -------
+    numpy.ndarray
+        Smoothed values at ``center``. Values at non-positive center
+        frequencies are not smoothed: they are copied from ``values``
+        when ``center`` is ``freq``, and are NaN otherwise.
+
+    Raises
+    ------
+    ValueError
+        If the method or the kernel parameters are invalid.
+
+    References
+    ----------
+    Konno, K., and Ohmachi, T. (1998). Ground-motion characteristics
+    estimated from spectral ratio between horizontal and vertical
+    components of microtremor. Bulletin of the Seismological Society of
+    America, 88(1), 228-241.
+    """
+    freq = np.asarray(freq, dtype=float)
+    values = np.asarray(values, dtype=float)
+
+    if freq.shape != values.shape or freq.ndim != 1:
+        raise ValueError("freq and values must be 1-D arrays of equal size")
+
+    if method == "gaussian":
+        if sigma <= 0.0 or truncation <= 0.0:
+            raise ValueError("sigma and truncation must be positive")
+    elif method == "konno-ohmachi":
+        if bandwidth <= 0.0:
+            raise ValueError("bandwidth must be positive")
+    else:
+        raise ValueError("method must be 'gaussian' or 'konno-ohmachi'")
+
+    same_axis = center is None
+    center = freq if same_axis else np.asarray(center, dtype=float)
+
+    positive = freq > 0.0
+    log_freq = np.log(freq[positive])
+    data = values[positive]
+
+    output = np.full(center.shape, np.nan)
+    targets = np.flatnonzero(center > 0.0)
+
+    # Process the centers in blocks to bound the memory of the
+    # (centers x frequencies) weight matrix.
+    block = max(1, 2 ** 22 // max(log_freq.size, 1))
+
+    for start in range(0, targets.size, block):
+        index = targets[start:start + block]
+        distance = log_freq[None, :] - np.log(center[index])[:, None]
+
+        if method == "gaussian":
+            weights = np.exp(-0.5 * (distance / sigma) ** 2)
+            weights[np.abs(distance) > truncation * sigma] = 0.0
+        else:
+            x = bandwidth * distance / np.log(10.0)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                weights = (np.sin(x) / x) ** 4
+            weights[x == 0.0] = 1.0
+
+        total = weights.sum(axis=1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            output[index] = weights @ data / total
+
+    if same_axis:
+        output[~(center > 0.0)] = values[~(center > 0.0)]
+
+    return output
+
+
+def smooth_amplitude(
+    freq: np.ndarray,
+    spectrum: np.ndarray,
+    method: str = "gaussian",
+    log: bool = True,
+    **options,
+) -> np.ndarray:
+    """
+    Smooth the amplitude of a complex spectrum, keeping its phase.
+
+    Parameters
+    ----------
+    freq
+        Frequencies in Hz.
+    spectrum
+        Complex spectrum at ``freq``.
+    method
+        Smoothing kernel (see :func:`smooth`).
+    log
+        If True (default), average the logarithm of the amplitude
+        (geometric mean); otherwise average the amplitude itself.
+    **options
+        Kernel parameters passed to :func:`smooth` (``sigma``,
+        ``truncation``, ``bandwidth``).
+
+    Returns
+    -------
+    numpy.ndarray
+        Complex spectrum with smoothed amplitude and the original phase.
+    """
+    spectrum = np.asarray(spectrum, dtype=complex)
+    amplitude = np.abs(spectrum)
+    phase = np.angle(spectrum)
 
     if log:
-        freq = np.logspace(np.log10(fmin), np.log10(fmax), fnum)
+        with np.errstate(divide="ignore"):
+            smoothed = np.exp(
+                smooth(freq, np.log(amplitude), method, **options)
+            )
     else:
-        freq = np.linspace(fmin, fmax, fnum)
+        smoothed = smooth(freq, amplitude, method, **options)
 
-    return freq
+    return smoothed * np.exp(1j * phase)
 
-def _to_complex(amplitude, phase):
+
+def smooth_amplitude_phase(
+    freq: np.ndarray,
+    spectrum: np.ndarray,
+    method: str = "gaussian",
+    **options,
+) -> np.ndarray:
     """
+    Smooth the log-amplitude and the unwrapped phase of a spectrum.
+
+    Parameters
+    ----------
+    freq
+        Frequencies in Hz.
+    spectrum
+        Complex spectrum at ``freq``.
+    method
+        Smoothing kernel (see :func:`smooth`).
+    **options
+        Kernel parameters passed to :func:`smooth`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Complex spectrum ``exp(smoothed log-amplitude + 1j * smoothed
+        phase)``. The phase is unwrapped along frequency before
+        smoothing, so that jumps of 2 pi do not bias the average.
     """
-    return amplitude * np.exp(1j * phase)
+    spectrum = np.asarray(spectrum, dtype=complex)
 
-def shift_time(signal, delta, shift):
-    """
-    Shift a signal in time by using fft-based circular convolution.
-    No zero-padding is assumed.
-    """
-    nsamp = len(signal)
-    freq = frequency_axis(delta, len(signal))
-    expt = np.exp(-2*1j*np.pi*shift*freq)
+    with np.errstate(divide="ignore"):
+        log_amplitude = np.log(np.abs(spectrum))
 
-    return _ifft(_fft(signal, nsamp)*expt, nsamp)
+    phase = np.unwrap(np.angle(spectrum))
 
-def butterworth(freq, corner_freq, order=4, minimum_phase=False):
-    """
-    Note: if order is negative, the filter is highpass
-    """
-    hf = np.zeros(len(freq), dtype=np.complex_)
+    smoothed = (
+        smooth(freq, log_amplitude, method, **options)
+        + 1j * smooth(freq, phase, method, **options)
+    )
 
-    for i, f in enumerate(freq):
-        if f > 0 or order > 0:
-            hf_mag = 1/(1+(1j*f/corner_freq)**(2*order))
-
-            if minimum_phase:
-                # Convert to minimum phase by taking
-                # the negative square root
-                hf_phase = -np.sqrt(1-np.abs(hf_mag)**2)
-                hf[i] = np.exp(1j*hf_phase) * np.abs(hf_mag)
-            else:
-                hf[i] = hf_mag
-
-    return hf
+    return np.exp(smoothed)
