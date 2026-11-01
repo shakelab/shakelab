@@ -37,10 +37,11 @@ from scipy.signal import windows
 from shakelab.libutils.geodeticN import WgsPoint
 from shakelab.libutils.timeN import Date
 from shakelab.signals.base import (
-    GRID_TOLERANCE,
+    SNAP_TOLERANCE,
     MERGE_TOLERANCE,
     Header,
     Record,
+    Stream,
     tukey_window,
 )
 from shakelab.signals.io import reader
@@ -506,7 +507,7 @@ def test_record_time_axis_errors():
 def test_merge_tolerance_constants():
     """Tolerances are defined once, as fractions of the interval."""
     assert MERGE_TOLERANCE == 0.5
-    assert GRID_TOLERANCE == 1e-6
+    assert SNAP_TOLERANCE == 1e-6
 
 
 def test_record_append_contiguous_and_gaps():
@@ -792,3 +793,236 @@ def test_record_spectrum_round_trip():
     assert restored.delta == record.delta
     assert restored.time == record.time
     assert restored.head._parent is restored
+
+
+# ----------------------------------------------------------------------------
+# Stream
+# ----------------------------------------------------------------------------
+
+
+def _two_record_stream():
+    """Stream with records at 0-9 s and 20-29 s (1 Hz)."""
+    stream = Stream("XX.STA..HHZ")
+    stream.append(Record(data=np.arange(10), delta=1.0, time=START))
+    stream.append(
+        Record(
+            data=np.arange(100, 110),
+            delta=1.0,
+            time="2026-01-01T00:00:20",
+        )
+    )
+    return stream
+
+
+def test_stream_append_demo_does_not_modify_caller_records():
+    """
+    Reproduces demo 00_basic_use: contiguous records are merged.
+
+    The records passed by the caller keep their original length and
+    source identifier.
+    """
+    pulse = np.zeros(10001)
+    pulse[5001] = 1.0
+    rec0 = Record(data=pulse, delta=0.001, time="2024-06-20T12:00:00",
+                  sid="DIR01")
+    rec1 = Record(data=pulse, delta=0.001, time="2024-06-20T12:00:10.001",
+                  sid="DIR01")
+    late = Record(data=pulse, delta=0.001, time="2024-06-20T15:00:00",
+                  sid="DIR01")
+
+    stream = Stream("DIR01")
+    stream.append(rec0)
+    stream.append(rec1)
+    stream.append(late)
+
+    assert len(stream) == 2
+    assert stream[0].nsamp == 20002
+    assert stream[0] is not rec0
+    assert rec0.nsamp == rec1.nsamp == 10001
+
+
+def test_stream_append_sets_sid_on_stored_copy():
+    """A record without identifier gets the stream sid; the original not."""
+    record = Record(data=[1, 2], delta=1.0, time=START)
+    stream = Stream("XX.STA..HHZ")
+    stream.append(record)
+
+    assert stream[0].sid == "XX.STA..HHZ"
+    assert record.sid is None
+
+
+def test_stream_append_rejects_other_sources():
+    """Records of another source cannot be appended."""
+    stream = Stream("A")
+
+    with pytest.raises(ValueError):
+        stream.append(Record(data=[1], delta=1.0, time=START, sid="B"))
+    with pytest.raises(TypeError):
+        stream.append([1, 2])
+
+
+def test_stream_properties_and_text(capsys):
+    """Size, times, identifiers and text representations."""
+    stream = _two_record_stream()
+
+    assert len(stream) == 2
+    assert stream.nsamp == 20
+    assert stream.starttime == Date(START)
+    assert stream.endtime == Date("2026-01-01T00:00:29")
+    assert stream.eid == [None, None]
+    assert repr(stream) == "Stream(sid='XX.STA..HHZ', records=2)"
+    assert "number of records: 2" in str(stream)
+
+    stream.info()
+    assert "Record 1" in capsys.readouterr().out
+    assert Stream().starttime is None
+
+
+def test_stream_indexing():
+    """Integers (NumPy included) select records; booleans are rejected."""
+    stream = _two_record_stream()
+
+    assert stream[0].data[0] == 0
+    assert stream[np.int64(1)].data[0] == 100
+    assert stream[-1].data[0] == 100
+
+    with pytest.raises(TypeError):
+        stream[True]
+    with pytest.raises(TypeError):
+        stream[1.0]
+
+
+def test_stream_slice_returns_stream_of_stored_records():
+    """A slice is a Stream with the same sid and the stored records."""
+    stream = _two_record_stream()
+    selection = stream[0:1]
+
+    assert isinstance(selection, Stream)
+    assert selection.sid == stream.sid
+    assert len(selection) == 1
+    assert selection[0] is stream[0]
+    assert selection.copy()[0] is not stream[0]
+
+
+def test_stream_event_identifiers():
+    """Records can be accessed and removed by event identifier."""
+    stream = Stream("A")
+    stream.append(Record(data=[1], delta=1.0, time=START, eid="ev1"))
+    stream.append(
+        Record(data=[2], delta=1.0, time="2026-01-01T01:00:00", eid="ev2")
+    )
+
+    assert stream["ev2"].data[0] == 2
+    assert stream.remove("ev1").data[0] == 1
+    assert len(stream) == 1
+
+    with pytest.raises(KeyError):
+        stream["missing"]
+
+
+def test_stream_remove_and_sort():
+    """Records are removed by position and sorted by start time."""
+    stream = _two_record_stream()
+    stream.sort(reverse=True)
+    assert stream[0].data[0] == 100
+
+    stream.sort()
+    assert stream[0].data[0] == 0
+
+    removed = stream.remove(np.int64(0))
+    assert removed.data[0] == 0
+    assert len(stream) == 1
+
+    with pytest.raises(TypeError):
+        stream.remove(True)
+
+
+def test_stream_copy_is_independent():
+    """A copied stream holds independent records."""
+    stream = _two_record_stream()
+    copied = stream.copy()
+    copied[0].data[0] = 99
+
+    assert stream[0].data[0] == 0
+    assert copied.sid == stream.sid
+
+
+def test_stream_extract_relative_to_stream_start():
+    """Numerical times are seconds from the start of the stream."""
+    stream = _two_record_stream()
+
+    early = stream.extract(2, 4)
+    late = stream.extract(22, 24)
+
+    assert [r.data.tolist() for r in early] == [[2, 3, 4]]
+    assert [r.data.tolist() for r in late] == [[102, 103, 104]]
+    assert late[0].time == Date("2026-01-01T00:00:22")
+
+
+def test_stream_extract_across_records_and_merge():
+    """Segments of several records can be merged when requested."""
+    stream = _two_record_stream()
+    window = stream.extract(8, 21)
+
+    assert [r.data.tolist() for r in window] == [[8, 9], [100, 101]]
+
+    with pytest.raises(ValueError):
+        stream.extract(8, 21, merge=True)
+
+    merged = stream.extract(8, 21, merge=True, enforce=True)
+    assert merged.data.tolist() == [8, 9] + [0] * 10 + [100, 101]
+
+
+def test_stream_extract_skips_records_without_samples():
+    """Windows between samples or between records return nothing."""
+    stream = _two_record_stream()
+
+    assert len(stream.extract(2.2, 2.8)) == 0
+    assert len(stream.extract(12, 18)) == 0
+    assert stream.extract(12, 18, merge=True) is None
+
+    with pytest.raises(ValueError):
+        stream.extract(5, 3)
+
+
+def test_stream_extract_absolute_times(mode):
+    """Absolute windows work on real data."""
+    stream = mode["IV.MODE..HNZ"]
+    window = stream.extract(
+        "2012-05-20T02:03:33", "2012-05-20T02:03:43"
+    )
+
+    assert window[0].nsamp == 1001
+    assert window[0].time == Date("2012-05-20T02:03:33")
+    assert stream.extract(10, 20)[0].time == window[0].time
+
+
+def test_stream_processing_applies_to_every_record(mode):
+    """Stream processing methods match the record methods."""
+    stream = mode["IV.MODE..HNZ"].copy()
+    record = stream[0].copy()
+
+    stream.remove_mean()
+    stream.filter(0.1, 20.0)
+    stream.taper(1.0)
+    record.remove_mean()
+    record.filter(0.1, 20.0)
+    record.taper(1.0)
+    np.testing.assert_array_equal(stream[0].data, record.data)
+
+    stream.resample(0.02)
+    stream.integrate(method="cum")
+    stream.differentiate(method="grad")
+    stream.shift(0.5)
+    assert stream[0].delta == 0.02
+    assert stream[0].nsamp == 9001
+
+
+def test_stream_response_correction(mode, mode_response):
+    """Stream response removal matches the record correction."""
+    stream = mode["IV.MODE..HNZ"].copy()
+    expected = stream[0] / mode_response
+
+    stream.deconvolve_response(mode_response)
+
+    np.testing.assert_allclose(stream[0].data, expected.data)

@@ -417,6 +417,10 @@ A breaking change follows this procedure:
   changelog;
 - remove the old name only after the deprecation period.
 
+Until the first stable release, public API changes may be made
+directly, without a deprecation period, provided they are recorded in
+the changelog.
+
 A behavior that is scientifically wrong (for example swapped
 coordinates or a wrong unit) is a bug: it is fixed directly, with a
 changelog entry, and is not preserved for compatibility.

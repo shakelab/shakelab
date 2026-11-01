@@ -48,7 +48,7 @@ Conventions
   instances, given as ``(longitude, latitude[, elevation])``.
 - Time tolerances are fractions of the sampling interval:
   :data:`MERGE_TOLERANCE` when joining records,
-  :data:`GRID_TOLERANCE` when matching times to samples.
+  :data:`SNAP_TOLERANCE` when matching times to samples.
 - The ``info()`` methods print a summary for interactive inspection;
   they are the only functions of the module that print.
 """
@@ -72,7 +72,7 @@ from shakelab.libutils.geodeticN import WgsPoint
 
 __all__ = [
     "MERGE_TOLERANCE",
-    "GRID_TOLERANCE",
+    "SNAP_TOLERANCE",
     "Header",
     "Record",
     "Stream",
@@ -89,11 +89,11 @@ libmseed). It absorbs the limited time resolution of data formats
 (e.g. 0.1 ms in MiniSEED 2).
 """
 
-GRID_TOLERANCE = 1e-6
+SNAP_TOLERANCE = 1e-6
 """
-Default tolerance for matching a time to a sample of the sampling grid,
-as a fraction of the sampling interval. It only absorbs floating-point
-rounding.
+Default tolerance for snapping a time to a sample of the sampling grid,
+as a fraction of the sampling interval: a time this close to a sample
+coincides with it. It only absorbs floating-point rounding.
 """
 
 
@@ -965,52 +965,6 @@ class Record:
 
         return relative_start, relative_end
 
-    def _sample_position(self, time, tolerance=None):
-        """
-        Convert a relative time to a floating-point sample position.
-
-        Parameters
-        ----------
-        time : float
-            Time in seconds relative to record start.
-        tolerance : float, optional
-            Maximum accepted distance from the nearest sample, expressed
-            as a fraction of the sampling interval. The default is
-            ``1e-6``.
-
-        Returns
-        -------
-        int
-            Index of the nearest sample.
-
-        Raises
-        ------
-        ValueError
-            If the requested time is not aligned with the sampling grid.
-        """
-        if self.delta is None:
-            raise ValueError(
-                "sampling interval is required for index conversion"
-            )
-
-        if tolerance is None:
-            tolerance = 1e-6
-
-        position = float(time) / self.delta
-        index = int(round(position))
-
-        if not np.isclose(
-            position,
-            index,
-            rtol=0.0,
-            atol=tolerance,
-        ):
-            raise ValueError(
-                "time does not coincide with the sampling grid"
-            )
-
-        return index
-
     def overlaps(self, starttime=None, endtime=None):
         """
         Check whether a time window intersects the record.
@@ -1132,7 +1086,7 @@ class Record:
         record,
         enforce=False,
         fillvalue=0.0,
-        tolerance=None,
+        merge_tolerance=None,
     ):
         """
         Append another record to the current record.
@@ -1148,7 +1102,7 @@ class Record:
             the first sample of the new record.
         fillvalue : scalar, optional
             Value used to fill gaps when ``enforce=True``.
-        tolerance : float, optional
+        merge_tolerance : float, optional
             Maximum distance from an integer sample offset, expressed as
             a fraction of one sampling interval. Default is
             :data:`MERGE_TOLERANCE` (half a sample).
@@ -1180,20 +1134,20 @@ class Record:
         if not isinstance(enforce, bool):
             raise TypeError("enforce must be a boolean")
 
-        if tolerance is None:
-            tolerance = MERGE_TOLERANCE
+        if merge_tolerance is None:
+            merge_tolerance = MERGE_TOLERANCE
 
         if (
-            not isinstance(tolerance, Real)
-            or isinstance(tolerance, (bool, np.bool_))
+            not isinstance(merge_tolerance, Real)
+            or isinstance(merge_tolerance, (bool, np.bool_))
         ):
-            raise TypeError("tolerance must be a real number")
+            raise TypeError("merge_tolerance must be a real number")
 
-        tolerance = float(tolerance)
+        merge_tolerance = float(merge_tolerance)
 
-        if not np.isfinite(tolerance) or tolerance < 0.0:
+        if not np.isfinite(merge_tolerance) or merge_tolerance < 0.0:
             raise ValueError(
-                "tolerance must be finite and non-negative"
+                "merge_tolerance must be finite and non-negative"
             )
 
         if self.nsamp == 0:
@@ -1238,7 +1192,7 @@ class Record:
             offset_samples,
             sample_offset,
             rtol=0.0,
-            atol=tolerance,
+            atol=merge_tolerance,
         ):
             if enforce:
                 raise ValueError(
@@ -1290,12 +1244,51 @@ class Record:
 
         return True
 
+    def _sample_window(self, starttime, endtime, snap_tolerance):
+        """
+        Return the indices of the first and last samples in a window.
+
+        Parameters
+        ----------
+        starttime, endtime : Date, str, float or None
+            Window bounds (see :meth:`cut`).
+        snap_tolerance : float
+            Snapping tolerance, as a fraction of the sampling interval.
+
+        Returns
+        -------
+        tuple of int or None
+            ``(first, last)`` sample indices, both included, or ``None``
+            when no sample falls within the window.
+        """
+        if self.nsamp == 0:
+            return None
+
+        relative_start, relative_end = self._relative_time_window(
+            starttime=starttime,
+            endtime=endtime,
+        )
+
+        index_start = max(
+            int(np.ceil(relative_start / self.delta - snap_tolerance)),
+            0,
+        )
+        index_end = min(
+            int(np.floor(relative_end / self.delta + snap_tolerance)),
+            self.nsamp - 1,
+        )
+
+        if index_start > index_end:
+            return None
+
+        return index_start, index_end
+
     def cut(
         self,
         starttime=None,
         endtime=None,
         inplace=True,
-        tolerance=GRID_TOLERANCE,
+        snap_tolerance=SNAP_TOLERANCE,
     ):
         """
         Cut the record to the samples within a time window.
@@ -1312,10 +1305,10 @@ class Record:
         inplace : bool, optional
             If ``True``, modify the current record. If ``False``, return
             an independent Record. Default is ``True``.
-        tolerance : float, optional
+        snap_tolerance : float, optional
             Times closer than this to a sample, as a fraction of one
             sampling interval, are treated as coinciding with it.
-            Default is :data:`GRID_TOLERANCE`.
+            Default is :data:`SNAP_TOLERANCE`.
 
         Returns
         -------
@@ -1326,10 +1319,10 @@ class Record:
         Raises
         ------
         TypeError
-            If ``inplace`` is not a boolean or ``tolerance`` is not a
+            If ``inplace`` is not a boolean or ``snap_tolerance`` is not a
             real number.
         ValueError
-            If the tolerance is invalid, the sampling interval is
+            If the snap_tolerance is invalid, the sampling interval is
             missing, the window is reversed, or no sample of the record
             falls within the window.
 
@@ -1347,18 +1340,18 @@ class Record:
             )
 
         if (
-            not isinstance(tolerance, Real)
-            or isinstance(tolerance, (bool, np.bool_))
+            not isinstance(snap_tolerance, Real)
+            or isinstance(snap_tolerance, (bool, np.bool_))
         ):
             raise TypeError(
-                "tolerance must be a real number"
+                "snap_tolerance must be a real number"
             )
 
-        tolerance = float(tolerance)
+        snap_tolerance = float(snap_tolerance)
 
-        if not np.isfinite(tolerance) or tolerance < 0.0:
+        if not np.isfinite(snap_tolerance) or snap_tolerance < 0.0:
             raise ValueError(
-                "tolerance must be finite and non-negative"
+                "snap_tolerance must be finite and non-negative"
             )
 
         if self.nsamp == 0:
@@ -1372,25 +1365,15 @@ class Record:
                 "sampling interval is required to cut a record"
             )
 
-        relative_start, relative_end = self._relative_time_window(
-            starttime=starttime,
-            endtime=endtime,
-        )
+        window = self._sample_window(starttime, endtime, snap_tolerance)
 
-        index_start = max(
-            int(np.ceil(relative_start / self.delta - tolerance)),
-            0,
-        )
-        index_end = min(
-            int(np.floor(relative_end / self.delta + tolerance)),
-            self.nsamp - 1,
-        )
-
-        if index_start > index_end:
+        if window is None:
             raise ValueError(
                 "no sample of the record falls within the requested "
                 "time window"
             )
+
+        index_start, index_end = window
 
         target = self if inplace else self.copy()
 
@@ -1412,7 +1395,7 @@ class Record:
         self,
         starttime=None,
         endtime=None,
-        tolerance=GRID_TOLERANCE,
+        snap_tolerance=SNAP_TOLERANCE,
     ):
         """
         Return an independent record with the samples of a time window.
@@ -1425,7 +1408,7 @@ class Record:
             Start of the window.
         endtime : Date, str or float, optional
             End of the window, included.
-        tolerance : float, optional
+        snap_tolerance : float, optional
             Times closer than this to a sample, as a fraction of one
             sampling interval, are treated as coinciding with it.
 
@@ -1438,7 +1421,7 @@ class Record:
             starttime=starttime,
             endtime=endtime,
             inplace=False,
-            tolerance=tolerance,
+            snap_tolerance=snap_tolerance,
         )
 
     def remove_mean(self):
@@ -1711,7 +1694,7 @@ class Record:
         old_duration = self.duration
 
         new_nsamp = int(
-            np.floor(old_duration / new_delta + GRID_TOLERANCE)
+            np.floor(old_duration / new_delta + SNAP_TOLERANCE)
         ) + 1
 
         if method in ("scipy", "fft"):
@@ -1899,7 +1882,7 @@ class Record:
                 sample_count,
                 zero_count,
                 rtol=0.0,
-                atol=1e-6,
+                atol=SNAP_TOLERANCE,
             ):
                 raise ValueError(
                     "padding duration is not aligned with the "
@@ -2699,18 +2682,19 @@ class Stream:
 
     def __getitem__(self, key):
         """
-        Return one or more records.
+        Return one record, or a stream of records.
 
         Parameters
         ----------
         key : int, slice or str
-            Integer and slice keys access records by position. A string
-            key accesses a record by event identifier.
+            An integer selects a record by position and a string by
+            event identifier. A slice returns a new :class:`Stream`
+            with the same source identifier and the selected records.
 
         Returns
         -------
-        Record or list of Record
-            Selected record or records.
+        Record or Stream
+            Selected record, or stream of the selected records.
 
         Raises
         ------
@@ -2719,21 +2703,33 @@ class Stream:
         KeyError
             If a requested event identifier is not found or is
             ambiguous.
+
+        Notes
+        -----
+        As for Python lists, a slice contains the stored records, not
+        copies: changing them changes this stream. Use
+        :meth:`Stream.copy` on the result for an independent selection.
         """
         if isinstance(key, str):
             return self.get_record(key)
 
-        if isinstance(key, (int, slice)):
-            if isinstance(key, int):
-                return self.record[key]
+        if isinstance(key, slice):
+            stream = self.__class__(sid=self.sid)
+            stream._replace_records(self.record[key])
+            return stream
 
-            if isinstance(key, slice):
-                return list(self.record)[key]
+        if isinstance(key, Integral) and not isinstance(
+            key, (bool, np.bool_)
+        ):
+            return self.record[key]
 
         raise TypeError(
             "stream indices must be integers, slices, or event "
             "identifiers"
         )
+
+    def __repr__(self):
+        return f"Stream(sid={self.sid!r}, records={len(self.record)})"
 
     def __str__(self):
         if not self.record:
@@ -2942,7 +2938,7 @@ class Stream:
         record,
         enforce=False,
         fillvalue=0.0,
-        tolerance=None,
+        merge_tolerance=None,
     ):
         """
         Append a record to the stream.
@@ -2958,7 +2954,7 @@ class Stream:
             :meth:`Record.append`. Default is ``False``.
         fillvalue : scalar, optional
             Value used to fill gaps when ``enforce=True``.
-        tolerance : float, optional
+        merge_tolerance : float, optional
             Maximum distance from an integer sample offset, expressed as
             a fraction of one sampling interval. Default is
             :data:`MERGE_TOLERANCE`.
@@ -2974,11 +2970,14 @@ class Stream:
 
         Notes
         -----
-        Records are preserved in insertion order.
+        The stream stores a copy of the record, so the record passed
+        by the caller is never modified, neither when it is stored nor
+        when later records are merged with it.
 
-        The new record is merged only with the final record currently
-        stored in the stream. To guarantee meaningful temporal merging,
-        the stream should be sorted before appending out-of-order data.
+        Records are preserved in insertion order. The new record is
+        merged only with the final record currently stored in the
+        stream. To guarantee meaningful temporal merging, the stream
+        should be sorted before appending out-of-order data.
         """
         if not isinstance(record, Record):
             raise TypeError(
@@ -3002,7 +3001,9 @@ class Stream:
                 "record source identifier does not match the stream"
             )
 
-        if record.sid is None and self.sid is not None:
+        record = record.copy()
+
+        if record.sid is None:
             record.sid = self.sid
 
         if not self.record:
@@ -3013,7 +3014,7 @@ class Stream:
             record,
             enforce=enforce,
             fillvalue=fillvalue,
-            tolerance=tolerance,
+            merge_tolerance=merge_tolerance,
         )
 
         if not merged:
@@ -3057,7 +3058,9 @@ class Stream:
 
             key = indices[0]
 
-        elif isinstance(key, bool) or not isinstance(key, int):
+        elif isinstance(key, (bool, np.bool_)) or not isinstance(
+            key, Integral
+        ):
             raise TypeError(
                 "record key must be an integer or an event identifier"
             )
@@ -3118,20 +3121,24 @@ class Stream:
         merge=False,
         enforce=False,
         fillvalue=0.0,
-        tolerance=1e-6,
+        snap_tolerance=SNAP_TOLERANCE,
+        merge_tolerance=None,
     ):
         """
-        Extract records intersecting a time window.
+        Extract the samples of the records within a time window.
 
         Parameters
         ----------
         starttime : Date, str or float, optional
-            Start of the requested time window.
+            Start of the requested time window. Numerical values are
+            seconds from the start of the stream (its earliest record).
         endtime : Date, str or float, optional
-            End of the requested time window.
+            End of the requested time window, included. Numerical
+            values are seconds from the start of the stream.
         eid : str, optional
             Restrict extraction to the record associated with this event
-            identifier.
+            identifier; numerical times are then relative to that
+            record.
         merge : bool, optional
             If ``False``, return a new Stream containing all extracted
             record segments. If ``True``, merge the selected segments
@@ -3143,16 +3150,21 @@ class Stream:
         fillvalue : scalar, optional
             Value used to fill gaps when ``merge=True`` and
             ``enforce=True``.
-        tolerance : float, optional
-            Sampling-grid tolerance passed to Record temporal methods.
+        snap_tolerance : float, optional
+            Times closer than this to a sample, as a fraction of one
+            sampling interval, coincide with it. Default is
+            :data:`SNAP_TOLERANCE`.
+        merge_tolerance : float, optional
+            Tolerance for joining the extracted segments when
+            ``merge=True``. Default is :data:`MERGE_TOLERANCE`.
 
         Returns
         -------
         Stream, Record or None
-            A new Stream when ``merge=False``. A merged Record when
-            ``merge=True`` and at least one record intersects the
-            requested window. ``None`` is returned when ``merge=True``
-            and no record intersects the window.
+            A new Stream of independent segments when ``merge=False``.
+            A merged Record when ``merge=True`` and at least one record
+            has samples in the window; ``None`` when ``merge=True`` and
+            no record has samples in the window.
 
             When ``eid`` is provided, an extracted Record is returned.
 
@@ -3164,7 +3176,11 @@ class Stream:
             If ``eid`` is missing or ambiguous.
         ValueError
             If selected records cannot be merged under the requested
-            policy.
+            policy, or if the window is reversed.
+
+        Notes
+        -----
+        Records without samples in the window are skipped.
         """
         if not isinstance(merge, bool):
             raise TypeError(
@@ -3182,29 +3198,40 @@ class Stream:
             return record.extract(
                 starttime=starttime,
                 endtime=endtime,
-                tolerance=tolerance,
+                snap_tolerance=snap_tolerance,
             )
+
+        starttime = self._absolute_time(starttime, "starttime")
+        endtime = self._absolute_time(endtime, "endtime")
+
+        if (
+            starttime is not None
+            and endtime is not None
+            and endtime < starttime
+        ):
+            raise ValueError("endtime precedes starttime")
 
         selected = []
 
         for record in self.record:
-            if record.overlaps(
-                starttime=starttime,
-                endtime=endtime,
-            ):
-                selected.append(
-                    record.extract(
-                        starttime=starttime,
-                        endtime=endtime,
-                        tolerance=tolerance,
-                    )
+            if record._sample_window(
+                starttime,
+                endtime,
+                snap_tolerance,
+            ) is None:
+                continue
+
+            selected.append(
+                record.extract(
+                    starttime=starttime,
+                    endtime=endtime,
+                    snap_tolerance=snap_tolerance,
                 )
+            )
 
         if not merge:
-            stream = Stream(
-                sid=deepcopy(self.sid),
-            )
-            stream.record = selected
+            stream = self.__class__(sid=deepcopy(self.sid))
+            stream._replace_records(selected)
 
             return stream
 
@@ -3218,7 +3245,7 @@ class Stream:
                 record,
                 enforce=enforce,
                 fillvalue=fillvalue,
-                tolerance=tolerance,
+                merge_tolerance=merge_tolerance,
             )
 
             if not merged:
@@ -3228,6 +3255,101 @@ class Stream:
                 )
 
         return output
+
+    def _absolute_time(self, value, name):
+        """
+        Convert a window bound to an absolute Date.
+
+        Numerical values are seconds from the start of the stream;
+        ``None`` is returned unchanged.
+        """
+        if value is None or isinstance(value, Date):
+            return value
+
+        if isinstance(value, str):
+            return Date(value)
+
+        if isinstance(value, Real) and not isinstance(
+            value, (bool, np.bool_)
+        ):
+            value = float(value)
+
+            if not np.isfinite(value):
+                raise ValueError(f"{name} must be finite")
+
+            if self.starttime is None:
+                raise ValueError(
+                    "relative times require a stream with records"
+                )
+
+            return self.starttime + value
+
+        raise TypeError(
+            f"{name} must be a Date, string, or relative time in "
+            "seconds"
+        )
+
+    # ------------------------------------------------------------------------
+    # Processing applied to every record
+    # ------------------------------------------------------------------------
+
+    def remove_mean(self):
+        """
+        Remove the mean from every record (see :meth:`Record.remove_mean`).
+        """
+        for record in self.record:
+            record.remove_mean()
+
+    def filter(self, highpass=None, lowpass=None, order=4, minphase=False):
+        """
+        Filter every record (see :meth:`Record.filter`).
+        """
+        for record in self.record:
+            record.filter(
+                highpass=highpass,
+                lowpass=lowpass,
+                order=order,
+                minphase=minphase,
+            )
+
+    def resample(self, new_delta, method="interp", antialias=True):
+        """
+        Resample every record (see :meth:`Record.resample`).
+        """
+        for record in self.record:
+            record.resample(
+                new_delta,
+                method=method,
+                antialias=antialias,
+            )
+
+    def taper(self, time=0.1):
+        """
+        Taper every record (see :meth:`Record.taper`).
+        """
+        for record in self.record:
+            record.taper(time=time)
+
+    def shift(self, time, padding=True):
+        """
+        Shift the samples of every record (see :meth:`Record.shift`).
+        """
+        for record in self.record:
+            record.shift(time, padding=padding)
+
+    def integrate(self, method="fft"):
+        """
+        Integrate every record (see :meth:`Record.integrate`).
+        """
+        for record in self.record:
+            record.integrate(method=method)
+
+    def differentiate(self, method="fft"):
+        """
+        Differentiate every record (see :meth:`Record.differentiate`).
+        """
+        for record in self.record:
+            record.differentiate(method=method)
 
     def convolve_response(self, resp):
         """
@@ -3557,7 +3679,7 @@ class StreamCollection:
         data,
         enforce=False,
         fillvalue=0.0,
-        tolerance=None,
+        merge_tolerance=None,
     ):
         """
         Append a record or stream to the collection.
@@ -3572,7 +3694,7 @@ class StreamCollection:
         fillvalue : scalar, optional
             Value used to fill gaps by standard Stream objects when
             ``enforce=True``.
-        tolerance : float, optional
+        merge_tolerance : float, optional
             Tolerance for joining contiguous records, as a fraction of
             the sampling interval. Default is :data:`MERGE_TOLERANCE`.
 
@@ -3614,7 +3736,7 @@ class StreamCollection:
                 data,
                 enforce=enforce,
                 fillvalue=fillvalue,
-                tolerance=tolerance,
+                merge_tolerance=merge_tolerance,
             )
             return
 
@@ -3631,7 +3753,7 @@ class StreamCollection:
                 record,
                 enforce=enforce,
                 fillvalue=fillvalue,
-                tolerance=tolerance,
+                merge_tolerance=merge_tolerance,
             )
 
     def remove(self, key):
@@ -3743,7 +3865,8 @@ class StreamCollection:
         merge=False,
         enforce=False,
         fillvalue=0.0,
-        tolerance=1e-6,
+        snap_tolerance=SNAP_TOLERANCE,
+        merge_tolerance=None,
     ):
         """
         Extract waveform data from one stream.
@@ -3766,8 +3889,13 @@ class StreamCollection:
         fillvalue : scalar, optional
             Value used to fill gaps when merging with
             ``enforce=True``.
-        tolerance : float, optional
-            Sampling-grid tolerance.
+        snap_tolerance : float, optional
+            Times closer than this to a sample, as a fraction of one
+            sampling interval, coincide with it. Default is
+            :data:`SNAP_TOLERANCE`.
+        merge_tolerance : float, optional
+            Tolerance for joining segments when ``merge=True``. Default
+            is :data:`MERGE_TOLERANCE`.
 
         Returns
         -------
@@ -3783,7 +3911,8 @@ class StreamCollection:
             merge=merge,
             enforce=enforce,
             fillvalue=fillvalue,
-            tolerance=tolerance,
+            snap_tolerance=snap_tolerance,
+            merge_tolerance=merge_tolerance,
         )
 
     def merge(
@@ -3791,7 +3920,7 @@ class StreamCollection:
         collection,
         enforce=False,
         fillvalue=0.0,
-        tolerance=None,
+        merge_tolerance=None,
     ):
         """
         Append all streams from another collection.
@@ -3804,7 +3933,7 @@ class StreamCollection:
             Append policy passed to destination streams.
         fillvalue : scalar, optional
             Gap fill value used by standard streams.
-        tolerance : float, optional
+        merge_tolerance : float, optional
             Tolerance for joining contiguous records, as a fraction of
             the sampling interval. Default is :data:`MERGE_TOLERANCE`.
 
@@ -3827,7 +3956,7 @@ class StreamCollection:
                 stream,
                 enforce=enforce,
                 fillvalue=fillvalue,
-                tolerance=tolerance,
+                merge_tolerance=merge_tolerance,
             )
 
     def convolve_response(self, resp):

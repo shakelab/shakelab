@@ -38,6 +38,17 @@ corrections. The format follows
 - `signals.base`: contiguous records are joined when the start time is
   within half a sample of the expected one (previously 1e-6 samples),
   absorbing the time resolution of data formats.
+- `signals.base`: the `tolerance` parameter is replaced by
+  `merge_tolerance` (joining records: `append`, `merge`) and
+  `snap_tolerance` (matching times to samples: `cut`, `extract`);
+  `Stream.extract` and `StreamCollection.extract` accept both.
+- `signals.base.Stream`: slicing returns a `Stream` (same source
+  identifier, the stored records) instead of a list; numerical times
+  in `extract` are seconds from the start of the stream (previously
+  from the start of each record).
+- `signals.base.Stream`: `filter`, `resample`, `taper`, `remove_mean`,
+  `shift`, `integrate` and `differentiate` apply the operation to
+  every record.
 - `signals.base.Record.cut`/`extract` accept windows not aligned with
   the sampling grid and keep the samples inside the window.
 - `signals.base.Record` operators `*` and `/` accept every response
@@ -49,7 +60,8 @@ corrections. The format follows
 ### Added
 
 - `signals.base`: `MERGE_TOLERANCE` (0.5 samples, used when joining
-  records) and `GRID_TOLERANCE`; `Record(units=...)`;
+  records) and `SNAP_TOLERANCE` (snapping times to samples);
+  `Record(units=...)`;
   `Record.time_axis(reference=date)` for seconds relative to any date.
 - `docs/conventions.md` (library-wide conventions) and
   `docs/development.md` (development and architecture guidelines,
@@ -79,6 +91,12 @@ corrections. The format follows
   of the data.
 - `signals.base.Record.shift` failed on complex data; `filter`
   rejected NumPy integer orders.
+- `signals.base.Stream.append` stored the caller's record and extended
+  it in place when later records were merged, so the caller's record
+  silently changed; it also overwrote its source identifier. The
+  stream now stores a copy.
+- `signals.base.Stream`: NumPy integers are accepted as indices;
+  `True`/`False` are no longer taken as positions 1 and 0.
 - `signals.base.Header.location`: a `(longitude, latitude)` sequence
   was stored with longitude and latitude swapped.
 - `seismicity.catalogue` hypocentre: longitude and latitude were
