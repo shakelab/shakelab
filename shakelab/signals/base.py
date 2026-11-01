@@ -30,7 +30,9 @@ The main classes are:
   with its metadata.
 - :class:`Stream`, representing a collection of temporally ordered
   records belonging to the same source.
-- :class:`StreamCollection`, grouping multiple streams.
+- :class:`StreamCollection`, grouping multiple streams. With
+  ``max_duration`` it holds time-limited circular streams
+  (:class:`shakelab.signals.circular.CircularStream`, experimental).
 
 The module also provides basic signal-processing utilities including
 filtering, resampling, tapering, Fourier-domain operations, temporal
@@ -2478,7 +2480,8 @@ class Record:
             If the response type is unsupported.
         ValueError
             If stream id or time metadata required for response selection
-            is missing.
+            is missing, or if a stream response belongs to another
+            source identifier.
         KeyError
             If the stream or epoch is not present in the response
             container.
@@ -2493,6 +2496,16 @@ class Record:
             return resp
 
         if isinstance(resp, response.StreamResponse):
+            if (
+                resp.sid is not None
+                and self.sid is not None
+                and resp.sid != self.sid
+            ):
+                raise ValueError(
+                    f"the response of {resp.sid} cannot be applied to "
+                    f"{self.sid}"
+                )
+
             if self.time is None:
                 raise ValueError(
                     "record start time is required to select a "
@@ -2689,7 +2702,8 @@ class Stream:
         key : int, slice or str
             An integer selects a record by position and a string by
             event identifier. A slice returns a new :class:`Stream`
-            with the same source identifier and the selected records.
+            (also for a circular stream) with the same source
+            identifier and the selected records.
 
         Returns
         -------
@@ -2714,8 +2728,8 @@ class Stream:
             return self.get_record(key)
 
         if isinstance(key, slice):
-            stream = self.__class__(sid=self.sid)
-            stream._replace_records(self.record[key])
+            stream = Stream(sid=self.sid)
+            stream._replace_records(list(self.record)[key])
             return stream
 
         if isinstance(key, Integral) and not isinstance(
@@ -3230,7 +3244,7 @@ class Stream:
             )
 
         if not merge:
-            stream = self.__class__(sid=deepcopy(self.sid))
+            stream = Stream(sid=deepcopy(self.sid))
             stream._replace_records(selected)
 
             return stream
@@ -3441,18 +3455,19 @@ class StreamCollection:
 
     def __getitem__(self, key):
         """
-        Return one or more streams.
+        Return one stream, or a collection of streams.
 
         Parameters
         ----------
         key : int, slice or str
-            Integer and slice keys access streams by position. A string
-            key accesses a stream by source identifier.
+            An integer selects a stream by position and a string by
+            source identifier. A slice returns a new
+            :class:`StreamCollection` with the selected streams.
 
         Returns
         -------
-        Stream or list of Stream
-            Selected stream or streams.
+        Stream or StreamCollection
+            Selected stream, or collection of the selected streams.
 
         Raises
         ------
@@ -3460,26 +3475,33 @@ class StreamCollection:
             If the key type is unsupported.
         KeyError
             If a source identifier is not found or is ambiguous.
+
+        Notes
+        -----
+        As for Python lists, a slice contains the stored streams, not
+        copies. Use :meth:`StreamCollection.copy` on the result for an
+        independent selection.
         """
         if isinstance(key, str):
             return self.get_stream(key)
 
-        if isinstance(key, bool):
-            raise TypeError(
-                "collection indices must be integers, slices, or "
-                "source identifiers"
-            )
-
-        if isinstance(key, int):
-            return self.stream[key]
-
         if isinstance(key, slice):
+            collection = self.__class__(max_duration=self.max_duration)
+            collection.stream = self.stream[key]
+            return collection
+
+        if isinstance(key, Integral) and not isinstance(
+            key, (bool, np.bool_)
+        ):
             return self.stream[key]
 
         raise TypeError(
             "collection indices must be integers, slices, or "
             "source identifiers"
         )
+
+    def __repr__(self):
+        return f"StreamCollection(streams={len(self.stream)})"
 
     def __str__(self):
         if not self.stream:
@@ -3708,9 +3730,8 @@ class StreamCollection:
 
         Notes
         -----
-        Appended records are not copied automatically. Use
-        :meth:`copy` before appending when independent objects are
-        required.
+        The destination stream stores copies of the appended records,
+        so the caller's records are never modified.
         """
         if not isinstance(data, (Record, Stream)):
             raise TypeError(
@@ -3794,7 +3815,9 @@ class StreamCollection:
 
             key = indices[0]
 
-        elif isinstance(key, bool) or not isinstance(key, int):
+        elif isinstance(key, (bool, np.bool_)) or not isinstance(
+            key, Integral
+        ):
             raise TypeError(
                 "stream key must be an integer or source identifier"
             )
@@ -3858,7 +3881,7 @@ class StreamCollection:
 
     def extract(
         self,
-        sid,
+        sid=None,
         starttime=None,
         endtime=None,
         eid=None,
@@ -3869,21 +3892,24 @@ class StreamCollection:
         merge_tolerance=None,
     ):
         """
-        Extract waveform data from one stream.
+        Extract waveform data from one stream or from all streams.
 
         Parameters
         ----------
-        sid : str
-            Source identifier of the stream to extract.
+        sid : str, optional
+            Source identifier of the stream to extract. If omitted, the
+            same extraction is applied to every stream.
         starttime : Date, str or float, optional
-            Start of the requested time window.
+            Start of the requested time window. Numerical values are
+            seconds from the start of each stream.
         endtime : Date, str or float, optional
-            End of the requested time window.
+            End of the requested time window, included.
         eid : str, optional
-            Restrict extraction to one event identifier.
+            Restrict extraction to one event identifier. Without
+            ``sid``, streams without that identifier are skipped.
         merge : bool, optional
-            If ``True``, merge selected records into one Record.
-            Default is ``False``.
+            If ``True``, merge selected records into one Record per
+            stream. Default is ``False``.
         enforce : bool, optional
             Allow gaps and overlaps to be resolved when merging.
         fillvalue : scalar, optional
@@ -3899,12 +3925,13 @@ class StreamCollection:
 
         Returns
         -------
-        Stream, Record or None
-            Result returned by :meth:`Stream.extract`.
+        Stream, Record, StreamCollection or None
+            With ``sid``, the result of :meth:`Stream.extract`. Without
+            ``sid``, a new collection (of standard streams) holding the
+            extracted data of every stream that has samples in the
+            window.
         """
-        stream = self.get_stream(sid)
-
-        return stream.extract(
+        options = dict(
             starttime=starttime,
             endtime=endtime,
             eid=eid,
@@ -3914,6 +3941,24 @@ class StreamCollection:
             snap_tolerance=snap_tolerance,
             merge_tolerance=merge_tolerance,
         )
+
+        if sid is not None:
+            return self.get_stream(sid).extract(**options)
+
+        collection = StreamCollection()
+
+        for stream in self.stream:
+            if eid is not None and not stream._record_indices(eid):
+                continue
+
+            result = stream.extract(**options)
+
+            if result is None or len(result) == 0:
+                continue
+
+            collection.append(result)
+
+        return collection
 
     def merge(
         self,
@@ -3959,13 +4004,75 @@ class StreamCollection:
                 merge_tolerance=merge_tolerance,
             )
 
+    # ------------------------------------------------------------------------
+    # Processing applied to every stream
+    # ------------------------------------------------------------------------
+
+    def remove_mean(self):
+        """
+        Remove the mean from every record (see :meth:`Record.remove_mean`).
+        """
+        for stream in self.stream:
+            stream.remove_mean()
+
+    def filter(self, highpass=None, lowpass=None, order=4, minphase=False):
+        """
+        Filter every record (see :meth:`Record.filter`).
+        """
+        for stream in self.stream:
+            stream.filter(
+                highpass=highpass,
+                lowpass=lowpass,
+                order=order,
+                minphase=minphase,
+            )
+
+    def resample(self, new_delta, method="interp", antialias=True):
+        """
+        Resample every record (see :meth:`Record.resample`).
+        """
+        for stream in self.stream:
+            stream.resample(
+                new_delta,
+                method=method,
+                antialias=antialias,
+            )
+
+    def taper(self, time=0.1):
+        """
+        Taper every record (see :meth:`Record.taper`).
+        """
+        for stream in self.stream:
+            stream.taper(time=time)
+
+    def shift(self, time, padding=True):
+        """
+        Shift the samples of every record (see :meth:`Record.shift`).
+        """
+        for stream in self.stream:
+            stream.shift(time, padding=padding)
+
+    def integrate(self, method="fft"):
+        """
+        Integrate every record (see :meth:`Record.integrate`).
+        """
+        for stream in self.stream:
+            stream.integrate(method=method)
+
+    def differentiate(self, method="fft"):
+        """
+        Differentiate every record (see :meth:`Record.differentiate`).
+        """
+        for stream in self.stream:
+            stream.differentiate(method=method)
+
     def convolve_response(self, resp):
         """
         Apply an instrumental response to all streams.
 
         Parameters
         ----------
-        resp : ResponseCollection
+        resp : StageResponse, StageSet, StreamResponse or ResponseCollection
             Response container passed to each stream.
 
         Notes
@@ -3981,7 +4088,7 @@ class StreamCollection:
 
         Parameters
         ----------
-        resp : ResponseCollection
+        resp : StageResponse, StageSet, StreamResponse or ResponseCollection
             Response container passed to each stream.
 
         Notes
@@ -3994,8 +4101,11 @@ class StreamCollection:
     def __mul__(self, value):
         """
         Return a response-convolved copy of the collection.
+
+        ``value`` may be any response container accepted by
+        :meth:`Record.convolve_response`.
         """
-        if not isinstance(value, response.ResponseCollection):
+        if not isinstance(value, _response_types()):
             raise TypeError(
                 "unsupported operand type for StreamCollection "
                 "multiplication: {0}".format(
@@ -4011,8 +4121,11 @@ class StreamCollection:
     def __truediv__(self, value):
         """
         Return a response-deconvolved copy of the collection.
+
+        ``value`` may be any response container accepted by
+        :meth:`Record.deconvolve_response`.
         """
-        if not isinstance(value, response.ResponseCollection):
+        if not isinstance(value, _response_types()):
             raise TypeError(
                 "unsupported operand type for StreamCollection "
                 "division: {0}".format(

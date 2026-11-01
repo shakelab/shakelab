@@ -48,7 +48,13 @@ corrections. The format follows
   from the start of each record).
 - `signals.base.Stream`: `filter`, `resample`, `taper`, `remove_mean`,
   `shift`, `integrate` and `differentiate` apply the operation to
-  every record.
+  every record; the same methods are available on `StreamCollection`.
+- `signals.base.StreamCollection`: slicing returns a collection;
+  `extract` without `sid` extracts the window from every stream; `*`
+  and `/` accept every response container.
+- `signals.base`: a stream response is applied only to records with
+  its own source identifier (previously, e.g., `collection / rc[sid]`
+  silently applied one channel's response to all channels).
 - `signals.base.Record.cut`/`extract` accept windows not aligned with
   the sampling grid and keep the samples inside the window.
 - `signals.base.Record` operators `*` and `/` accept every response
@@ -63,6 +69,10 @@ corrections. The format follows
   records) and `SNAP_TOLERANCE` (snapping times to samples);
   `Record(units=...)`;
   `Record.time_axis(reference=date)` for seconds relative to any date.
+- `signals.circular.CircularStream` (experimental): time-limited
+  buffer of waveform blocks for real-time acquisition, used by
+  `StreamCollection(max_duration=...)`. It copies appended records and
+  refuses block-by-block processing.
 - `docs/conventions.md` (library-wide conventions) and
   `docs/development.md` (development and architecture guidelines,
   version 2.1), replacing the former Word document; the normative

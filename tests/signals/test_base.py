@@ -42,6 +42,7 @@ from shakelab.signals.base import (
     Header,
     Record,
     Stream,
+    StreamCollection,
     tukey_window,
 )
 from shakelab.signals.io import reader
@@ -1026,3 +1027,166 @@ def test_stream_response_correction(mode, mode_response):
     stream.deconvolve_response(mode_response)
 
     np.testing.assert_allclose(stream[0].data, expected.data)
+
+
+def test_record_stream_response_of_another_channel_is_rejected(
+    mode, mode_response
+):
+    """A stream response is applied only to records of its own channel."""
+    east = mode["IV.MODE..HNE"][0]
+
+    with pytest.raises(ValueError):
+        east / mode_response["IV.MODE..HNZ"]
+
+
+# ----------------------------------------------------------------------------
+# StreamCollection
+# ----------------------------------------------------------------------------
+
+
+def test_collection_read_and_access(mode, capsys):
+    """Reading MODE.mseed gives three streams accessible by sid."""
+    assert len(mode) == 3
+    assert mode.sid == ["IV.MODE..HNE", "IV.MODE..HNN", "IV.MODE..HNZ"]
+    assert mode.nsamp == 3 * 18001
+    assert mode["IV.MODE..HNZ"] is mode.get_stream("IV.MODE..HNZ")
+    assert mode[np.int64(2)] is mode["IV.MODE..HNZ"]
+    assert repr(mode) == "StreamCollection(streams=3)"
+
+    mode.info()
+    assert "number of streams: 3" in capsys.readouterr().out
+
+    with pytest.raises(TypeError):
+        mode[True]
+    with pytest.raises(KeyError):
+        mode["IV.MODE..XXX"]
+
+
+def test_collection_read_method(tmp_path):
+    """StreamCollection.read appends the content of a file."""
+    collection = StreamCollection()
+    returned = collection.read(str(DATA / "MODE.mseed"))
+
+    assert returned is collection
+    assert len(collection) == 3
+
+
+def test_collection_slice_returns_collection_of_stored_streams(mode):
+    """A slice is a collection holding the stored streams."""
+    selection = mode[0:2]
+
+    assert isinstance(selection, StreamCollection)
+    assert len(selection) == 2
+    assert selection[0] is mode[0]
+
+
+def test_collection_append_copies_records():
+    """Appended records are copied and grouped by source identifier."""
+    collection = StreamCollection()
+    record = Record(data=[1, 2], delta=1.0, time=START, sid="A")
+
+    collection.append(record)
+    collection.append(
+        Record(data=[3], delta=1.0, time="2026-01-01T00:00:02", sid="A")
+    )
+    collection.append(Record(data=[5], delta=1.0, time=START, sid="B"))
+
+    assert collection.sid == ["A", "B"]
+    assert collection["A"][0].data.tolist() == [1, 2, 3]
+    assert record.data.tolist() == [1, 2]
+
+    with pytest.raises(ValueError):
+        collection.append(Record(data=[1], delta=1.0, time=START))
+    with pytest.raises(TypeError):
+        collection.append([1, 2])
+
+
+def test_collection_remove_sort_copy_merge():
+    """Streams are removed, sorted, copied and merged."""
+    collection = StreamCollection()
+    for sid in ("C", "A", "B"):
+        collection.append(Record(data=[1], delta=1.0, time=START, sid=sid))
+
+    collection.sort()
+    assert collection.sid == ["A", "B", "C"]
+
+    copied = collection.copy()
+    copied["A"][0].data[0] = 9
+    assert collection["A"][0].data[0] == 1
+
+    assert collection.remove(np.int64(0)).sid == "A"
+    assert collection.remove("C").sid == "C"
+    assert collection.sid == ["B"]
+
+    other = StreamCollection()
+    other.append(Record(data=[2], delta=1.0, time=START, sid="D"))
+    collection.merge(other)
+    assert collection.sid == ["B", "D"]
+
+
+def test_collection_extract_one_or_all_streams(mode):
+    """Extraction from one stream, or from every stream."""
+    one = mode.extract("IV.MODE..HNZ", 10, 20)
+    assert isinstance(one, Stream)
+    assert one[0].nsamp == 1001
+
+    every = mode.extract(starttime=10, endtime=20)
+    assert isinstance(every, StreamCollection)
+    assert every.sid == mode.sid
+    assert all(stream[0].nsamp == 1001 for stream in every)
+
+    merged = mode.extract(starttime=10, endtime=20, merge=True)
+    assert [len(stream) for stream in merged] == [1, 1, 1]
+
+    empty = mode.extract(
+        starttime="2013-01-01T00:00:00", endtime="2013-01-01T00:01:00"
+    )
+    assert len(empty) == 0
+
+
+def test_collection_response_correction(mode, mode_response):
+    """Collection response removal matches the record correction."""
+    corrected = mode / mode_response
+    expected = mode["IV.MODE..HNN"][0] / mode_response
+
+    np.testing.assert_allclose(
+        corrected["IV.MODE..HNN"][0].data, expected.data
+    )
+    assert mode["IV.MODE..HNN"][0].data.dtype.kind != "c"
+
+    with pytest.raises(ValueError):
+        mode / mode_response["IV.MODE..HNZ"]
+    with pytest.raises(TypeError):
+        mode / 2
+
+
+def test_collection_processing_applies_to_every_stream(mode):
+    """Collection processing matches the record methods."""
+    collection = mode.copy()
+    record = mode["IV.MODE..HNE"][0].copy()
+
+    collection.filter(0.1, 20.0)
+    collection.taper(1.0)
+    record.filter(0.1, 20.0)
+    record.taper(1.0)
+
+    np.testing.assert_array_equal(
+        collection["IV.MODE..HNE"][0].data, record.data
+    )
+
+    collection.remove_mean()
+    collection.resample(0.02)
+    collection.integrate(method="cum")
+    collection.differentiate(method="grad")
+    collection.shift(0.5)
+    assert all(stream[0].delta == 0.02 for stream in collection)
+
+
+def test_collection_max_duration_validation():
+    """max_duration must be a positive finite number or None."""
+    assert StreamCollection().max_duration is None
+
+    with pytest.raises(TypeError):
+        StreamCollection(max_duration="10")
+    with pytest.raises(ValueError):
+        StreamCollection(max_duration=-1.0)
