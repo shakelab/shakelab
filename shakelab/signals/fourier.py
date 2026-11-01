@@ -325,8 +325,8 @@ def butterworth(
 
 def inverse_spectrum(
     spectrum: np.ndarray,
-    waterlevel: float = 120.0,
-    method: str = "smooth",
+    waterlevel: float = 60.0,
+    method: str = "water",
 ) -> np.ndarray:
     """
     Return a regularized inverse of a spectrum.
@@ -336,12 +336,14 @@ def inverse_spectrum(
     spectrum
         Complex spectrum ``S``.
     waterlevel
-        Level in dB defining the threshold ``w = 10 ** (-waterlevel /
-        20)``.
+        Level in dB below the maximum of ``|S|``. It defines the
+        threshold ``eps = max(|S|) * 10 ** (-waterlevel / 20)``, so it
+        does not depend on the units of the spectrum.
     method
-        ``"sharp"``: ``1 / S`` where ``|S| >= w``, zero elsewhere;
-        ``"smooth"``: ``conj(S) / (|S| ** 2 + w)``, set to zero where
-        ``|S| <= w``.
+        ``"water"``: ``1 / S`` with ``|S|`` raised to ``eps`` where it is
+        smaller (phase preserved), zero where ``S == 0``;
+        ``"sharp"``: ``1 / S`` where ``|S| >= eps``, zero elsewhere;
+        ``"smooth"``: ``conj(S) / (|S| ** 2 + eps ** 2)``.
 
     Returns
     -------
@@ -355,26 +357,39 @@ def inverse_spectrum(
 
     Notes
     -----
-    The threshold is absolute, so its effect depends on the units of
-    the spectrum; its definition is to be reviewed together with the
-    instrument response correction.
+    With ``"water"`` the amplitude of the inverse is limited to
+    ``1 / eps``, i.e. to ``waterlevel`` dB above the inverse of the
+    maximum. ``"smooth"`` is the damped least-squares inverse, with the
+    same limit in amplitude (reached as ``1 / (2 eps)`` at ``|S| =
+    eps``).
     """
     spectrum = np.asarray(spectrum, dtype=complex)
     amplitude = np.abs(spectrum)
-    level = 10.0 ** (-waterlevel / 20.0)
+    inverse = np.zeros(spectrum.shape, dtype=complex)
+
+    if spectrum.size == 0 or not np.any(amplitude > 0):
+        if method not in ("water", "sharp", "smooth"):
+            raise ValueError("method must be 'water', 'sharp' or 'smooth'")
+        return inverse
+
+    eps = amplitude.max() * 10.0 ** (-waterlevel / 20.0)
+    nonzero = amplitude > 0
+
+    if method == "water":
+        clipped = np.maximum(amplitude[nonzero], eps)
+        phase = spectrum[nonzero] / amplitude[nonzero]
+        inverse[nonzero] = 1.0 / (clipped * phase)
+        return inverse
 
     if method == "sharp":
-        inverse = np.zeros(spectrum.shape, dtype=complex)
-        valid = amplitude >= level
+        valid = amplitude >= eps
         inverse[valid] = 1.0 / spectrum[valid]
         return inverse
 
     if method == "smooth":
-        inverse = spectrum.conj() / (amplitude ** 2 + level)
-        inverse[amplitude <= level] = 0.0
-        return inverse
+        return spectrum.conj() / (amplitude ** 2 + eps ** 2)
 
-    raise ValueError("method must be 'sharp' or 'smooth'")
+    raise ValueError("method must be 'water', 'sharp' or 'smooth'")
 
 
 # ----------------------------------------------------------------------------

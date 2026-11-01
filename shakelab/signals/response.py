@@ -1,6 +1,5 @@
 # ****************************************************************************
-#
-# Copyright (C) 2019-2025, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -15,223 +14,377 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
-"""
-import os as _os
-import json as _json
-import numpy as np
-from copy import deepcopy
+Instrument response model.
 
-from shakelab.libutils.utils import (cast_value, 
-                                     serialize_ndarray,
-                                     deserialize_complex)
-from shakelab.signals import fourier
-from shakelab.signals import base
-from shakelab.signals import stationxml
+This module represents the response of a recording instrument: stages
+(gain, poles and zeros, digital filters) grouped into stage sets valid
+in a time interval (epochs), stream responses holding the epochs of one
+channel, and collections of stream responses indexed by source
+identifier.
+
+Design choices
+--------------
+- The response is a model of the instrument: each stage provides its
+  transfer function ``H(f)`` (:meth:`StageResponse.transfer_function`)
+  and a stage set the product over its active stages. The model does
+  not depend on waveform classes: responses are applied to data by
+  :meth:`shakelab.signals.spectrum.Spectrum.deconvolve_response` and
+  the corresponding methods of records, streams and collections.
+- :func:`select_response` chooses the stage or stage set applicable to
+  a source identifier and a time.
+- Only gain and poles-and-zeros stages are applied (``ACTIVE_STAGES``).
+  Digital stages (FIR, coefficients, polynomial) are read and stored
+  but not applied: FIR filters act at the sampling rate of their own
+  stage, and StationXML polynomials describe non-linear sensors rather
+  than frequency responses.
+
+Conventions
+-----------
+- Frequencies in Hz; poles and zeros in rad/s (Laplace transform,
+  ``s = 2j * pi * f``).
+- The input units of a response are those of the ground motion (e.g.
+  ``m/s**2``), the output units those of the recorded data.
+- The ``info()`` methods print a summary for interactive inspection.
+"""
+
+from __future__ import annotations
+
+import json as _json
+import os as _os
+from copy import deepcopy
+from typing import Any, Optional
+
+import numpy as np
+
 from shakelab.libutils.timeN import Date
+from shakelab.libutils.utils import (
+    cast_value,
+    deserialize_complex,
+    serialize_ndarray,
+)
+
+__all__ = [
+    "ACTIVE_STAGES",
+    "ResponseCollection",
+    "StreamResponse",
+    "StageSet",
+    "StageResponse",
+    "StageGain",
+    "StagePoleZero",
+    "StagePolynomial",
+    "StageFIR",
+    "select_response",
+    "paz_transfer_function",
+    "polynomial_transfer_function",
+    "fir_transfer_function",
+]
 
 ACTIVE_STAGES = {
-    'gain' : True,
-    'paz' : True,
-    'coefficients': False,
-    'polynomial' : False,
-    'fir' : False
-    }
+    "gain": True,
+    "paz": True,
+    "coefficients": False,
+    "polynomial": False,
+    "fir": False,
+}
+"""Stage types applied when a response is applied to data."""
+
+
+# ----------------------------------------------------------------------------
+# Collections and epochs
+# ----------------------------------------------------------------------------
 
 
 class ResponseCollection:
     """
-    A container of StreamResponse objects indexed by FDSN codes.
+    Collection of stream responses indexed by source identifier.
+
+    Parameters
+    ----------
+    byte_stream
+        Optional file to read (see :meth:`read`).
+    ftype
+        File type (``"xml"`` or ``"json"``); inferred from the file
+        extension if None.
     """
-    def __init__(self, byte_stream=None, ftype='sxml'):
-        self.response = []
+
+    def __init__(self, byte_stream: Any = None, ftype: Optional[str] = None):
+        self.response: list[StreamResponse] = []
         if byte_stream is not None:
             self.read(byte_stream, ftype=ftype)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.response)
 
-    def __getitem__(self, key):
+    def __iter__(self):
+        return iter(self.response)
+
+    def __getitem__(self, key: Any) -> StreamResponse:
         if isinstance(key, str):
             return self.response[self._idx(key)]
         return self.response[key]
 
-    def _idx(self, sid):
+    def __repr__(self) -> str:
+        return f"ResponseCollection(responses={len(self.response)})"
+
+    def _idx(self, sid: str) -> int:
+        """
+        Return the position of a source identifier.
+
+        Raises
+        ------
+        KeyError
+            If the identifier is not in the collection.
+        """
         sid_list = self.sid
-        if sid in sid_list:
-            return sid_list.index(sid)
-        print('Stream ID not found.')
-        return None
+        if sid not in sid_list:
+            raise KeyError(f"source identifier not found: {sid}")
+        return sid_list.index(sid)
 
     @property
-    def sid(self):
+    def sid(self) -> list:
+        """Source identifiers of the stream responses."""
         return [resp.sid for resp in self.response]
 
-    def append(self, obj):
-        if isinstance(obj, StreamResponse):
-            if obj.sid not in self.sid:
-                self.response.append(obj)
-        elif isinstance(obj, StageSet):
-            sid = obj.sid
-            for resp in self.response:
-                if resp.sid == sid:
-                    resp.append(obj)
-                    return
-            sr = StreamResponse(sid)
-            sr.append(obj)
-            self.response.append(sr)
-        else:
-            raise ValueError('Unsupported type to append')
+    def append(self, obj: Any) -> None:
+        """
+        Append a stream response.
 
-    def extract(self, sid, time=None, stage_number=None):
+        If a stream response with the same identifier is already in the
+        collection, the stage sets of ``obj`` are added to it.
+
+        Raises
+        ------
+        ValueError
+            If the object is not a StreamResponse.
         """
-        Return the stage or StageSet matching the stream ID and time.
+        if not isinstance(obj, StreamResponse):
+            raise ValueError("Unsupported type to append")
+        if obj.sid in self.sid:
+            self[obj.sid].append(obj.stageset)
+        else:
+            self.response.append(obj)
+
+    def extract(
+        self,
+        sid: str,
+        time: Any = None,
+        stage_number: Optional[int] = None,
+    ) -> Any:
         """
-        resp = self[sid]
-        result = resp.extract(time)
+        Return the stage set (or one of its stages) of a channel.
+
+        Parameters
+        ----------
+        sid
+            Source identifier.
+        time
+            Time of validity (default: now).
+        stage_number
+            If given, return that stage of the stage set.
+
+        Raises
+        ------
+        KeyError
+            If the channel or the epoch is not found.
+        """
+        result = self[sid].extract(time)
         if stage_number is not None:
             return result[stage_number]
         return result
 
-    def read(self, byte_stream, ftype=None, append=False):
+    def read(
+        self,
+        byte_stream: Any,
+        ftype: Optional[str] = None,
+        append: bool = False,
+    ) -> None:
         """
-        Read from an XML or JSON file. If ftype is None, infer it from
-        file extension (.xml or .json). If append is False, replace content.
+        Read responses from a StationXML or JSON file.
+
+        Parameters
+        ----------
+        byte_stream
+            File path (or, for StationXML, an open stream).
+        ftype
+            ``"xml"`` (also ``"sxml"``) or ``"json"``; inferred from the
+            file extension if None.
+        append
+            If True, add to the current content; otherwise replace it.
+
+        Raises
+        ------
+        ValueError
+            If the file type is unknown or a stage type is unsupported.
         """
         if ftype is None:
             _, ext = _os.path.splitext(str(byte_stream))
-            ftype = ext.lstrip('.').lower()
-    
-        if ftype == 'xml':
-            new = stationxml.parse_sxml(byte_stream)
+            ftype = ext.lstrip(".").lower()
+
+        if ftype in ("xml", "sxml"):
+            # Local import: the StationXML parser builds response
+            # objects, so it sits above this module.
+            from shakelab.signals.stationxml import parse_sxml
+
+            new = parse_sxml(byte_stream)
             if append:
-                for r in new.response:
-                    self.append(r)
+                for resp in new.response:
+                    self.append(resp)
             else:
                 self.response = new.response
-    
-        elif ftype == 'json':
-            with open(byte_stream, 'r') as f:
-                obj = _json.load(f)
-    
-            for entry in obj:
-                sid = entry['sid']
-                sset = StageSet(entry['starttime'], entry['endtime'])
-    
-                for s in entry['stages']:
-                    stage_type = s['stage_type']
-                    data = deserialize_complex(s['data'])
-                    data['stage_number'] = s['stage_number']
-    
-                    if stage_type == 'gain':
-                        stage = StageGain(data)
-                    elif stage_type == 'paz':
-                        stage = StagePoleZero(data)
-                    elif stage_type == 'fir':
-                        stage = StageFIR(data)
-                    elif stage_type == 'coefficients':
-                        stage = StageCoefficients(data)
-                    elif stage_type == 'polynomial':
-                        stage = StagePolynomial(data)
-                    else:
-                        errstr = f"Unsupported stage_type: {stage_type}"
-                        raise ValueError(errstr)
-    
-                    sset.append(stage)
-    
-                if append and sid in self.sid:
-                    self[sid].append(sset)
+
+        elif ftype == "json":
+            with open(byte_stream, "r") as fobj:
+                content = _json.load(fobj)
+
+            if not append:
+                self.response = []
+
+            for entry in content:
+                sid = entry["sid"]
+                stage_set = StageSet(entry["starttime"], entry["endtime"])
+
+                for item in entry["stages"]:
+                    data = deserialize_complex(item["data"])
+                    data["stage_number"] = item["stage_number"]
+                    stage_set.append(_stage_from_type(item["stage_type"],
+                                                      data))
+
+                if sid in self.sid:
+                    self[sid].append(stage_set)
                 else:
-                    sr = StreamResponse(sid)
-                    sr.append(sset)
-                    self.append(sr)
-    
+                    stream_response = StreamResponse(sid)
+                    stream_response.append(stage_set)
+                    self.append(stream_response)
+
         else:
             raise ValueError(f"Unknown file type: {ftype}")
 
-    def write(self, file, ftype='json'):
+    def write(self, file: Any, ftype: str = "json") -> None:
         """
-        Write the response data to a file in json format.
-        """
-        if ftype != 'json':
-            raise NotImplementedError('Only sjson format is supported...')
-    
-        out = []
-    
-        for resp in self.response:
-            for sset in resp.stageset:
-                stages = []
-                for stage in sset.stage:
-                    stages.append({
-                        'stage_number': stage.stage_number,
-                        'stage_type': stage.stage_type,
-                        'data': serialize_ndarray(stage.to_dict())
-                    })
-                out.append({
-                    'sid': resp.sid,
-                    'starttime': str(sset.starttime),
-                    'endtime': str(sset.endtime) if sset.endtime else None,
-                    'stages': stages
-                })
-    
-        with open(file, 'w') as f:
-            _json.dump(out, f, indent=2)
+        Write the responses to a JSON file.
 
-    def info(self):
+        Raises
+        ------
+        NotImplementedError
+            For file types other than JSON.
         """
-        Print info for all StreamResponses.
-        """
+        if ftype != "json":
+            raise NotImplementedError("Only the json format is supported")
+
+        out = []
+
+        for resp in self.response:
+            for stage_set in resp.stageset:
+                stages = [
+                    {
+                        "stage_number": stage.stage_number,
+                        "stage_type": stage.stage_type,
+                        "data": serialize_ndarray(stage.to_dict()),
+                    }
+                    for stage in stage_set.stage
+                ]
+                out.append({
+                    "sid": resp.sid,
+                    "starttime": (
+                        str(stage_set.starttime)
+                        if stage_set.starttime else None
+                    ),
+                    "endtime": (
+                        str(stage_set.endtime)
+                        if stage_set.endtime else None
+                    ),
+                    "stages": stages,
+                })
+
+        with open(file, "w") as fobj:
+            _json.dump(out, fobj, indent=2)
+
+    def info(self) -> None:
+        """Print a summary of all stream responses."""
         for resp in self.response:
             resp.info()
 
 
-class StreamResponse():
+class StreamResponse:
     """
-    Represents all stage sets for a given stream (by FDSN code).
-    """
-    def __init__(self, sid):
-        self.sid = sid
-        self.stageset = []
+    Stage sets (epochs) of one channel.
 
-    def __len__(self):
+    Parameters
+    ----------
+    sid
+        Source identifier of the channel.
+    """
+
+    def __init__(self, sid: Optional[str]):
+        self.sid = sid
+        self.stageset: list[StageSet] = []
+
+    def __len__(self) -> int:
         return len(self.stageset)
 
-    def __getitem__(self, time):
+    def __getitem__(self, time: Any) -> StageSet:
         return self.extract(time)
 
-    def append(self, stage_set):
+    def __repr__(self) -> str:
+        return f"StreamResponse(sid={self.sid!r}, epochs={len(self)})"
+
+    def append(self, stage_set: Any) -> None:
+        """
+        Append one or more stage sets.
+
+        Raises
+        ------
+        ValueError
+            If an item is not a StageSet.
+        """
         if not isinstance(stage_set, list):
             stage_set = [stage_set]
-        for sset in stage_set:
-            if not isinstance(sset, StageSet):
-                raise ValueError('Not a valid stage set')
-            self.stageset.append(sset)
+        for item in stage_set:
+            if not isinstance(item, StageSet):
+                raise ValueError("Not a valid stage set")
+            self.stageset.append(item)
 
-    def extract(self, time=None):
+    def extract(self, time: Any = None) -> StageSet:
         """
-        Return the StageSet active at the specified time.
-        """
-        for sset in self.stageset:
-            if sset.match(time):
-                return sset
-        return None
+        Return the stage set valid at a time.
 
-    def info(self):
+        Parameters
+        ----------
+        time
+            Any value accepted by :class:`Date`, or ``"now"``/None.
+
+        Raises
+        ------
+        KeyError
+            If no stage set is valid at that time.
         """
-        Print info for each StageSet in this stream.
-        """
+        for stage_set in self.stageset:
+            if stage_set.match(time):
+                return stage_set
+        raise KeyError(
+            f"no response epoch of {self.sid} is valid at {time}"
+        )
+
+    def info(self) -> None:
+        """Print a summary of the stage sets."""
         print(f"Stream ID: {self.sid}")
-        for sset in self.stageset:
-            sset.info()
+        for stage_set in self.stageset:
+            stage_set.info()
 
 
-class StageSet():
+class StageSet:
     """
-    A time-bound set of stage responses valid between starttime and endtime.
+    Stages of a response, valid between two times.
+
+    Parameters
+    ----------
+    starttime, endtime
+        Validity interval (``endtime`` excluded); None means unbounded.
     """
-    def __init__(self, starttime=None, endtime=None):
+
+    def __init__(self, starttime: Any = None, endtime: Any = None):
         if starttime is not None and not isinstance(starttime, Date):
             starttime = Date(starttime)
         if endtime is not None and not isinstance(endtime, Date):
@@ -239,150 +392,190 @@ class StageSet():
 
         self.starttime = starttime
         self.endtime = endtime
-        self.stage = []
+        self.stage: list[StageResponse] = []
 
-    def __getitem__(self, idx):
-        """
-        Return the stage with the given stage_number (int).
-        """
+    def __getitem__(self, idx: int) -> StageResponse:
+        """Return the stage with the given stage number."""
         if isinstance(idx, int):
             return self.get_stage(idx)
-        raise NotImplementedError('Not a valid stage index')
+        raise NotImplementedError("Not a valid stage index")
 
-    def info(self):
-        """
-        Print the validity interval and stage list of the StageSet.
-        """
-        start_str = str(self.starttime) if self.starttime else 'unknown'
-        end_str = str(self.endtime) if self.endtime else 'now'
+    def __repr__(self) -> str:
+        return (
+            f"StageSet(starttime={self.starttime}, endtime={self.endtime}, "
+            f"stages={len(self.stage)})"
+        )
+
+    def info(self) -> None:
+        """Print the validity interval and the list of stages."""
+        start_str = str(self.starttime) if self.starttime else "unknown"
+        end_str = str(self.endtime) if self.endtime else "now"
         print(f"Response valid from: {start_str} to: {end_str}")
-    
+
         if not self.stage:
             print("Stages: none")
             return
-    
+
         stage_str = "; ".join(
-            f"({s.stage_number}) {s.stage_type}"
-            for s in self.stage
+            f"({s.stage_number}) {s.stage_type}" for s in self.stage
         )
         print(f"Stages: {stage_str}")
 
-    def append(self, stage_response):
+    def append(self, stage_response: Any) -> None:
         """
-        Append one or more stage responses.
+        Append one or more stages.
+
+        Raises
+        ------
+        ValueError
+            If an item is not a StageResponse.
         """
         if not isinstance(stage_response, list):
             stage_response = [stage_response]
 
         for stage in stage_response:
             if not isinstance(stage, StageResponse):
-                raise ValueError('Not a valid stage response')
+                raise ValueError("Not a valid stage response")
             self.stage.append(stage)
 
-    def match(self, time):
-        """
-        Check if a given time falls within the stage set's validity period.
-        """
+    def match(self, time: Any) -> bool:
+        """Return whether a time falls within the validity interval."""
         if not isinstance(time, Date):
-            time = Date('now') if time in ['now', None] else Date(time)
+            time = Date("now") if time in ("now", None) else Date(time)
 
         return (
-            (self.starttime is None or time >= self.starttime) and
-            (self.endtime is None or time < self.endtime)
+            (self.starttime is None or time >= self.starttime)
+            and (self.endtime is None or time < self.endtime)
         )
 
-    def get_stage(self, stage_number):
+    def get_stage(self, stage_number: int) -> StageResponse:
         """
-        Return the stage with the specified stage_number.
+        Return the stage with the given stage number.
+
+        Raises
+        ------
+        IndexError
+            If the stage is not found.
         """
         for stage in self.stage:
             if stage.stage_number == stage_number:
                 return stage
-        raise IndexError(f'Stage {stage_number} not found')
+        raise IndexError(f"Stage {stage_number} not found")
 
-    def convolve_record(self, record):
-        """
-        Apply all stages to the input record (single Record only).
-        """
-        if isinstance(record, base.Record):
-            rec_mod = record.copy()
-            for stage in self.stage:
-                if ACTIVE_STAGES[stage.stage_type]:
-                    rec_mod = stage.convolve_record(rec_mod)
-            return rec_mod
-        raise NotImplementedError('Unsupported record type')
+    @property
+    def active_stages(self) -> list:
+        """Stages applied to data (see ``ACTIVE_STAGES``)."""
+        return [s for s in self.stage if ACTIVE_STAGES[s.stage_type]]
 
-    def deconvolve_record(self, record):
+    @property
+    def input_units(self) -> Optional[str]:
         """
-        Remove all stages from the input record (single Record only).
-        """
-        if isinstance(record, base.Record):
-            rec_mod = record.copy()
-            for stage in self.stage:
-                if ACTIVE_STAGES[stage.stage_type]:
-                    rec_mod = stage.deconvolve_record(rec_mod)
-            return rec_mod
-        raise NotImplementedError('Unsupported record type')
+        Units of the ground motion: input units of the first stage.
 
-    def copy(self):
+        None if the first stage does not declare them.
         """
-        Return a deep copy of the StageSet.
+        if not self.stage:
+            return None
+        return getattr(self.stage[0], "input_units", None) or None
+
+    @property
+    def output_units(self) -> Optional[str]:
         """
+        Units of the recorded data: output units of the last stage.
+
+        None if the last stage does not declare them (e.g. a gain-only
+        stage), so that units are never guessed from inner stages.
+        """
+        if not self.stage:
+            return None
+        return getattr(self.stage[-1], "output_units", None) or None
+
+    def transfer_function(
+        self,
+        frequency: Any,
+        delta: Optional[float] = None,
+    ) -> np.ndarray:
+        """
+        Return the transfer function of the active stages.
+
+        Parameters
+        ----------
+        frequency
+            Frequencies in Hz.
+        delta
+            Sampling interval of the data (needed only by digital
+            stages, which are not active by default).
+
+        Returns
+        -------
+        numpy.ndarray
+            Product of the transfer functions of the active stages.
+        """
+        result = np.ones(np.shape(frequency), dtype=complex)
+        for stage in self.active_stages:
+            result = result * stage.transfer_function(frequency, delta)
+        return result
+
+    def copy(self) -> StageSet:
+        """Return a deep copy of the stage set."""
         return deepcopy(self)
+
+
+# ----------------------------------------------------------------------------
+# Stages
+# ----------------------------------------------------------------------------
 
 
 class StageResponse:
     """
-    Base class for different stage responses.
+    Base class of response stages.
 
-    Attributes are defined in _KEYMAP with a structure:
-    _KEYMAP = {
-        "attribute_name": (expected_type, default_value)
-    }
-
-    Parameters can be set via a dictionary at initialization,
-    additional keyword arguments, or loaded from a JSON file.
+    Parameters are defined in ``_KEYMAP`` as
+    ``{"name": (type, default)}`` and can be given as a dictionary, as
+    keyword arguments, or read from a JSON file.
     """
-    _KEYMAP = {}
-    stage_type = None
 
-    def __init__(self, data=None, **kwargs):
-        # Initialise attributes to default values
+    _KEYMAP: dict = {}
+    stage_type: Optional[str] = None
+
+    def __init__(self, data: Optional[dict] = None, **kwargs):
         for key in self._KEYMAP:
-            default_value = self._KEYMAP[key][1]
-            setattr(self, key, default_value)
+            setattr(self, key, self._KEYMAP[key][1])
 
-        # Apply data dictionary if provided
         if data is not None:
             self.from_dict(data)
 
-        # Apply keyword arguments
         for key in kwargs:
             self[key] = kwargs[key]
 
-    def __setitem__(self, key, value):
-        """
-        Set a parameter by key using type conversion defined in _KEYMAP.
-        """
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Set a parameter, converting it to the type of ``_KEYMAP``."""
         if key in self._KEYMAP:
             dtype = self._KEYMAP[key][0]
-            value = cast_value(value, dtype)
-            setattr(self, key, value)
+            setattr(self, key, cast_value(value, dtype))
         else:
-            raise KeyError(f'Invalid key: {key}')
+            raise KeyError(f"Invalid key: {key}")
 
-    def __getitem__(self, key):
-        """
-        Get a parameter value by key.
-        """
+    def __getitem__(self, key: str) -> Any:
+        """Get a parameter by key."""
         if key in self._KEYMAP:
             return getattr(self, key)
-        else:
-            raise KeyError(f'Invalid key: {key}')
+        raise KeyError(f"Invalid key: {key}")
 
-    def from_dict(self, data):
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__name__}(stage_number="
+            f"{getattr(self, 'stage_number', None)!r})"
+        )
+
+    def from_dict(self, data: dict) -> None:
         """
-        Set multiple parameters using a dictionary.
+        Set several parameters from a dictionary.
+
+        Raises
+        ------
+        ValueError
+            If ``data`` is not a dictionary.
         """
         if isinstance(data, dict):
             for key, value in data.items():
@@ -390,374 +583,376 @@ class StageResponse:
         else:
             raise ValueError("Input data must be a dictionary.")
 
-    def to_dict(self):
-        """
-        Get a dictionary of all parameters currently set.
-        """
+    def to_dict(self) -> dict:
+        """Return the parameters as a dictionary."""
         return {key: getattr(self, key) for key in self._KEYMAP}
 
-    def from_json(self, file_name):
+    def from_json(self, file_name: Any) -> None:
         """
-        Load parameters from a JSON file and update the object attributes.
+        Load parameters from a JSON file.
 
-        Parameters:
-        - file_name (str): path to the JSON file
-
-        Raises:
-        - ValueError: if the file cannot be read or is not valid JSON
+        Raises
+        ------
+        ValueError
+            If the file cannot be read or is not valid JSON.
         """
         try:
-            with open(file_name, 'r') as f:
-                data = _json.load(f)
+            with open(file_name, "r") as fobj:
+                data = _json.load(fobj)
             self.from_dict(data)
-        except (IOError, _json.JSONDecodeError) as e:
-            raise ValueError(f"Failed to load JSON file: {e}")
+        except (IOError, _json.JSONDecodeError) as error:
+            raise ValueError(f"Failed to load JSON file: {error}")
 
-    def to_json(self, file_name):
-        """
-        Save current parameters to a JSON file.
+    def to_json(self, file_name: Any) -> None:
+        """Save the parameters to a JSON file."""
+        with open(file_name, "w") as fobj:
+            _json.dump(self.to_dict(), fobj, indent=2)
 
-        Parameters:
-        - file_name (str): path to the output JSON file
+    def transfer_function(
+        self,
+        frequency: Any,
+        delta: Optional[float] = None,
+    ) -> np.ndarray:
         """
-        with open(file_name, 'w') as f:
-            _json.dump(self.to_dict(), f, indent=2)
+        Return the complex transfer function at given frequencies.
+
+        Parameters
+        ----------
+        frequency
+            Frequencies in Hz.
+        delta
+            Sampling interval of the data, for digital stages.
+        """
+        raise NotImplementedError(
+            f"transfer function not available for {type(self).__name__}"
+        )
 
 
 class StageGain(StageResponse):
-    """
-    Stage representing a simple gain stage with sensitivity.
-    """
-    _KEYMAP = {
-        'description': (str, None),
-        'sensitivity': (float, 1.0),
-        'frequency': (float, None),
-        'stage_number': (int, None)
-    }
-    stage_type = 'gain'
+    """Gain stage: a constant, real sensitivity."""
 
-    def convolve_record(self, record):
+    _KEYMAP = {
+        "description": (str, None),
+        "sensitivity": (float, 1.0),
+        "frequency": (float, None),
+        "stage_number": (int, None),
+    }
+    stage_type = "gain"
+
+    def transfer_function(self, frequency, delta=None):
         """
-        Apply the gain (sensitivity) to the record.
+        Return the sensitivity at every frequency.
+
+        Raises
+        ------
+        ValueError
+            If the sensitivity is not set.
         """
         if self.sensitivity is None:
             raise ValueError("Sensitivity is not set.")
-        rec_mod = record.copy()
-        rec_mod.data *= self.sensitivity
-        return rec_mod
-
-    def deconvolve_record(self, record):
-        """
-        Remove the gain (sensitivity) from the record.
-        """
-        if self.sensitivity is None or self.sensitivity == 0:
-            raise ValueError("Sensitivity must be set and non-zero.")
-        rec_mod = record.copy()
-        rec_mod.data = rec_mod.data.astype(float) / self.sensitivity
-        return rec_mod
+        return np.full(np.shape(frequency), self.sensitivity, dtype=complex)
 
 
 class StagePoleZero(StageResponse):
-    """
-    Stage representing a response in pole-zero format.
-    """
+    """Analog stage defined by poles, zeros and normalization factor."""
+
     _KEYMAP = {
-        'description': (str, None),
-        'input_units': (str, None),
-        'output_units': (str, None),
-        'pz_type': (str, None),
-        'normalization_factor': (float, None),
-        'normalization_frequency': (float, None),
-        'poles': (complex, None),
-        'zeros': (complex, None),
-        'stage_number': (int, None)
+        "description": (str, None),
+        "input_units": (str, None),
+        "output_units": (str, None),
+        "pz_type": (str, None),
+        "normalization_factor": (float, None),
+        "normalization_frequency": (float, None),
+        "poles": (complex, None),
+        "zeros": (complex, None),
+        "stage_number": (int, None),
     }
     stage_type = "paz"
 
-    def response_function(self, frequency):
+    def transfer_function(self, frequency, delta=None):
         """
-        Evaluate the complex frequency response.
+        Return ``A0 * prod(s - z) / prod(s - p)`` at ``s = 2j*pi*f``
+        (``s = j*f`` if the poles and zeros are given in Hz).
+
+        Raises
+        ------
+        ValueError
+            If the poles are not defined.
         """
         if self.poles is None:
             raise ValueError("Poles must be defined.")
-        
-        if self.zeros is None:
-            self.zeros = np.array([], dtype=complex)
 
-        return paz_transfer_function(
-            self.normalization_factor,
-            self.poles,
-            self.zeros,
-            frequency
+        zeros = [] if self.zeros is None else self.zeros
+        a0 = 1.0 if self.normalization_factor is None else (
+            self.normalization_factor
         )
 
-    def to_spectrum(self, delta, nsamp):
-        """
-        Return the complex frequency response as a Spectrum object.
-        """
-        frequency = fourier.frequency_axis(delta, nsamp)
-        rf = self.response_function(frequency)
+        # Poles and zeros given in Hz (StationXML "LAPLACE (HERTZ)"):
+        # evaluate at s = j*f, i.e. with the frequency scaled by 1/2pi.
+        frequency = np.asarray(frequency, dtype=float)
+        if self.pz_type and "HERTZ" in self.pz_type.upper():
+            frequency = frequency / (2.0 * np.pi)
 
-        # Local import: Spectrum sits above response in the hierarchy.
-        from shakelab.signals.spectrum import Spectrum
-
-        return Spectrum(rf, delta=delta, nsamp=nsamp)
-
-    def convolve_record(self, record):
-        """
-        Apply the response function to a record
-        (frequency domain multiplication).
-        """
-        spec = record.to_spectrum()
-        resp = self.to_spectrum(record.head.delta, record.nsamp)
-        spec.data = spec.data.astype(complex) * resp.data
-        return spec.to_record()
-
-    def deconvolve_record(self, record, waterlevel=120):
-        """
-        Remove the response from a record using spectral division.
-        """
-        spec = record.to_spectrum()
-        resp = self.to_spectrum(record.head.delta, record.nsamp)
-        iresp = inverse_spectrum(resp.data, waterlevel)
-        spec.data = spec.data.astype(complex) * iresp
-        return spec.to_record()
+        return paz_transfer_function(a0, self.poles, zeros, frequency)
 
 
 class StagePolynomial(StageResponse):
     """
-    Stage representing a polynomial transfer function of the form:
-    H(jω) = (sum n_k * (jω)^k) / (sum d_k * (jω)^k)
+    Polynomial stage.
+
+    Evaluated as ``H(s) = sum(n_k s**k) / sum(d_k s**k)``. Note that a
+    StationXML ``<Polynomial>`` describes a non-linear sensor, so this
+    stage is not active by default.
     """
+
     _KEYMAP = {
-        'description': (str, None),
-        'input_units': (str, None),
-        'output_units': (str, None),
-        'numerator': (float, [1.0]),
-        'denominator': (float, [1.0]),
-        'stage_number': (int, None)
+        "description": (str, None),
+        "input_units": (str, None),
+        "output_units": (str, None),
+        "numerator": (float, [1.0]),
+        "denominator": (float, [1.0]),
+        "stage_number": (int, None),
     }
     stage_type = "polynomial"
 
-    def to_spectrum(self, delta, nsamp):
-        """
-        Compute the complex transfer function spectrum H(jω)
-        for the given sampling interval and number of samples.
-        """
-        freq = fourier.frequency_axis(delta, nsamp)
-        h = polynomial_transfer_function(self.numerator,
-                                         self.denominator,
-                                         freq)
-
-        # Local import: Spectrum sits above response in the hierarchy.
-        from shakelab.signals.spectrum import Spectrum
-
-        return Spectrum(h, delta=delta, nsamp=nsamp)
-
-    def convolve_record(self, record):
-        """
-        Apply the polynomial transfer function to a record.
-        """
-        spec = record.to_spectrum()
-        resp = self.to_spectrum(record.head.delta, record.nsamp)
-        spec.data = spec.data.astype(complex) * resp.data
-        return spec.to_record()
-
-    def deconvolve_record(self, record, waterlevel=100):
-        """
-        Remove the polynomial response from a record.
-        """
-        spec = record.to_spectrum()
-        resp = self.to_spectrum(record.head.delta, record.nsamp)
-        iresp = inverse_spectrum(resp.data, waterlevel)
-        spec.data = spec.data.astype(complex) * iresp
-        return spec.to_record()
+    def transfer_function(self, frequency, delta=None):
+        """Return the rational function in ``s = 2j*pi*f``."""
+        return polynomial_transfer_function(
+            self.numerator, self.denominator, frequency
+        )
 
 
 class StageFIR(StageResponse):
     """
-    Stage representing a Finite Impulse Response (FIR) filter.
+    Digital FIR stage.
+
+    Not active by default: a FIR acts at the sampling rate of its own
+    stage, which is not yet taken into account.
     """
+
     _KEYMAP = {
-        'description': (str, None),
-        'input_units': (str, None),
-        'output_units': (str, None),
-        'simmetry': (str, None),
-        'normalization': (str, None),
-        'numerator': (float, [1.0]),
-        'denominator': (float, [1.0]),
-        'stage_number': (int, None)
+        "description": (str, None),
+        "input_units": (str, None),
+        "output_units": (str, None),
+        "simmetry": (str, None),
+        "normalization": (str, None),
+        "numerator": (float, [1.0]),
+        "denominator": (float, [1.0]),
+        "stage_number": (int, None),
     }
     stage_type = "fir"
 
-    def to_spectrum(self, delta, nsamp):
+    def transfer_function(self, frequency, delta=None):
         """
-        Return the FIR filter frequency response as a Spectrum object.
-        """
-        nsamp_half = fourier.rfft_length(nsamp)
+        Return the response at given frequencies for sampling ``delta``.
 
-        h, w = fir_transfer_function(
-            self.numerator,
-            self.denominator,
-            nsamp_half,
-            delta
+        Raises
+        ------
+        ValueError
+            If ``delta`` is not given.
+        """
+        if delta is None:
+            raise ValueError("the sampling interval is required")
+
+        omega = 2.0 * np.pi * np.asarray(frequency, dtype=float) * delta
+        numerator = np.atleast_1d(
+            self.numerator if self.numerator is not None else 1.0
+        )
+        denominator = np.atleast_1d(
+            self.denominator if self.denominator is not None else 1.0
         )
 
-        # Local import: Spectrum sits above response in the hierarchy.
-        from shakelab.signals.spectrum import Spectrum
+        num = np.exp(-1j * np.outer(omega, np.arange(numerator.size)))
+        den = np.exp(-1j * np.outer(omega, np.arange(denominator.size)))
+        num = num @ numerator
+        den = den @ denominator
+        den = np.where(np.abs(den) < 1e-12, 1e-12, den)
 
-        return Spectrum(h, delta=delta, nsamp=nsamp)
+        return num / den
 
-    def convolve_record(self, record):
-        """
-        Apply the FIR filter to the record in the frequency domain.
-        """
-        spec = record.to_spectrum()
-        resp = self.to_spectrum(record.head.delta, record.nsamp)
-        spec.data = spec.data.astype(complex) * resp.data
-        return spec.to_record()
 
-    def deconvolve_record(self, record, waterlevel=100):
-        """
-        Remove the FIR response from the record using spectral division.
-        """
-        spec = record.to_spectrum()
-        resp = self.to_spectrum(record.head.delta, record.nsamp)
-        iresp = inverse_spectrum(resp.data, waterlevel)
-        spec.data = spec.data.astype(complex) * iresp
-        return spec.to_record()
+_STAGE_TYPES = {
+    "gain": StageGain,
+    "paz": StagePoleZero,
+    "fir": StageFIR,
+    # StationXML <Coefficients> stages are stored as FIR stages.
+    "coefficients": StageFIR,
+    "polynomial": StagePolynomial,
+}
 
-#class StageDecimation(StageResponse):
+
+def _stage_from_type(stage_type: str, data: dict) -> StageResponse:
+    """
+    Build a stage from its type name and parameters.
+
+    Raises
+    ------
+    ValueError
+        If the stage type is unsupported.
+    """
+    try:
+        return _STAGE_TYPES[stage_type](data)
+    except KeyError:
+        raise ValueError(f"Unsupported stage_type: {stage_type}") from None
+
+
+# ----------------------------------------------------------------------------
+# Selection
+# ----------------------------------------------------------------------------
+
+
+def select_response(
+    resp: Any,
+    sid: Optional[str] = None,
+    time: Any = None,
+) -> Any:
+    """
+    Return the response applicable to a channel at a time.
+
+    Parameters
+    ----------
+    resp
+        Stage, stage set, stream response or response collection.
+    sid
+        Source identifier of the data.
+    time
+        Start time of the data.
+
+    Returns
+    -------
+    StageResponse or StageSet
+        Object providing ``transfer_function``. Stages and stage sets
+        are returned unchanged.
+
+    Raises
+    ------
+    TypeError
+        If the response type is unsupported.
+    ValueError
+        If the identifier or the time needed for the selection are
+        missing, or if a stream response belongs to another channel.
+    KeyError
+        If the channel or the epoch are not available.
+    """
+    if isinstance(resp, (StageResponse, StageSet)):
+        return resp
+
+    if isinstance(resp, StreamResponse):
+        if resp.sid is not None and sid is not None and resp.sid != sid:
+            raise ValueError(
+                f"the response of {resp.sid} cannot be applied to {sid}"
+            )
+        if time is None:
+            raise ValueError(
+                "start time is required to select a response epoch"
+            )
+        return resp.extract(time)
+
+    if isinstance(resp, ResponseCollection):
+        if sid is None:
+            raise ValueError(
+                "source identifier is required to select a response"
+            )
+        return select_response(resp[sid], sid=sid, time=time)
+
+    raise TypeError(f"unsupported response object: {type(resp).__name__}")
+
+
+# ----------------------------------------------------------------------------
+# Transfer functions
+# ----------------------------------------------------------------------------
 
 
 def paz_transfer_function(a0, poles, zeros, freq):
     """
-    Compute the complex transfer function H(jω) of a PAZ system.
+    Return the transfer function of a poles-and-zeros system.
 
     Parameters
     ----------
     a0 : float
         Normalization factor.
-    poles : array-like of complex
-        Poles of the transfer function (in radians/sec).
-    zeros : array-like of complex
-        Zeros of the transfer function (in radians/sec).
-    freq : array-like
-        Frequencies at which to evaluate the response (in Hz).
-
-    Returns
-    -------
-    H : np.ndarray of complex
-        Transfer function H(jω) evaluated at each frequency.
-    """
-    omega = 2 * np.pi * np.array(freq)
-    s = 1j * omega
-
-    zo = np.ones_like(s, dtype=np.complex128)
-    po = np.ones_like(s, dtype=np.complex128)
-
-    if zeros is not None and len(zeros) > 0:
-        for z in zeros:
-            zo *= (s - z)
-
-    if poles is not None and len(poles) > 0:
-        for p in poles:
-            po *= (s - p)
-
-    po = np.where(np.abs(po) < 1e-12, 1e-12, po)
-
-    return a0 * (zo / po)
-
-def polynomial_transfer_function(ncoeff, dcoeff, freq):
-    """
-    Compute the frequency response of a polynomial transfer function,
-    where numerator and denominator are polynomials in s = jω.
-
-    H(jω) = (sum n_k * (jω)^k) / (sum d_k * (jω)^k)
-
-    Parameters
-    ----------
-    ncoeff : list or array-like
-        Coefficients of the numerator polynomial (ascending order).
-    dcoeff : list or array-like
-        Coefficients of the denominator polynomial (ascending order).
+    poles, zeros : array-like of complex
+        Poles and zeros in rad/s.
     freq : array-like
         Frequencies in Hz.
 
     Returns
     -------
-    H : np.ndarray
-        Complex transfer function evaluated at each frequency.
+    numpy.ndarray
+        ``a0 * prod(s - z) / prod(s - p)`` at ``s = 2j*pi*f``.
     """
-    omega = 2 * np.pi * np.array(freq)
+    s = 2j * np.pi * np.asarray(freq, dtype=float)
 
-    # Convert scalars to list
-    if isinstance(ncoeff, (int, float)):
-        ncoeff = [ncoeff]
-    if isinstance(dcoeff, (int, float)):
-        dcoeff = [dcoeff]
+    numerator = np.ones_like(s, dtype=np.complex128)
+    denominator = np.ones_like(s, dtype=np.complex128)
 
-    s = 1j * omega
+    for zero in (zeros if zeros is not None else []):
+        numerator *= s - zero
 
-    num = sum(nc * s**k for k, nc in enumerate(ncoeff))
-    den = sum(dc * s**k for k, dc in enumerate(dcoeff))
+    for pole in (poles if poles is not None else []):
+        denominator *= s - pole
 
-    # Prevent division by zero
+    denominator = np.where(np.abs(denominator) < 1e-12, 1e-12, denominator)
+
+    return a0 * numerator / denominator
+
+
+def polynomial_transfer_function(ncoeff, dcoeff, freq):
+    """
+    Return a rational function of ``s = 2j*pi*f``.
+
+    Parameters
+    ----------
+    ncoeff, dcoeff : array-like
+        Numerator and denominator coefficients, ascending order.
+    freq : array-like
+        Frequencies in Hz.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``sum(n_k s**k) / sum(d_k s**k)``.
+    """
+    s = 2j * np.pi * np.asarray(freq, dtype=float)
+    ncoeff = np.atleast_1d(ncoeff)
+    dcoeff = np.atleast_1d(dcoeff)
+
+    num = sum(c * s ** k for k, c in enumerate(ncoeff))
+    den = sum(c * s ** k for k, c in enumerate(dcoeff))
     den = np.where(np.abs(den) < 1e-12, 1e-12, den)
 
     return num / den
 
+
 def fir_transfer_function(ncoeff, dcoeff, nsamp, delta=1.0):
     """
-    Compute the complex frequency response of an FIR filter.
+    Return the response of a digital filter on ``nsamp`` frequencies.
 
     Parameters
     ----------
-    ncoeff : list or array-like
-        FIR numerator coefficients (impulse response).
-    dcoeff : list or array-like
-        FIR denominator coefficients (typically [1.0]).
+    ncoeff, dcoeff : array-like
+        Numerator (impulse response) and denominator coefficients.
     nsamp : int
-        Number of frequency points to compute.
+        Number of frequencies, from 0 to the Nyquist frequency.
     delta : float, optional
         Sampling interval in seconds.
 
     Returns
     -------
-    H : np.ndarray
-        Complex frequency response.
-    freqs : np.ndarray
-        Frequencies in Hz corresponding to the response.
+    tuple of numpy.ndarray
+        Complex response and frequencies in Hz.
     """
-    # Handle None and scalar input
-    if ncoeff is None or isinstance(ncoeff, (int, float)):
+    if ncoeff is None or np.isscalar(ncoeff):
         ncoeff = [ncoeff or 1.0]
-
-    if dcoeff is None or isinstance(dcoeff, (int, float)):
+    if dcoeff is None or np.isscalar(dcoeff):
         dcoeff = [dcoeff or 1.0]
 
-    omega = np.linspace(0, np.pi, nsamp)  # angular frequency (radians)
-    jn = np.arange(len(ncoeff)).reshape(-1, 1)  # for broadcasting
+    omega = np.linspace(0, np.pi, nsamp)
+    jn = np.arange(len(ncoeff)).reshape(-1, 1)
     jd = np.arange(len(dcoeff)).reshape(-1, 1)
 
-    # Numerator and denominator using vectorized matrix multiplication
     num = np.sum(np.array(ncoeff)[:, None] * np.exp(-1j * omega * jn), axis=0)
     den = np.sum(np.array(dcoeff)[:, None] * np.exp(-1j * omega * jd), axis=0)
-
-    # Prevent division by zero
     den = np.where(np.abs(den) < 1e-12, 1e-12, den)
 
-    freqs = omega / (2 * np.pi * delta)  # Hz
-    return num / den, freqs
-
-def inverse_spectrum(spectrum, waterlevel=120, method='smooth'):
-    """
-    Return a regularized inverse of a spectrum.
-
-    See :func:`shakelab.signals.fourier.inverse_spectrum`, where the
-    operation is implemented.
-    """
-    return fourier.inverse_spectrum(
-        spectrum, waterlevel=waterlevel, method=method
-    )
-
+    return num / den, omega / (2 * np.pi * delta)

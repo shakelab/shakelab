@@ -2175,169 +2175,57 @@ class Record:
             method=method,
         )
 
-    def _resolve_response(self, resp):
-        """
-        Resolve a response container for the current stream and time.
-
-        Parameters
-        ----------
-        resp : response object
-            Stage response, stage set, stream response, or response
-            collection.
-
-        Returns
-        -------
-        StageResponse or StageSet
-            Response object directly applicable to the current Record.
-
-        Raises
-        ------
-        TypeError
-            If the response type is unsupported.
-        ValueError
-            If stream id or time metadata required for response selection
-            is missing, or if a stream response belongs to another
-            source identifier.
-        KeyError
-            If the stream or epoch is not present in the response
-            container.
-        """
-        if isinstance(
-            resp,
-            (
-                response.StageResponse,
-                response.StageSet,
-            ),
-        ):
-            return resp
-
-        if isinstance(resp, response.StreamResponse):
-            if (
-                resp.sid is not None
-                and self.sid is not None
-                and resp.sid != self.sid
-            ):
-                raise ValueError(
-                    f"the response of {resp.sid} cannot be applied to "
-                    f"{self.sid}"
-                )
-
-            if self.time is None:
-                raise ValueError(
-                    "record start time is required to select a "
-                    "response epoch"
-                )
-
-            try:
-                return resp[self.time]
-            except (KeyError, IndexError) as error:
-                raise KeyError(
-                    "no response epoch is available for the record "
-                    "start time"
-                ) from error
-
-        if isinstance(resp, response.ResponseCollection):
-            if self.sid is None:
-                raise ValueError(
-                    "source identifier is required to select a response"
-                )
-
-            if self.sid not in resp.sid:
-                raise KeyError(
-                    "source identifier not found in response "
-                    "collection: {0}".format(self.sid)
-                )
-
-            stream_response = resp[self.sid]
-
-            return self._resolve_response(stream_response)
-
-        raise TypeError(
-            "unsupported response object: {0}".format(
-                type(resp).__name__
-            )
-        )
-
     def convolve_response(self, resp):
         """
-        Apply an instrumental response to the waveform.
+        Apply an instrument response to the waveform.
 
         Parameters
         ----------
         resp : StageResponse, StageSet, StreamResponse or ResponseCollection
-            Response object or response container.
-
-        Raises
-        ------
-        TypeError
-            If the response object is unsupported or does not return a
-            Record.
-        KeyError
-            If no response is available for the record source or epoch.
+            Response object or response container. The applicable
+            response is selected by source identifier and start time
+            (see :func:`shakelab.signals.response.select_response`).
 
         Notes
         -----
-        The operation is performed in place. The complete Record returned
-        by the response implementation is adopted, including any updated
-        units or response metadata.
+        The operation is performed in place, in the frequency domain
+        (see :meth:`shakelab.signals.spectrum.Spectrum.convolve_response`).
+        The units become the output units of the response, if declared.
         """
-        resolved = self._resolve_response(resp)
+        spectrum = self.to_spectrum()
+        spectrum.convolve_response(resp)
+        self._replace_from_record(spectrum.to_record())
 
-        convolve_record = getattr(
-            resolved,
-            "convolve_record",
-            None,
-        )
-
-        if not callable(convolve_record):
-            raise TypeError(
-                "resolved response does not expose convolve_record()"
-            )
-
-        corrected = convolve_record(self)
-
-        self._replace_from_record(corrected)
-
-    def deconvolve_response(self, resp):
+    def deconvolve_response(self, resp, waterlevel=60.0, method="water"):
         """
-        Remove an instrumental response from the waveform.
+        Remove an instrument response from the waveform.
 
         Parameters
         ----------
         resp : StageResponse, StageSet, StreamResponse or ResponseCollection
-            Response object or response container.
-
-        Raises
-        ------
-        TypeError
-            If the response object is unsupported or does not return a
-            Record.
-        KeyError
-            If no response is available for the record source or epoch.
+            Response object or response container. The applicable
+            response is selected by source identifier and start time
+            (see :func:`shakelab.signals.response.select_response`).
+        waterlevel : float, optional
+            Water level in dB below the maximum of the response
+            amplitude.
+        method : {"water", "sharp", "smooth"}, optional
+            Regularization of the inverse (see
+            :func:`shakelab.signals.fourier.inverse_spectrum`).
 
         Notes
         -----
-        The operation is performed in place. The complete Record returned
-        by the response implementation is adopted, including any updated
-        units or response metadata.
+        The operation is performed in place, in the frequency domain
+        (see
+        :meth:`shakelab.signals.spectrum.Spectrum.deconvolve_response`).
+        The units become the input units of the response, if declared.
+        The record should be detrended and tapered beforehand.
         """
-        resolved = self._resolve_response(resp)
-
-        deconvolve_record = getattr(
-            resolved,
-            "deconvolve_record",
-            None,
+        spectrum = self.to_spectrum()
+        spectrum.deconvolve_response(
+            resp, waterlevel=waterlevel, method=method
         )
-
-        if not callable(deconvolve_record):
-            raise TypeError(
-                "resolved response does not expose "
-                "deconvolve_record()"
-            )
-
-        corrected = deconvolve_record(self)
-
-        self._replace_from_record(corrected)
+        self._replace_from_record(spectrum.to_record())
 
 
 class Stream:
@@ -3098,7 +2986,7 @@ class Stream:
         for record in self.record:
             record.convolve_response(resp)
 
-    def deconvolve_response(self, resp):
+    def deconvolve_response(self, resp, waterlevel=60.0, method="water"):
         """
         Remove an instrumental response from all records.
 
@@ -3106,6 +2994,8 @@ class Stream:
         ----------
         resp : StageResponse, StageSet, StreamResponse or ResponseCollection
             Response object or response container.
+        waterlevel, method
+            See :meth:`Record.deconvolve_response`.
 
         Notes
         -----
@@ -3113,7 +3003,9 @@ class Stream:
         delegated to :meth:`Record.deconvolve_response`.
         """
         for record in self.record:
-            record.deconvolve_response(resp)
+            record.deconvolve_response(
+                resp, waterlevel=waterlevel, method=method
+            )
 
 
 class StreamCollection:
@@ -3798,7 +3690,7 @@ class StreamCollection:
         for stream in self.stream:
             stream.convolve_response(resp)
 
-    def deconvolve_response(self, resp):
+    def deconvolve_response(self, resp, waterlevel=60.0, method="water"):
         """
         Remove an instrumental response from all streams.
 
@@ -3806,13 +3698,17 @@ class StreamCollection:
         ----------
         resp : StageResponse, StageSet, StreamResponse or ResponseCollection
             Response container passed to each stream.
+        waterlevel, method
+            See :meth:`Record.deconvolve_response`.
 
         Notes
         -----
         The operation is performed in place.
         """
         for stream in self.stream:
-            stream.deconvolve_response(resp)
+            stream.deconvolve_response(
+                resp, waterlevel=waterlevel, method=method
+            )
 
     def __mul__(self, value):
         """

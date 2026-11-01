@@ -50,6 +50,7 @@ from typing import Any, Optional
 import numpy as np
 
 from shakelab.signals import fourier
+from shakelab.signals import response
 from shakelab.signals.base import Record
 from shakelab.signals.header import Header
 
@@ -460,7 +461,7 @@ class Spectrum:
             + 1j * np.interp(frequency, freq, self.data.imag)
         )
 
-    def invert(self, waterlevel: float = 100.0, method: str = "smooth"):
+    def invert(self, waterlevel: float = 60.0, method: str = "water"):
         """
         Replace the spectrum with its regularized inverse, in place.
 
@@ -469,6 +470,72 @@ class Spectrum:
         self.data = fourier.inverse_spectrum(
             self.data, waterlevel=waterlevel, method=method
         )
+
+    def convolve_response(self, resp: Any) -> None:
+        """
+        Multiply the spectrum by an instrument response, in place.
+
+        Parameters
+        ----------
+        resp
+            Stage, stage set, stream response or response collection.
+            The applicable response is selected by source identifier
+            and start time of the header (see
+            :func:`shakelab.signals.response.select_response`).
+
+        Notes
+        -----
+        The units become the output units of the response, if declared.
+        """
+        stage = response.select_response(
+            resp, sid=self.head.sid, time=self.head.time
+        )
+        transfer = stage.transfer_function(self.frequency, self.delta)
+        self.data = self.data.astype(complex) * transfer
+
+        units = getattr(stage, "output_units", None)
+        if units:
+            self.head.units = units
+
+    def deconvolve_response(
+        self,
+        resp: Any,
+        waterlevel: float = 60.0,
+        method: str = "water",
+    ) -> None:
+        """
+        Divide the spectrum by an instrument response, in place.
+
+        Parameters
+        ----------
+        resp
+            Stage, stage set, stream response or response collection
+            (see :meth:`convolve_response`).
+        waterlevel
+            Water level in dB below the maximum of the response
+            amplitude.
+        method
+            Regularization of the inverse: ``"water"``, ``"sharp"`` or
+            ``"smooth"`` (see
+            :func:`shakelab.signals.fourier.inverse_spectrum`).
+
+        Notes
+        -----
+        The correction uses the total response of the active stages.
+        The units become the input units of the response, if declared.
+        """
+        stage = response.select_response(
+            resp, sid=self.head.sid, time=self.head.time
+        )
+        transfer = stage.transfer_function(self.frequency, self.delta)
+        inverse = fourier.inverse_spectrum(
+            transfer, waterlevel=waterlevel, method=method
+        )
+        self.data = self.data.astype(complex) * inverse
+
+        units = getattr(stage, "input_units", None)
+        if units:
+            self.head.units = units
 
     def logsmooth(
         self,

@@ -118,11 +118,6 @@ def _cycles(graph: dict[str, set[str]]) -> list[list[str]]:
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="import cycles between base, fourier, response and "
-    "stationxml, being removed in the revision of signals",
-)
 def test_no_import_cycles():
     """Module-level imports within the package form no cycle."""
     modules = _modules()

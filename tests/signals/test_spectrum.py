@@ -234,6 +234,14 @@ def test_spectrum_invert():
     np.testing.assert_allclose(spectrum.data, 0.5)
 
 
+def test_spectrum_invert_defaults():
+    """The default inverse uses a water level 60 dB below the maximum."""
+    spectrum = Spectrum(np.array([1.0, 1e-4, 0.5]), delta=0.1, nsamp=4)
+    spectrum.invert()
+
+    np.testing.assert_allclose(spectrum.data, [1.0, 1000.0, 2.0])
+
+
 @pytest.mark.parametrize("method", ["gaussian", "konno-ohmachi"])
 def test_spectrum_logsmooth(method):
     """Smoothing reduces the scatter of a noise spectrum."""

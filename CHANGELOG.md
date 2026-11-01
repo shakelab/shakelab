@@ -43,6 +43,23 @@ corrections. The format follows
   with `minphase`.
 - `signals.fourier.butterworth(freq, corner, order, btype, minphase)`:
   explicit filter type instead of negative orders.
+- Instrument response correction: the water level is now relative, in
+  dB below the maximum of the response amplitude (default 60 dB), and
+  set once for the whole response with
+  `deconvolve_response(resp, waterlevel=..., method=...)` on `Record`,
+  `Stream`, `StreamCollection` and `Spectrum`. The correction uses the
+  total response of the active stages instead of stage by stage, and
+  the units of the data become the input (deconvolution) or output
+  (convolution) units of the response. `fourier.inverse_spectrum`
+  follows the same relative definition, with the new default method
+  `"water"` (amplitude clipped to the water level, phase kept).
+- `signals.response` no longer depends on waveform classes: stages
+  provide `transfer_function(freq, delta=None)` and stage sets the
+  product over the active stages. Reading a missing channel or epoch
+  raises `KeyError` (it printed a message and returned None).
+  `ResponseCollection(ftype=None)` infers the format from the file
+  extension; `ResponseCollection.append` accepts stream responses only
+  and merges the epochs of an existing channel.
 - `signals.Header` moved to the new module `signals.header` (it
   depends only on time and geodetic primitives); it is still available
   from `signals.base`.
@@ -90,6 +107,10 @@ corrections. The format follows
   `smooth_amplitude_phase`; `inverse_spectrum` moved here from
   `signals.response`. `Spectrum.logsmooth` gains `method`, `bandwidth`
   and `phase`.
+- `signals.response.select_response` (response applicable to a channel
+  and time), `StageSet.input_units`/`output_units`,
+  `Spectrum.convolve_response`/`deconvolve_response`. Poles and zeros
+  given in Hz (StationXML `LAPLACE (HERTZ)`) are supported.
 - `signals.circular.CircularStream` (experimental): time-limited
   buffer of waveform blocks for real-time acquisition, used by
   `StreamCollection(max_duration=...)`. It copies appended records and
@@ -131,6 +152,10 @@ corrections. The format follows
   failed through the constructor, works again.
 - `signals.base.Record.shift` failed on complex data; `filter`
   rejected NumPy integer orders.
+- `signals.response`: `ResponseCollection(file)` failed with the
+  default file type; reading JSON with a `coefficients` stage raised
+  `NameError`, and several epochs of one channel were dropped; the
+  poles-and-zeros response modified the stage when zeros were missing.
 - `signals.base.Stream.append` stored the caller's record and extended
   it in place when later records were merged, so the caller's record
   silently changed; it also overwrote its source identifier. The
@@ -166,4 +191,9 @@ corrections. The format follows
 - `libutils.geodetic`, replaced by `libutils.geodeticN` (note the
   `(longitude, latitude)` argument order of `WgsPoint`).
 - `libutils.timeN` aliases `MSEC`, `HSEC`, `DSEC`, `YDAYS`.
+- `signals.response`: `convolve_record`/`deconvolve_record` of stages
+  and stage sets, `to_spectrum` and `response_function` of stages
+  (use `transfer_function` and the `*_response` methods of the data
+  classes), and `response.inverse_spectrum` (see
+  `fourier.inverse_spectrum`).
 - Unused dependency `shapely`.

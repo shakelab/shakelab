@@ -174,18 +174,57 @@ def test_butterworth_errors():
 # ----------------------------------------------------------------------------
 
 
-def test_inverse_spectrum():
-    """Values above the water level are inverted, the rest zeroed."""
-    spectrum = np.array([2.0, 1e-9, 1j])
+def test_inverse_spectrum_relative_waterlevel():
+    """The water level is relative to the maximum amplitude."""
+    spectrum = np.array([2.0, 1e-3, 1j, 0.0])
+    # 60 dB below the maximum: eps = 2e-3.
 
-    sharp = fourier.inverse_spectrum(spectrum, 120, "sharp")
-    np.testing.assert_allclose(sharp, [0.5, 0.0, -1j])
+    water = fourier.inverse_spectrum(spectrum, 60.0, "water")
+    np.testing.assert_allclose(water, [0.5, 500.0, -1j, 0.0])
 
-    smooth = fourier.inverse_spectrum(spectrum, 120, "smooth")
-    np.testing.assert_allclose(smooth, [0.5, 0.0, -1j], rtol=1e-5)
+    sharp = fourier.inverse_spectrum(spectrum, 60.0, "sharp")
+    np.testing.assert_allclose(sharp, [0.5, 0.0, -1j, 0.0])
+
+    smooth = fourier.inverse_spectrum(spectrum, 60.0, "smooth")
+    eps2 = 2e-3 ** 2
+    np.testing.assert_allclose(
+        smooth,
+        [2.0 / (4.0 + eps2), 1e-3 / (1e-6 + eps2), -1j / (1.0 + eps2), 0.0],
+    )
+
+
+def test_inverse_spectrum_is_scale_invariant():
+    """Scaling the spectrum scales the inverse by the reciprocal."""
+    rng = np.random.default_rng(1)
+    spectrum = rng.standard_normal(50) + 1j * rng.standard_normal(50)
+    spectrum[10] = 1e-9
+
+    for method in ("water", "sharp", "smooth"):
+        base = fourier.inverse_spectrum(spectrum, 40.0, method)
+        scaled = fourier.inverse_spectrum(1e5 * spectrum, 40.0, method)
+        np.testing.assert_allclose(scaled * 1e5, base)
+
+
+def test_inverse_spectrum_water_keeps_phase():
+    """Clipped values keep the phase of the spectrum."""
+    spectrum = np.array([1.0, 1e-6 * np.exp(0.3j)])
+    inverse = fourier.inverse_spectrum(spectrum, 20.0, "water")
+
+    assert np.abs(inverse[1]) == pytest.approx(10.0)
+    assert np.angle(inverse[1]) == pytest.approx(-0.3)
+
+
+def test_inverse_spectrum_edge_cases():
+    """Null spectra give a null inverse; unknown methods are rejected."""
+    np.testing.assert_array_equal(
+        fourier.inverse_spectrum(np.zeros(3), 60.0), np.zeros(3)
+    )
 
     with pytest.raises(ValueError):
-        fourier.inverse_spectrum(spectrum, 120, "other")
+        fourier.inverse_spectrum(np.ones(3), 60.0, "other")
+
+    with pytest.raises(ValueError):
+        fourier.inverse_spectrum(np.zeros(3), 60.0, "other")
 
 
 # ----------------------------------------------------------------------------
