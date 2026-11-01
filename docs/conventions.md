@@ -37,7 +37,7 @@ Absolute times are handled by `Date` (`shakelab.libutils.timeN`).
 | Durations and shifts | Real numbers in seconds (int, float, `Decimal` or NumPy scalars). Non-finite values and booleans are rejected. |
 | Sampling | Sampling interval `delta` in s and sampling rate `rate` in Hz, kept consistent (`rate = 1 / delta`). Sample `i` of a record starts at `starttime + i * delta`, computed from the start time and the index, never by accumulating increments. |
 | Timing error | Metadata of a date: preserved by copies and shifts, ignored by comparison and hashing. |
-| Time tolerances | Tolerances on time alignment (for example when merging contiguous records) are expressed as a fraction of the sampling interval. The default is defined and documented once, in the `signals` package. |
+| Time tolerances | Tolerances on time alignment are fractions of the sampling interval, defined once in `shakelab.signals.base`: `MERGE_TOLERANCE` (0.5) decides whether two records are contiguous, absorbing the time resolution of data formats; `SNAP_TOLERANCE` (1e-6) decides whether a time coincides with a sample, absorbing floating-point rounding. |
 
 Example:
 

@@ -403,10 +403,11 @@ class Record:
         arrays. Data must be one-dimensional.
     delta : float, optional
         Sampling interval in seconds.
-    time : Date or str, optional
-        Start time of the record.
+    time : Date, str or other Date input, optional
+        Start time of the record, in any format accepted by
+        :class:`~shakelab.libutils.timeN.Date`.
     location : WgsPoint or sequence of float, optional
-        Geographic location associated with the record.
+        Geographic location ``(longitude, latitude[, elevation])``.
     sid : str, optional
         Source identifier.
     eid : str, optional
