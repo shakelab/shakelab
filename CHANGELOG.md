@@ -31,6 +31,9 @@ corrections. The format follows
   printed messages.
 - `libutils.utils.a_round` returns a rounded copy instead of modifying
   its input.
+- `signals.Header` moved to the new module `signals.header` (it
+  depends only on time and geodetic primitives); it is still available
+  from `signals.base`.
 - `signals.base.Header.time` accepts every format accepted by `Date`
   (strings, seconds, sequences, dictionaries) and stores its own copy,
   so later changes to the assigned `Date` no longer move the record;

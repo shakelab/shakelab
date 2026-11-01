@@ -1,0 +1,333 @@
+# ****************************************************************************
+# Copyright (C) 2019-2026, ShakeLab Developers.
+# This file is part of ShakeLab.
+#
+# ShakeLab is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# ShakeLab is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# with this download. If not, see <http://www.gnu.org/licenses/>
+# ****************************************************************************
+"""
+Waveform metadata.
+
+This module provides :class:`Header`, the metadata of a waveform
+record or spectrum: sampling, start time, identifiers, units, location
+and instrument response. It depends only on the time and geodetic
+primitives, so that both time-domain and frequency-domain objects can
+use it.
+
+Conventions
+-----------
+- Times are :class:`~shakelab.libutils.timeN.Date` instances (UTC);
+  sampling interval ``delta`` in seconds and sampling rate ``rate`` in
+  Hz, with ``rate = 1 / delta``.
+- Locations are :class:`~shakelab.libutils.geodeticN.WgsPoint`
+  instances, given as ``(longitude, latitude[, elevation])``.
+- :meth:`Header.info` prints a summary for interactive inspection.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from numbers import Real
+from typing import Any, Optional
+
+import numpy as np
+
+from shakelab.libutils.geodeticN import WgsPoint
+from shakelab.libutils.timeN import Date
+
+__all__ = ["Header"]
+
+
+# ----------------------------------------------------------------------------
+# Header
+# ----------------------------------------------------------------------------
+
+
+class Header:
+    """
+    Metadata associated with a waveform record or spectrum.
+
+    A Header stores the sampling interval, sampling rate, start time,
+    source identifier, event identifier, physical units, location,
+    response information, and arbitrary metadata associated with a
+    :class:`Record`.
+
+    The sampling interval and sampling rate are kept synchronized:
+    ``rate = 1 / delta``.
+
+    Parameters
+    ----------
+    delta
+        Sampling interval in seconds. It must be finite and strictly
+        positive.
+    time
+        Start time of the associated record, in any format accepted by
+        :class:`~shakelab.libutils.timeN.Date` (e.g. an ISO 8601
+        string). The header stores its own copy.
+    location
+        Geographic location: a
+        :class:`~shakelab.libutils.geodeticN.WgsPoint` or a sequence
+        ``(longitude, latitude[, elevation])``.
+    sid
+        Source identifier, normally expressed as an FDSN source code.
+    eid
+        Event identifier.
+    units
+        Physical units of the waveform samples.
+    parent
+        Object owning the header, normally a :class:`Record`.
+
+    Attributes
+    ----------
+    response
+        Instrument response associated with the record, if any.
+    meta : dict
+        Arbitrary additional metadata.
+
+    Notes
+    -----
+    The parent reference is intentionally excluded from :meth:`copy`
+    unless explicitly provided. This prevents copying a Header from
+    recursively duplicating its owning Record.
+    """
+
+    def __init__(
+        self,
+        delta: Optional[Real] = None,
+        time: Any = None,
+        location: Any = None,
+        sid: Optional[str] = None,
+        eid: Optional[str] = None,
+        units: Optional[str] = None,
+        parent: Any = None,
+    ) -> None:
+        self._delta: Optional[float] = None
+        self._rate: Optional[float] = None
+        self._time: Optional[Date] = None
+        self._location: Optional[WgsPoint] = None
+        self._parent = parent
+
+        self.sid = sid
+        self.eid = eid
+        self.units = units
+
+        self.response = None
+        self.meta: dict = {}
+
+        if delta is not None:
+            self.delta = delta
+
+        if time is not None:
+            self.time = time
+
+        if location is not None:
+            self.location = location
+
+    def __repr__(self) -> str:
+        return (
+            f"Header(sid={self.sid!r}, time={self.time}, "
+            f"delta={self.delta!r})"
+        )
+
+    def __str__(self) -> str:
+        lines = [
+            f"sampling interval: {self.delta}",
+            f"sampling rate: {self.rate}",
+            f"starting time: {self.time}",
+            f"source identifier: {self.sid}",
+            f"event identifier: {self.eid}",
+            f"location: {self.location}",
+            f"units: {self.units}",
+        ]
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _validate_sampling_value(value: Any, name: str) -> float:
+        """
+        Validate a sampling interval or sampling rate.
+
+        Parameters
+        ----------
+        value
+            Value to validate.
+        name
+            Parameter name used in error messages.
+
+        Returns
+        -------
+        float
+            Validated value converted to float.
+
+        Raises
+        ------
+        TypeError
+            If the value is not a real number.
+        ValueError
+            If the value is not finite or is not strictly positive.
+        """
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise TypeError(f"{name} must be a real number")
+
+        value = float(value)
+
+        if not np.isfinite(value):
+            raise ValueError(f"{name} must be finite")
+
+        if value <= 0.0:
+            raise ValueError(f"{name} must be strictly positive")
+
+        return value
+
+    @property
+    def delta(self) -> Optional[float]:
+        """Sampling interval in seconds."""
+        return self._delta
+
+    @delta.setter
+    def delta(self, value: Optional[Real]) -> None:
+        if value is None:
+            self._delta = None
+            self._rate = None
+            return
+
+        value = self._validate_sampling_value(value, "delta")
+
+        self._delta = value
+        self._rate = 1.0 / value
+
+    @property
+    def rate(self) -> Optional[float]:
+        """Sampling rate in samples per second."""
+        return self._rate
+
+    @rate.setter
+    def rate(self, value: Optional[Real]) -> None:
+        if value is None:
+            self._rate = None
+            self._delta = None
+            return
+
+        value = self._validate_sampling_value(value, "rate")
+
+        self._rate = value
+        self._delta = 1.0 / value
+
+    @property
+    def time(self) -> Optional[Date]:
+        """
+        Start time of the associated record.
+
+        Any value accepted by :class:`~shakelab.libutils.timeN.Date` can
+        be assigned; the header always stores its own copy, so later
+        changes to the assigned object do not affect the record.
+        """
+        return self._time
+
+    @time.setter
+    def time(self, value: Any) -> None:
+        if value is None:
+            self._time = None
+            return
+
+        if isinstance(value, Date):
+            self._time = value.copy()
+            return
+
+        self._time = Date(value)
+
+    @property
+    def location(self) -> Optional[WgsPoint]:
+        """Geographic location of the associated record."""
+        return self._location
+
+    @location.setter
+    def location(self, value: Any) -> None:
+        if value is None:
+            self._location = None
+            return
+
+        if isinstance(value, WgsPoint):
+            self._location = value
+            return
+
+        if isinstance(value, (str, bytes)) or not hasattr(value, "__len__"):
+            raise TypeError(
+                "location must be a WgsPoint or a (longitude, latitude"
+                "[, elevation]) sequence"
+            )
+
+        if len(value) not in (2, 3):
+            raise ValueError(
+                "location must contain longitude, latitude and "
+                "optionally elevation"
+            )
+
+        self._location = WgsPoint(*value)
+
+    @property
+    def nsamp(self) -> Optional[int]:
+        """
+        Number of samples in the parent object, when available.
+
+        Returns
+        -------
+        int or None
+            Number of samples exposed by the parent object, or ``None``
+            when no compatible parent is assigned.
+        """
+        if self._parent is None:
+            return None
+
+        return getattr(self._parent, "nsamp", None)
+
+    def info(self) -> None:
+        """Print a human-readable description of the header."""
+        print(self)
+
+    def copy(self, parent: Any = None) -> Header:
+        """
+        Return an independent copy of the header.
+
+        Parameters
+        ----------
+        parent
+            Parent to associate with the copied header. By default, the
+            copied header has no parent.
+
+        Returns
+        -------
+        Header
+            Independent header copy.
+
+        Notes
+        -----
+        The parent reference is not copied automatically because it
+        normally points back to the owning Record. Copying that reference
+        with ``deepcopy`` could duplicate the complete object graph or
+        leave the copied Header associated with the wrong Record.
+        """
+        header = Header(
+            delta=self.delta,
+            time=self.time,
+            location=self.location,
+            sid=self.sid,
+            eid=self.eid,
+            units=self.units,
+            parent=parent,
+        )
+
+        header.response = deepcopy(self.response)
+        header.meta = deepcopy(self.meta)
+
+        return header
