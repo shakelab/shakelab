@@ -19,9 +19,11 @@
 Unit tests for :mod:`shakelab.signals.response`.
 
 The tests cover reading StationXML and JSON files, the selection of the
-response by channel and epoch, the transfer functions of the stages and
-of stage sets, units, and the application of responses to spectra and
-records (water level, round trip).
+response by channel and epoch, the transfer functions of the stages
+(analog, digital at their own sampling rate, tables, polynomials) and
+of stage sets, units, sensitivity, validation of the metadata and the
+application of responses to spectra and records (water level, round
+trip, delay of the digital filters).
 """
 
 from __future__ import annotations
@@ -34,13 +36,19 @@ import pytest
 from shakelab.signals.base import Record
 from shakelab.signals.response import (
     ResponseCollection,
-    StageFIR,
+    ResponseWarning,
+    Sensitivity,
+    StageCoefficients,
     StageGain,
     StagePoleZero,
     StagePolynomial,
+    StageResponseList,
     StageSet,
+    StageUnsupported,
     StreamResponse,
+    same_units,
     select_response,
+    select_sensitivity,
 )
 from shakelab.signals.spectrum import Spectrum
 
@@ -101,7 +109,7 @@ def _record(sid="XX.TEST..HHZ", nsamp=2000, delta=0.01):
 def test_read_stationxml(mode_response):
     """StationXML gives one stream response per channel."""
     assert mode_response.sid == [
-        "IV.MODE..HNE", "IV.MODE..HNN", "IV.MODE..HNZ"
+        "IV.MODE..HNZ", "IV.MODE..HNN", "IV.MODE..HNE"
     ]
     assert len(mode_response) == 3
 
@@ -158,6 +166,19 @@ def test_select_response_errors(mode_response):
         select_response(1.0, SID, TIME)
 
 
+def test_append_stores_copies(mode_response):
+    """Appended responses are copies: the source is not modified."""
+    collection = ResponseCollection()
+    collection.append(mode_response[SID])
+    collection[SID].append(StageSet("1990-01-01T00:00:00"))
+
+    assert len(collection[SID]) == 2
+    assert len(mode_response[SID]) == 1
+    assert collection[SID].stageset[0] is not (
+        mode_response[SID].stageset[0]
+    )
+
+
 def test_append_merges_epochs():
     """Stream responses with the same identifier are merged."""
     collection = ResponseCollection()
@@ -191,6 +212,11 @@ def test_json_round_trip(tmp_path, mode_response):
     assert loaded.sid == collection.sid
     assert len(loaded[SID]) == 2
 
+    stage_set = loaded.extract(SID, TIME)
+    assert stage_set.sensitivity.value == 321707.0
+    assert stage_set.sample_rate == 100.0
+    assert stage_set.stage[4].input_sample_rate == 800.0
+
     freq = np.array([0.5, 1.0, 10.0])
     np.testing.assert_allclose(
         loaded.extract(SID, TIME).transfer_function(freq),
@@ -199,7 +225,7 @@ def test_json_round_trip(tmp_path, mode_response):
 
 
 def test_json_coefficients_stage(tmp_path):
-    """A JSON 'coefficients' stage is read as a FIR stage."""
+    """A JSON 'coefficients' stage is read as digital coefficients."""
     path = tmp_path / "response.json"
     path.write_text(
         '[{"sid": "XX.TEST..HHZ", "starttime": null, "endtime": null,'
@@ -208,7 +234,8 @@ def test_json_coefficients_stage(tmp_path):
     )
     loaded = ResponseCollection(str(path))
 
-    assert isinstance(loaded.extract("XX.TEST..HHZ").stage[0], StageFIR)
+    stage = loaded.extract("XX.TEST..HHZ").stage[0]
+    assert isinstance(stage, StageCoefficients)
 
 
 # ----------------------------------------------------------------------------
@@ -217,12 +244,40 @@ def test_json_coefficients_stage(tmp_path):
 
 
 def test_mode_transfer_function(mode_response):
-    """The total response matches the declared sensitivity."""
+    """The response matches the declared sensitivity and units."""
     stage_set = mode_response.extract(SID, TIME)
-    total = stage_set.transfer_function(np.array([0.2, 1.0, 5.0]))
 
-    np.testing.assert_allclose(np.abs(total), 320770.0, rtol=1e-3)
-    assert stage_set.input_units == "m/s**2"
+    # Analog part: flat, equal to the product of the stage gains.
+    freq = np.array([0.2, 1.0, 5.0])
+    analog = stage_set.transfer_function(freq, stages=("gain", "paz"))
+    np.testing.assert_allclose(np.abs(analog), 1.0197 * 315000, rtol=1e-3)
+
+    # Complete response: the sensitivity is declared at 10.625 Hz.
+    full = stage_set.transfer_function(np.array([10.625]))
+    np.testing.assert_allclose(np.abs(full), 321707.0, rtol=1e-4)
+
+    assert stage_set.units() == ("m/s**2", "count")
+    assert stage_set.units(("gain", "paz")) == ("m/s**2", "V")
+    assert stage_set.sensitivity.value == 321707.0
+    assert stage_set.sample_rate == 100.0
+
+
+def test_mode_digital_stages(mode_response):
+    """The FIR stages carry their own sampling rate and delay."""
+    stage_set = mode_response.extract(SID, TIME)
+    firs = [s for s in stage_set.stage if isinstance(s, StageCoefficients)]
+
+    assert [s.input_sample_rate for s in firs] == [800.0, 800.0, 200.0]
+    assert [s.decimation_factor for s in firs] == [1, 4, 2]
+    assert [s.correction for s in firs] == [0.0, 0.029375, 0.3125]
+    assert [s.numerator.size for s in firs] == [1, 48, 126]
+
+    # Above the passband of the last FIR (100 Hz -> anti-alias cut).
+    full = stage_set.transfer_function(np.array([49.9]))
+    analog = stage_set.transfer_function(
+        np.array([49.9]), stages=("gain", "paz")
+    )
+    assert np.abs(full[0]) < 0.05 * np.abs(analog[0])
 
 
 def test_gain_transfer_function():
@@ -263,9 +318,31 @@ def test_paz_hertz_matches_radians():
     )
 
 
+def test_digital_paz_matches_fir():
+    """``0.5 (z + 1) / z`` equals the FIR ``[0.5, 0.5]``."""
+    freq = np.array([0.0, 10.0, 25.0, 50.0])
+    paz = StagePoleZero(
+        pz_type="DIGITAL (Z-TRANSFORM)",
+        normalization_factor=0.5,
+        zeros=[-1.0 + 0j],
+        poles=[0j],
+        input_sample_rate=100.0,
+    )
+    fir = StageCoefficients(numerator=[0.5, 0.5], input_sample_rate=100.0)
+
+    np.testing.assert_allclose(
+        paz.transfer_function(freq), fir.transfer_function(freq),
+        atol=1e-12,
+    )
+
+    paz.input_sample_rate = None
+    with pytest.raises(ValueError):
+        paz.transfer_function(freq)
+
+
 def test_fir_transfer_function():
     """A two-point average passes zero frequency and stops Nyquist."""
-    stage = StageFIR(numerator=[0.5, 0.5])
+    stage = StageCoefficients(numerator=[0.5, 0.5])
 
     with pytest.raises(ValueError):
         stage.transfer_function(np.array([0.0]))
@@ -274,38 +351,214 @@ def test_fir_transfer_function():
     np.testing.assert_allclose(np.abs(values), [1.0, 0.0], atol=1e-12)
 
 
-def test_polynomial_transfer_function():
-    """The polynomial stage evaluates a rational function of s."""
-    stage = StagePolynomial(numerator=[1.0], denominator=[1.0, 1.0])
-    freq = np.array([1.0])
-    s = 2j * np.pi * freq
+def test_fir_uses_its_own_sampling_rate():
+    """The stage rate takes precedence over the data sampling."""
+    stage = StageCoefficients(numerator=[0.5, 0.5], input_sample_rate=200.0)
+    values = stage.transfer_function(np.array([0.0, 100.0]), delta=0.01)
 
-    np.testing.assert_allclose(stage.transfer_function(freq), 1 / (1 + s))
+    np.testing.assert_allclose(np.abs(values), [1.0, 0.0], atol=1e-12)
 
 
-def test_inactive_stages_are_ignored():
-    """Only active stage types contribute to a stage set."""
+def test_fir_time_correction():
+    """A correction equal to the delay of a pure delay gives H = 1."""
+    stage = StageCoefficients(
+        numerator=[0.0, 1.0], input_sample_rate=100.0, delay=0.01,
+    )
+    freq = np.array([1.0, 10.0, 30.0])
+    np.testing.assert_allclose(
+        stage.transfer_function(freq),
+        np.exp(-2j * np.pi * freq * 0.01),
+    )
+
+    stage.correction = 0.01
+    np.testing.assert_allclose(stage.transfer_function(freq), 1.0)
+
+
+def test_response_list_interpolation():
+    """Amplitude is interpolated in log-log, phase linearly."""
+    stage = StageResponseList(
+        frequency=[10.0, 1.0],
+        amplitude=[100.0, 1.0],
+        phase=[90.0, 0.0],
+    )
+    freq = np.array([1.0, np.sqrt(10.0), 10.0])
+    values = stage.transfer_function(freq)
+
+    np.testing.assert_allclose(np.abs(values), [1.0, 10.0, 100.0])
+    np.testing.assert_allclose(
+        np.degrees(np.angle(values)), 90.0 * (freq - 1.0) / 9.0
+    )
+
+    with pytest.warns(ResponseWarning):
+        outside = stage.transfer_function(np.array([0.5, 20.0]))
+    np.testing.assert_array_equal(outside, 0.0)
+
+
+def test_polynomial_stage():
+    """The polynomial applies to amplitudes, linear in frequency only."""
+    linear = StagePolynomial(coefficients=[0.5, 2.0])
+
+    np.testing.assert_allclose(linear.evaluate([1.0, 2.0]), [2.5, 4.5])
+    np.testing.assert_allclose(
+        linear.transfer_function(np.array([1.0, 5.0])), 2.0
+    )
+
+    nonlinear = StagePolynomial(coefficients=[0.0, 1.0, 0.1])
+    with pytest.raises(ValueError):
+        nonlinear.transfer_function(np.array([1.0]))
+
+
+def test_unsupported_stage():
+    """An unsupported stage cannot be evaluated, but can be excluded."""
     stage_set = StageSet()
     stage_set.append(StageGain(sensitivity=2.0))
-    stage_set.append(StageFIR(numerator=[0.0, 1.0]))
+    stage_set.append(StageUnsupported(element="Coefficients (OTHER)"))
 
-    values = stage_set.transfer_function(np.array([1.0, 10.0]), 0.01)
+    with pytest.raises(NotImplementedError):
+        stage_set.transfer_function(np.array([1.0]))
+
+    values = stage_set.transfer_function(np.array([1.0]), stages="gain")
     np.testing.assert_allclose(values, 2.0)
 
 
+def test_stage_selection():
+    """The complete response is the default; subsets are selectable."""
+    stage_set = StageSet()
+    stage_set.append(StageGain(sensitivity=2.0))
+    stage_set.append(StageCoefficients(numerator=[0.0, 1.0]))
+    freq = np.array([1.0, 10.0])
+
+    np.testing.assert_allclose(
+        stage_set.transfer_function(freq, 0.01),
+        2.0 * np.exp(-2j * np.pi * freq * 0.01),
+    )
+    np.testing.assert_allclose(
+        stage_set.transfer_function(freq, 0.01, stages=["gain"]), 2.0
+    )
+
+    with pytest.raises(ValueError):
+        stage_set.transfer_function(freq, 0.01, stages=("other",))
+
+
 def test_stage_set_units():
-    """Units come from the first and the last stage, if declared."""
+    """Units come from the first and last stages that declare them."""
     stage_set = _velocimeter().stageset[0]
 
     assert stage_set.input_units == "m/s"
-    assert stage_set.output_units is None
+    assert stage_set.output_units == "V"
 
-    stage_set.stage[-1] = StagePoleZero(
-        input_units="V", output_units="counts", poles=[]
-    )
+    stage_set.append(StageCoefficients(input_units="V", output_units="counts"))
     assert stage_set.output_units == "counts"
+    assert stage_set.units(("gain", "paz")) == ("m/s", "V")
 
-    assert StageSet().input_units is None
+    empty = StageSet()
+    assert empty.units() == (None, None)
+    empty.sensitivity = Sensitivity(1.0, 1.0, "m/s", "count")
+    assert empty.units() == ("m/s", "count")
+
+
+def test_same_units():
+    """Unit names are compared without case and count/counts."""
+    assert same_units("M/S**2", "m/s**2")
+    assert same_units("COUNTS", "count")
+    assert not same_units("m/s", "m/s**2")
+
+
+def test_select_sensitivity(mode_response):
+    """The overall sensitivity is selected like the response."""
+    sens = select_sensitivity(mode_response, SID, TIME)
+    assert (sens.value, sens.input_units) == (321707.0, "m/s**2")
+
+    gain = select_sensitivity(StageGain(sensitivity=5.0, frequency=1.0))
+    assert (gain.value, gain.frequency) == (5.0, 1.0)
+
+    with pytest.raises(ValueError):
+        select_sensitivity(StageSet())
+
+    with pytest.raises(TypeError):
+        select_sensitivity(StagePoleZero(poles=[-1 + 0j]))
+
+
+# ----------------------------------------------------------------------------
+# Validation
+# ----------------------------------------------------------------------------
+
+
+def test_validate_mode(mode_response):
+    """The metadata of MODE are consistent."""
+    assert mode_response.validate() == []
+    assert mode_response.validate(rtol=1e-5) == []
+
+
+def test_validate_asymmetric_fir():
+    """A FIR whose delay implies linear phase must be symmetric."""
+    fir = StageCoefficients(
+        numerator=[0.25, 0.5, 0.25], input_sample_rate=100.0,
+        delay=0.01, stage_number=3,
+    )
+    assert fir.validate() == []
+
+    fir.numerator = [0.25, 0.5, 0.025]
+    issues = fir.validate()
+    assert len(issues) == 1
+    assert "stage 3" in issues[0] and "not symmetric" in issues[0]
+
+    # Without the linear-phase delay, asymmetry is legitimate.
+    fir.delay = 0.0
+    assert fir.validate() == []
+
+
+def test_validate_paz_normalization():
+    """``|A0 * H(fn)|`` must be 1 at the normalization frequency."""
+    paz = StagePoleZero(
+        normalization_factor=10.0, normalization_frequency=0.0,
+        poles=[-10.0 + 0j], stage_number=1,
+    )
+    assert paz.validate() == []
+
+    paz.normalization_factor = 10.1
+    assert "poles-and-zeros" in paz.validate()[0]
+    assert paz.validate(rtol=0.02) == []
+
+
+def test_validate_consistent_response():
+    """A consistent response has no issues."""
+    stage_set = _consistent()
+    assert stage_set.validate() == []
+
+
+def test_validate_reports_inconsistencies():
+    """Gains, units and decimation chain are checked."""
+    stage_set = _consistent()
+    stage_set.sensitivity.value = 2000.0
+    stage_set.stage[2].input_units = "mV"
+    stage_set.sample_rate = 50.0
+
+    issues = " | ".join(stage_set.validate())
+
+    assert "product of stage gains" in issues
+    assert "total response amplitude" in issues
+    assert "input units 'mV'" in issues
+    assert "decimation chain ends at 100.0 Hz" in issues
+
+
+def _consistent():
+    """Accelerometer, digitizer and FIR with consistent metadata."""
+    stage_set = StageSet(sample_rate=100.0)
+    stage_set.append(StagePoleZero(
+        input_units="m/s**2", output_units="V",
+        normalization_factor=1e6, normalization_frequency=0.0,
+        poles=[-1e6 + 0j], stage_number=1,
+    ))
+    stage_set.append(StageGain(sensitivity=10.0, stage_number=1))
+    stage_set.append(StageCoefficients(
+        input_units="V", output_units="count", stage_number=2,
+        input_sample_rate=200.0, decimation_factor=2, delay=0.0025,
+        numerator=[0.25, 0.5, 0.25],
+    ))
+    stage_set.append(StageGain(sensitivity=100.0, stage_number=2))
+    stage_set.sensitivity = Sensitivity(1000.0, 0.0, "m/s**2", "count")
+    return stage_set
 
 
 # ----------------------------------------------------------------------------
@@ -379,3 +632,57 @@ def test_mode_correction_units(mode_response):
                                method="smooth")
 
     assert record.head.units == "m/s**2"
+
+
+def test_remove_sensitivity(mode_response):
+    """Division by the sensitivity, without frequency processing."""
+    record = Record(data=np.arange(5.0) * 321707.0, delta=0.01,
+                    time=TIME, sid=SID)
+    record.remove_sensitivity(mode_response)
+
+    np.testing.assert_allclose(record.data, np.arange(5.0))
+    assert record.head.units == "m/s**2"
+
+    spectrum = Spectrum(np.full(3, 321707.0 + 0j), delta=0.01, nsamp=4)
+    spectrum.head.sid = SID
+    spectrum.head.time = TIME
+    spectrum.remove_sensitivity(mode_response)
+    np.testing.assert_allclose(spectrum.data, 1.0)
+
+
+def _lag(mode, stages_a, stages_b):
+    """Lag (samples) between two corrections of a random signal."""
+    rng = np.random.default_rng(3)
+    data = np.convolve(rng.standard_normal(3000), np.hanning(9), "same")
+    data *= np.hanning(data.size)
+    record = Record(data=data, delta=0.01, time=TIME, sid=SID)
+
+    first = record.copy()
+    first.deconvolve_response(mode, stages=stages_a)
+    second = record.copy()
+    second.deconvolve_response(mode, stages=stages_b)
+
+    lags = np.arange(-100, 101)
+    xcorr = [np.dot(second.data[100:-100],
+                    np.roll(first.data, lag)[100:-100]) for lag in lags]
+    return int(lags[int(np.argmax(xcorr))])
+
+
+def test_fir_delay_is_cancelled_by_time_correction(mode_response):
+    """
+    The FIR delays are cancelled by the declared time correction.
+
+    MODE declares delays of 0.029375 and 0.3125 s, corrected in the
+    time stamps by the datalogger: the complete correction does not
+    shift the signal. Without the correction it would advance it by
+    about 34 samples at 100 Hz.
+    """
+    analog = ("gain", "paz")
+    assert _lag(mode_response, None, analog) == 0
+
+    collection = ResponseCollection()
+    collection.append(mode_response[SID])
+    for stage in collection.extract(SID, TIME).stage:
+        if getattr(stage, "correction", None):
+            stage.correction = 0.0
+    assert _lag(collection, None, analog) == 34

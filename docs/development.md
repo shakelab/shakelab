@@ -483,7 +483,7 @@ domain meaning moves to the concept that owns it.
 
 Dated or numbered copies of a module (`providers_20260825.py`) and
 example scripts do not belong in the package tree: history lives in
-git, examples in the documentation (`docs/`).
+git, examples in `examples/` at the repository root.
 
 A module that is experimental or no longer maintained is marked as
 such in its module docstring and, when imported, emits a
@@ -509,6 +509,9 @@ state. Separate deterministic calculations from external effects.
   `numpy.testing` or `pytest.approx` with explicit `rtol`/`atol`.
 - Tests needing network access or large data are marked and skipped by
   default.
+- Every script in `examples/` is run by `tests/test_examples.py` with a
+  non-interactive plotting backend, so that the examples stay in line
+  with the library.
 - The complete suite (`python -m pytest -q`) passes before any merge
   into the main branches. GitHub Actions runs it automatically on
   every push and pull request, on Linux and macOS, for all supported
@@ -531,11 +534,15 @@ information between places:
 
 - `README.md` (repository root): overview, installation, license, and
   links to the documents below;
-- `docs/`: user-facing guides and usage examples by topic, the
-  library-wide [conventions](conventions.md) and these guidelines;
+- `docs/`: user-facing guides by topic, the library-wide
+  [conventions](conventions.md) and these guidelines;
+- `examples/` (repository root): runnable scripts, organized by
+  subpackage as the package and the tests (`examples/signals/`, ...),
+  using the data in `tests/<subpackage>/data/`, with an index in
+  `examples/README.md`;
 - `README.md` in each subpackage: its modules, design choices,
   supported formats and specific conventions, with links to the
-  examples in `docs/`;
+  guides in `docs/` and the scripts in `examples/`;
 - [`CHANGELOG.md`](../CHANGELOG.md) (repository root), recording
   user-visible changes, deprecations and scientific corrections.
 

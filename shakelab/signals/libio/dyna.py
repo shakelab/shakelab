@@ -262,20 +262,30 @@ class Dyna:
 
         with open(input_file, 'r') as f:
             self.header = {}
-            # Read the header: the first 64 lines
-            for _ in range(64):
-                line = f.readline().strip()
-                if ':' in line:
-                    key, value = line.split(':', 1)
-                    key = key.strip()
-                    value = value.strip()
-                    self.header[key] = self._convert_header_value(key, value)
-            
-            # Read the waveform data
             self.data = []
+            # The header ends at the first numeric line: its length
+            # depends on the database version (64 or 65 lines).
+            in_header = True
             for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                if in_header:
+                    try:
+                        value = float(line)
+                    except ValueError:
+                        if ':' in line:
+                            key, value = line.split(':', 1)
+                            key = key.strip()
+                            self.header[key] = self._convert_header_value(
+                                key, value.strip()
+                            )
+                        continue
+                    in_header = False
+                    self.data.append(value)
+                    continue
                 try:
-                    self.data.append(float(line.strip()))
+                    self.data.append(float(line))
                 except ValueError:
                     continue
 

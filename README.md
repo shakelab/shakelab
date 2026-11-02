@@ -102,7 +102,9 @@ The documentation is available at [shakelab.org](http://shakelab.org)
 - [Conventions](docs/conventions.md): time, coordinates, units and
   numerical representation adopted across the library;
 - [Development guidelines](docs/development.md): architecture and
-  coding principles for contributors.
+  coding principles for contributors;
+- [Examples](examples/README.md): runnable scripts organized by
+  subpackage;
 - [Changelog](CHANGELOG.md): notable changes, deprecations and
   scientific corrections.
 

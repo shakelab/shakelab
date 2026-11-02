@@ -141,9 +141,9 @@ def parse_resp(resp_input):
             elif 'numerator' in stage:
                 data = {
                     k: v for k, v in stage.items()
-                    if k in rspm.StageFIR._KEYMAP
+                    if k in rspm.StageCoefficients._KEYMAP
                 }
-                s = rspm.StageFIR(data)
+                s = rspm.StageCoefficients(data)
             elif 'sensitivity' in stage:
                 data = {
                     k: v for k, v in stage.items()

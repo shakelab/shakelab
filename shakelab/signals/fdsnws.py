@@ -28,7 +28,7 @@ from requests.exceptions import RequestException, Timeout
 import shakelab.signals.base as base
 from shakelab.libutils.timeN import Date
 from shakelab.signals.io import writer
-from shakelab.signals.stationxml import parse_sxml
+from shakelab.signals.stationxml import read_stationxml
 from shakelab.seismicity.quakeml import parse_quakeml
 
 USE_LIBMSEED = True
@@ -213,7 +213,7 @@ class FDSNClient:
                                      starttime=starttime,
                                      endtime=endtime,
                                      level='response')
-            rc = parse_sxml(xml)
+            rc = read_stationxml(xml)
             sc.deconvolve_response(rc)
 
         if file_name:
@@ -256,7 +256,7 @@ class FDSNClient:
                 f.write(xml)
             return True
         else:
-            return parse_sxml(xml)
+            return read_stationxml(xml)
 
     def get_catalogue(self, starttime, endtime,
                       magnitude=None, longitude=None, latitude=None,

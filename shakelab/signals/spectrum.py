@@ -471,7 +471,7 @@ class Spectrum:
             self.data, waterlevel=waterlevel, method=method
         )
 
-    def convolve_response(self, resp: Any) -> None:
+    def convolve_response(self, resp: Any, stages: Any = None) -> None:
         """
         Multiply the spectrum by an instrument response, in place.
 
@@ -482,18 +482,22 @@ class Spectrum:
             The applicable response is selected by source identifier
             and start time of the header (see
             :func:`shakelab.signals.response.select_response`).
+        stages
+            Stage types to include, e.g. ``("gain", "paz")``; None for
+            the complete response.
 
         Notes
         -----
         The units become the output units of the response, if declared.
         """
-        stage = response.select_response(
+        selected = response.select_response(
             resp, sid=self.head.sid, time=self.head.time
         )
-        transfer = stage.transfer_function(self.frequency, self.delta)
+        transfer, _, units = response.response_transfer(
+            selected, self.frequency, self.delta, stages=stages
+        )
         self.data = self.data.astype(complex) * transfer
 
-        units = getattr(stage, "output_units", None)
         if units:
             self.head.units = units
 
@@ -502,6 +506,7 @@ class Spectrum:
         resp: Any,
         waterlevel: float = 60.0,
         method: str = "water",
+        stages: Any = None,
     ) -> None:
         """
         Divide the spectrum by an instrument response, in place.
@@ -518,24 +523,51 @@ class Spectrum:
             Regularization of the inverse: ``"water"``, ``"sharp"`` or
             ``"smooth"`` (see
             :func:`shakelab.signals.fourier.inverse_spectrum`).
+        stages
+            Stage types to include, e.g. ``("gain", "paz")``; None for
+            the complete response.
 
         Notes
         -----
-        The correction uses the total response of the active stages.
         The units become the input units of the response, if declared.
         """
-        stage = response.select_response(
+        selected = response.select_response(
             resp, sid=self.head.sid, time=self.head.time
         )
-        transfer = stage.transfer_function(self.frequency, self.delta)
+        transfer, units, _ = response.response_transfer(
+            selected, self.frequency, self.delta, stages=stages
+        )
         inverse = fourier.inverse_spectrum(
             transfer, waterlevel=waterlevel, method=method
         )
         self.data = self.data.astype(complex) * inverse
 
-        units = getattr(stage, "input_units", None)
         if units:
             self.head.units = units
+
+    def remove_sensitivity(self, resp: Any) -> None:
+        """
+        Divide the spectrum by the overall sensitivity, in place.
+
+        Parameters
+        ----------
+        resp
+            Gain stage, stage set, stream response or response
+            collection (see
+            :func:`shakelab.signals.response.select_sensitivity`).
+
+        Notes
+        -----
+        A quick correction for instruments with a flat response in the
+        band of interest. The units become the input units of the
+        sensitivity, if declared.
+        """
+        sens = response.select_sensitivity(
+            resp, sid=self.head.sid, time=self.head.time
+        )
+        self.data = self.data.astype(complex) / sens.value
+        if sens.input_units:
+            self.head.units = sens.input_units
 
     def logsmooth(
         self,

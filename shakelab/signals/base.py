@@ -2175,7 +2175,7 @@ class Record:
             method=method,
         )
 
-    def convolve_response(self, resp):
+    def convolve_response(self, resp, stages=None):
         """
         Apply an instrument response to the waveform.
 
@@ -2185,6 +2185,9 @@ class Record:
             Response object or response container. The applicable
             response is selected by source identifier and start time
             (see :func:`shakelab.signals.response.select_response`).
+        stages : str or sequence of str, optional
+            Stage types to include, e.g. ``("gain", "paz")``; None
+            (default) for the complete response.
 
         Notes
         -----
@@ -2193,10 +2196,12 @@ class Record:
         The units become the output units of the response, if declared.
         """
         spectrum = self.to_spectrum()
-        spectrum.convolve_response(resp)
+        spectrum.convolve_response(resp, stages=stages)
         self._replace_from_record(spectrum.to_record())
 
-    def deconvolve_response(self, resp, waterlevel=60.0, method="water"):
+    def deconvolve_response(
+        self, resp, waterlevel=60.0, method="water", stages=None
+    ):
         """
         Remove an instrument response from the waveform.
 
@@ -2212,6 +2217,9 @@ class Record:
         method : {"water", "sharp", "smooth"}, optional
             Regularization of the inverse (see
             :func:`shakelab.signals.fourier.inverse_spectrum`).
+        stages : str or sequence of str, optional
+            Stage types to include, e.g. ``("gain", "paz")``; None
+            (default) for the complete response.
 
         Notes
         -----
@@ -2223,9 +2231,33 @@ class Record:
         """
         spectrum = self.to_spectrum()
         spectrum.deconvolve_response(
-            resp, waterlevel=waterlevel, method=method
+            resp, waterlevel=waterlevel, method=method, stages=stages
         )
         self._replace_from_record(spectrum.to_record())
+
+    def remove_sensitivity(self, resp):
+        """
+        Divide the waveform by the overall sensitivity, in place.
+
+        Parameters
+        ----------
+        resp : StageGain, StageSet, StreamResponse or ResponseCollection
+            Response object or response container (see
+            :func:`shakelab.signals.response.select_sensitivity`).
+
+        Notes
+        -----
+        A quick correction for instruments with a flat response in the
+        band of interest; no frequency-domain processing is involved.
+        The units become the input units of the sensitivity, if
+        declared.
+        """
+        sens = response.select_sensitivity(
+            resp, sid=self.sid, time=self.time
+        )
+        self.data = self.data / sens.value
+        if sens.input_units:
+            self.head.units = sens.input_units
 
 
 class Stream:
@@ -2969,7 +3001,7 @@ class Stream:
         for record in self.record:
             record.differentiate(method=method)
 
-    def convolve_response(self, resp):
+    def convolve_response(self, resp, stages=None):
         """
         Apply an instrumental response to all records.
 
@@ -2977,6 +3009,8 @@ class Stream:
         ----------
         resp : StageResponse, StageSet, StreamResponse or ResponseCollection
             Response object or response container.
+        stages
+            See :meth:`Record.convolve_response`.
 
         Notes
         -----
@@ -2984,9 +3018,11 @@ class Stream:
         delegated to :meth:`Record.convolve_response`.
         """
         for record in self.record:
-            record.convolve_response(resp)
+            record.convolve_response(resp, stages=stages)
 
-    def deconvolve_response(self, resp, waterlevel=60.0, method="water"):
+    def deconvolve_response(
+        self, resp, waterlevel=60.0, method="water", stages=None
+    ):
         """
         Remove an instrumental response from all records.
 
@@ -2994,7 +3030,7 @@ class Stream:
         ----------
         resp : StageResponse, StageSet, StreamResponse or ResponseCollection
             Response object or response container.
-        waterlevel, method
+        waterlevel, method, stages
             See :meth:`Record.deconvolve_response`.
 
         Notes
@@ -3004,8 +3040,17 @@ class Stream:
         """
         for record in self.record:
             record.deconvolve_response(
-                resp, waterlevel=waterlevel, method=method
+                resp, waterlevel=waterlevel, method=method, stages=stages
             )
+
+    def remove_sensitivity(self, resp):
+        """
+        Divide all records by the overall sensitivity, in place.
+
+        See :meth:`Record.remove_sensitivity`.
+        """
+        for record in self.record:
+            record.remove_sensitivity(resp)
 
 
 class StreamCollection:
@@ -3674,7 +3719,7 @@ class StreamCollection:
         for stream in self.stream:
             stream.differentiate(method=method)
 
-    def convolve_response(self, resp):
+    def convolve_response(self, resp, stages=None):
         """
         Apply an instrumental response to all streams.
 
@@ -3682,15 +3727,19 @@ class StreamCollection:
         ----------
         resp : StageResponse, StageSet, StreamResponse or ResponseCollection
             Response container passed to each stream.
+        stages
+            See :meth:`Record.convolve_response`.
 
         Notes
         -----
         The operation is performed in place.
         """
         for stream in self.stream:
-            stream.convolve_response(resp)
+            stream.convolve_response(resp, stages=stages)
 
-    def deconvolve_response(self, resp, waterlevel=60.0, method="water"):
+    def deconvolve_response(
+        self, resp, waterlevel=60.0, method="water", stages=None
+    ):
         """
         Remove an instrumental response from all streams.
 
@@ -3698,7 +3747,7 @@ class StreamCollection:
         ----------
         resp : StageResponse, StageSet, StreamResponse or ResponseCollection
             Response container passed to each stream.
-        waterlevel, method
+        waterlevel, method, stages
             See :meth:`Record.deconvolve_response`.
 
         Notes
@@ -3707,8 +3756,17 @@ class StreamCollection:
         """
         for stream in self.stream:
             stream.deconvolve_response(
-                resp, waterlevel=waterlevel, method=method
+                resp, waterlevel=waterlevel, method=method, stages=stages
             )
+
+    def remove_sensitivity(self, resp):
+        """
+        Divide all streams by the overall sensitivity, in place.
+
+        See :meth:`Record.remove_sensitivity`.
+        """
+        for stream in self.stream:
+            stream.remove_sensitivity(resp)
 
     def __mul__(self, value):
         """

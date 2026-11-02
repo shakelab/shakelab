@@ -48,18 +48,35 @@ corrections. The format follows
   set once for the whole response with
   `deconvolve_response(resp, waterlevel=..., method=...)` on `Record`,
   `Stream`, `StreamCollection` and `Spectrum`. The correction uses the
-  total response of the active stages instead of stage by stage, and
-  the units of the data become the input (deconvolution) or output
+  complete response (all stages, digital filters included, each at its
+  own sampling rate) instead of stage by stage; a subset is chosen with
+  `stages=...`, e.g. `stages=("gain", "paz")` for the analog part. The
+  units of the data become the input (deconvolution) or output
   (convolution) units of the response. `fourier.inverse_spectrum`
   follows the same relative definition, with the new default method
   `"water"` (amplitude clipped to the water level, phase kept).
 - `signals.response` no longer depends on waveform classes: stages
   provide `transfer_function(freq, delta=None)` and stage sets the
-  product over the active stages. Reading a missing channel or epoch
-  raises `KeyError` (it printed a message and returned None).
+  product over the selected stages (`ACTIVE_STAGES` replaced by the
+  `stages` argument). Digital stages (FIR, digital coefficients,
+  digital poles and zeros) are evaluated at their own input sampling
+  rate and include the time correction declared by the datalogger
+  (conventions of SEED v2.4, Appendix C). `StageFIR` renamed
+  `StageCoefficients`, with `cf_type` (`DIGITAL`,
+  `ANALOG (RADIANS/SECOND)`, `ANALOG (HERTZ)`) as `pz_type` in
+  `StagePoleZero`. `StagePolynomial` now represents a non-linear sensor
+  (`y = sum(a_k x**k)`, StationXML `Polynomial`) with `evaluate`; it
+  was evaluated as a rational function of the frequency.
+  `ResponseCollection.append` and `StreamResponse.append` store copies.
+  Reading a missing channel or epoch raises `KeyError` (it printed a
+  message and returned None).
   `ResponseCollection(ftype=None)` infers the format from the file
   extension; `ResponseCollection.append` accepts stream responses only
   and merges the epochs of an existing channel.
+- `signals.stationxml.parse_sxml` renamed `read_stationxml`; it accepts
+  paths, XML text with or without declaration, bytes and open files.
+  `stationxml_to_dict` returns `{"tag", "attrib", "text", "children"}`
+  and keeps values as strings (codes such as `"00"` became floats).
 - `signals.Header` moved to the new module `signals.header` (it
   depends only on time and geodetic primitives); it is still available
   from `signals.base`.
@@ -111,6 +128,25 @@ corrections. The format follows
   and time), `StageSet.input_units`/`output_units`,
   `Spectrum.convolve_response`/`deconvolve_response`. Poles and zeros
   given in Hz (StationXML `LAPLACE (HERTZ)`) are supported.
+- `signals.response`: `Sensitivity` (overall sensitivity, read from
+  StationXML `InstrumentSensitivity`), `select_sensitivity` and
+  `remove_sensitivity` on `Record`, `Stream`, `StreamCollection` and
+  `Spectrum`; digital poles and zeros (`DIGITAL (Z-TRANSFORM)`) and
+  analog coefficients;
+  `StageResponseList` (amplitude and phase tables); `StageUnsupported`
+  (elements of unknown type raise an error when used);
+  `StageSet.validate()` and `ResponseCollection.validate()` (gains,
+  sensitivity, normalization, units, decimation chain, FIR symmetry);
+  `ResponseWarning`; `same_units`; `ResponseCollection.__contains__`.
+- `signals.stationxml`: reading of `Coefficients`, `ResponseList`,
+  `InstrumentSensitivity`, `InstrumentPolynomial` and `Decimation`;
+  `iter_channels`.
+- `examples/`: runnable examples organized by subpackage, run by the
+  test suite; first example: instrument response correction of the
+  IV.MODE records compared with the ESM accelerations.
+- `libutils.xml`: reading of XML documents from any source with
+  namespaces removed (`read_xml`), conversion to dictionaries
+  (`to_dict`), `find_text`, `find_float`.
 - `signals.circular.CircularStream` (experimental): time-limited
   buffer of waveform blocks for real-time acquisition, used by
   `StreamCollection(max_duration=...)`. It copies appended records and
@@ -156,6 +192,16 @@ corrections. The format follows
   default file type; reading JSON with a `coefficients` stage raised
   `NameError`, and several epochs of one channel were dropped; the
   poles-and-zeros response modified the stage when zeros were missing.
+- `signals.libio.dyna`: the header was assumed to have 64 lines; with
+  the 65-line header of ESM 3.0 files the first sample was lost and the
+  series was shifted by one sampling interval.
+- `signals.stationxml`: `Coefficients` stages were skipped, so the
+  output units of the response were lost; `FIR` elements were read as
+  a unit filter (`NumeratorCoefficient` ignored) and symmetric filters
+  were not expanded; digital poles and zeros were evaluated as analog;
+  `ResponseList` stages were dropped without notice; a channel without
+  response raised `AttributeError`; joining lines could merge words of
+  multi-line texts.
 - `signals.base.Stream.append` stored the caller's record and extended
   it in place when later records were merged, so the caller's record
   silently changed; it also overwrote its source identifier. The

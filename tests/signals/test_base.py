@@ -429,24 +429,25 @@ def test_record_response_correction_by_stages(mode, mode_response):
         "input_units": "m/s**2",
         "output_units": "V",
         "pz_type": None,
-        "normalization_factor": 246.0e11,
-        "normalization_frequency": 0.2,
+        "normalization_factor": 2.45957e13,
+        "normalization_frequency": 1.0,
         "poles": [-981 - 1009j, -981 + 1009j, -3290 - 1263j, -3290 + 1263j],
         "zeros": [],
         "stage_number": 1,
     })
     gain_2 = StageGain({
         "description": None,
-        "sensitivity": 314573,
+        "sensitivity": 315000,
         "frequency": 0,
         "stage_number": 2,
     })
 
     by_stages = raw / gain_1 / poles_zeros / gain_2
 
-    assert by_stages.peak == pytest.approx(
-        (raw / mode_response).peak, rel=1e-6
-    )
+    analog = raw.copy()
+    analog.deconvolve_response(mode_response, stages=("gain", "paz"))
+
+    assert by_stages.peak == pytest.approx(analog.peak, rel=1e-6)
 
 
 def test_record_response_peak_matches_sensitivity(mode, mode_response):
@@ -454,13 +455,21 @@ def test_record_response_peak_matches_sensitivity(mode, mode_response):
     The corrected PGA agrees with the total sensitivity.
 
     The accelerometer response is flat well above the signal band, so
-    dividing by the sensitivity of the StationXML (320770 counts per
-    m/s^2) must give nearly the same peak as the full correction.
+    dividing by the sensitivity of the StationXML (321707 counts per
+    m/s^2) must give nearly the same peak as the correction of the
+    analog stages. The complete correction, which also inverts the
+    anti-alias filters near the Nyquist frequency, stays within 2 %.
     """
     raw = mode["IV.MODE..HNZ"][0]
-    corrected = raw / mode_response
+    simple = raw.copy()
+    simple.remove_sensitivity(mode_response)
+    analog = raw.copy()
+    analog.deconvolve_response(mode_response, stages=("gain", "paz"))
+    full = raw / mode_response
 
-    assert corrected.peak == pytest.approx(raw.peak / 320770.0, rel=0.01)
+    assert simple.peak == pytest.approx(raw.peak / 321707.0)
+    assert analog.peak == pytest.approx(simple.peak, rel=0.01)
+    assert full.peak == pytest.approx(simple.peak, rel=0.02)
 
 
 # ----------------------------------------------------------------------------
