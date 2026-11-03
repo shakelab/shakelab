@@ -67,6 +67,7 @@ from scipy import integrate, signal
 from scipy.signal import windows
 
 from shakelab.signals import fourier
+from shakelab.signals import metadata
 from shakelab.signals import response
 from shakelab.signals import io
 from shakelab.signals.header import Header
@@ -423,7 +424,7 @@ class Record:
         ----------
         value : Number or response
             Numerical scale factor, or instrumental response: a stage,
-            a stage set, a stream response or a response collection
+            a stage set, a channel epoch or a metadata collection
             (see :meth:`convolve_response`).
 
         Returns
@@ -465,7 +466,7 @@ class Record:
         ----------
         value : Number or response
             Numerical divisor, or instrumental response: a stage, a
-            stage set, a stream response or a response collection
+            stage set, a channel epoch or a metadata collection
             (see :meth:`deconvolve_response`).
 
         Returns
@@ -2181,10 +2182,10 @@ class Record:
 
         Parameters
         ----------
-        resp : StageResponse, StageSet, StreamResponse or ResponseCollection
+        resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Response object or response container. The applicable
             response is selected by source identifier and start time
-            (see :func:`shakelab.signals.response.select_response`).
+            (see :func:`shakelab.signals.metadata.select_response`).
         stages : str or sequence of str, optional
             Stage types to include, e.g. ``("gain", "paz")``; None
             (default) for the complete response.
@@ -2207,10 +2208,10 @@ class Record:
 
         Parameters
         ----------
-        resp : StageResponse, StageSet, StreamResponse or ResponseCollection
+        resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Response object or response container. The applicable
             response is selected by source identifier and start time
-            (see :func:`shakelab.signals.response.select_response`).
+            (see :func:`shakelab.signals.metadata.select_response`).
         waterlevel : float, optional
             Water level in dB below the maximum of the response
             amplitude.
@@ -2241,9 +2242,9 @@ class Record:
 
         Parameters
         ----------
-        resp : StageGain, StageSet, StreamResponse or ResponseCollection
+        resp : StageGain, StageSet, ChannelEpoch or MetadataCollection
             Response object or response container (see
-            :func:`shakelab.signals.response.select_sensitivity`).
+            :func:`shakelab.signals.metadata.select_sensitivity`).
 
         Notes
         -----
@@ -2252,7 +2253,7 @@ class Record:
         The units become the input units of the sensitivity, if
         declared.
         """
-        sens = response.select_sensitivity(
+        sens = metadata.select_sensitivity(
             resp, sid=self.sid, time=self.time
         )
         self.data = self.data / sens.value
@@ -3007,7 +3008,7 @@ class Stream:
 
         Parameters
         ----------
-        resp : StageResponse, StageSet, StreamResponse or ResponseCollection
+        resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Response object or response container.
         stages
             See :meth:`Record.convolve_response`.
@@ -3028,7 +3029,7 @@ class Stream:
 
         Parameters
         ----------
-        resp : StageResponse, StageSet, StreamResponse or ResponseCollection
+        resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Response object or response container.
         waterlevel, method, stages
             See :meth:`Record.deconvolve_response`.
@@ -3725,7 +3726,7 @@ class StreamCollection:
 
         Parameters
         ----------
-        resp : StageResponse, StageSet, StreamResponse or ResponseCollection
+        resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Response container passed to each stream.
         stages
             See :meth:`Record.convolve_response`.
@@ -3745,7 +3746,7 @@ class StreamCollection:
 
         Parameters
         ----------
-        resp : StageResponse, StageSet, StreamResponse or ResponseCollection
+        resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Response container passed to each stream.
         waterlevel, method, stages
             See :meth:`Record.deconvolve_response`.
@@ -4030,8 +4031,8 @@ def _response_types():
     return (
         response.StageResponse,
         response.StageSet,
-        response.StreamResponse,
-        response.ResponseCollection,
+        metadata.ChannelEpoch,
+        metadata.MetadataCollection,
     )
 
 

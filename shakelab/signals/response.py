@@ -20,9 +20,9 @@ Instrument response model.
 
 This module represents the response of a recording instrument: stages
 (gain, poles and zeros, digital filters, response tables) grouped into
-stage sets valid in a time interval (epochs), stream responses holding
-the epochs of one channel, and collections of stream responses indexed
-by source identifier.
+stage sets. Channel identifiers and validity intervals (epochs) are not
+part of the response: they are held, with the other channel metadata,
+by :mod:`shakelab.signals.metadata`.
 
 Design choices
 --------------
@@ -39,8 +39,8 @@ Design choices
   be evaluated (non-linear polynomials, unsupported elements) raise an
   explicit error when used. Inconsistent metadata are reported by
   :meth:`StageSet.validate`, never corrected automatically.
-- :func:`select_response` chooses the stage or stage set applicable to
-  a source identifier and a time.
+- The stage or stage set applicable to a source identifier and a time
+  is chosen by :func:`shakelab.signals.metadata.select_response`.
 
 Conventions
 -----------
@@ -65,7 +65,6 @@ from __future__ import annotations
 
 import json as _json
 import math
-import os as _os
 import warnings
 from copy import deepcopy
 from typing import Any, Optional
@@ -73,7 +72,6 @@ from typing import Any, Optional
 import numpy as np
 from numpy.polynomial import polynomial as _poly
 
-from shakelab.libutils.timeN import Date
 from shakelab.libutils.utils import (
     cast_value,
     deserialize_complex,
@@ -83,8 +81,6 @@ from shakelab.libutils.utils import (
 __all__ = [
     "STAGE_TYPES",
     "ResponseWarning",
-    "ResponseCollection",
-    "StreamResponse",
     "StageSet",
     "Sensitivity",
     "StageResponse",
@@ -94,8 +90,6 @@ __all__ = [
     "StageResponseList",
     "StagePolynomial",
     "StageUnsupported",
-    "select_response",
-    "select_sensitivity",
     "response_transfer",
     "same_units",
     "expand_fir_symmetry",
@@ -120,347 +114,8 @@ class ResponseWarning(UserWarning):
 
 
 # ----------------------------------------------------------------------------
-# Collections and epochs
+# Stage sets
 # ----------------------------------------------------------------------------
-
-
-class ResponseCollection:
-    """
-    Collection of stream responses indexed by source identifier.
-
-    Parameters
-    ----------
-    byte_stream
-        Optional source to read (see :meth:`read`).
-    ftype
-        File type (``"xml"`` or ``"json"``); inferred from the file
-        extension if None.
-    """
-
-    def __init__(self, byte_stream: Any = None, ftype: Optional[str] = None):
-        self.response: list[StreamResponse] = []
-        if byte_stream is not None:
-            self.read(byte_stream, ftype=ftype)
-
-    def __len__(self) -> int:
-        return len(self.response)
-
-    def __iter__(self):
-        return iter(self.response)
-
-    def __contains__(self, sid: Any) -> bool:
-        return sid in self.sid
-
-    def __getitem__(self, key: Any) -> StreamResponse:
-        if isinstance(key, str):
-            return self.response[self._idx(key)]
-        return self.response[key]
-
-    def __repr__(self) -> str:
-        return f"ResponseCollection(responses={len(self.response)})"
-
-    def _idx(self, sid: str) -> int:
-        """
-        Return the position of a source identifier.
-
-        Raises
-        ------
-        KeyError
-            If the identifier is not in the collection.
-        """
-        sid_list = self.sid
-        if sid not in sid_list:
-            raise KeyError(f"source identifier not found: {sid}")
-        return sid_list.index(sid)
-
-    @property
-    def sid(self) -> list:
-        """Source identifiers of the stream responses."""
-        return [resp.sid for resp in self.response]
-
-    def append(self, obj: Any) -> None:
-        """
-        Append a copy of a stream response.
-
-        If a stream response with the same identifier is already in the
-        collection, the stage sets of ``obj`` are added to it. The
-        collection stores copies, so later changes to ``obj`` do not
-        affect it.
-
-        Raises
-        ------
-        ValueError
-            If the object is not a StreamResponse.
-        """
-        if not isinstance(obj, StreamResponse):
-            raise ValueError("Unsupported type to append")
-        if obj.sid in self.sid:
-            self[obj.sid].append(obj.stageset)
-        else:
-            self.response.append(deepcopy(obj))
-
-    def extract(
-        self,
-        sid: str,
-        time: Any = None,
-        stage_number: Optional[int] = None,
-    ) -> Any:
-        """
-        Return the stage set (or one of its stages) of a channel.
-
-        Parameters
-        ----------
-        sid
-            Source identifier.
-        time
-            Time of validity (default: now).
-        stage_number
-            If given, return that stage of the stage set.
-
-        Raises
-        ------
-        KeyError
-            If the channel or the epoch is not found.
-        """
-        result = self[sid].extract(time)
-        if stage_number is not None:
-            return result[stage_number]
-        return result
-
-    def validate(self, rtol: float = 1e-3) -> list:
-        """
-        Check the consistency of all epochs (see :meth:`StageSet.validate`).
-
-        Returns
-        -------
-        list of str
-            Problems found, each prefixed by channel and epoch start.
-        """
-        issues = []
-        for resp in self.response:
-            for stage_set in resp.stageset:
-                prefix = f"{resp.sid} [{stage_set.starttime}]"
-                issues.extend(
-                    f"{prefix}: {issue}"
-                    for issue in stage_set.validate(rtol=rtol)
-                )
-        return issues
-
-    def read(
-        self,
-        byte_stream: Any,
-        ftype: Optional[str] = None,
-        append: bool = False,
-    ) -> None:
-        """
-        Read responses from a StationXML, RESP or JSON file.
-
-        Parameters
-        ----------
-        byte_stream
-            File path; for StationXML and RESP also text, bytes or an
-            open file (see
-            :func:`shakelab.signals.stationxml.read_stationxml` and
-            :func:`shakelab.signals.respfile.read_resp`).
-        ftype
-            ``"xml"`` (also ``"sxml"``), ``"resp"`` or ``"json"``. If
-            None, it is inferred from the file name: ``"resp"`` for
-            names starting with ``RESP.`` (as written by rdseed) or
-            ending with ``.resp``, otherwise the extension.
-        append
-            If True, add to the current content; otherwise replace it.
-
-        Raises
-        ------
-        ValueError
-            If the file type is unknown or a stage type is unsupported.
-        """
-        if ftype is None:
-            ftype = _file_type(byte_stream)
-        ftype = ftype.lower()
-
-        if ftype in ("xml", "sxml"):
-            # Local import: the StationXML reader builds response
-            # objects, so it sits above this module.
-            from shakelab.signals.stationxml import read_stationxml
-
-            new = read_stationxml(byte_stream)
-
-        elif ftype == "resp":
-            from shakelab.signals.respfile import read_resp
-
-            new = read_resp(byte_stream)
-
-        elif ftype == "json":
-            with open(byte_stream, "r") as fobj:
-                new = _collection_from_json(_json.load(fobj))
-
-        else:
-            raise ValueError(f"Unknown file type: {ftype}")
-
-        if not append:
-            self.response = []
-        for resp in new.response:
-            self.append(resp)
-
-    def write(self, file: Any, ftype: str = "json") -> None:
-        """
-        Write the responses to a JSON file.
-
-        Raises
-        ------
-        NotImplementedError
-            For file types other than JSON.
-        """
-        if ftype != "json":
-            raise NotImplementedError("Only the json format is supported")
-
-        out = []
-
-        for resp in self.response:
-            for stage_set in resp.stageset:
-                polynomial = stage_set.instrument_polynomial
-                out.append({
-                    "sid": resp.sid,
-                    "starttime": (
-                        str(stage_set.starttime)
-                        if stage_set.starttime else None
-                    ),
-                    "endtime": (
-                        str(stage_set.endtime)
-                        if stage_set.endtime else None
-                    ),
-                    "sample_rate": stage_set.sample_rate,
-                    "sensitivity": (
-                        stage_set.sensitivity.to_dict()
-                        if stage_set.sensitivity else None
-                    ),
-                    "instrument_polynomial": (
-                        serialize_ndarray(polynomial.to_dict())
-                        if polynomial else None
-                    ),
-                    "stages": [
-                        {
-                            "stage_number": stage.stage_number,
-                            "stage_type": stage.stage_type,
-                            "data": serialize_ndarray(stage.to_dict()),
-                        }
-                        for stage in stage_set.stage
-                    ],
-                })
-
-        with open(file, "w") as fobj:
-            _json.dump(out, fobj, indent=2)
-
-    def info(self) -> None:
-        """Print a summary of all stream responses."""
-        for resp in self.response:
-            resp.info()
-
-
-def _file_type(path: Any) -> str:
-    """Return the response file type inferred from a file name."""
-    name = _os.path.basename(str(path))
-    if name.upper().startswith("RESP."):
-        return "resp"
-    _, ext = _os.path.splitext(name)
-    return ext.lstrip(".").lower()
-
-
-def _collection_from_json(content: list) -> ResponseCollection:
-    """Build a collection from the content of a JSON file."""
-    collection = ResponseCollection()
-
-    for entry in content:
-        stage_set = StageSet(
-            entry.get("starttime"),
-            entry.get("endtime"),
-            sample_rate=entry.get("sample_rate"),
-        )
-        if entry.get("sensitivity"):
-            stage_set.sensitivity = Sensitivity(**entry["sensitivity"])
-        if entry.get("instrument_polynomial"):
-            stage_set.instrument_polynomial = _stage_from_type(
-                "polynomial", entry["instrument_polynomial"]
-            )
-
-        for item in entry["stages"]:
-            data = deserialize_complex(item["data"])
-            data["stage_number"] = item["stage_number"]
-            stage_set.append(_stage_from_type(item["stage_type"], data))
-
-        stream_response = StreamResponse(entry["sid"])
-        stream_response.append(stage_set)
-        collection.append(stream_response)
-
-    return collection
-
-
-class StreamResponse:
-    """
-    Stage sets (epochs) of one channel.
-
-    Parameters
-    ----------
-    sid
-        Source identifier of the channel.
-    """
-
-    def __init__(self, sid: Optional[str]):
-        self.sid = sid
-        self.stageset: list[StageSet] = []
-
-    def __len__(self) -> int:
-        return len(self.stageset)
-
-    def __getitem__(self, time: Any) -> StageSet:
-        return self.extract(time)
-
-    def __repr__(self) -> str:
-        return f"StreamResponse(sid={self.sid!r}, epochs={len(self)})"
-
-    def append(self, stage_set: Any) -> None:
-        """
-        Append copies of one or more stage sets.
-
-        Raises
-        ------
-        ValueError
-            If an item is not a StageSet.
-        """
-        if not isinstance(stage_set, list):
-            stage_set = [stage_set]
-        for item in stage_set:
-            if not isinstance(item, StageSet):
-                raise ValueError("Not a valid stage set")
-            self.stageset.append(item.copy())
-
-    def extract(self, time: Any = None) -> StageSet:
-        """
-        Return the stage set valid at a time.
-
-        Parameters
-        ----------
-        time
-            Any value accepted by :class:`Date`, or ``"now"``/None.
-
-        Raises
-        ------
-        KeyError
-            If no stage set is valid at that time.
-        """
-        for stage_set in self.stageset:
-            if stage_set.match(time):
-                return stage_set
-        raise KeyError(
-            f"no response epoch of {self.sid} is valid at {time}"
-        )
-
-    def info(self) -> None:
-        """Print a summary of the stage sets."""
-        print(f"Stream ID: {self.sid}")
-        for stage_set in self.stageset:
-            stage_set.info()
 
 
 class Sensitivity:
@@ -508,14 +163,17 @@ class Sensitivity:
 
 class StageSet:
     """
-    Stages of a response, valid between two times.
+    Stages of a response.
+
+    The validity interval and the channel identifiers are not part of
+    the response: they are held by
+    :class:`shakelab.signals.metadata.ChannelEpoch`.
 
     Parameters
     ----------
-    starttime, endtime
-        Validity interval (``endtime`` excluded); None means unbounded.
     sample_rate
-        Sampling rate of the recorded data in Hz, if known.
+        Sampling rate of the recorded data in Hz, if known (output rate
+        of the response).
 
     Attributes
     ----------
@@ -527,19 +185,7 @@ class StageSet:
         Declared overall polynomial of a non-linear instrument.
     """
 
-    def __init__(
-        self,
-        starttime: Any = None,
-        endtime: Any = None,
-        sample_rate: Optional[float] = None,
-    ):
-        if starttime is not None and not isinstance(starttime, Date):
-            starttime = Date(starttime)
-        if endtime is not None and not isinstance(endtime, Date):
-            endtime = Date(endtime)
-
-        self.starttime = starttime
-        self.endtime = endtime
+    def __init__(self, sample_rate: Optional[float] = None):
         self.sample_rate = (
             None if sample_rate is None else float(sample_rate)
         )
@@ -555,15 +201,14 @@ class StageSet:
 
     def __repr__(self) -> str:
         return (
-            f"StageSet(starttime={self.starttime}, endtime={self.endtime}, "
+            f"StageSet(sample_rate={self.sample_rate}, "
             f"stages={len(self.stage)})"
         )
 
     def info(self) -> None:
-        """Print the validity interval and the list of stages."""
-        start_str = str(self.starttime) if self.starttime else "unknown"
-        end_str = str(self.endtime) if self.endtime else "now"
-        print(f"Response valid from: {start_str} to: {end_str}")
+        """Print the sensitivity and the list of stages."""
+        if self.sample_rate is not None:
+            print(f"Sampling rate: {self.sample_rate} Hz")
 
         if self.sensitivity is not None:
             sens = self.sensitivity
@@ -597,16 +242,6 @@ class StageSet:
             if not isinstance(stage, StageResponse):
                 raise ValueError("Not a valid stage response")
             self.stage.append(stage)
-
-    def match(self, time: Any) -> bool:
-        """Return whether a time falls within the validity interval."""
-        if not isinstance(time, Date):
-            time = Date("now") if time in ("now", None) else Date(time)
-
-        return (
-            (self.starttime is None or time >= self.starttime)
-            and (self.endtime is None or time < self.endtime)
-        )
 
     def get_stage(self, stage_number: int) -> StageResponse:
         """
@@ -877,6 +512,51 @@ class StageSet:
     def copy(self) -> StageSet:
         """Return a deep copy of the stage set."""
         return deepcopy(self)
+
+    def to_dict(self) -> dict:
+        """
+        Return the stage set as a dictionary of plain values.
+
+        Arrays and complex numbers are serialized for JSON (see
+        :func:`shakelab.libutils.utils.serialize_ndarray`); the result
+        is read back by :meth:`from_dict`.
+        """
+        polynomial = self.instrument_polynomial
+        return {
+            "sample_rate": self.sample_rate,
+            "sensitivity": (
+                self.sensitivity.to_dict() if self.sensitivity else None
+            ),
+            "instrument_polynomial": (
+                serialize_ndarray(polynomial.to_dict())
+                if polynomial else None
+            ),
+            "stages": [
+                {
+                    "stage_number": stage.stage_number,
+                    "stage_type": stage.stage_type,
+                    "data": serialize_ndarray(stage.to_dict()),
+                }
+                for stage in self.stage
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> StageSet:
+        """Build a stage set from :meth:`to_dict` output."""
+        stage_set = cls(sample_rate=data.get("sample_rate"))
+        if data.get("sensitivity"):
+            stage_set.sensitivity = Sensitivity(**data["sensitivity"])
+        if data.get("instrument_polynomial"):
+            stage_set.instrument_polynomial = _stage_from_type(
+                "polynomial",
+                deserialize_complex(data["instrument_polynomial"]),
+            )
+        for item in data.get("stages", []):
+            values = deserialize_complex(item["data"])
+            values["stage_number"] = item["stage_number"]
+            stage_set.append(_stage_from_type(item["stage_type"], values))
+        return stage_set
 
 
 # ----------------------------------------------------------------------------
@@ -1501,104 +1181,8 @@ def _root_product(x: np.ndarray, roots: Any) -> np.ndarray:
 
 
 # ----------------------------------------------------------------------------
-# Selection and units
+# Transfer and units
 # ----------------------------------------------------------------------------
-
-
-def select_response(
-    resp: Any,
-    sid: Optional[str] = None,
-    time: Any = None,
-) -> Any:
-    """
-    Return the response applicable to a channel at a time.
-
-    Parameters
-    ----------
-    resp
-        Stage, stage set, stream response or response collection.
-    sid
-        Source identifier of the data.
-    time
-        Start time of the data.
-
-    Returns
-    -------
-    StageResponse or StageSet
-        Object providing ``transfer_function``. Stages and stage sets
-        are returned unchanged.
-
-    Raises
-    ------
-    TypeError
-        If the response type is unsupported.
-    ValueError
-        If the identifier or the time needed for the selection are
-        missing, or if a stream response belongs to another channel.
-    KeyError
-        If the channel or the epoch are not available.
-    """
-    if isinstance(resp, (StageResponse, StageSet)):
-        return resp
-
-    if isinstance(resp, StreamResponse):
-        if resp.sid is not None and sid is not None and resp.sid != sid:
-            raise ValueError(
-                f"the response of {resp.sid} cannot be applied to {sid}"
-            )
-        if time is None:
-            raise ValueError(
-                "start time is required to select a response epoch"
-            )
-        return resp.extract(time)
-
-    if isinstance(resp, ResponseCollection):
-        if sid is None:
-            raise ValueError(
-                "source identifier is required to select a response"
-            )
-        return select_response(resp[sid], sid=sid, time=time)
-
-    raise TypeError(f"unsupported response object: {type(resp).__name__}")
-
-
-def select_sensitivity(
-    resp: Any,
-    sid: Optional[str] = None,
-    time: Any = None,
-) -> Sensitivity:
-    """
-    Return the overall sensitivity applicable to a channel at a time.
-
-    Parameters
-    ----------
-    resp
-        Gain stage, stage set, stream response or response collection.
-    sid, time
-        Source identifier and start time of the data (see
-        :func:`select_response`).
-
-    Raises
-    ------
-    ValueError
-        If the stage set declares no sensitivity.
-    TypeError
-        If the selected response is not a stage set or a gain stage.
-    """
-    selected = select_response(resp, sid=sid, time=time)
-
-    if isinstance(selected, StageSet):
-        sens = selected.sensitivity
-        if sens is None or not sens.value:
-            raise ValueError("the response declares no overall sensitivity")
-        return sens
-
-    if isinstance(selected, StageGain):
-        return Sensitivity(selected.sensitivity, selected.frequency)
-
-    raise TypeError(
-        f"no sensitivity available from {type(selected).__name__}"
-    )
 
 
 def response_transfer(

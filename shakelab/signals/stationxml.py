@@ -16,11 +16,32 @@
 # with this download. If not, see <http://www.gnu.org/licenses/>
 # ****************************************************************************
 """
-Reader of FDSN StationXML instrument responses.
+Reader of FDSN StationXML metadata.
 
-The reader converts the ``<Response>`` of every channel epoch of a
-StationXML document into the response model of
-:mod:`shakelab.signals.response`.
+The reader converts the stations and channel epochs of a StationXML
+document into the metadata model of :mod:`shakelab.signals.metadata`,
+and the ``<Response>`` of every channel epoch into the response model
+of :mod:`shakelab.signals.response`.
+
+Mapping of the station and channel elements
+-------------------------------------------
+=====================================  =================================
+StationXML                             ShakeLab
+=====================================  =================================
+``Station`` (code, dates)              ``StationEpoch``
+``Station/Latitude``, ``Longitude``,   ``StationEpoch.location``
+``Elevation``
+``Station/Site/Name``,                 ``StationEpoch.site``,
+``Station/Description``                ``StationEpoch.description``
+``Channel`` (codes, dates)             ``ChannelEpoch``
+``Channel/Latitude``, ``Longitude``,   ``ChannelEpoch.location``
+``Elevation``
+``Channel/Depth`` (m)                  ``ChannelEpoch.depth`` (km)
+``Channel/Azimuth``, ``Dip``           ``ChannelEpoch.orientation``
+``Channel/SampleRate``                 ``ChannelEpoch.sample_rate``
+``Channel/Sensor``, ``DataLogger``     ``Equipment``
+``Channel/Response``                   ``ChannelEpoch.response``
+=====================================  =================================
 
 Mapping of the response elements
 --------------------------------
@@ -45,8 +66,13 @@ Design choices
   :meth:`shakelab.signals.response.StageSet.validate`).
 - Elements of unknown type are kept as ``StageUnsupported``, so that
   an incomplete response cannot be used without notice.
-- Unknown elements and channels without response are reported with
-  :class:`shakelab.signals.response.ResponseWarning`.
+- Unknown response elements are reported with
+  :class:`shakelab.signals.response.ResponseWarning`. Channels without
+  response (e.g. documents requested at ``level=channel``) are read
+  with ``response`` None.
+- Elevations are read as written (see the conventions of
+  :mod:`shakelab.signals.metadata`). A channel without coordinates
+  takes those of its station.
 - :func:`iter_channels` walks the channel epochs and can be reused by
   readers of other channel metadata.
 
@@ -66,6 +92,7 @@ from typing import Any, Iterator, Optional
 from xml.etree.ElementTree import Element
 
 from shakelab.libutils.xml import find_float, find_text, read_xml, to_dict
+from shakelab.signals import metadata as mdm
 from shakelab.signals import response as rspm
 
 __all__ = [
@@ -91,9 +118,9 @@ _TRANSFER_ELEMENTS = (
 # ----------------------------------------------------------------------------
 
 
-def read_stationxml(source: Any) -> rspm.ResponseCollection:
+def read_stationxml(source: Any) -> mdm.MetadataCollection:
     """
-    Read the instrument responses of a StationXML document.
+    Read the stations and channel epochs of a StationXML document.
 
     Parameters
     ----------
@@ -103,8 +130,9 @@ def read_stationxml(source: Any) -> rspm.ResponseCollection:
 
     Returns
     -------
-    ResponseCollection
-        One stream response per channel, one stage set per epoch.
+    MetadataCollection
+        One station epoch per ``<Station>`` and one channel epoch per
+        ``<Channel>``, with its response if present.
 
     Raises
     ------
@@ -115,29 +143,89 @@ def read_stationxml(source: Any) -> rspm.ResponseCollection:
     if root.tag != "FDSNStationXML":
         raise ValueError("Not a valid FDSN StationXML document")
 
-    collection = rspm.ResponseCollection()
+    collection = mdm.MetadataCollection()
 
-    for sid, channel in iter_channels(root):
-        element = channel.find("Response")
-        if element is None:
-            warnings.warn(
-                f"{sid}: channel epoch without response, skipped",
-                rspm.ResponseWarning,
-                stacklevel=2,
-            )
-            continue
-
-        stage_set = parse_response(
-            element,
-            starttime=channel.get("startDate"),
-            endtime=channel.get("endDate"),
-            sample_rate=find_float(channel, "SampleRate"),
-        )
-        stream_response = rspm.StreamResponse(sid)
-        stream_response.append(stage_set)
-        collection.append(stream_response)
+    for network in root.iter("Network"):
+        net = network.get("code", "")
+        for element in network.iter("Station"):
+            station = _parse_station(net, element)
+            collection.append(station)
+            for channel in element.iter("Channel"):
+                collection.append(_parse_channel(station, channel))
 
     return collection
+
+
+def _parse_station(net: str, element: Element) -> mdm.StationEpoch:
+    """Convert a ``<Station>`` element into a station epoch."""
+    return mdm.StationEpoch(
+        f"{net}.{element.get('code', '')}",
+        starttime=element.get("startDate"),
+        endtime=element.get("endDate"),
+        location=_coordinates(element),
+        site=find_text(element, "Site/Name"),
+        description=find_text(element, "Description"),
+    )
+
+
+def _parse_channel(
+    station: mdm.StationEpoch, element: Element
+) -> mdm.ChannelEpoch:
+    """Convert a ``<Channel>`` element into a channel epoch."""
+    sid = ".".join((
+        station.code,
+        element.get("locationCode", ""),
+        element.get("code", ""),
+    ))
+
+    depth = find_float(element, "Depth")
+    azimuth = find_float(element, "Azimuth")
+    dip = find_float(element, "Dip")
+    sample_rate = find_float(element, "SampleRate")
+
+    resp = element.find("Response")
+    stage_set = (
+        parse_response(resp, sample_rate=sample_rate)
+        if resp is not None else None
+    )
+
+    return mdm.ChannelEpoch(
+        sid,
+        starttime=element.get("startDate"),
+        endtime=element.get("endDate"),
+        location=_coordinates(element) or station.location,
+        depth=None if depth is None else depth / 1000.0,
+        orientation=(
+            None if azimuth is None or dip is None else (azimuth, dip)
+        ),
+        sample_rate=sample_rate,
+        sensor=_equipment(element.find("Sensor")),
+        datalogger=_equipment(element.find("DataLogger")),
+        response=stage_set,
+        station=station,
+    )
+
+
+def _coordinates(element: Element) -> Optional[tuple]:
+    """Return ``(longitude, latitude, elevation)``, or None."""
+    longitude = find_float(element, "Longitude")
+    latitude = find_float(element, "Latitude")
+    if longitude is None or latitude is None:
+        return None
+    return (longitude, latitude, find_float(element, "Elevation", 0.0))
+
+
+def _equipment(element: Optional[Element]) -> Optional[mdm.Equipment]:
+    """Convert an ``Equipment`` element (sensor, datalogger)."""
+    if element is None:
+        return None
+    return mdm.Equipment(
+        type=find_text(element, "Type"),
+        description=find_text(element, "Description"),
+        manufacturer=find_text(element, "Manufacturer"),
+        model=find_text(element, "Model"),
+        serial_number=find_text(element, "SerialNumber"),
+    )
 
 
 def iter_channels(root: Element) -> Iterator[tuple]:
@@ -182,8 +270,6 @@ def stationxml_to_dict(source: Any) -> dict:
 
 def parse_response(
     element: Element,
-    starttime: Any = None,
-    endtime: Any = None,
     sample_rate: Optional[float] = None,
 ) -> rspm.StageSet:
     """
@@ -193,8 +279,6 @@ def parse_response(
     ----------
     element
         ``<Response>`` element.
-    starttime, endtime
-        Validity interval of the epoch.
     sample_rate
         Sampling rate of the channel in Hz.
 
@@ -203,7 +287,7 @@ def parse_response(
     StageSet
         Stages in order, with the overall sensitivity or polynomial.
     """
-    stage_set = rspm.StageSet(starttime, endtime, sample_rate=sample_rate)
+    stage_set = rspm.StageSet(sample_rate=sample_rate)
 
     sens = element.find("InstrumentSensitivity")
     if sens is not None:

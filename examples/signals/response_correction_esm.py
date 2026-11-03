@@ -47,7 +47,7 @@ import numpy as np
 
 from shakelab.signals.base import StreamCollection
 from shakelab.signals.libio.dyna import Dyna, dynaread
-from shakelab.signals.response import ResponseCollection
+from shakelab.signals.metadata import MetadataCollection
 
 DATA = Path(__file__).resolve().parents[2] / "tests" / "signals" / "data"
 ESM = DATA / "ESM" / "ASCII"
@@ -60,9 +60,9 @@ COMPONENTS = ("HNE", "HNN", "HNZ")
 
 raw = StreamCollection()
 raw.read(str(DATA / "MODE.mseed"))
-resp = ResponseCollection(str(DATA / "MODE.xml"))
+meta = MetadataCollection(str(DATA / "MODE.xml"))
 
-issues = resp.validate()
+issues = meta.validate()
 print("Metadata issues:", issues if issues else "none")
 
 esm = {}
@@ -91,7 +91,7 @@ for cha in COMPONENTS:
     rec.remove_mean()
     rec.taper(5.0)
     rec.filter(highpass=low, lowpass=high, order=esm[cha]["order"])
-    rec.deconvolve_response(resp)
+    rec.deconvolve_response(meta)
     acc[cha] = rec
     print(f"{cha}: band {low}-{high} Hz, PGA {rec.peak:.4f} m/s**2 "
           f"(ESM {esm[cha]['record'].peak / 100.0:.4f})")

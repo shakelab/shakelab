@@ -34,8 +34,12 @@ import numpy as np
 import pytest
 
 from shakelab.signals.base import Record
+from shakelab.signals.metadata import (
+    ChannelEpoch,
+    MetadataCollection,
+    select_sensitivity,
+)
 from shakelab.signals.response import (
-    ResponseCollection,
     ResponseWarning,
     Sensitivity,
     StageCoefficients,
@@ -45,11 +49,8 @@ from shakelab.signals.response import (
     StageResponseList,
     StageSet,
     StageUnsupported,
-    StreamResponse,
     expand_fir_symmetry,
     same_units,
-    select_response,
-    select_sensitivity,
 )
 from shakelab.signals.spectrum import Spectrum
 
@@ -60,14 +61,14 @@ TIME = "2012-05-20T02:03:23"
 
 
 @pytest.fixture(scope="module")
-def mode_response():
-    """Instrument responses of station IV.MODE."""
-    return ResponseCollection(str(DATA / "MODE.xml"))
+def mode_metadata():
+    """Channel metadata (with responses) of station IV.MODE."""
+    return MetadataCollection(str(DATA / "MODE.xml"))
 
 
 def _velocimeter(sid="XX.TEST..HHZ"):
     """
-    Stream response of a 1 Hz velocimeter (counts per m/s).
+    Channel epoch of a 1 Hz velocimeter (counts per m/s).
 
     Two zeros at the origin and two poles at 1 Hz (damping 0.707),
     normalized at 5 Hz, followed by a gain of 1000.
@@ -82,13 +83,12 @@ def _velocimeter(sid="XX.TEST..HHZ"):
         zeros=[0j, 0j],
         stage_number=1,
     )
-    stage_set = StageSet("2000-01-01T00:00:00", None)
+    stage_set = StageSet()
     stage_set.append(paz)
     stage_set.append(StageGain(sensitivity=1000.0, stage_number=2))
 
-    stream_response = StreamResponse(sid)
-    stream_response.append(stage_set)
-    return stream_response
+    return ChannelEpoch(sid, starttime="2000-01-01T00:00:00",
+                        response=stage_set)
 
 
 def _record(sid="XX.TEST..HHZ", nsamp=2000, delta=0.01):
@@ -103,150 +103,13 @@ def _record(sid="XX.TEST..HHZ", nsamp=2000, delta=0.01):
 
 
 # ----------------------------------------------------------------------------
-# Reading and selection
-# ----------------------------------------------------------------------------
-
-
-def test_read_stationxml(mode_response):
-    """StationXML gives one stream response per channel."""
-    assert mode_response.sid == [
-        "IV.MODE..HNZ", "IV.MODE..HNN", "IV.MODE..HNE"
-    ]
-    assert len(mode_response) == 3
-
-    for ftype in ("xml", "sxml"):
-        collection = ResponseCollection(str(DATA / "MODE.xml"), ftype=ftype)
-        assert collection.sid == mode_response.sid
-
-
-def test_read_unknown_type_is_rejected(tmp_path):
-    """Unknown file types raise ValueError."""
-    with pytest.raises(ValueError):
-        ResponseCollection(str(tmp_path / "file.txt"))
-
-
-def test_missing_channel_and_epoch(mode_response):
-    """A missing channel or epoch raises KeyError."""
-    with pytest.raises(KeyError):
-        mode_response["XX.NONE..HHZ"]
-
-    with pytest.raises(KeyError):
-        mode_response[SID].extract("1990-01-01T00:00:00")
-
-    stage_set = mode_response.extract(SID, TIME)
-    assert isinstance(stage_set, StageSet)
-
-
-def test_select_response(mode_response):
-    """Responses are selected by channel and time."""
-    expected = mode_response[SID].extract(TIME)
-
-    assert select_response(mode_response, SID, TIME) is expected
-    assert select_response(mode_response[SID], SID, TIME) is expected
-    assert select_response(expected) is expected
-
-    stage = expected.stage[0]
-    assert select_response(stage, "any", None) is stage
-
-
-def test_select_response_errors(mode_response):
-    """Invalid selections raise explicit errors."""
-    with pytest.raises(ValueError):
-        select_response(mode_response[SID], "IV.MODE..HNE", TIME)
-
-    with pytest.raises(ValueError):
-        select_response(mode_response[SID], SID, None)
-
-    with pytest.raises(ValueError):
-        select_response(mode_response, None, TIME)
-
-    with pytest.raises(KeyError):
-        select_response(mode_response, "XX.NONE..HHZ", TIME)
-
-    with pytest.raises(TypeError):
-        select_response(1.0, SID, TIME)
-
-
-def test_append_stores_copies(mode_response):
-    """Appended responses are copies: the source is not modified."""
-    collection = ResponseCollection()
-    collection.append(mode_response[SID])
-    collection[SID].append(StageSet("1990-01-01T00:00:00"))
-
-    assert len(collection[SID]) == 2
-    assert len(mode_response[SID]) == 1
-    assert collection[SID].stageset[0] is not (
-        mode_response[SID].stageset[0]
-    )
-
-
-def test_append_merges_epochs():
-    """Stream responses with the same identifier are merged."""
-    collection = ResponseCollection()
-    collection.append(_velocimeter())
-    collection.append(_velocimeter())
-
-    assert len(collection) == 1
-    assert len(collection["XX.TEST..HHZ"]) == 2
-
-    with pytest.raises(ValueError):
-        collection.append(StageSet())
-
-
-def test_json_round_trip(tmp_path, mode_response):
-    """Writing and reading JSON keeps stages and epochs."""
-    collection = ResponseCollection()
-    for resp in mode_response:
-        collection.append(resp)
-
-    late = _velocimeter(SID).stageset[0]
-    late.starttime = None
-    early = mode_response[SID].stageset[0].copy()
-    early.starttime = None
-    early.endtime = mode_response[SID].stageset[0].starttime
-    collection[SID].append(early)
-
-    path = tmp_path / "response.json"
-    collection.write(str(path))
-    loaded = ResponseCollection(str(path))
-
-    assert loaded.sid == collection.sid
-    assert len(loaded[SID]) == 2
-
-    stage_set = loaded.extract(SID, TIME)
-    assert stage_set.sensitivity.value == 321707.0
-    assert stage_set.sample_rate == 100.0
-    assert stage_set.stage[4].input_sample_rate == 800.0
-
-    freq = np.array([0.5, 1.0, 10.0])
-    np.testing.assert_allclose(
-        loaded.extract(SID, TIME).transfer_function(freq),
-        mode_response.extract(SID, TIME).transfer_function(freq),
-    )
-
-
-def test_json_coefficients_stage(tmp_path):
-    """A JSON 'coefficients' stage is read as digital coefficients."""
-    path = tmp_path / "response.json"
-    path.write_text(
-        '[{"sid": "XX.TEST..HHZ", "starttime": null, "endtime": null,'
-        ' "stages": [{"stage_number": 1, "stage_type": "coefficients",'
-        ' "data": {"numerator": [0.5, 0.5]}}]}]'
-    )
-    loaded = ResponseCollection(str(path))
-
-    stage = loaded.extract("XX.TEST..HHZ").stage[0]
-    assert isinstance(stage, StageCoefficients)
-
-
-# ----------------------------------------------------------------------------
 # Transfer functions
 # ----------------------------------------------------------------------------
 
 
-def test_mode_transfer_function(mode_response):
+def test_mode_transfer_function(mode_metadata):
     """The response matches the declared sensitivity and units."""
-    stage_set = mode_response.extract(SID, TIME)
+    stage_set = mode_metadata.get(SID, TIME).response
 
     # Analog part: flat, equal to the product of the stage gains.
     freq = np.array([0.2, 1.0, 5.0])
@@ -263,9 +126,9 @@ def test_mode_transfer_function(mode_response):
     assert stage_set.sample_rate == 100.0
 
 
-def test_mode_digital_stages(mode_response):
+def test_mode_digital_stages(mode_metadata):
     """The FIR stages carry their own sampling rate and delay."""
-    stage_set = mode_response.extract(SID, TIME)
+    stage_set = mode_metadata.get(SID, TIME).response
     firs = [s for s in stage_set.stage if isinstance(s, StageCoefficients)]
 
     assert [s.input_sample_rate for s in firs] == [800.0, 800.0, 200.0]
@@ -454,7 +317,7 @@ def test_stage_selection():
 
 def test_stage_set_units():
     """Units come from the first and last stages that declare them."""
-    stage_set = _velocimeter().stageset[0]
+    stage_set = _velocimeter().response
 
     assert stage_set.input_units == "m/s"
     assert stage_set.output_units == "V"
@@ -476,9 +339,9 @@ def test_same_units():
     assert not same_units("m/s", "m/s**2")
 
 
-def test_select_sensitivity(mode_response):
+def test_select_sensitivity(mode_metadata):
     """The overall sensitivity is selected like the response."""
-    sens = select_sensitivity(mode_response, SID, TIME)
+    sens = select_sensitivity(mode_metadata, SID, TIME)
     assert (sens.value, sens.input_units) == (321707.0, "m/s**2")
 
     gain = select_sensitivity(StageGain(sensitivity=5.0, frequency=1.0))
@@ -496,10 +359,10 @@ def test_select_sensitivity(mode_response):
 # ----------------------------------------------------------------------------
 
 
-def test_validate_mode(mode_response):
+def test_validate_mode(mode_metadata):
     """The metadata of MODE are consistent."""
-    assert mode_response.validate() == []
-    assert mode_response.validate(rtol=1e-5) == []
+    assert mode_metadata.validate() == []
+    assert mode_metadata.validate(rtol=1e-5) == []
 
 
 def test_validate_asymmetric_fir():
@@ -612,7 +475,7 @@ def test_waterlevel_limits_amplification():
     spectrum.head.time = "2026-01-01T00:00:00"
 
     response = _velocimeter()
-    stage_set = response.stageset[0]
+    stage_set = response.response
     peak = np.abs(stage_set.transfer_function(spectrum.frequency)).max()
 
     for waterlevel in (20.0, 40.0):
@@ -632,7 +495,7 @@ def test_response_of_another_channel_is_rejected():
         record.deconvolve_response(_velocimeter())
 
 
-def test_mode_correction_units(mode_response):
+def test_mode_correction_units(mode_metadata):
     """Correcting the accelerometer gives m/s**2."""
     record = Record(
         data=np.random.default_rng(0).standard_normal(1000),
@@ -640,17 +503,17 @@ def test_mode_correction_units(mode_response):
         time=TIME,
         sid=SID,
     )
-    record.deconvolve_response(mode_response, waterlevel=40.0,
+    record.deconvolve_response(mode_metadata, waterlevel=40.0,
                                method="smooth")
 
     assert record.head.units == "m/s**2"
 
 
-def test_remove_sensitivity(mode_response):
+def test_remove_sensitivity(mode_metadata):
     """Division by the sensitivity, without frequency processing."""
     record = Record(data=np.arange(5.0) * 321707.0, delta=0.01,
                     time=TIME, sid=SID)
-    record.remove_sensitivity(mode_response)
+    record.remove_sensitivity(mode_metadata)
 
     np.testing.assert_allclose(record.data, np.arange(5.0))
     assert record.head.units == "m/s**2"
@@ -658,7 +521,7 @@ def test_remove_sensitivity(mode_response):
     spectrum = Spectrum(np.full(3, 321707.0 + 0j), delta=0.01, nsamp=4)
     spectrum.head.sid = SID
     spectrum.head.time = TIME
-    spectrum.remove_sensitivity(mode_response)
+    spectrum.remove_sensitivity(mode_metadata)
     np.testing.assert_allclose(spectrum.data, 1.0)
 
 
@@ -680,7 +543,7 @@ def _lag(mode, stages_a, stages_b):
     return int(lags[int(np.argmax(xcorr))])
 
 
-def test_fir_delay_is_cancelled_by_time_correction(mode_response):
+def test_fir_delay_is_cancelled_by_time_correction(mode_metadata):
     """
     The FIR delays are cancelled by the declared time correction.
 
@@ -690,11 +553,10 @@ def test_fir_delay_is_cancelled_by_time_correction(mode_response):
     about 34 samples at 100 Hz.
     """
     analog = ("gain", "paz")
-    assert _lag(mode_response, None, analog) == 0
+    assert _lag(mode_metadata, None, analog) == 0
 
-    collection = ResponseCollection()
-    collection.append(mode_response[SID])
-    for stage in collection.extract(SID, TIME).stage:
+    collection = mode_metadata.select(SID)
+    for stage in collection.get(SID, TIME).response.stage:
         if getattr(stage, "correction", None):
             stage.correction = 0.0
     assert _lag(collection, None, analog) == 34

@@ -70,12 +70,28 @@ corrections. The format follows
   applied to output values; `transfer_function` gives the gain
   `1 / a_1` of a linear polynomial. It was evaluated as a rational
   function of the frequency.
-  `ResponseCollection.append` and `StreamResponse.append` store copies.
-  Reading a missing channel or epoch raises `KeyError` (it printed a
-  message and returned None).
-  `ResponseCollection(ftype=None)` infers the format from the file
-  extension; `ResponseCollection.append` accepts stream responses only
-  and merges the epochs of an existing channel.
+  A missing channel or epoch raises `KeyError` (it printed a message
+  and returned None).
+- **Channel metadata**: `signals.metadata` was rewritten (the previous
+  module, based on nested dictionaries, could not be imported). Channel
+  epochs (`ChannelEpoch`: coordinates, burial depth in km,
+  `Orientation`, sampling rate, sensor and datalogger `Equipment`,
+  instrument response, station) and station epochs (`StationEpoch`)
+  are held by `MetadataCollection`, read from StationXML, RESP
+  (response only) or JSON with `MetadataCollection(file)` or `read`;
+  `get(sid, time)` returns the epoch valid at a time, `select(sid,
+  time)` a sub-collection (shell wildcards), `stations()` the station
+  epochs, `validate()` the inconsistencies, `write()` a JSON file.
+  `MetadataCollection` replaces `signals.response.ResponseCollection`
+  and `StreamResponse`, which were removed: the response model no
+  longer holds identifiers and epochs, so `StageSet(sample_rate=None)`
+  has no `starttime`, `endtime` and `match`, and gains
+  `to_dict`/`from_dict`. `select_response` and `select_sensitivity`
+  moved to `signals.metadata`; response corrections accept stages,
+  stage sets, channel epochs and metadata collections. The JSON format
+  changed accordingly (stations and channel epochs). Without a time,
+  `get` requires a channel with a single epoch (the stage set valid
+  "now" was used before).
 - `signals.response.StageSet.transfer_function`: poles-and-zeros and
   coefficient stages are normalized to unit amplitude at the frequency
   of the gain of the same stage, so that the stage amplitude there is
@@ -85,18 +101,23 @@ corrections. The format follows
   previously differed from the declared gain (e.g. by 1.5% for
   IU.ANMO.10.BHZ, normalized at 0.1 Hz with the gain at 0.02 Hz).
 - `signals.stationxml.parse_sxml` renamed `read_stationxml`; it accepts
-  paths, XML text with or without declaration, bytes and open files.
+  paths, XML text with or without declaration, bytes and open files,
+  and returns a `MetadataCollection` with stations, channel epochs
+  (coordinates, depth, orientation, equipment) and responses; channels
+  without response are kept. `parse_response(element, sample_rate)`
+  no longer takes the epoch.
   `stationxml_to_dict` returns `{"tag", "attrib", "text", "children"}`
   and keeps values as strings (codes such as `"00"` became floats).
 - `signals.respfile.parse_resp` renamed `read_resp`; it accepts paths,
-  RESP text, bytes and open files, and returns one stream response per
-  channel and one stage set per epoch. Lines are identified by their
+  RESP text, bytes and open files, and returns a `MetadataCollection`
+  with one channel epoch per RESP epoch. Lines are identified by their
   `BxxxFyy` code, so RESP files of rdseed, of the Nominal Response
   Library and of evalresp are read alike. The sampling rate of an
   epoch is the output rate of the last decimation stage, as in
   evalresp.
-- `ResponseCollection.read` reads RESP files (`ftype="resp"`, inferred
-  for file names starting with `RESP.` or ending with `.resp`).
+- RESP files are recognized by `MetadataCollection.read`
+  (`ftype="resp"`, inferred for file names starting with `RESP.` or
+  ending with `.resp`).
 - `signals.Header` moved to the new module `signals.header` (it
   depends only on time and geodetic primitives); it is still available
   from `signals.base`.
@@ -155,9 +176,8 @@ corrections. The format follows
   analog coefficients;
   `StageResponseList` (amplitude and phase tables); `StageUnsupported`
   (elements of unknown type raise an error when used);
-  `StageSet.validate()` and `ResponseCollection.validate()` (gains,
-  sensitivity, normalization, units, decimation chain, FIR symmetry);
-  `ResponseWarning`; `same_units`; `ResponseCollection.__contains__`.
+  `StageSet.validate()` (gains, sensitivity, normalization, units,
+  decimation chain, FIR symmetry); `ResponseWarning`; `same_units`.
 - `signals.respfile`: transfer function types (blockettes 53 and 54),
   denominators of blockette 54, response lists (55), decimation and
   time correction (57), overall sensitivity (58 of stage 0), FIR
@@ -217,8 +237,8 @@ corrections. The format follows
   failed through the constructor, works again.
 - `signals.base.Record.shift` failed on complex data; `filter`
   rejected NumPy integer orders.
-- `signals.response`: `ResponseCollection(file)` failed with the
-  default file type; reading JSON with a `coefficients` stage raised
+- `signals.response`: reading a response file failed with the default
+  file type; reading JSON with a `coefficients` stage raised
   `NameError`, and several epochs of one channel were dropped; the
   poles-and-zeros response modified the stage when zeros were missing.
 - `signals.libio.dyna`: the header was assumed to have 64 lines; with

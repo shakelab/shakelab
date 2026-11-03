@@ -33,8 +33,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from shakelab.signals.metadata import MetadataCollection
 from shakelab.signals.response import (
-    ResponseCollection,
     ResponseWarning,
     StageCoefficients,
     StageGain,
@@ -71,7 +71,7 @@ def _resp(*blocks, location="00", start="2020,001", end="No Ending Time"):
 def _stages(*blocks, **kwargs):
     """Stage set read from a synthetic RESP text."""
     collection = read_resp(_resp(*blocks, **kwargs))
-    return collection[SID].stageset[0]
+    return collection[SID][0].response
 
 
 def _paz(code="A", number=1, poles=((-1.0, 1.0), (-1.0, -1.0)),
@@ -170,8 +170,8 @@ def _polynomial(number, coefficients=(0.0, 0.5), frequency_units="B"):
 
 @pytest.fixture(scope="module")
 def anmo():
-    """Response of IU.ANMO.00.BHZ (two epochs)."""
-    return read_resp(ANMO)["IU.ANMO.00.BHZ"]
+    """Metadata of IU.ANMO.00.BHZ (two epochs, response only)."""
+    return read_resp(ANMO)
 
 
 # ----------------------------------------------------------------------------
@@ -185,10 +185,13 @@ def test_nrl_resp_equals_stationxml():
     sxml = read_stationxml(NRL_XML)
     assert resp.sid == sxml.sid == ["IV.MODE.00.HNZ"]
 
-    first = resp[0].stageset[0]
-    second = sxml[0].stageset[0]
-    assert first.starttime == second.starttime
-    assert first.endtime is None and second.endtime is None
+    assert resp[0].starttime == sxml[0].starttime
+    assert resp[0].endtime is None and sxml[0].endtime is None
+    assert resp[0].sample_rate == sxml[0].sample_rate == 100.0
+    assert resp[0].location is None and resp[0].orientation is None
+
+    first = resp[0].response
+    second = sxml[0].response
     assert first.sample_rate == second.sample_rate == 100.0
     assert first.sensitivity.to_dict() == second.sensitivity.to_dict()
     assert [type(s) for s in first.stage] == [type(s) for s in second.stage]
@@ -214,8 +217,8 @@ def test_nrl_resp_equals_stationxml():
 
 def test_anmo_epochs(anmo):
     """Two epochs with truncated SEED times; the second is open."""
-    assert len(anmo.stageset) == 2
-    first, second = anmo.stageset
+    assert len(anmo) == 2
+    first, second = anmo["IU.ANMO.00.BHZ"]
     assert str(first.starttime) == "1998-10-26T20:00:00.000000Z"
     assert str(first.endtime) == "2000-10-19T16:00:00.000000Z"
     assert second.starttime == first.endtime
@@ -224,7 +227,7 @@ def test_anmo_epochs(anmo):
 
 def test_anmo_stages(anmo):
     """Zeros, gains, decimation and overall sensitivity are read."""
-    stage_set = anmo.extract("2015-01-01T00:00:00")
+    stage_set = anmo.get("IU.ANMO.00.BHZ", "2015-01-01T00:00:00").response
     paz = stage_set.stage[0]
     assert isinstance(paz, StagePoleZero)
     assert paz.pz_type == "LAPLACE (RADIANS/SECOND)"
@@ -257,7 +260,7 @@ def test_anmo_against_evalresp(anmo):
     """
     amp = np.loadtxt(DATA / "AMP.IU.ANMO.00.BHZ")
     phase = np.loadtxt(DATA / "PHASE.IU.ANMO.00.BHZ")
-    stage_set = anmo.extract("2015-01-01T00:00:00")
+    stage_set = anmo.get("IU.ANMO.00.BHZ", "2015-01-01T00:00:00").response
     response = stage_set.transfer_function(amp[:, 0])
 
     np.testing.assert_allclose(np.abs(response), amp[:, 1], rtol=1e-4)
@@ -275,21 +278,21 @@ def test_anmo_against_evalresp(anmo):
 
 @pytest.mark.parametrize("name", ["RESP.IU.ANMO.00.BHZ", "NRL_MODE_HNZ.resp"])
 def test_collection_infers_resp(name):
-    """ResponseCollection recognizes RESP files by their name."""
-    collection = ResponseCollection(str(DATA / name))
-    assert len(collection) == 1
+    """MetadataCollection recognizes RESP files by their name."""
+    collection = MetadataCollection(str(DATA / name))
+    assert len(collection.sid) == 1
 
 
 def test_collection_explicit_resp(tmp_path):
     """ftype="resp" reads files with any name."""
     path = tmp_path / "response.txt"
     path.write_text(NRL_RESP.read_text())
-    collection = ResponseCollection(str(path), ftype="resp")
+    collection = MetadataCollection(str(path), ftype="resp")
     assert collection.sid == ["IV.MODE.00.HNZ"]
 
     other = tmp_path / "mode.resp"
     other.write_text(NRL_RESP.read_text())
-    assert ResponseCollection(str(other)).sid == ["IV.MODE.00.HNZ"]
+    assert MetadataCollection(str(other)).sid == ["IV.MODE.00.HNZ"]
 
 
 # ----------------------------------------------------------------------------
@@ -311,7 +314,7 @@ def test_sources():
     for source in sources:
         collection = read_resp(source)
         assert collection.sid == ["IV.MODE.00.HNZ"]
-        assert len(collection[0].stageset[0].stage) == 8
+        assert len(collection[0].response.stage) == 8
 
 
 def test_missing_file():
@@ -390,9 +393,9 @@ def test_epochs_and_channels():
     ])
     collection = read_resp(text)
     assert collection.sid == [SID, "XX.OTHER..HHN"]
-    first, second = collection[SID].stageset
-    assert first.stage[1].sensitivity == 10.0
-    assert second.stage[1].sensitivity == 20.0
+    first, second = collection[SID]
+    assert first.response.stage[1].sensitivity == 10.0
+    assert second.response.stage[1].sensitivity == 20.0
     assert second.endtime is None
 
 

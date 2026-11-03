@@ -213,8 +213,8 @@ class FDSNClient:
                                      starttime=starttime,
                                      endtime=endtime,
                                      level='response')
-            rc = read_stationxml(xml)
-            sc.deconvolve_response(rc)
+            meta = read_stationxml(xml)
+            sc.deconvolve_response(meta)
 
         if file_name:
             writer(sc, file_name, format)
@@ -240,9 +240,9 @@ class FDSNClient:
     
         Returns
         -------
-        dict or bool
-            Parsed station metadata as dictionary if file_name is None,
-            otherwise True if saved to file.
+        MetadataCollection or bool
+            Station and channel metadata (with responses) if file_name
+            is None, otherwise True if saved to file.
         """
         fc = FDSNCode(fdsn_code)
         xml = self.query_station(fc.get('dict'),

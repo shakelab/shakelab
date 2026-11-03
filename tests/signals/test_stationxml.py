@@ -83,7 +83,7 @@ def _document(response, channel_extra="", second_epoch=False):
 def _stages(response):
     """Read a document and return the stages of its first epoch."""
     collection = read_stationxml(_document(response))
-    return collection.extract(SID, TIME).stage
+    return collection.get(SID, TIME).response.stage
 
 
 def _stage(content, number=1, gain=1.0):
@@ -129,7 +129,9 @@ def test_read_mode():
     assert collection.sid == [
         "IV.MODE..HNZ", "IV.MODE..HNN", "IV.MODE..HNE"
     ]
-    stage_set = collection.extract("IV.MODE..HNZ", "2012-05-20T02:03:23")
+    stage_set = collection.get(
+        "IV.MODE..HNZ", "2012-05-20T02:03:23"
+    ).response
 
     assert [s.stage_type for s in stage_set.stage] == [
         "paz", "gain", "coefficients", "gain", "coefficients", "gain",
@@ -348,7 +350,7 @@ def test_polynomials():
         + "</Response>"
     )
     collection = read_stationxml(_document(response))
-    stage_set = collection.extract(SID, TIME)
+    stage_set = collection.get(SID, TIME).response
 
     for stage in (stage_set.instrument_polynomial, stage_set.stage[0]):
         assert isinstance(stage, StagePolynomial)
@@ -371,18 +373,20 @@ def test_sensitivity_and_epochs():
     )
     collection = read_stationxml(_document(response, second_epoch=True))
 
-    assert len(collection) == 1
+    assert collection.sid == [SID]
     assert len(collection[SID]) == 2
-    late = collection.extract(SID, "2022-01-01T00:00:00")
-    assert late.sensitivity.value == 1000.0
-    assert late.units() == ("m/s", "count")
+    late = collection.get(SID, "2022-01-01T00:00:00")
+    assert late.response.sensitivity.value == 1000.0
+    assert late.response.units() == ("m/s", "count")
     assert late.endtime is None
 
 
 def test_channel_without_response_and_unknown_elements():
-    """Missing responses and unknown elements are reported."""
-    with pytest.warns(ResponseWarning):
-        assert len(read_stationxml(_document(""))) == 0
+    """Channels without response are kept; unknown elements reported."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        collection = read_stationxml(_document(""))
+    assert collection.get(SID, TIME).response is None
 
     with pytest.warns(ResponseWarning):
         stages = _stages(

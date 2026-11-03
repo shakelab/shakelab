@@ -46,8 +46,8 @@ from shakelab.signals.base import (
     tukey_window,
 )
 from shakelab.signals.io import reader
+from shakelab.signals.metadata import MetadataCollection
 from shakelab.signals.response import (
-    ResponseCollection,
     StageGain,
     StagePoleZero,
 )
@@ -65,8 +65,8 @@ def mode():
 
 @pytest.fixture(scope="module")
 def mode_response():
-    """Instrument responses of station IV.MODE."""
-    collection = ResponseCollection()
+    """Channel metadata (with responses) of station IV.MODE."""
+    collection = MetadataCollection()
     collection.read(str(DATA / "MODE.xml"))
     return collection
 
@@ -409,7 +409,7 @@ def test_record_response_correction_variants(mode, mode_response):
 
     for corrected in (
         raw / mode_response,
-        raw / mode_response["IV.MODE..HNZ"],
+        raw / mode_response.get("IV.MODE..HNZ"),
         (mode / mode_response)["IV.MODE..HNZ"][0],
     ):
         np.testing.assert_allclose(corrected.data, expected.data)
@@ -1045,7 +1045,7 @@ def test_record_stream_response_of_another_channel_is_rejected(
     east = mode["IV.MODE..HNE"][0]
 
     with pytest.raises(ValueError):
-        east / mode_response["IV.MODE..HNZ"]
+        east / mode_response.get("IV.MODE..HNZ")
 
 
 # ----------------------------------------------------------------------------
@@ -1164,7 +1164,7 @@ def test_collection_response_correction(mode, mode_response):
     assert mode["IV.MODE..HNN"][0].data.dtype.kind != "c"
 
     with pytest.raises(ValueError):
-        mode / mode_response["IV.MODE..HNZ"]
+        mode / mode_response.get("IV.MODE..HNZ")
     with pytest.raises(TypeError):
         mode / 2
 

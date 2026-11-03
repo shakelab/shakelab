@@ -24,14 +24,17 @@ tools, and read by evalresp. Each line holds one field of a blockette,
 identified by the code ``BxxxFyy`` (blockette ``xxx``, field ``yy``);
 repeated fields (e.g. poles) are written one group per line with a
 field range such as ``B053F15-18``. The reader converts every channel
-epoch into the response model of :mod:`shakelab.signals.response`.
+epoch into a channel epoch of :mod:`shakelab.signals.metadata` with
+the response model of :mod:`shakelab.signals.response`. RESP files
+describe only the response: the channel epochs have no coordinates,
+orientation or equipment.
 
 Mapping of the blockettes
 -------------------------
 =================================  =====================================
 SEED (RESP)                        ShakeLab
 =================================  =====================================
-50, 52 (station, channel, epoch)   ``StreamResponse`` and ``StageSet``
+50, 52 (station, channel, epoch)   ``ChannelEpoch`` and ``StageSet``
 53 Poles & Zeros                   ``StagePoleZero``
 54 Coefficients                    ``StageCoefficients``
 55 Response List                   ``StageResponseList``
@@ -86,6 +89,7 @@ import warnings
 from typing import Any, Iterable, Optional
 
 from shakelab.libutils.timeN import Date
+from shakelab.signals import metadata as mdm
 from shakelab.signals import response as rspm
 
 __all__ = [
@@ -137,7 +141,7 @@ _CHANNEL = ("050", "052")
 # ----------------------------------------------------------------------------
 
 
-def read_resp(source: Any) -> rspm.ResponseCollection:
+def read_resp(source: Any) -> mdm.MetadataCollection:
     """
     Read the instrument responses of a RESP file.
 
@@ -149,8 +153,8 @@ def read_resp(source: Any) -> rspm.ResponseCollection:
 
     Returns
     -------
-    ResponseCollection
-        One stream response per channel, one stage set per epoch.
+    MetadataCollection
+        One channel epoch per RESP epoch, with its response.
 
     Raises
     ------
@@ -162,7 +166,7 @@ def read_resp(source: Any) -> rspm.ResponseCollection:
         If a value cannot be read, or the text holds no response.
     """
     lines = _read_lines(source)
-    collection = rspm.ResponseCollection()
+    collection = mdm.MetadataCollection()
 
     for header, blockettes in _split_epochs(lines):
         sid = ".".join((
@@ -171,10 +175,14 @@ def read_resp(source: Any) -> rspm.ResponseCollection:
             header.get("location", ""),
             header.get("channel", ""),
         ))
-        stage_set = _build_stage_set(sid, header, blockettes)
-        stream_response = rspm.StreamResponse(sid)
-        stream_response.append(stage_set)
-        collection.append(stream_response)
+        stage_set = _build_stage_set(sid, blockettes)
+        collection.append(mdm.ChannelEpoch(
+            sid,
+            starttime=parse_resp_time(header.get("starttime")),
+            endtime=parse_resp_time(header.get("endtime")),
+            sample_rate=stage_set.sample_rate,
+            response=stage_set,
+        ))
 
     if not len(collection):
         raise ValueError("No RESP channel response found")
@@ -415,16 +423,9 @@ def _to_float(token: str, btype: str, field: str) -> float:
 # ----------------------------------------------------------------------------
 
 
-def _build_stage_set(
-    sid: str,
-    header: dict,
-    blockettes: list,
-) -> rspm.StageSet:
+def _build_stage_set(sid: str, blockettes: list) -> rspm.StageSet:
     """Convert the blockettes of one epoch into a stage set."""
-    stage_set = rspm.StageSet(
-        parse_resp_time(header.get("starttime")),
-        parse_resp_time(header.get("endtime")),
-    )
+    stage_set = rspm.StageSet()
 
     # Collect the blockettes of each stage, merging continuations.
     stages: dict = {}

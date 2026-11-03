@@ -50,6 +50,7 @@ from typing import Any, Optional
 import numpy as np
 
 from shakelab.signals import fourier
+from shakelab.signals import metadata
 from shakelab.signals import response
 from shakelab.signals.base import Record
 from shakelab.signals.header import Header
@@ -478,10 +479,10 @@ class Spectrum:
         Parameters
         ----------
         resp
-            Stage, stage set, stream response or response collection.
+            Stage, stage set, channel epoch or metadata collection.
             The applicable response is selected by source identifier
             and start time of the header (see
-            :func:`shakelab.signals.response.select_response`).
+            :func:`shakelab.signals.metadata.select_response`).
         stages
             Stage types to include, e.g. ``("gain", "paz")``; None for
             the complete response.
@@ -490,7 +491,7 @@ class Spectrum:
         -----
         The units become the output units of the response, if declared.
         """
-        selected = response.select_response(
+        selected = metadata.select_response(
             resp, sid=self.head.sid, time=self.head.time
         )
         transfer, _, units = response.response_transfer(
@@ -514,7 +515,7 @@ class Spectrum:
         Parameters
         ----------
         resp
-            Stage, stage set, stream response or response collection
+            Stage, stage set, channel epoch or metadata collection
             (see :meth:`convolve_response`).
         waterlevel
             Water level in dB below the maximum of the response
@@ -531,7 +532,7 @@ class Spectrum:
         -----
         The units become the input units of the response, if declared.
         """
-        selected = response.select_response(
+        selected = metadata.select_response(
             resp, sid=self.head.sid, time=self.head.time
         )
         transfer, units, _ = response.response_transfer(
@@ -552,9 +553,9 @@ class Spectrum:
         Parameters
         ----------
         resp
-            Gain stage, stage set, stream response or response
+            Gain stage, stage set, channel epoch or metadata
             collection (see
-            :func:`shakelab.signals.response.select_sensitivity`).
+            :func:`shakelab.signals.metadata.select_sensitivity`).
 
         Notes
         -----
@@ -562,7 +563,7 @@ class Spectrum:
         band of interest. The units become the input units of the
         sensitivity, if declared.
         """
-        sens = response.select_sensitivity(
+        sens = metadata.select_sensitivity(
             resp, sid=self.head.sid, time=self.head.time
         )
         self.data = self.data.astype(complex) / sens.value

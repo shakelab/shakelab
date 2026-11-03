@@ -41,7 +41,6 @@ ROOT = Path(importlib.import_module(PACKAGE).__file__).parent
 # Modules that cannot be imported at present (they import modules
 # removed from the repository); they will be revised separately.
 BROKEN = {
-    f"{PACKAGE}.metadata",
     f"{PACKAGE}.seedlink",
 }
 
