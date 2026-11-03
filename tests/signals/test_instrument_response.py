@@ -396,13 +396,24 @@ def test_response_list_interpolation():
 
 
 def test_polynomial_stage():
-    """The polynomial applies to amplitudes, linear in frequency only."""
-    linear = StagePolynomial(coefficients=[0.5, 2.0])
+    """
+    The polynomial gives the input from the output (SEED blockette 62).
 
-    np.testing.assert_allclose(linear.evaluate([1.0, 2.0]), [2.5, 4.5])
-    np.testing.assert_allclose(
-        linear.transfer_function(np.array([1.0, 5.0])), 2.0
+    Example of the SEED manual: a pressure transducer with
+    ``p = 600 + 100 * V`` mbar has a forward gain of 0.01 V/mbar.
+    """
+    linear = StagePolynomial(
+        coefficients=[600.0, 100.0], input_units="mbar", output_units="V"
     )
+
+    np.testing.assert_allclose(linear.evaluate([0.0, 5.0]), [600.0, 1100.0])
+    np.testing.assert_allclose(
+        linear.transfer_function(np.array([0.01, 0.1])), 0.01
+    )
+
+    offset = StagePolynomial(coefficients=[1.0])
+    with pytest.raises(ValueError):
+        offset.transfer_function(np.array([1.0]))
 
     nonlinear = StagePolynomial(coefficients=[0.0, 1.0, 0.1])
     with pytest.raises(ValueError):
@@ -713,3 +724,77 @@ def test_paz_without_poles():
     """Poles and zeros may be absent: the stage is a pure gain."""
     stage = StagePoleZero(normalization_factor=3.0)
     np.testing.assert_allclose(stage.transfer_function([0.0, 1.0]), 3.0)
+
+
+def _velocity_stage_set(gain_frequency):
+    """Velocity sensor normalized at 1 Hz, gain declared elsewhere."""
+    poles = [-0.037 + 0.037j, -0.037 - 0.037j]
+    paz = StagePoleZero(
+        pz_type="LAPLACE (RADIANS/SECOND)", poles=poles,
+        zeros=[0j, 0j], normalization_frequency=1.0, stage_number=1,
+    )
+    paz.normalization_factor = 1.0 / abs(paz.transfer_function([1.0])[0])
+    stage_set = StageSet()
+    stage_set.append([
+        paz,
+        StageGain(sensitivity=1500.0, frequency=gain_frequency,
+                  stage_number=1),
+    ])
+    return stage_set
+
+
+def test_stage_normalized_at_gain_frequency():
+    """
+    The stage amplitude equals the gain at the gain frequency.
+
+    SEED blockette 58: the gain applies at its frequency. With the
+    poles and zeros normalized at 1 Hz and the gain declared at
+    0.02 Hz, the stage is rescaled by ``1 / |T(0.02)|`` (as evalresp).
+    """
+    stage_set = _velocity_stage_set(0.02)
+    paz = stage_set.stage[0]
+    np.testing.assert_allclose(
+        abs(stage_set.transfer_function([0.02])[0]), 1500.0, rtol=1e-12
+    )
+    # The selected transfer element alone has unit amplitude there.
+    np.testing.assert_allclose(
+        abs(stage_set.transfer_function([0.02], stages="paz")[0]), 1.0,
+        rtol=1e-12,
+    )
+    # Shape unchanged: ratio to the declared stage is constant.
+    frequency = np.array([0.01, 0.1, 1.0, 10.0])
+    ratio = stage_set.transfer_function(frequency) / (
+        1500.0 * paz.transfer_function(frequency)
+    )
+    np.testing.assert_allclose(ratio, ratio[0], rtol=1e-12)
+    assert abs(ratio[0] - 1.0) > 1e-3
+
+
+def test_stage_consistent_gain_unchanged():
+    """With the gain at the normalization frequency nothing changes."""
+    stage_set = _velocity_stage_set(1.0)
+    frequency = np.array([0.01, 0.1, 1.0, 10.0])
+    np.testing.assert_allclose(
+        stage_set.transfer_function(frequency),
+        1500.0 * stage_set.stage[0].transfer_function(frequency),
+        rtol=1e-12,
+    )
+
+
+def test_stage_gain_at_zero_amplitude_warns():
+    """A gain at a frequency where the stage is zero is not used."""
+    stage_set = _velocity_stage_set(0.0)
+    with pytest.warns(ResponseWarning, match="not normalized"):
+        value = stage_set.transfer_function([1.0])
+    np.testing.assert_allclose(abs(value[0]), 1500.0, rtol=1e-12)
+
+
+def test_digital_stage_normalized_at_zero_frequency():
+    """A digital filter with gain at 0 Hz gets unit gain in DC."""
+    stage_set = StageSet()
+    stage_set.append([
+        StageCoefficients(numerator=[0.2, 0.4, 0.2], input_sample_rate=100.0,
+                          stage_number=1),
+        StageGain(sensitivity=1.0, frequency=0.0, stage_number=1),
+    ])
+    np.testing.assert_allclose(stage_set.transfer_function([0.0]), 1.0)

@@ -65,14 +65,25 @@ corrections. The format follows
   `StageCoefficients`, with `cf_type` (`DIGITAL`,
   `ANALOG (RADIANS/SECOND)`, `ANALOG (HERTZ)`) as `pz_type` in
   `StagePoleZero`. `StagePolynomial` now represents a non-linear sensor
-  (`y = sum(a_k x**k)`, StationXML `Polynomial`) with `evaluate`; it
-  was evaluated as a rational function of the frequency.
+  (`x = sum(a_k y**k)`: the input as a function of the output, as in
+  SEED blockette 62 and StationXML `Polynomial`) with `evaluate`
+  applied to output values; `transfer_function` gives the gain
+  `1 / a_1` of a linear polynomial. It was evaluated as a rational
+  function of the frequency.
   `ResponseCollection.append` and `StreamResponse.append` store copies.
   Reading a missing channel or epoch raises `KeyError` (it printed a
   message and returned None).
   `ResponseCollection(ftype=None)` infers the format from the file
   extension; `ResponseCollection.append` accepts stream responses only
   and merges the epochs of an existing channel.
+- `signals.response.StageSet.transfer_function`: poles-and-zeros and
+  coefficient stages are normalized to unit amplitude at the frequency
+  of the gain of the same stage, so that the stage amplitude there is
+  the declared gain (SEED blockette 58, StationXML `StageGain`), as in
+  evalresp. Nothing changes when the gain and normalization frequencies
+  coincide and the metadata are consistent; otherwise the response
+  previously differed from the declared gain (e.g. by 1.5% for
+  IU.ANMO.10.BHZ, normalized at 0.1 Hz with the gain at 0.02 Hz).
 - `signals.stationxml.parse_sxml` renamed `read_stationxml`; it accepts
   paths, XML text with or without declaration, bytes and open files.
   `stationxml_to_dict` returns `{"tag", "attrib", "text", "children"}`

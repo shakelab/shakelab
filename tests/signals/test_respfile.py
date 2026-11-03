@@ -246,6 +246,10 @@ def test_anmo_against_evalresp(anmo):
     """
     Amplitude as computed by evalresp; phase up to the residual delay.
 
+    The amplitude differs by 6e-5: the normalization factor of the
+    poles and zeros is rounded in the file (|A0 P(0.02 Hz)| = 1.00006),
+    and ShakeLab normalizes each stage to its gain at the gain
+    frequency, while evalresp does so only when the frequencies differ.
     evalresp evaluates symmetric FIR filters with zero phase, i.e. it
     assumes their delay fully corrected. ShakeLab applies the declared
     corrections (SEED blockette 57, field 8), which here leave a delay

@@ -721,11 +721,44 @@ class StageSet:
         ------
         ValueError, NotImplementedError
             If a selected stage cannot be evaluated.
+
+        Notes
+        -----
+        The gain of a stage is its amplitude at the gain frequency (SEED
+        v2.4, blockette 58; StationXML ``StageGain``). Poles-and-zeros
+        and coefficient stages are therefore normalized to unit
+        amplitude at the frequency of the gain of the same stage,
+        ``T(f) / |T(f_gain)|``, so that the stage amplitude at
+        ``f_gain`` is the declared gain also when ``f_gain`` differs from
+        the normalization frequency of the poles and zeros (or when the
+        digital filter does not have unit gain at ``f_gain``), as in
+        evalresp. With consistent metadata the factor is 1. If the
+        amplitude at ``f_gain`` is zero or not finite, the stage is used
+        as declared, with a :class:`ResponseWarning`.
         """
+        gain_frequency = self._gain_frequencies()
         result = np.ones(np.shape(frequency), dtype=complex)
         for stage in self.select_stages(stages):
-            result = result * stage.transfer_function(frequency, delta)
+            value = stage.transfer_function(frequency, delta)
+            reference = gain_frequency.get(stage.stage_number)
+            if reference is not None and isinstance(
+                stage, (StagePoleZero, StageCoefficients)
+            ):
+                value = value / _stage_amplitude(stage, reference, delta)
+            result = result * value
         return result
+
+    def _gain_frequencies(self) -> dict:
+        """Return the gain frequency of each stage number."""
+        frequencies = {}
+        for stage in self.stage:
+            if (
+                isinstance(stage, StageGain)
+                and stage.stage_number is not None
+                and stage.frequency is not None
+            ):
+                frequencies.setdefault(stage.stage_number, stage.frequency)
+        return frequencies
 
     def validate(self, rtol: float = 1e-3) -> list:
         """
@@ -1279,13 +1312,17 @@ class StageResponseList(StageResponse):
 
 class StagePolynomial(StageResponse):
     """
-    Non-linear stage: ``y = sum(a_k * x**k)`` (MacLaurin series).
+    Non-linear stage: ``x = sum(a_k * y**k)`` (MacLaurin series).
 
-    StationXML ``Polynomial`` describes a sensor whose output is a
-    polynomial of the input amplitude, valid within the approximation
-    bounds. It is not a frequency response: :meth:`evaluate` applies it
-    to samples, while :meth:`transfer_function` exists only for a
-    linear polynomial (the constant term is an offset and is ignored).
+    The polynomial gives the input of the stage ``x`` (in
+    ``input_units``, e.g. a temperature or a pressure) as a function of
+    its output ``y`` (in ``output_units``, e.g. Volts): it is applied to
+    the recorded values to recover the physical quantity (SEED v2.4,
+    blockette 62, notes 5-7; FDSN StationXML ``Polynomial`` and
+    ``InstrumentPolynomial``). It is valid within the approximation
+    bounds and is not a frequency response: :meth:`evaluate` applies it
+    to output values, while :meth:`transfer_function` exists only for a
+    linear polynomial.
     """
 
     _KEYMAP = {
@@ -1303,9 +1340,19 @@ class StagePolynomial(StageResponse):
     }
     stage_type = "polynomial"
 
-    def evaluate(self, x: Any) -> np.ndarray:
+    def evaluate(self, y: Any) -> np.ndarray:
         """
-        Apply the polynomial to input values.
+        Return the input values ``x`` for output values ``y``.
+
+        Parameters
+        ----------
+        y
+            Values in the output units of the stage (e.g. Volts).
+
+        Returns
+        -------
+        numpy.ndarray
+            Values in the input units (e.g. a physical quantity).
 
         Raises
         ------
@@ -1314,17 +1361,21 @@ class StagePolynomial(StageResponse):
         """
         if self.coefficients is None:
             raise ValueError("Polynomial coefficients are not defined.")
-        return _poly.polyval(np.asarray(x, dtype=float),
+        return _poly.polyval(np.asarray(y, dtype=float),
                              _coefficients(self.coefficients))
 
     def transfer_function(self, frequency, delta=None):
         """
-        Return the gain ``a_1`` of a linear polynomial.
+        Return the gain ``1 / a_1`` of a linear polynomial.
+
+        For ``x = a_0 + a_1 * y`` the stage converts input to output with
+        gain ``dy/dx = 1 / a_1``, as every other stage; the offset
+        ``a_0`` has no frequency response and is ignored.
 
         Raises
         ------
         ValueError
-            If the polynomial is not linear.
+            If the polynomial is not linear or ``a_1`` is zero.
         """
         coefficients = _coefficients(self.coefficients)
         if coefficients.size > 2 and np.any(coefficients[2:] != 0):
@@ -1332,8 +1383,13 @@ class StagePolynomial(StageResponse):
                 f"stage {self.stage_number}: non-linear polynomial "
                 "response cannot be applied in the frequency domain"
             )
-        gain = coefficients[1] if coefficients.size > 1 else 0.0
-        return np.full(np.shape(frequency), gain, dtype=complex)
+        slope = coefficients[1] if coefficients.size > 1 else 0.0
+        if slope == 0:
+            raise ValueError(
+                f"stage {self.stage_number}: polynomial without linear "
+                "term has no gain"
+            )
+        return np.full(np.shape(frequency), 1.0 / slope, dtype=complex)
 
 
 class StageUnsupported(StageResponse):
@@ -1391,6 +1447,26 @@ def _stage_from_type(stage_type: str, data: dict) -> StageResponse:
     except KeyError:
         raise ValueError(f"Unsupported stage_type: {stage_type}") from None
     return cls({k: v for k, v in data.items() if k in cls._KEYMAP})
+
+
+def _stage_amplitude(stage, frequency: float, delta) -> float:
+    """
+    Return the amplitude of a stage at the frequency of its gain.
+
+    Returns 1 (no normalization) with a warning if the amplitude is
+    zero or not finite, e.g. a gain declared at 0 Hz for a stage with
+    zeros at the origin.
+    """
+    value = abs(stage.transfer_function(np.array([frequency]), delta)[0])
+    if value == 0 or not np.isfinite(value):
+        warnings.warn(
+            f"stage {stage.stage_number}: amplitude {value} at the gain "
+            f"frequency {frequency} Hz; the stage is not normalized",
+            ResponseWarning,
+            stacklevel=3,
+        )
+        return 1.0
+    return value
 
 
 def _chain_units(stages: list) -> tuple:
