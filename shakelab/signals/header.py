@@ -19,18 +19,33 @@
 Waveform metadata.
 
 This module provides :class:`Header`, the metadata of a waveform
-record or spectrum: sampling, start time, identifiers, units, location
-and instrument response. It depends only on the time and geodetic
-primitives, so that both time-domain and frequency-domain objects can
-use it.
+record or spectrum: sampling, start time, identifiers, units and the
+description of the recording channel. It depends only on the time
+primitives and on :mod:`shakelab.signals.metadata`, so that both
+time-domain and frequency-domain objects can use it.
+
+Design choices
+--------------
+- The source identifier and the description of the channel
+  (coordinates, orientation, equipment, instrument response) are a
+  :class:`~shakelab.signals.metadata.ChannelEpoch`, ``head.meta``,
+  always present (empty by default).
+- ``head.meta`` is shared, not copied: the records of the same epoch
+  refer to one object, and :meth:`Header.copy` keeps the reference.
+  Changes made through the header and record attributes (``sid``,
+  ``location``, ...) replace the epoch with an updated copy, so they
+  never affect other records. Changing the shared object directly
+  (``head.meta.location = ...``) affects all the records referring to
+  it.
+- ``head.extra`` holds free information about one record (e.g. a
+  quality flag); free information about the channel belongs to
+  ``head.meta.extra``.
 
 Conventions
 -----------
 - Times are :class:`~shakelab.libutils.timeN.Date` instances (UTC);
   sampling interval ``delta`` in seconds and sampling rate ``rate`` in
   Hz, with ``rate = 1 / delta``.
-- Locations are :class:`~shakelab.libutils.geodeticN.WgsPoint`
-  instances, given as ``(longitude, latitude[, elevation])``.
 - :meth:`Header.info` prints a summary for interactive inspection.
 """
 
@@ -42,8 +57,8 @@ from typing import Any, Optional
 
 import numpy as np
 
-from shakelab.libutils.geodeticN import WgsPoint
 from shakelab.libutils.timeN import Date
+from shakelab.signals.metadata import ChannelEpoch
 
 __all__ = ["Header"]
 
@@ -58,9 +73,9 @@ class Header:
     Metadata associated with a waveform record or spectrum.
 
     A Header stores the sampling interval, sampling rate, start time,
-    source identifier, event identifier, physical units, location,
-    response information, and arbitrary metadata associated with a
-    :class:`Record`.
+    event identifier and physical units of a :class:`Record`, and the
+    description of its channel (:attr:`meta`), which includes the
+    source identifier.
 
     The sampling interval and sampling rate are kept synchronized:
     ``rate = 1 / delta``.
@@ -74,25 +89,30 @@ class Header:
         Start time of the associated record, in any format accepted by
         :class:`~shakelab.libutils.timeN.Date` (e.g. an ISO 8601
         string). The header stores its own copy.
-    location
-        Geographic location: a
-        :class:`~shakelab.libutils.geodeticN.WgsPoint` or a sequence
-        ``(longitude, latitude[, elevation])``.
     sid
-        Source identifier, normally expressed as an FDSN source code.
+        Source identifier ``NET.STA.LOC.CHA`` (FDSN source code).
     eid
         Event identifier.
     units
         Physical units of the waveform samples.
     parent
         Object owning the header, normally a :class:`Record`.
+    meta
+        Channel epoch (:class:`~shakelab.signals.metadata.ChannelEpoch`)
+        of the record, stored by reference. Default: an empty epoch
+        with identifier ``sid``.
 
     Attributes
     ----------
-    response
-        Instrument response associated with the record, if any.
-    meta : dict
-        Arbitrary additional metadata.
+    extra : dict
+        Free additional information about this record only.
+
+    Raises
+    ------
+    TypeError
+        If ``meta`` is not a ChannelEpoch.
+    ValueError
+        If ``sid`` differs from the identifier of ``meta``.
 
     Notes
     -----
@@ -105,33 +125,37 @@ class Header:
         self,
         delta: Optional[Real] = None,
         time: Any = None,
-        location: Any = None,
         sid: Optional[str] = None,
         eid: Optional[str] = None,
         units: Optional[str] = None,
         parent: Any = None,
+        meta: Optional[ChannelEpoch] = None,
     ) -> None:
         self._delta: Optional[float] = None
         self._rate: Optional[float] = None
         self._time: Optional[Date] = None
-        self._location: Optional[WgsPoint] = None
         self._parent = parent
 
-        self.sid = sid
+        if meta is None:
+            meta = ChannelEpoch(sid)
+        elif not isinstance(meta, ChannelEpoch):
+            raise TypeError("meta must be a ChannelEpoch")
+        elif sid is not None and sid != meta.sid:
+            raise ValueError(
+                f"source identifier {sid!r} differs from the metadata "
+                f"identifier {meta.sid!r}"
+            )
+        self._meta = meta
+
         self.eid = eid
         self.units = units
-
-        self.response = None
-        self.meta: dict = {}
+        self.extra: dict = {}
 
         if delta is not None:
             self.delta = delta
 
         if time is not None:
             self.time = time
-
-        if location is not None:
-            self.location = location
 
     def __repr__(self) -> str:
         return (
@@ -140,17 +164,54 @@ class Header:
         )
 
     def __str__(self) -> str:
+        meta = self.meta
         lines = [
             f"sampling interval: {self.delta}",
             f"sampling rate: {self.rate}",
             f"starting time: {self.time}",
             f"source identifier: {self.sid}",
             f"event identifier: {self.eid}",
-            f"location: {self.location}",
             f"units: {self.units}",
+            f"location: {meta.location}",
+            f"orientation: {meta.orientation}",
+            "response: "
+            + ("declared" if meta.response is not None else "none"),
         ]
 
         return "\n".join(lines)
+
+    @property
+    def meta(self) -> ChannelEpoch:
+        """
+        Description of the channel (shared channel epoch).
+
+        Assigning None replaces it with an empty epoch keeping the
+        source identifier.
+        """
+        return self._meta
+
+    @meta.setter
+    def meta(self, value: Optional[ChannelEpoch]) -> None:
+        if value is None:
+            value = ChannelEpoch(self.sid)
+        elif not isinstance(value, ChannelEpoch):
+            raise TypeError("meta must be a ChannelEpoch")
+        self._meta = value
+
+    @property
+    def sid(self) -> Optional[str]:
+        """
+        Source identifier, stored in :attr:`meta`.
+
+        Assigning a new identifier replaces :attr:`meta` with an
+        updated copy (see :meth:`ChannelEpoch.replace`).
+        """
+        return self._meta.sid
+
+    @sid.setter
+    def sid(self, value: Optional[str]) -> None:
+        if value != self._meta.sid:
+            self._meta = self._meta.replace(sid=value)
 
     @staticmethod
     def _validate_sampling_value(value: Any, name: str) -> float:
@@ -247,35 +308,6 @@ class Header:
         self._time = Date(value)
 
     @property
-    def location(self) -> Optional[WgsPoint]:
-        """Geographic location of the associated record."""
-        return self._location
-
-    @location.setter
-    def location(self, value: Any) -> None:
-        if value is None:
-            self._location = None
-            return
-
-        if isinstance(value, WgsPoint):
-            self._location = value
-            return
-
-        if isinstance(value, (str, bytes)) or not hasattr(value, "__len__"):
-            raise TypeError(
-                "location must be a WgsPoint or a (longitude, latitude"
-                "[, elevation]) sequence"
-            )
-
-        if len(value) not in (2, 3):
-            raise ValueError(
-                "location must contain longitude, latitude and "
-                "optionally elevation"
-            )
-
-        self._location = WgsPoint(*value)
-
-    @property
     def nsamp(self) -> Optional[int]:
         """
         Number of samples in the parent object, when available.
@@ -297,7 +329,10 @@ class Header:
 
     def copy(self, parent: Any = None) -> Header:
         """
-        Return an independent copy of the header.
+        Return a copy of the header.
+
+        The channel epoch (:attr:`meta`) is shared with the original
+        (see the module notes); the other attributes are copied.
 
         Parameters
         ----------
@@ -308,7 +343,7 @@ class Header:
         Returns
         -------
         Header
-            Independent header copy.
+            Header copy.
 
         Notes
         -----
@@ -320,14 +355,12 @@ class Header:
         header = Header(
             delta=self.delta,
             time=self.time,
-            location=self.location,
-            sid=self.sid,
             eid=self.eid,
             units=self.units,
             parent=parent,
+            meta=self._meta,
         )
 
-        header.response = deepcopy(self.response)
-        header.meta = deepcopy(self.meta)
+        header.extra = deepcopy(self.extra)
 
         return header

@@ -95,6 +95,32 @@ corrections. The format follows
   objects that are not stages (it raised `ValueError`), and indexing
   a stage set with a non-integer raises `TypeError` (it raised
   `NotImplementedError`).
+- **Metadata of the records**: the source identifier and the
+  description of the channel are held by `Header.meta`, a
+  `ChannelEpoch` always present (empty by default), shared by the
+  records of the same epoch. `Record.location`, `orientation` and
+  `response` read it; assigning them (or `sid`) replaces the epoch of
+  that record with an updated copy (`ChannelEpoch.replace`), so copies
+  are never affected. `set_metadata(source)` on `Record`, `Stream` and
+  `StreamCollection` assigns the epoch valid at the start of each
+  record from a `MetadataCollection` (or a given `ChannelEpoch`), one
+  copy per epoch, with a `MetadataWarning` when different metadata are
+  replaced, when the declared sampling rate differs, or when a record
+  extends beyond its epoch; streams and collections leave channels
+  missing from the collection unchanged, with a warning. The response
+  corrections (`deconvolve_response`, `convolve_response`,
+  `remove_sensitivity`) of `Record`, `Stream`, `StreamCollection` and
+  `Spectrum` use the response of the metadata when called without a
+  response, and raise `ValueError` when the declared units of the data
+  differ from those expected by the response (e.g. data already
+  corrected). Records with different channel metadata are not joined:
+  `Record.append` raises `ValueError`, `Stream.append` keeps them as
+  separate records; empty metadata are compatible with any. The source
+  identifier must be an FDSN code `NET.STA.LOC.CHA` (or None).
+  The free dictionary of a record is `Header.extra` (it was
+  `Header.meta`); free information about the channel goes in
+  `ChannelEpoch.extra`. `ChannelEpoch` accepts `sid=None` (empty epoch
+  of a record without identifier) and provides `empty`.
 - `signals.response.StageSet.transfer_function`: poles-and-zeros and
   coefficient stages are normalized to unit amplitude at the frequency
   of the gain of the same stage, so that the stage amplitude there is
@@ -122,12 +148,12 @@ corrections. The format follows
   (`ftype="resp"`, inferred for file names starting with `RESP.` or
   ending with `.resp`).
 - `signals.Header` moved to the new module `signals.header` (it
-  depends only on time and geodetic primitives); it is still available
-  from `signals.base`.
+  depends only on time primitives and on `signals.metadata`); it is
+  still available from `signals.base`.
 - `signals.base.Header.time` accepts every format accepted by `Date`
   (strings, seconds, sequences, dictionaries) and stores its own copy,
   so later changes to the assigned `Date` no longer move the record;
-  `Header.location` also accepts NumPy arrays.
+  `Record.location` also accepts NumPy arrays.
 - `signals.base`: contiguous records are joined when the start time is
   within half a sample of the expected one (previously 1e-6 samples),
   absorbing the time resolution of data formats.
@@ -298,6 +324,9 @@ corrections. The format follows
 - `libutils.geodetic`, replaced by `libutils.geodeticN` (note the
   `(longitude, latitude)` argument order of `WgsPoint`).
 - `libutils.timeN` aliases `MSEC`, `HSEC`, `DSEC`, `YDAYS`.
+- `signals.Header`: `location` (constructor argument and attribute)
+  and `response`; they are part of the channel metadata
+  (`Record.location`, `Record.response`, `Header.meta`).
 - `signals.response`: `convolve_record`/`deconvolve_record` of stages
   and stage sets, `to_spectrum` and `response_function` of stages
   (use `transfer_function` and the `*_response` methods of the data

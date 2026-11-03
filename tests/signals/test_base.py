@@ -46,10 +46,15 @@ from shakelab.signals.base import (
     tukey_window,
 )
 from shakelab.signals.io import reader
-from shakelab.signals.metadata import MetadataCollection
+from shakelab.signals.metadata import (
+    ChannelEpoch,
+    MetadataCollection,
+    MetadataWarning,
+)
 from shakelab.signals.response import (
     StageGain,
     StagePoleZero,
+    StageSet,
 )
 
 DATA = Path(__file__).parent / "data"
@@ -91,7 +96,6 @@ def test_header_initialization():
     header = Header(
         delta=0.01,
         time="2026-01-01T00:00:00",
-        location=(13.0, 46.0),
         sid="IV.TEST..HHZ",
         eid="event_001",
         units="m/s",
@@ -103,20 +107,47 @@ def test_header_initialization():
     assert header.eid == "event_001"
     assert header.units == "m/s"
     assert header.time == Date("2026-01-01T00:00:00")
-    assert header.location == WgsPoint(longitude=13.0, latitude=46.0)
-    assert header.response is None
-    assert header.meta == {}
+    assert isinstance(header.meta, ChannelEpoch)
+    assert header.meta.sid == "IV.TEST..HHZ"
+    assert header.meta.empty
+    assert header.extra == {}
 
 
 def test_header_defaults():
-    """An empty header has no sampling, time or location."""
+    """An empty header has no sampling, time or identifier."""
     header = Header()
 
     assert header.delta is None
     assert header.rate is None
     assert header.time is None
-    assert header.location is None
+    assert header.sid is None
+    assert header.meta.empty
     assert header.nsamp is None
+
+
+def test_header_meta_and_sid():
+    """The identifier lives in the channel epoch, stored by reference."""
+    epoch = ChannelEpoch("IV.TEST..HHZ", location=(13.0, 46.0))
+    header = Header(meta=epoch)
+
+    assert header.meta is epoch
+    assert header.sid == "IV.TEST..HHZ"
+
+    header.sid = "IV.TEST..HHN"
+    assert header.meta is not epoch
+    assert header.meta.location == epoch.location
+    assert epoch.sid == "IV.TEST..HHZ"
+
+    header.meta = None
+    assert header.meta.empty
+    assert header.sid == "IV.TEST..HHN"
+
+    with pytest.raises(ValueError):
+        Header(sid="IV.OTHER..HHZ", meta=epoch)
+    with pytest.raises(TypeError):
+        Header(meta={})
+    with pytest.raises(ValueError):
+        Header(sid="TEST")
 
 
 def test_header_rate_and_delta_are_synchronized():
@@ -192,42 +223,6 @@ def test_header_invalid_time():
         Header(time="not a date")
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        (13.0, 46.0, 250.0),
-        [13.0, 46.0, 250.0],
-        np.array([13.0, 46.0, 250.0]),
-    ],
-)
-def test_header_location_sequences(value):
-    """Locations are (longitude, latitude[, elevation]) sequences."""
-    header = Header(location=value)
-
-    assert header.location == WgsPoint(
-        longitude=13.0, latitude=46.0, elevation=250.0
-    )
-
-
-def test_header_location_point_is_kept():
-    """A WgsPoint is stored as is."""
-    point = WgsPoint(longitude=13.0, latitude=46.0)
-
-    assert Header(location=point).location is point
-
-
-def test_header_invalid_location():
-    """Wrong lengths, strings and invalid latitudes are rejected."""
-    with pytest.raises(ValueError):
-        Header(location=(13.0,))
-    with pytest.raises(TypeError):
-        Header(location="13.0, 46.0")
-    with pytest.raises(TypeError):
-        Header(location=13.0)
-    with pytest.raises(ValueError):
-        Header(location=(13.0, 95.0))
-
-
 def test_header_nsamp_from_parent():
     """nsamp is read from the parent record."""
     record = Record(data=np.zeros(25), delta=0.01)
@@ -236,7 +231,7 @@ def test_header_nsamp_from_parent():
 
 
 def test_header_copy_is_independent():
-    """A copy shares no mutable state and drops the parent."""
+    """A copy shares only the channel epoch and drops the parent."""
     parent = object()
     header = Header(
         delta=0.01,
@@ -244,7 +239,7 @@ def test_header_copy_is_independent():
         sid="IV.TEST..HHZ",
         parent=parent,
     )
-    header.meta["quality"] = "D"
+    header.extra["quality"] = "D"
 
     copied = header.copy()
 
@@ -254,8 +249,12 @@ def test_header_copy_is_independent():
     assert copied.sid == header.sid
     assert copied.time == header.time
     assert copied.time is not header.time
-    assert copied.meta == header.meta
-    assert copied.meta is not header.meta
+    assert copied.extra == header.extra
+    assert copied.extra is not header.extra
+    assert copied.meta is header.meta
+
+    copied.sid = "IV.TEST..HHN"
+    assert header.sid == "IV.TEST..HHZ"
 
     other = object()
     assert header.copy(parent=other)._parent is other
@@ -335,7 +334,7 @@ def test_record_copy_is_independent():
     copied = record.copy()
 
     copied.data[0] = 9.0
-    copied.head.sid = "X"
+    copied.head.sid = "XX.X..HHZ"
 
     assert record.data[0] == 1.0
     assert record.sid is None
@@ -473,6 +472,220 @@ def test_record_response_peak_matches_sensitivity(mode, mode_response):
 
 
 # ----------------------------------------------------------------------------
+# Record: channel metadata
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        (13.0, 46.0, 250.0),
+        [13.0, 46.0, 250.0],
+        np.array([13.0, 46.0, 250.0]),
+    ],
+)
+def test_record_location_sequences(value):
+    """Locations are (longitude, latitude[, elevation]) sequences."""
+    record = Record(location=value)
+
+    assert record.location == WgsPoint(
+        longitude=13.0, latitude=46.0, elevation=250.0
+    )
+    assert record.head.meta.location == record.location
+
+
+def test_record_location_point_is_kept():
+    """A WgsPoint is stored as is."""
+    point = WgsPoint(longitude=13.0, latitude=46.0)
+
+    assert Record(location=point).location is point
+
+
+def test_record_invalid_location():
+    """Wrong lengths, strings and invalid latitudes are rejected."""
+    with pytest.raises(ValueError):
+        Record(location=(13.0,))
+    with pytest.raises(TypeError):
+        Record(location=13.0)
+    with pytest.raises(ValueError):
+        Record(location=(13.0, 95.0))
+
+
+def test_record_metadata_attributes_replace_shared_epoch():
+    """Assigning a record attribute never changes the copies."""
+    record = Record(data=[1.0, 2.0], delta=1.0, time=START,
+                    sid="XX.STA..HHZ", location=(13.0, 46.0))
+    copied = record.copy()
+    assert copied.head.meta is record.head.meta
+
+    copied.location = (14.0, 47.0)
+    copied.orientation = (90.0, 0.0)
+    copied.response = StageSet(sample_rate=1.0)
+
+    assert record.location == WgsPoint(13.0, 46.0)
+    assert record.orientation is None
+    assert record.response is None
+    assert copied.orientation.azimuth == 90.0
+    assert copied.response.sample_rate == 1.0
+
+
+def test_record_set_metadata_from_collection(mode, mode_response):
+    """The epoch valid at the start is stored as a copy."""
+    raw = mode["IV.MODE..HNZ"][0].copy()
+    raw.set_metadata(mode_response)
+    stored = mode_response.get("IV.MODE..HNZ", raw.time)
+
+    assert raw.head.meta == stored
+    assert raw.head.meta is not stored
+    assert raw.location == stored.location
+    assert raw.orientation.dip == -90.0
+    assert raw.response.sensitivity.value == pytest.approx(321707.0)
+
+
+def test_record_set_metadata_from_epoch():
+    """An epoch must belong to the channel and be valid at the start."""
+    record = Record(data=[1.0], delta=1.0, time=START, sid="XX.STA..HHZ")
+
+    record.set_metadata(ChannelEpoch(location=(13.0, 46.0)))
+    assert record.sid == "XX.STA..HHZ"
+    assert record.location == WgsPoint(13.0, 46.0)
+
+    with pytest.raises(ValueError):
+        record.set_metadata(ChannelEpoch("XX.OTHER..HHZ"))
+    with pytest.raises(ValueError):
+        record.set_metadata(
+            ChannelEpoch("XX.STA..HHZ", starttime="2027-01-01")
+        )
+    with pytest.raises(TypeError):
+        record.set_metadata({"location": (13.0, 46.0)})
+
+    anonymous = Record(data=[1.0], delta=1.0, time=START)
+    anonymous.set_metadata(ChannelEpoch("XX.STA..HHZ"))
+    assert anonymous.sid == "XX.STA..HHZ"
+
+
+def test_record_set_metadata_missing_channel(mode_response):
+    """A record needs an identifier present in the collection."""
+    with pytest.raises(KeyError):
+        Record(data=[1.0], delta=0.01, time=START,
+               sid="XX.STA..HHZ").set_metadata(mode_response)
+    with pytest.raises(ValueError):
+        Record(data=[1.0], delta=0.01, time=START).set_metadata(
+            mode_response
+        )
+
+
+def test_record_set_metadata_warnings():
+    """Replaced metadata, other rates and epoch ends are reported."""
+    def record(**kwargs):
+        return Record(data=np.zeros(10), delta=1.0, time=START,
+                      sid="XX.STA..HHZ", **kwargs)
+
+    with pytest.warns(MetadataWarning, match="replaced"):
+        record(location=(13.0, 46.0)).set_metadata(
+            ChannelEpoch("XX.STA..HHZ", location=(1.0, 1.0))
+        )
+    with pytest.warns(MetadataWarning, match="sampling rate"):
+        record().set_metadata(ChannelEpoch("XX.STA..HHZ", sample_rate=100))
+    with pytest.warns(MetadataWarning, match="beyond the end"):
+        record().set_metadata(
+            ChannelEpoch("XX.STA..HHZ", endtime="2026-01-01T00:00:05")
+        )
+
+
+def test_stream_set_metadata_shares_one_copy(mode, mode_response):
+    """The records of one epoch share a single copy of it."""
+    stream = mode["IV.MODE..HNZ"].copy()
+    stream.append(
+        stream[0].extract(100.0, 110.0)
+    )
+    assert len(stream) == 2
+
+    stream.set_metadata(mode_response)
+
+    assert stream[0].head.meta is stream[1].head.meta
+    assert stream[0].head.meta is not mode_response.get(
+        "IV.MODE..HNZ", stream[0].time
+    )
+
+
+def test_collection_set_metadata(mode, mode_response):
+    """Channels without metadata are left unchanged, with a warning."""
+    collection = mode.copy()
+    collection.append(Record(data=[1.0], delta=0.01, time=START,
+                             sid="XX.STA..HHZ"))
+
+    with pytest.warns(MetadataWarning, match="XX.STA..HHZ"):
+        collection.set_metadata(mode_response)
+
+    assert collection["IV.MODE..HNE"][0].orientation.azimuth == 90.0
+    assert collection["XX.STA..HHZ"][0].head.meta.empty
+
+
+def test_record_response_from_metadata(mode, mode_response):
+    """Without argument the response of the metadata is used."""
+    raw = mode["IV.MODE..HNZ"][0].copy()
+    expected = raw / mode_response
+
+    raw.set_metadata(mode_response)
+    corrected = raw.copy()
+    corrected.deconvolve_response()
+    np.testing.assert_allclose(corrected.data, expected.data)
+
+    simple = raw.copy()
+    simple.remove_sensitivity()
+    assert simple.peak == pytest.approx(raw.peak / 321707.0)
+
+    with pytest.raises(ValueError, match="no instrument response"):
+        mode["IV.MODE..HNZ"][0].copy().deconvolve_response()
+
+
+def test_record_response_twice_is_rejected(mode, mode_response):
+    """Declared units prevent a second correction."""
+    raw = mode["IV.MODE..HNZ"][0].copy()
+    raw.set_metadata(mode_response)
+    raw.deconvolve_response()
+    assert raw.head.units.lower() == "m/s**2"
+
+    with pytest.raises(ValueError, match="already corrected"):
+        raw.deconvolve_response()
+    with pytest.raises(ValueError, match="already corrected"):
+        raw.remove_sensitivity()
+
+    raw.convolve_response()
+    assert raw.head.units.lower() in ("count", "counts")
+
+
+def test_record_append_metadata():
+    """Empty metadata join any; different metadata are rejected."""
+    first = Record(data=[1.0, 2.0], delta=1.0, time=START,
+                   sid="XX.STA..HHZ")
+    second = Record(data=[3.0], delta=1.0, time="2026-01-01T00:00:02",
+                    sid="XX.STA..HHZ", location=(13.0, 46.0))
+
+    assert first.append(second) is True
+    assert first.location == WgsPoint(13.0, 46.0)
+
+    third = Record(data=[4.0], delta=1.0, time="2026-01-01T00:00:03",
+                   sid="XX.STA..HHZ", location=(14.0, 46.0))
+    with pytest.raises(ValueError, match="channel metadata"):
+        first.append(third)
+    assert first.nsamp == 3
+
+
+def test_stream_keeps_epochs_separate():
+    """Contiguous records of different epochs remain separate."""
+    stream = Stream()
+    stream.append(Record(data=[1.0, 2.0], delta=1.0, time=START,
+                         sid="XX.STA..HHZ", location=(13.0, 46.0)))
+    stream.append(Record(data=[3.0], delta=1.0, time="2026-01-01T00:00:02",
+                         sid="XX.STA..HHZ", location=(14.0, 46.0)))
+
+    assert len(stream) == 2
+    assert stream[1].location == WgsPoint(14.0, 46.0)
+
+
+# ----------------------------------------------------------------------------
 # Record: time axis
 # ----------------------------------------------------------------------------
 
@@ -560,11 +773,12 @@ def test_record_append_absorbs_time_rounding(mode):
 
 def test_record_append_incompatible():
     """Different identifiers or sampling intervals are rejected."""
-    record = Record(data=[1], delta=1.0, time=START, sid="A")
+    record = Record(data=[1], delta=1.0, time=START, sid="XX.A..HHZ")
 
     with pytest.raises(ValueError):
         record.append(
-            Record(data=[2], delta=1.0, time="2026-01-01T00:00:01", sid="B")
+            Record(data=[2], delta=1.0, time="2026-01-01T00:00:01",
+                   sid="XX.B..HHZ")
         )
     with pytest.raises(ValueError):
         record.append(
@@ -577,10 +791,10 @@ def test_record_append_incompatible():
 def test_record_append_to_empty_record():
     """An empty record adopts the appended record."""
     record = Record()
-    other = Record(data=[1, 2], delta=1.0, time=START, sid="A")
+    other = Record(data=[1, 2], delta=1.0, time=START, sid="XX.A..HHZ")
 
     assert record.append(other) is True
-    assert record.sid == "A"
+    assert record.sid == "XX.A..HHZ"
     assert record.data.tolist() == [1, 2]
 
 
@@ -834,13 +1048,13 @@ def test_stream_append_demo_does_not_modify_caller_records():
     pulse = np.zeros(10001)
     pulse[5001] = 1.0
     rec0 = Record(data=pulse, delta=0.001, time="2024-06-20T12:00:00",
-                  sid="DIR01")
+                  sid="XX.DIR01..HHZ")
     rec1 = Record(data=pulse, delta=0.001, time="2024-06-20T12:00:10.001",
-                  sid="DIR01")
+                  sid="XX.DIR01..HHZ")
     late = Record(data=pulse, delta=0.001, time="2024-06-20T15:00:00",
-                  sid="DIR01")
+                  sid="XX.DIR01..HHZ")
 
-    stream = Stream("DIR01")
+    stream = Stream("XX.DIR01..HHZ")
     stream.append(rec0)
     stream.append(rec1)
     stream.append(late)
@@ -863,10 +1077,10 @@ def test_stream_append_sets_sid_on_stored_copy():
 
 def test_stream_append_rejects_other_sources():
     """Records of another source cannot be appended."""
-    stream = Stream("A")
+    stream = Stream("XX.A..HHZ")
 
     with pytest.raises(ValueError):
-        stream.append(Record(data=[1], delta=1.0, time=START, sid="B"))
+        stream.append(Record(data=[1], delta=1.0, time=START, sid="XX.B..HHZ"))
     with pytest.raises(TypeError):
         stream.append([1, 2])
 
@@ -916,7 +1130,7 @@ def test_stream_slice_returns_stream_of_stored_records():
 
 def test_stream_event_identifiers():
     """Records can be accessed and removed by event identifier."""
-    stream = Stream("A")
+    stream = Stream("XX.A..HHZ")
     stream.append(Record(data=[1], delta=1.0, time=START, eid="ev1"))
     stream.append(
         Record(data=[2], delta=1.0, time="2026-01-01T01:00:00", eid="ev2")
@@ -1092,16 +1306,17 @@ def test_collection_slice_returns_collection_of_stored_streams(mode):
 def test_collection_append_copies_records():
     """Appended records are copied and grouped by source identifier."""
     collection = StreamCollection()
-    record = Record(data=[1, 2], delta=1.0, time=START, sid="A")
+    record = Record(data=[1, 2], delta=1.0, time=START, sid="XX.A..HHZ")
 
     collection.append(record)
     collection.append(
-        Record(data=[3], delta=1.0, time="2026-01-01T00:00:02", sid="A")
+        Record(data=[3], delta=1.0, time="2026-01-01T00:00:02",
+               sid="XX.A..HHZ")
     )
-    collection.append(Record(data=[5], delta=1.0, time=START, sid="B"))
+    collection.append(Record(data=[5], delta=1.0, time=START, sid="XX.B..HHZ"))
 
-    assert collection.sid == ["A", "B"]
-    assert collection["A"][0].data.tolist() == [1, 2, 3]
+    assert collection.sid == ["XX.A..HHZ", "XX.B..HHZ"]
+    assert collection["XX.A..HHZ"][0].data.tolist() == [1, 2, 3]
     assert record.data.tolist() == [1, 2]
 
     with pytest.raises(ValueError):
@@ -1113,24 +1328,24 @@ def test_collection_append_copies_records():
 def test_collection_remove_sort_copy_merge():
     """Streams are removed, sorted, copied and merged."""
     collection = StreamCollection()
-    for sid in ("C", "A", "B"):
+    for sid in ("XX.C..HHZ", "XX.A..HHZ", "XX.B..HHZ"):
         collection.append(Record(data=[1], delta=1.0, time=START, sid=sid))
 
     collection.sort()
-    assert collection.sid == ["A", "B", "C"]
+    assert collection.sid == ["XX.A..HHZ", "XX.B..HHZ", "XX.C..HHZ"]
 
     copied = collection.copy()
-    copied["A"][0].data[0] = 9
-    assert collection["A"][0].data[0] == 1
+    copied["XX.A..HHZ"][0].data[0] = 9
+    assert collection["XX.A..HHZ"][0].data[0] == 1
 
-    assert collection.remove(np.int64(0)).sid == "A"
-    assert collection.remove("C").sid == "C"
-    assert collection.sid == ["B"]
+    assert collection.remove(np.int64(0)).sid == "XX.A..HHZ"
+    assert collection.remove("XX.C..HHZ").sid == "XX.C..HHZ"
+    assert collection.sid == ["XX.B..HHZ"]
 
     other = StreamCollection()
-    other.append(Record(data=[2], delta=1.0, time=START, sid="D"))
+    other.append(Record(data=[2], delta=1.0, time=START, sid="XX.D..HHZ"))
     collection.merge(other)
-    assert collection.sid == ["B", "D"]
+    assert collection.sid == ["XX.B..HHZ", "XX.D..HHZ"]
 
 
 def test_collection_extract_one_or_all_streams(mode):

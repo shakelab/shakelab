@@ -45,8 +45,14 @@ Conventions
 - Times are :class:`~shakelab.libutils.timeN.Date` instances (UTC);
   sampling interval ``delta`` in seconds and sampling rate ``rate`` in
   Hz, with ``rate = 1 / delta``.
-- Locations are :class:`~shakelab.libutils.geodeticN.WgsPoint`
-  instances, given as ``(longitude, latitude[, elevation])``.
+- The description of the channel (coordinates, orientation,
+  instrument response) is the
+  :class:`~shakelab.signals.metadata.ChannelEpoch` of the record
+  (``record.head.meta``), shared by the records of the same epoch (see
+  :mod:`shakelab.signals.header`); :meth:`Record.set_metadata` assigns
+  it from a metadata collection. Locations are
+  :class:`~shakelab.libutils.geodeticN.WgsPoint` instances, given as
+  ``(longitude, latitude[, elevation])``.
 - Time tolerances are fractions of the sampling interval:
   :data:`MERGE_TOLERANCE` when joining records,
   :data:`SNAP_TOLERANCE` when matching times to samples.
@@ -56,6 +62,7 @@ Conventions
 
 from __future__ import annotations
 
+import warnings
 from copy import deepcopy
 from fractions import Fraction
 from numbers import Integral, Number, Real
@@ -74,6 +81,7 @@ from shakelab.libutils.timeN import Date
 
 if TYPE_CHECKING:
     # Annotations only: spectrum sits above this module.
+    from shakelab.libutils.geodeticN import WgsPoint
     from shakelab.signals.spectrum import Spectrum
 
 __all__ = [
@@ -126,9 +134,11 @@ class Record:
         Start time of the record, in any format accepted by
         :class:`~shakelab.libutils.timeN.Date`.
     location : WgsPoint or sequence of float, optional
-        Geographic location ``(longitude, latitude[, elevation])``.
+        Coordinates of the sensor ``(longitude, latitude[,
+        elevation])``, stored in the channel metadata (see
+        :attr:`location`).
     sid : str, optional
-        Source identifier.
+        Source identifier ``NET.STA.LOC.CHA``.
     eid : str, optional
         Event identifier.
     units : str, optional
@@ -139,6 +149,11 @@ class Record:
     Numerical operators return independent Record objects and never
     modify their operands. Signal-processing methods generally operate
     in place unless explicitly documented otherwise.
+
+    The channel metadata (``head.meta``) are shared with the copies of
+    the record; :attr:`sid`, :attr:`location`, :attr:`orientation` and
+    :attr:`response` replace them with an updated copy when assigned,
+    so they never change other records.
     """
 
     def __init__(
@@ -154,12 +169,14 @@ class Record:
         self.head = Header(
             delta=delta,
             time=time,
-            location=location,
             sid=sid,
             eid=eid,
             units=units,
             parent=self,
         )
+
+        if location is not None:
+            self.location = location
 
         self._data = np.array([], dtype=float)
 
@@ -283,6 +300,78 @@ class Record:
         self.head.time = value
 
     @property
+    def location(self) -> Optional[WgsPoint]:
+        """
+        Coordinates of the sensor, from the channel metadata.
+        """
+        return self.head.meta.location
+
+    @location.setter
+    def location(self, value: Any) -> None:
+        self.head.meta = self.head.meta.replace(location=value)
+
+    @property
+    def orientation(self) -> Optional[metadata.Orientation]:
+        """
+        Orientation of the component (azimuth, dip), from the channel
+        metadata.
+        """
+        return self.head.meta.orientation
+
+    @orientation.setter
+    def orientation(self, value: Any) -> None:
+        self.head.meta = self.head.meta.replace(orientation=value)
+
+    @property
+    def response(self) -> Optional[response.StageSet]:
+        """
+        Instrument response, from the channel metadata.
+        """
+        return self.head.meta.response
+
+    @response.setter
+    def response(self, value: Optional[response.StageSet]) -> None:
+        self.head.meta = self.head.meta.replace(response=value)
+
+    def set_metadata(self, source: Any) -> None:
+        """
+        Assign the channel metadata.
+
+        Parameters
+        ----------
+        source : ChannelEpoch or MetadataCollection
+            Channel epoch, or collection from which the epoch of the
+            record is selected by source identifier and start time
+            (:meth:`MetadataCollection.get`). A copy is stored.
+
+        Raises
+        ------
+        TypeError
+            If the source type is unsupported.
+        ValueError
+            If a channel epoch belongs to another channel or is not
+            valid at the start of the record, or if the record has no
+            source identifier to select from a collection.
+        KeyError
+            If the collection has no epoch of the channel valid at the
+            start of the record.
+
+        Warns
+        -----
+        MetadataWarning
+            If different metadata are replaced, if the declared sampling
+            rate differs from the rate of the record, or if the record
+            extends beyond the end of the epoch.
+
+        Notes
+        -----
+        The metadata replace those of the record, source identifier
+        included (an epoch without identifier takes the one of the
+        record).
+        """
+        _set_metadata(self, source, {})
+
+    @property
     def peak(self) -> Optional[float]:
         """
         Maximum absolute sample amplitude.
@@ -304,7 +393,8 @@ class Record:
         Returns
         -------
         Record
-            Copy containing independent waveform data and metadata.
+            Copy containing independent waveform data and header. The
+            channel metadata are shared (see the class notes).
         """
         record = Record()
 
@@ -849,6 +939,10 @@ class Record:
         -----
         The method modifies the current record in place.
 
+        The channel metadata must be the same; empty metadata (see
+        :attr:`ChannelEpoch.empty`) are compatible with any, and the
+        joined record keeps the non-empty ones.
+
         For overlapping records with ``enforce=True``, samples from the
         new record take precedence from its start time onward.
         """
@@ -906,6 +1000,8 @@ class Record:
                 "records have different source identifiers"
             )
 
+        meta = _merged_meta(self.head.meta, record.head.meta)
+
         expected_time = self.endtime + self.delta
         offset_time = self._time_difference(
             record.starttime,
@@ -931,6 +1027,7 @@ class Record:
             self.data = np.concatenate(
                 (self.data, record.data)
             )
+            self.head.meta = meta
             return True
 
         if not enforce:
@@ -950,6 +1047,7 @@ class Record:
             self.data = np.concatenate(
                 (self.data, gap, record.data)
             )
+            self.head.meta = meta
             return True
 
         overlap = -sample_offset
@@ -967,6 +1065,7 @@ class Record:
                 record.data,
             )
         )
+        self.head.meta = meta
 
         return True
 
@@ -2183,7 +2282,9 @@ class Record:
             method=method,
         )
 
-    def convolve_response(self, resp: Any, stages: Any = None) -> None:
+    def convolve_response(
+        self, resp: Any = None, stages: Any = None
+    ) -> None:
         """
         Apply an instrument response to the waveform.
 
@@ -2193,6 +2294,8 @@ class Record:
             Response object or response container. The applicable
             response is selected by source identifier and start time
             (see :func:`shakelab.signals.metadata.select_response`).
+            Default: the response of the channel metadata
+            (:attr:`response`).
         stages : str or sequence of str, optional
             Stage types to include, e.g. ``("gain", "paz")``; None
             (default) for the complete response.
@@ -2202,6 +2305,13 @@ class Record:
         The operation is performed in place, in the frequency domain
         (see :meth:`shakelab.signals.spectrum.Spectrum.convolve_response`).
         The units become the output units of the response, if declared.
+
+        Raises
+        ------
+        ValueError
+            If no response is available, or if the units of the data
+            and the input units of the response are both declared and
+            differ.
         """
         spectrum = self.to_spectrum()
         spectrum.convolve_response(resp, stages=stages)
@@ -2209,7 +2319,7 @@ class Record:
 
     def deconvolve_response(
         self,
-        resp: Any,
+        resp: Any = None,
         waterlevel: float = 60.0,
         method: str = "water",
         stages: Any = None,
@@ -2223,6 +2333,8 @@ class Record:
             Response object or response container. The applicable
             response is selected by source identifier and start time
             (see :func:`shakelab.signals.metadata.select_response`).
+            Default: the response of the channel metadata
+            (:attr:`response`).
         waterlevel : float, optional
             Water level in dB below the maximum of the response
             amplitude.
@@ -2240,6 +2352,13 @@ class Record:
         :meth:`shakelab.signals.spectrum.Spectrum.deconvolve_response`).
         The units become the input units of the response, if declared.
         The record should be detrended and tapered beforehand.
+
+        Raises
+        ------
+        ValueError
+            If no response is available, or if the units of the data
+            and the output units of the response are both declared and
+            differ (e.g. data already corrected).
         """
         spectrum = self.to_spectrum()
         spectrum.deconvolve_response(
@@ -2247,7 +2366,7 @@ class Record:
         )
         self._replace_from_record(spectrum.to_record())
 
-    def remove_sensitivity(self, resp: Any) -> None:
+    def remove_sensitivity(self, resp: Any = None) -> None:
         """
         Divide the waveform by the overall sensitivity, in place.
 
@@ -2256,6 +2375,7 @@ class Record:
         resp : StageGain, StageSet, ChannelEpoch or MetadataCollection
             Response object or response container (see
             :func:`shakelab.signals.metadata.select_sensitivity`).
+            Default: the response of the channel metadata.
 
         Notes
         -----
@@ -2263,10 +2383,20 @@ class Record:
         band of interest; no frequency-domain processing is involved.
         The units become the input units of the sensitivity, if
         declared.
+
+        Raises
+        ------
+        ValueError
+            If no sensitivity is available, or if the units of the data
+            and the output units of the sensitivity are both declared
+            and differ (e.g. data already corrected).
         """
         sens = metadata.select_sensitivity(
-            resp, sid=self.sid, time=self.time
+            self.head.meta if resp is None else resp,
+            sid=self.sid,
+            time=self.time,
         )
+        _check_units(self.head.units, sens.output_units)
         self.data = self.data / sens.value
         if sens.input_units:
             self.head.units = sens.input_units
@@ -2638,7 +2768,9 @@ class Stream:
 
         Records are preserved in insertion order. The new record is
         merged only with the final record currently stored in the
-        stream. To guarantee meaningful temporal merging, the stream
+        stream, and only if their channel metadata are compatible (see
+        :meth:`Record.append`); records of different epochs remain
+        separate. To guarantee meaningful temporal merging, the stream
         should be sorted before appending out-of-order data.
         """
         if not isinstance(record, Record):
@@ -2668,7 +2800,9 @@ class Stream:
         if record.sid is None:
             record.sid = self.sid
 
-        if not self.record:
+        if not self.record or not _compatible_meta(
+            self.record[-1].head.meta, record.head.meta
+        ):
             self.record.append(record)
             return
 
@@ -3024,14 +3158,17 @@ class Stream:
         for record in self.record:
             record.differentiate(method=method)
 
-    def convolve_response(self, resp: Any, stages: Any = None) -> None:
+    def convolve_response(
+        self, resp: Any = None, stages: Any = None
+    ) -> None:
         """
         Apply an instrumental response to all records.
 
         Parameters
         ----------
         resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
-            Response object or response container.
+            Response object or response container. Default: the
+            response of the channel metadata of each record.
         stages
             See :meth:`Record.convolve_response`.
 
@@ -3045,7 +3182,7 @@ class Stream:
 
     def deconvolve_response(
         self,
-        resp: Any,
+        resp: Any = None,
         waterlevel: float = 60.0,
         method: str = "water",
         stages: Any = None,
@@ -3056,7 +3193,8 @@ class Stream:
         Parameters
         ----------
         resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
-            Response object or response container.
+            Response object or response container. Default: the
+            response of the channel metadata of each record.
         waterlevel, method, stages
             See :meth:`Record.deconvolve_response`.
 
@@ -3070,7 +3208,7 @@ class Stream:
                 resp, waterlevel=waterlevel, method=method, stages=stages
             )
 
-    def remove_sensitivity(self, resp: Any) -> None:
+    def remove_sensitivity(self, resp: Any = None) -> None:
         """
         Divide all records by the overall sensitivity, in place.
 
@@ -3078,6 +3216,26 @@ class Stream:
         """
         for record in self.record:
             record.remove_sensitivity(resp)
+
+    def set_metadata(self, source: Any) -> None:
+        """
+        Assign the channel metadata of all records.
+
+        Parameters
+        ----------
+        source : ChannelEpoch or MetadataCollection
+            Channel epoch, or collection from which the epoch of each
+            record is selected (see :meth:`Record.set_metadata`).
+
+        Notes
+        -----
+        The records of the same epoch share one copy of it. A record
+        without an epoch in a collection is left unchanged, with a
+        :class:`~shakelab.signals.metadata.MetadataWarning`.
+        """
+        cache: dict = {}
+        for record in self.record:
+            _set_metadata(record, source, cache, missing="warn")
 
 
 class StreamCollection:
@@ -3753,14 +3911,17 @@ class StreamCollection:
         for stream in self.stream:
             stream.differentiate(method=method)
 
-    def convolve_response(self, resp: Any, stages: Any = None) -> None:
+    def convolve_response(
+        self, resp: Any = None, stages: Any = None
+    ) -> None:
         """
         Apply an instrumental response to all streams.
 
         Parameters
         ----------
         resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
-            Response container passed to each stream.
+            Response container passed to each stream. Default: the
+            response of the channel metadata of each record.
         stages
             See :meth:`Record.convolve_response`.
 
@@ -3773,7 +3934,7 @@ class StreamCollection:
 
     def deconvolve_response(
         self,
-        resp: Any,
+        resp: Any = None,
         waterlevel: float = 60.0,
         method: str = "water",
         stages: Any = None,
@@ -3784,7 +3945,8 @@ class StreamCollection:
         Parameters
         ----------
         resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
-            Response container passed to each stream.
+            Response container passed to each stream. Default: the
+            response of the channel metadata of each record.
         waterlevel, method, stages
             See :meth:`Record.deconvolve_response`.
 
@@ -3797,7 +3959,7 @@ class StreamCollection:
                 resp, waterlevel=waterlevel, method=method, stages=stages
             )
 
-    def remove_sensitivity(self, resp: Any) -> None:
+    def remove_sensitivity(self, resp: Any = None) -> None:
         """
         Divide all streams by the overall sensitivity, in place.
 
@@ -3805,6 +3967,27 @@ class StreamCollection:
         """
         for stream in self.stream:
             stream.remove_sensitivity(resp)
+
+    def set_metadata(self, source: Any) -> None:
+        """
+        Assign the channel metadata of all records.
+
+        Parameters
+        ----------
+        source : ChannelEpoch or MetadataCollection
+            Normally a collection, from which the epoch of each record
+            is selected (see :meth:`Record.set_metadata`).
+
+        Notes
+        -----
+        The records of the same epoch share one copy of it. A record
+        without an epoch in the collection is left unchanged, with a
+        :class:`~shakelab.signals.metadata.MetadataWarning`.
+        """
+        cache: dict = {}
+        for stream in self.stream:
+            for record in stream:
+                _set_metadata(record, source, cache, missing="warn")
 
     def __mul__(self, value: Any) -> StreamCollection:
         """
@@ -4154,3 +4337,165 @@ def _fft_resample(data, old_delta, new_delta, new_nsamp):
     resampled = signal.resample(data, padded // down * up)
 
     return resampled[:new_nsamp]
+
+
+# ----------------------------------------------------------------------------
+# Metadata helpers
+# ----------------------------------------------------------------------------
+
+
+def _set_metadata(record, source, cache, missing="raise"):
+    """
+    Assign the channel metadata of a record (see
+    :meth:`Record.set_metadata`).
+
+    ``cache`` maps the selected epochs to the copies stored in the
+    records, so that the records of one call share one copy per epoch.
+    With ``missing="warn"`` a record without an epoch in a collection is
+    left unchanged with a warning.
+    """
+    try:
+        epoch = _resolve_epoch(source, record.sid, record.time, cache)
+    except KeyError as error:
+        if missing == "raise":
+            raise
+        warnings.warn(
+            f"{error.args[0]}: metadata left unchanged",
+            metadata.MetadataWarning,
+            stacklevel=3,
+        )
+        return
+
+    current = record.head.meta
+    sid = epoch.sid or "record"
+
+    if not current.empty and current is not epoch:
+        key = ("same", id(current), id(epoch))
+        if key not in cache:
+            cache[key] = current == epoch
+        if not cache[key]:
+            warnings.warn(
+                f"{sid}: the existing metadata are replaced",
+                metadata.MetadataWarning,
+                stacklevel=3,
+            )
+
+    if (
+        epoch.sample_rate
+        and record.rate is not None
+        and not np.isclose(record.rate, epoch.sample_rate, rtol=1e-4)
+    ):
+        warnings.warn(
+            f"{sid}: sampling rate {record.rate} Hz differs from the "
+            f"declared {epoch.sample_rate} Hz",
+            metadata.MetadataWarning,
+            stacklevel=3,
+        )
+
+    if (
+        epoch.endtime is not None
+        and record.endtime is not None
+        and record.endtime >= epoch.endtime
+    ):
+        warnings.warn(
+            f"{sid}: the record extends beyond the end of the metadata "
+            f"epoch ({epoch.endtime}); the epoch valid at its start is "
+            "used",
+            metadata.MetadataWarning,
+            stacklevel=3,
+        )
+
+    record.head.meta = epoch
+
+
+def _resolve_epoch(source, sid, time, cache):
+    """Return the copy of the epoch applicable to a record."""
+    if isinstance(source, metadata.MetadataCollection):
+        if sid is None:
+            raise ValueError(
+                "a source identifier is required to select the metadata"
+            )
+        stored = source.get(sid, time)
+
+    elif isinstance(source, metadata.ChannelEpoch):
+        stored = source
+        if (
+            stored.sid is not None
+            and sid is not None
+            and stored.sid != sid
+        ):
+            raise ValueError(
+                f"the metadata of {stored.sid} cannot be applied to {sid}"
+            )
+        if time is not None and not stored.match(time):
+            raise ValueError(
+                f"the epoch {stored._interval()} of {stored.sid} is not "
+                f"valid at {time}"
+            )
+
+    else:
+        raise TypeError(
+            "metadata must be a ChannelEpoch or a MetadataCollection"
+        )
+
+    key = ("copy", id(stored), sid)
+    if key not in cache:
+        epoch = stored.copy()
+        if epoch.sid is None:
+            epoch.sid = sid
+        cache[key] = epoch
+
+    return cache[key]
+
+
+def _merged_meta(first, second):
+    """
+    Return the channel metadata of two joined records.
+
+    Empty metadata are compatible with any; otherwise the metadata
+    must be equal.
+
+    Raises
+    ------
+    ValueError
+        If the metadata differ.
+    """
+    if first is second or second.empty:
+        return first
+
+    if first.empty:
+        if second.sid is None and first.sid is not None:
+            return second.replace(sid=first.sid)
+        return second
+
+    if first.sid != second.sid:
+        if first.sid is None:
+            first = first.replace(sid=second.sid)
+        elif second.sid is None:
+            second = second.replace(sid=first.sid)
+
+    if first == second:
+        return first
+
+    raise ValueError("records have different channel metadata")
+
+
+def _compatible_meta(first, second):
+    """Return whether two records can be joined (see _merged_meta)."""
+    try:
+        _merged_meta(first, second)
+    except ValueError:
+        return False
+    return True
+
+
+def _check_units(units, expected):
+    """
+    Raise if the units of the data differ from those expected by a
+    response (both declared).
+    """
+    if units and expected and not response.same_units(units, expected):
+        raise ValueError(
+            f"the data are in {units}, the response expects {expected}: "
+            "the data may be already corrected"
+        )

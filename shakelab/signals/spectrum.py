@@ -52,7 +52,7 @@ import numpy as np
 from shakelab.signals import fourier
 from shakelab.signals import metadata
 from shakelab.signals import response
-from shakelab.signals.base import Record
+from shakelab.signals.base import Record, _check_units
 from shakelab.signals.header import Header
 
 __all__ = ["Spectrum"]
@@ -474,7 +474,9 @@ class Spectrum:
             self.data, waterlevel=waterlevel, method=method
         )
 
-    def convolve_response(self, resp: Any, stages: Any = None) -> None:
+    def convolve_response(
+        self, resp: Any = None, stages: Any = None
+    ) -> None:
         """
         Multiply the spectrum by an instrument response, in place.
 
@@ -485,6 +487,8 @@ class Spectrum:
             The applicable response is selected by source identifier
             and start time of the header (see
             :func:`shakelab.signals.metadata.select_response`).
+            Default: the response of the channel metadata
+            (``head.meta``).
         stages
             Stage types to include, e.g. ``("gain", "paz")``; None for
             the complete response.
@@ -492,13 +496,23 @@ class Spectrum:
         Notes
         -----
         The units become the output units of the response, if declared.
+
+        Raises
+        ------
+        ValueError
+            If no response is available, or if the units of the data
+            and the input units of the response are both declared and
+            differ.
         """
         selected = metadata.select_response(
-            resp, sid=self.head.sid, time=self.head.time
+            self.head.meta if resp is None else resp,
+            sid=self.head.sid,
+            time=self.head.time,
         )
-        transfer, _, units = response.response_transfer(
+        transfer, expected, units = response.response_transfer(
             selected, self.frequency, self.delta, stages=stages
         )
+        _check_units(self.head.units, expected)
         self.data = self.data.astype(complex) * transfer
 
         if units:
@@ -506,7 +520,7 @@ class Spectrum:
 
     def deconvolve_response(
         self,
-        resp: Any,
+        resp: Any = None,
         waterlevel: float = 60.0,
         method: str = "water",
         stages: Any = None,
@@ -518,7 +532,8 @@ class Spectrum:
         ----------
         resp
             Stage, stage set, channel epoch or metadata collection
-            (see :meth:`convolve_response`).
+            (see :meth:`convolve_response`). Default: the response of
+            the channel metadata.
         waterlevel
             Water level in dB below the maximum of the response
             amplitude.
@@ -533,13 +548,23 @@ class Spectrum:
         Notes
         -----
         The units become the input units of the response, if declared.
+
+        Raises
+        ------
+        ValueError
+            If no response is available, or if the units of the data
+            and the output units of the response are both declared and
+            differ (e.g. data already corrected).
         """
         selected = metadata.select_response(
-            resp, sid=self.head.sid, time=self.head.time
+            self.head.meta if resp is None else resp,
+            sid=self.head.sid,
+            time=self.head.time,
         )
-        transfer, units, _ = response.response_transfer(
+        transfer, units, expected = response.response_transfer(
             selected, self.frequency, self.delta, stages=stages
         )
+        _check_units(self.head.units, expected)
         inverse = fourier.inverse_spectrum(
             transfer, waterlevel=waterlevel, method=method
         )
@@ -548,7 +573,7 @@ class Spectrum:
         if units:
             self.head.units = units
 
-    def remove_sensitivity(self, resp: Any) -> None:
+    def remove_sensitivity(self, resp: Any = None) -> None:
         """
         Divide the spectrum by the overall sensitivity, in place.
 
@@ -558,16 +583,27 @@ class Spectrum:
             Gain stage, stage set, channel epoch or metadata
             collection (see
             :func:`shakelab.signals.metadata.select_sensitivity`).
+            Default: the response of the channel metadata.
 
         Notes
         -----
         A quick correction for instruments with a flat response in the
         band of interest. The units become the input units of the
         sensitivity, if declared.
+
+        Raises
+        ------
+        ValueError
+            If no sensitivity is available, or if the units of the data
+            and the output units of the sensitivity are both declared
+            and differ (e.g. data already corrected).
         """
         sens = metadata.select_sensitivity(
-            resp, sid=self.head.sid, time=self.head.time
+            self.head.meta if resp is None else resp,
+            sid=self.head.sid,
+            time=self.head.time,
         )
+        _check_units(self.head.units, sens.output_units)
         self.data = self.data.astype(complex) / sens.value
         if sens.input_units:
             self.head.units = sens.input_units

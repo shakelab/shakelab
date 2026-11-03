@@ -545,7 +545,7 @@ class TestMiniSeed(unittest.TestCase):
         record = self._make_shakelab_record(
             np.arange(10, dtype=np.int32)
         )
-        record.head.sid = "INVALID"
+        record.head.sid = "XX...HHZ"
 
         collection = StreamCollection()
         collection.append(record)

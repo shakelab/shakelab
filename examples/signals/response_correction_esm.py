@@ -25,8 +25,8 @@ processed by the Engineering Strong-Motion database (ESM).
 
 Steps
 -----
-1. Read the raw records (counts) and the StationXML responses, and
-   check the consistency of the metadata.
+1. Read the raw records (counts) and the StationXML metadata, check
+   their consistency and assign them to the records.
 2. Read the ESM accelerations (DYNA 1.2 ASCII files, cm/s**2) and,
    from their header, the band-pass filter applied by ESM to each
    component.
@@ -64,6 +64,7 @@ meta = MetadataCollection(str(DATA / "MODE.xml"))
 
 issues = meta.validate()
 print("Metadata issues:", issues if issues else "none")
+raw.set_metadata(meta)
 
 esm = {}
 for cha in COMPONENTS:
@@ -91,7 +92,7 @@ for cha in COMPONENTS:
     rec.remove_mean()
     rec.taper(5.0)
     rec.filter(highpass=low, lowpass=high, order=esm[cha]["order"])
-    rec.deconvolve_response(meta)
+    rec.deconvolve_response()
     acc[cha] = rec
     print(f"{cha}: band {low}-{high} Hz, PGA {rec.peak:.4f} m/s**2 "
           f"(ESM {esm[cha]['record'].peak / 100.0:.4f})")

@@ -112,7 +112,7 @@ def test_from_record_copies_metadata_without_parent():
 
     assert spectrum.head is not record.head
     assert spectrum.head._parent is None
-    spectrum.head.sid = "other"
+    spectrum.head.sid = "XX.OTHER..HHZ"
     assert record.sid == "XX.STA..HHZ"
 
 
@@ -129,7 +129,7 @@ def test_copy_and_text(capsys):
     spectrum = _noise().to_spectrum()
     copied = spectrum.copy()
     copied.data[1] = 0.0
-    copied.head.sid = "other"
+    copied.head.sid = "XX.OTHER..HHZ"
 
     assert spectrum.data[1] != 0.0
     assert spectrum.head.sid == "XX.STA..HHZ"

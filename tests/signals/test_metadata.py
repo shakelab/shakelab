@@ -138,6 +138,45 @@ def test_channel_epoch_validation():
         epoch.response = "not a response"
 
 
+def test_empty_channel_epoch():
+    """The default epoch of a record has no identifier and no content."""
+    epoch = ChannelEpoch()
+    assert epoch.sid is None and epoch.empty
+    assert epoch.network is None and epoch.channel is None
+    assert epoch.station_code is None and epoch.location_code is None
+
+    assert ChannelEpoch("XX.TEST..HHZ").empty
+    assert not ChannelEpoch("XX.TEST..HHZ", sample_rate=100.0).empty
+    tagged = ChannelEpoch("XX.TEST..HHZ")
+    tagged.extra["note"] = "x"
+    assert not tagged.empty
+
+    with pytest.raises(ValueError):
+        MetadataCollection().append(ChannelEpoch(location=(13.0, 46.0)))
+
+
+def test_channel_epoch_replace():
+    """A shallow copy with validated changes; extra is copied."""
+    response = StageSet(sample_rate=100.0)
+    station = StationEpoch("XX.TEST")
+    epoch = ChannelEpoch("XX.TEST..HHZ", response=response,
+                         station=station)
+    epoch.extra["note"] = "x"
+
+    new = epoch.replace(location=(13.0, 46.0), sid="XX.TEST..HHN")
+
+    assert new.location == WgsPoint(13.0, 46.0)
+    assert new.sid == "XX.TEST..HHN"
+    assert new.response is response and new.station is station
+    assert new.extra == epoch.extra and new.extra is not epoch.extra
+    assert epoch.location is None and epoch.sid == "XX.TEST..HHZ"
+
+    with pytest.raises(TypeError):
+        epoch.replace(elevation=100.0)
+    with pytest.raises(ValueError):
+        epoch.replace(location=(13.0,))
+
+
 def test_epoch_interval():
     """Start included, end excluded, open bounds."""
     epoch = _epoch(start="2020-01-01T00:00:00", end="2021-01-01T00:00:00")

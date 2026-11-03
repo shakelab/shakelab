@@ -82,6 +82,7 @@ import json as _json
 import math
 import os as _os
 import warnings
+from copy import copy as _copy
 from copy import deepcopy
 from dataclasses import dataclass, fields
 from numbers import Real
@@ -344,7 +345,8 @@ class ChannelEpoch(_Epoch):
     Parameters
     ----------
     sid
-        Source identifier ``NET.STA.LOC.CHA``.
+        Source identifier ``NET.STA.LOC.CHA``; None only for the empty
+        epoch of a record without identifier (see :attr:`empty`).
     starttime, endtime
         Validity interval (any value accepted by :class:`Date`).
     location
@@ -366,12 +368,19 @@ class ChannelEpoch(_Epoch):
     Attributes
     ----------
     extra : dict
-        Arbitrary additional metadata.
+        Arbitrary additional metadata of the channel.
+
+    Notes
+    -----
+    A record refers to the epoch of its channel through
+    ``record.head.meta``. The records of the same epoch share one
+    object; the record methods never modify it but replace it with an
+    updated copy (:meth:`replace`).
     """
 
     def __init__(
         self,
-        sid: str,
+        sid: Optional[str] = None,
         starttime: Any = None,
         endtime: Any = None,
         location: Any = None,
@@ -383,7 +392,7 @@ class ChannelEpoch(_Epoch):
         response: Optional[rspm.StageSet] = None,
         station: Optional[StationEpoch] = None,
     ) -> None:
-        self.sid = _code(sid, 4, "source identifier")
+        self.sid = sid
         self.starttime = starttime
         self.endtime = endtime
         self.location = location
@@ -397,6 +406,17 @@ class ChannelEpoch(_Epoch):
         self.extra: dict = {}
 
     # -- validated attributes -------------------------------------------
+
+    @property
+    def sid(self) -> Optional[str]:
+        """Source identifier ``NET.STA.LOC.CHA``."""
+        return self._sid
+
+    @sid.setter
+    def sid(self, value: Optional[str]) -> None:
+        self._sid = (
+            None if value is None else _code(value, 4, "source identifier")
+        )
 
     @property
     def location(self) -> Optional[WgsPoint]:
@@ -463,26 +483,77 @@ class ChannelEpoch(_Epoch):
     # -- codes ----------------------------------------------------------
 
     @property
-    def network(self) -> str:
+    def network(self) -> Optional[str]:
         """Network code."""
-        return self.sid.split(".")[0]
+        return self._part(0)
 
     @property
-    def station_code(self) -> str:
+    def station_code(self) -> Optional[str]:
         """Station code ``NET.STA``."""
+        if self.sid is None:
+            return None
         return ".".join(self.sid.split(".")[:2])
 
     @property
-    def location_code(self) -> str:
+    def location_code(self) -> Optional[str]:
         """Location code (may be empty)."""
-        return self.sid.split(".")[2]
+        return self._part(2)
 
     @property
-    def channel(self) -> str:
+    def channel(self) -> Optional[str]:
         """Channel code."""
-        return self.sid.split(".")[3]
+        return self._part(3)
+
+    def _part(self, index: int) -> Optional[str]:
+        return None if self.sid is None else self.sid.split(".")[index]
 
     # -- other ----------------------------------------------------------
+
+    @property
+    def empty(self) -> bool:
+        """
+        Whether the epoch describes nothing beyond the identifier.
+
+        An empty epoch (no validity interval, coordinates, orientation,
+        sampling rate, equipment, response, station or extra
+        information) is the default metadata of a record.
+        """
+        return not self.extra and all(
+            getattr(self, name) is None for name in _CONTENT_FIELDS
+        )
+
+    def replace(self, **changes: Any) -> ChannelEpoch:
+        """
+        Return a copy with some attributes changed.
+
+        Parameters
+        ----------
+        **changes
+            New values of constructor attributes (e.g.
+            ``location=(13.0, 46.0)``), validated as in the
+            constructor.
+
+        Returns
+        -------
+        ChannelEpoch
+            Shallow copy: the unchanged response and station are shared
+            with the original, ``extra`` is copied.
+
+        Raises
+        ------
+        TypeError
+            If an attribute is unknown.
+        """
+        unknown = set(changes) - _CHANNEL_FIELDS
+        if unknown:
+            raise TypeError(
+                f"unknown channel attributes: {', '.join(sorted(unknown))}"
+            )
+        epoch = _copy(self)
+        epoch.extra = dict(self.extra)
+        for key, value in changes.items():
+            setattr(epoch, key, value)
+        return epoch
 
     def __repr__(self) -> str:
         return f"ChannelEpoch({self.sid!r}, {self._interval()})"
@@ -583,6 +654,16 @@ class ChannelEpoch(_Epoch):
         return deepcopy(self)
 
 
+_CONTENT_FIELDS = (
+    "_starttime", "_endtime", "_location", "_depth", "_orientation",
+    "_sample_rate", "sensor", "datalogger", "_response", "station",
+)
+_CHANNEL_FIELDS = {
+    "sid", "starttime", "endtime", "location", "depth", "orientation",
+    "sample_rate", "sensor", "datalogger", "response", "station", "extra",
+}
+
+
 # ----------------------------------------------------------------------------
 # Collection
 # ----------------------------------------------------------------------------
@@ -656,12 +737,16 @@ class MetadataCollection:
         ------
         TypeError
             If the item is not a ChannelEpoch or a StationEpoch.
+        ValueError
+            If a channel epoch has no source identifier.
         """
         if isinstance(item, StationEpoch):
             self._add_station(item)
             return
         if not isinstance(item, ChannelEpoch):
             raise TypeError("only channel and station epochs can be added")
+        if item.sid is None:
+            raise ValueError("a channel epoch needs a source identifier")
 
         epochs = self._channels.setdefault(item.sid, [])
         for epoch in epochs:
@@ -1054,7 +1139,9 @@ def select_response(
                 f"valid at {time}"
             )
         if resp.response is None:
-            raise ValueError(f"{resp.sid}: no instrument response")
+            raise ValueError(
+                f"{resp.sid or 'record'}: no instrument response"
+            )
         return resp.response
 
     raise TypeError(f"unsupported response object: {type(resp).__name__}")
