@@ -315,6 +315,15 @@ def test_stage_selection():
         stage_set.transfer_function(freq, 0.01, stages=("other",))
 
 
+def test_stage_set_rejects_wrong_types():
+    """Only stages are appended; stages are indexed by number."""
+    stage_set = StageSet()
+    with pytest.raises(TypeError):
+        stage_set.append(1.0)
+    with pytest.raises(TypeError):
+        stage_set["1"]
+
+
 def test_stage_set_units():
     """Units come from the first and last stages that declare them."""
     stage_set = _velocimeter().response

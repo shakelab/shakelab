@@ -462,7 +462,9 @@ class Spectrum:
             + 1j * np.interp(frequency, freq, self.data.imag)
         )
 
-    def invert(self, waterlevel: float = 60.0, method: str = "water"):
+    def invert(
+        self, waterlevel: float = 60.0, method: str = "water"
+    ) -> None:
         """
         Replace the spectrum with its regularized inverse, in place.
 

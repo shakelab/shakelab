@@ -197,7 +197,7 @@ class StageSet:
         """Return the stage with the given stage number."""
         if isinstance(idx, int):
             return self.get_stage(idx)
-        raise NotImplementedError("Not a valid stage index")
+        raise TypeError("stage numbers must be integers")
 
     def __repr__(self) -> str:
         return (
@@ -232,7 +232,7 @@ class StageSet:
 
         Raises
         ------
-        ValueError
+        TypeError
             If an item is not a StageResponse.
         """
         if not isinstance(stage_response, list):
@@ -240,7 +240,7 @@ class StageSet:
 
         for stage in stage_response:
             if not isinstance(stage, StageResponse):
-                raise ValueError("Not a valid stage response")
+                raise TypeError("only response stages can be appended")
             self.stage.append(stage)
 
     def get_stage(self, stage_number: int) -> StageResponse:
@@ -728,7 +728,11 @@ class StageGain(StageResponse):
     }
     stage_type = "gain"
 
-    def transfer_function(self, frequency, delta=None):
+    def transfer_function(
+        self,
+        frequency: Any,
+        delta: Optional[float] = None,
+    ) -> np.ndarray:
         """
         Return the sensitivity at every frequency.
 
@@ -770,7 +774,11 @@ class StagePoleZero(StageResponse):
         """Whether poles and zeros are given in the z-plane."""
         return bool(self.pz_type) and "DIGITAL" in self.pz_type.upper()
 
-    def transfer_function(self, frequency, delta=None):
+    def transfer_function(
+        self,
+        frequency: Any,
+        delta: Optional[float] = None,
+    ) -> np.ndarray:
         """
         Return ``A0 * prod(x - z) / prod(x - p)``.
 
@@ -808,7 +816,7 @@ class StagePoleZero(StageResponse):
 
         return paz_transfer_function(a0, poles, zeros, frequency)
 
-    def validate(self, rtol=1e-3):
+    def validate(self, rtol: float = 1e-3) -> list:
         """Check that ``|A0 * H(fn)| = 1`` at the normalization frequency."""
         if self.normalization_frequency is None:
             return []
@@ -864,7 +872,11 @@ class StageCoefficients(StageResponse):
         """Whether the coefficients define a digital filter."""
         return not self.cf_type or "DIGITAL" in self.cf_type.upper()
 
-    def transfer_function(self, frequency, delta=None):
+    def transfer_function(
+        self,
+        frequency: Any,
+        delta: Optional[float] = None,
+    ) -> np.ndarray:
         """
         Return the response at given frequencies.
 
@@ -899,7 +911,7 @@ class StageCoefficients(StageResponse):
         den = np.where(np.abs(den) < 1e-12, 1e-12, den)
         return num / den * _time_correction(self, frequency)
 
-    def validate(self, rtol=1e-3):
+    def validate(self, rtol: float = 1e-3) -> list:
         """Check the symmetry of filters whose delay implies linear phase."""
         numerator = _coefficients(self.numerator)
         denominator = _coefficients(self.denominator)
@@ -942,7 +954,11 @@ class StageResponseList(StageResponse):
     }
     stage_type = "response_list"
 
-    def transfer_function(self, frequency, delta=None):
+    def transfer_function(
+        self,
+        frequency: Any,
+        delta: Optional[float] = None,
+    ) -> np.ndarray:
         """
         Return the interpolated response.
 
@@ -1044,7 +1060,11 @@ class StagePolynomial(StageResponse):
         return _poly.polyval(np.asarray(y, dtype=float),
                              _coefficients(self.coefficients))
 
-    def transfer_function(self, frequency, delta=None):
+    def transfer_function(
+        self,
+        frequency: Any,
+        delta: Optional[float] = None,
+    ) -> np.ndarray:
         """
         Return the gain ``1 / a_1`` of a linear polynomial.
 
@@ -1090,7 +1110,11 @@ class StageUnsupported(StageResponse):
     }
     stage_type = "unsupported"
 
-    def transfer_function(self, frequency, delta=None):
+    def transfer_function(
+        self,
+        frequency: Any,
+        delta: Optional[float] = None,
+    ) -> np.ndarray:
         """Raise ``NotImplementedError``."""
         raise NotImplementedError(
             f"stage {self.stage_number}: response element "
@@ -1286,7 +1310,12 @@ def expand_fir_symmetry(coefficients: Any, symmetry: str = "NONE") -> list:
 # ----------------------------------------------------------------------------
 
 
-def paz_transfer_function(a0, poles, zeros, freq):
+def paz_transfer_function(
+    a0: float,
+    poles: Any,
+    zeros: Any,
+    freq: Any,
+) -> np.ndarray:
     """
     Return the transfer function of a poles-and-zeros system.
 
@@ -1320,7 +1349,11 @@ def paz_transfer_function(a0, poles, zeros, freq):
     return a0 * numerator / denominator
 
 
-def polynomial_transfer_function(ncoeff, dcoeff, freq):
+def polynomial_transfer_function(
+    ncoeff: Any,
+    dcoeff: Any,
+    freq: Any,
+) -> np.ndarray:
     """
     Return a rational function of ``s = 2j*pi*f``.
 
@@ -1347,7 +1380,12 @@ def polynomial_transfer_function(ncoeff, dcoeff, freq):
     return num / den
 
 
-def fir_transfer_function(ncoeff, dcoeff, nsamp, delta=1.0):
+def fir_transfer_function(
+    ncoeff: Any,
+    dcoeff: Any,
+    nsamp: int,
+    delta: float = 1.0,
+) -> np.ndarray:
     """
     Return the response of a digital filter on ``nsamp`` frequencies.
 

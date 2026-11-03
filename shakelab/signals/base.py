@@ -1,5 +1,4 @@
 # ****************************************************************************
-#
 # Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
@@ -15,7 +14,6 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
 Core waveform classes and processing utilities.
@@ -61,6 +59,7 @@ from __future__ import annotations
 from copy import deepcopy
 from fractions import Fraction
 from numbers import Integral, Number, Real
+from typing import TYPE_CHECKING, Any, Iterator, Optional
 
 import numpy as np
 from scipy import integrate, signal
@@ -72,6 +71,10 @@ from shakelab.signals import response
 from shakelab.signals import io
 from shakelab.signals.header import Header
 from shakelab.libutils.timeN import Date
+
+if TYPE_CHECKING:
+    # Annotations only: spectrum sits above this module.
+    from shakelab.signals.spectrum import Spectrum
 
 __all__ = [
     "MERGE_TOLERANCE",
@@ -140,14 +143,14 @@ class Record:
 
     def __init__(
         self,
-        data=None,
-        delta=None,
-        time=None,
-        location=None,
-        sid=None,
-        eid=None,
-        units=None,
-    ):
+        data: Any = None,
+        delta: Optional[Real] = None,
+        time: Any = None,
+        location: Any = None,
+        sid: Optional[str] = None,
+        eid: Optional[str] = None,
+        units: Optional[str] = None,
+    ) -> None:
         self.head = Header(
             delta=delta,
             time=time,
@@ -163,19 +166,19 @@ class Record:
         if data is not None:
             self.data = data
 
-    def __len__(self):
+    def __len__(self) -> int:
         """
         Return the number of samples.
         """
         return self.nsamp
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: Any) -> Any:
         """
         Return one or more waveform samples.
         """
         return self.data[item]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return (
             "starttime {0}, duration {1}s, sampling rate {2} Hz, "
             "{3} samples\n"
@@ -197,14 +200,14 @@ class Record:
         )
 
     @property
-    def data(self):
+    def data(self) -> np.ndarray:
         """
         One-dimensional waveform data.
         """
         return self._data
 
     @data.setter
-    def data(self, value):
+    def data(self, value: Any) -> None:
         array = np.asarray(value)
 
         if array.ndim == 0:
@@ -218,69 +221,69 @@ class Record:
         self._data = array.copy()
 
     @property
-    def sid(self):
+    def sid(self) -> Optional[str]:
         """
         Source identifier.
         """
         return self.head.sid
 
     @sid.setter
-    def sid(self, value):
+    def sid(self, value: Optional[str]) -> None:
         self.head.sid = value
 
     @property
-    def eid(self):
+    def eid(self) -> Optional[str]:
         """
         Event identifier.
         """
         return self.head.eid
 
     @eid.setter
-    def eid(self, value):
+    def eid(self, value: Optional[str]) -> None:
         self.head.eid = value
 
     @property
-    def nsamp(self):
+    def nsamp(self) -> int:
         """
         Number of waveform samples.
         """
         return self.data.size
 
     @property
-    def delta(self):
+    def delta(self) -> Optional[float]:
         """
         Sampling interval in seconds.
         """
         return self.head.delta
 
     @delta.setter
-    def delta(self, value):
+    def delta(self, value: Optional[Real]) -> None:
         self.head.delta = value
 
     @property
-    def rate(self):
+    def rate(self) -> Optional[float]:
         """
         Sampling rate in samples per second.
         """
         return self.head.rate
 
     @rate.setter
-    def rate(self, value):
+    def rate(self, value: Optional[Real]) -> None:
         self.head.rate = value
 
     @property
-    def time(self):
+    def time(self) -> Optional[Date]:
         """
         Start time of the record.
         """
         return self.head.time
 
     @time.setter
-    def time(self, value):
+    def time(self, value: Any) -> None:
         self.head.time = value
 
     @property
-    def peak(self):
+    def peak(self) -> Optional[float]:
         """
         Maximum absolute sample amplitude.
 
@@ -294,7 +297,7 @@ class Record:
 
         return np.max(np.abs(self.data))
 
-    def copy(self):
+    def copy(self) -> Record:
         """
         Return an independent copy of the record.
 
@@ -310,13 +313,13 @@ class Record:
 
         return record
 
-    def info(self):
+    def info(self) -> None:
         """
         Print a human-readable description of the record.
         """
         print(self)
 
-    def __add__(self, value):
+    def __add__(self, value: Any) -> Record:
         """
         Return a new record after addition or concatenation.
 
@@ -365,13 +368,13 @@ class Record:
             )
         )
 
-    def __radd__(self, value):
+    def __radd__(self, value: Any) -> Record:
         """
         Return the result of scalar addition.
         """
         return self.__add__(value)
 
-    def __sub__(self, value):
+    def __sub__(self, value: Any) -> Record:
         """
         Return a new record after subtracting a numerical scalar.
 
@@ -401,7 +404,7 @@ class Record:
 
         return record
 
-    def __rsub__(self, value):
+    def __rsub__(self, value: Any) -> Record:
         """
         Return a scalar minus every waveform sample.
         """
@@ -416,7 +419,7 @@ class Record:
 
         return record
 
-    def __mul__(self, value):
+    def __mul__(self, value: Any) -> Record:
         """
         Return a scaled or response-convolved record.
 
@@ -452,13 +455,13 @@ class Record:
             "{0}".format(type(value).__name__)
         )
 
-    def __rmul__(self, value):
+    def __rmul__(self, value: Any) -> Record:
         """
         Return the result of scalar multiplication.
         """
         return self.__mul__(value)
 
-    def __truediv__(self, value):
+    def __truediv__(self, value: Any) -> Record:
         """
         Return a scaled or response-deconvolved record.
 
@@ -503,7 +506,7 @@ class Record:
         )
 
     @property
-    def starttime(self):
+    def starttime(self) -> Optional[Date]:
         """
         Time of the first sample.
 
@@ -515,7 +518,7 @@ class Record:
         return self.head.time
 
     @property
-    def endtime(self):
+    def endtime(self) -> Optional[Date]:
         """
         Time of the final sample.
 
@@ -532,7 +535,7 @@ class Record:
         return self.time + self.duration
 
     @property
-    def duration(self):
+    def duration(self) -> float:
         """
         Time span between the first and final sample, in seconds.
 
@@ -684,7 +687,7 @@ class Record:
 
         return relative_start, relative_end
 
-    def overlaps(self, starttime=None, endtime=None):
+    def overlaps(self, starttime: Any = None, endtime: Any = None) -> bool:
         """
         Check whether a time window intersects the record.
 
@@ -713,7 +716,11 @@ class Record:
             or relative_start > self.duration
         )
 
-    def time_axis(self, reference="relative", shift=0.0):
+    def time_axis(
+        self,
+        reference: Any = "relative",
+        shift: float = 0.0,
+    ) -> np.ndarray:
         """
         Generate the record time axis, in seconds.
 
@@ -794,7 +801,7 @@ class Record:
         return axis + offset + shift
 
     @property
-    def taxis(self):
+    def taxis(self) -> np.ndarray:
         """
         Relative time axis in seconds.
         """
@@ -802,11 +809,11 @@ class Record:
 
     def append(
         self,
-        record,
-        enforce=False,
-        fillvalue=0.0,
-        merge_tolerance=None,
-    ):
+        record: Record,
+        enforce: bool = False,
+        fillvalue: float = 0.0,
+        merge_tolerance: Optional[float] = None,
+    ) -> bool:
         """
         Append another record to the current record.
 
@@ -1004,11 +1011,11 @@ class Record:
 
     def cut(
         self,
-        starttime=None,
-        endtime=None,
-        inplace=True,
-        snap_tolerance=SNAP_TOLERANCE,
-    ):
+        starttime: Any = None,
+        endtime: Any = None,
+        inplace: bool = True,
+        snap_tolerance: float = SNAP_TOLERANCE,
+    ) -> Optional[Record]:
         """
         Cut the record to the samples within a time window.
 
@@ -1112,10 +1119,10 @@ class Record:
 
     def extract(
         self,
-        starttime=None,
-        endtime=None,
-        snap_tolerance=SNAP_TOLERANCE,
-    ):
+        starttime: Any = None,
+        endtime: Any = None,
+        snap_tolerance: float = SNAP_TOLERANCE,
+    ) -> Record:
         """
         Return an independent record with the samples of a time window.
 
@@ -1143,7 +1150,7 @@ class Record:
             snap_tolerance=snap_tolerance,
         )
 
-    def remove_mean(self):
+    def remove_mean(self) -> None:
         """
         Remove the arithmetic mean from the waveform data.
 
@@ -1159,11 +1166,11 @@ class Record:
 
     def filter(
         self,
-        highpass=None,
-        lowpass=None,
-        order=4,
-        minphase=False,
-    ):
+        highpass: Optional[float] = None,
+        lowpass: Optional[float] = None,
+        order: int = 4,
+        minphase: bool = False,
+    ) -> None:
         """
         Apply a Butterworth filter to the waveform data.
 
@@ -1304,10 +1311,10 @@ class Record:
 
     def resample(
         self,
-        new_delta,
-        method="interp",
-        antialias=True,
-    ):
+        new_delta: Real,
+        method: str = "interp",
+        antialias: bool = True,
+    ) -> None:
         """
         Resample the waveform to a new sampling interval.
 
@@ -1489,7 +1496,7 @@ class Record:
 
         self.delta = new_delta
 
-    def taper(self, time=0.1):
+    def taper(self, time: float = 0.1) -> None:
         """
         Apply a symmetric Tukey taper to the waveform.
 
@@ -1545,7 +1552,7 @@ class Record:
             alpha,
         )
 
-    def zero_padding(self, time=None):
+    def zero_padding(self, time: Optional[float] = None) -> None:
         """
         Append zero-valued samples to the waveform.
 
@@ -1620,7 +1627,7 @@ class Record:
             (self.data, zeros)
         )
 
-    def shift(self, time, padding=True):
+    def shift(self, time: float, padding: bool = True) -> None:
         """
         Shift the waveform relative to its fixed time window.
 
@@ -1696,7 +1703,7 @@ class Record:
 
         self.data = shifted[:original_nsamp]
 
-    def integrate(self, method="fft"):
+    def integrate(self, method: str = "fft") -> None:
         """
         Integrate the waveform in time.
 
@@ -1757,7 +1764,7 @@ class Record:
             period=self.nsamp * self.delta,
         )
 
-    def differentiate(self, method="fft"):
+    def differentiate(self, method: str = "fft") -> None:
         """
         Differentiate the waveform in time.
 
@@ -1907,7 +1914,7 @@ class Record:
         self.head = record.head.copy(parent=self)
         self.data = record.data.copy()
 
-    def to_spectrum(self):
+    def to_spectrum(self) -> Spectrum:
         """
         Convert the record to a frequency-domain Spectrum.
 
@@ -1928,7 +1935,7 @@ class Record:
 
         return Spectrum.from_record(self)
 
-    def from_spectrum(self, spectrum):
+    def from_spectrum(self, spectrum: Spectrum) -> None:
         """
         Replace the record with the inverse transform of a spectrum.
 
@@ -1966,10 +1973,10 @@ class Record:
 
     def convolve(
         self,
-        data,
-        mode="full",
-        method="auto",
-    ):
+        data: Any,
+        mode: str = "full",
+        method: str = "auto",
+    ) -> None:
         """
         Convolve the waveform with another sequence.
 
@@ -2033,7 +2040,7 @@ class Record:
             method=method,
         )
 
-    def deconvolve(self, data):
+    def deconvolve(self, data: Any) -> np.ndarray:
         """
         Deconvolve a discrete sequence from the waveform.
 
@@ -2108,10 +2115,10 @@ class Record:
 
     def correlate(
         self,
-        record,
-        mode="full",
-        method="auto",
-    ):
+        record: Record,
+        mode: str = "full",
+        method: str = "auto",
+    ) -> None:
         """
         Cross-correlate the waveform with another sequence.
 
@@ -2176,7 +2183,7 @@ class Record:
             method=method,
         )
 
-    def convolve_response(self, resp, stages=None):
+    def convolve_response(self, resp: Any, stages: Any = None) -> None:
         """
         Apply an instrument response to the waveform.
 
@@ -2201,8 +2208,12 @@ class Record:
         self._replace_from_record(spectrum.to_record())
 
     def deconvolve_response(
-        self, resp, waterlevel=60.0, method="water", stages=None
-    ):
+        self,
+        resp: Any,
+        waterlevel: float = 60.0,
+        method: str = "water",
+        stages: Any = None,
+    ) -> None:
         """
         Remove an instrument response from the waveform.
 
@@ -2236,7 +2247,7 @@ class Record:
         )
         self._replace_from_record(spectrum.to_record())
 
-    def remove_sensitivity(self, resp):
+    def remove_sensitivity(self, resp: Any) -> None:
         """
         Divide the waveform by the overall sensitivity, in place.
 
@@ -2284,7 +2295,7 @@ class Stream:
     accessed by ``eid``.
     """
 
-    def __init__(self, sid=None):
+    def __init__(self, sid: Optional[str] = None) -> None:
         self.sid = sid
         self.record = self._new_record_container()
 
@@ -2318,19 +2329,19 @@ class Stream:
         """
         self.record = self._new_record_container(records)
 
-    def __len__(self):
+    def __len__(self) -> int:
         """
         Return the number of records.
         """
         return len(self.record)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Record]:
         """
         Iterate over the records in insertion order.
         """
         return iter(self.record)
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Any) -> Any:
         """
         Return one record, or a stream of records.
 
@@ -2379,10 +2390,10 @@ class Stream:
             "identifiers"
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Stream(sid={self.sid!r}, records={len(self.record)})"
 
-    def __str__(self):
+    def __str__(self) -> str:
         if not self.record:
             return "empty stream: source identifier {0}".format(
                 self.sid
@@ -2406,7 +2417,7 @@ class Stream:
         return "\n".join(lines)
 
     @property
-    def eid(self):
+    def eid(self) -> list:
         """
         Event identifiers associated with the records.
 
@@ -2422,7 +2433,7 @@ class Stream:
         ]
 
     @property
-    def nsamp(self):
+    def nsamp(self) -> int:
         """
         Total number of samples stored in the stream.
 
@@ -2437,7 +2448,7 @@ class Stream:
         )
 
     @property
-    def starttime(self):
+    def starttime(self) -> Optional[Date]:
         """
         Earliest record start time.
 
@@ -2468,7 +2479,7 @@ class Stream:
         return min(times)
 
     @property
-    def endtime(self):
+    def endtime(self) -> Optional[Date]:
         """
         Latest record end time.
 
@@ -2517,7 +2528,7 @@ class Stream:
             if record.eid == eid
         ]
 
-    def get_record(self, eid):
+    def get_record(self, eid: str) -> Record:
         """
         Return the record associated with an event identifier.
 
@@ -2558,13 +2569,13 @@ class Stream:
 
         return self.record[indices[0]]
 
-    def info(self):
+    def info(self) -> None:
         """
         Print a human-readable description of the stream.
         """
         print(self)
 
-    def copy(self):
+    def copy(self) -> Stream:
         """
         Return an independent copy of the stream.
 
@@ -2586,11 +2597,11 @@ class Stream:
 
     def append(
         self,
-        record,
-        enforce=False,
-        fillvalue=0.0,
-        merge_tolerance=None,
-    ):
+        record: Record,
+        enforce: bool = False,
+        fillvalue: float = 0.0,
+        merge_tolerance: Optional[float] = None,
+    ) -> None:
         """
         Append a record to the stream.
 
@@ -2671,7 +2682,7 @@ class Stream:
         if not merged:
             self.record.append(record)
 
-    def remove(self, key):
+    def remove(self, key: Any) -> Record:
         """
         Remove a record from the stream.
 
@@ -2722,7 +2733,7 @@ class Stream:
 
         return removed
 
-    def sort(self, reverse=False):
+    def sort(self, reverse: bool = False) -> None:
         """
         Sort records by start time.
 
@@ -2766,15 +2777,15 @@ class Stream:
 
     def extract(
         self,
-        starttime=None,
-        endtime=None,
-        eid=None,
-        merge=False,
-        enforce=False,
-        fillvalue=0.0,
-        snap_tolerance=SNAP_TOLERANCE,
-        merge_tolerance=None,
-    ):
+        starttime: Any = None,
+        endtime: Any = None,
+        eid: Optional[str] = None,
+        merge: bool = False,
+        enforce: bool = False,
+        fillvalue: float = 0.0,
+        snap_tolerance: float = SNAP_TOLERANCE,
+        merge_tolerance: Optional[float] = None,
+    ) -> Any:
         """
         Extract the samples of the records within a time window.
 
@@ -2944,14 +2955,20 @@ class Stream:
     # Processing applied to every record
     # ------------------------------------------------------------------------
 
-    def remove_mean(self):
+    def remove_mean(self) -> None:
         """
         Remove the mean from every record (see :meth:`Record.remove_mean`).
         """
         for record in self.record:
             record.remove_mean()
 
-    def filter(self, highpass=None, lowpass=None, order=4, minphase=False):
+    def filter(
+        self,
+        highpass: Optional[float] = None,
+        lowpass: Optional[float] = None,
+        order: int = 4,
+        minphase: bool = False,
+    ) -> None:
         """
         Filter every record (see :meth:`Record.filter`).
         """
@@ -2963,7 +2980,12 @@ class Stream:
                 minphase=minphase,
             )
 
-    def resample(self, new_delta, method="interp", antialias=True):
+    def resample(
+        self,
+        new_delta: Real,
+        method: str = "interp",
+        antialias: bool = True,
+    ) -> None:
         """
         Resample every record (see :meth:`Record.resample`).
         """
@@ -2974,35 +2996,35 @@ class Stream:
                 antialias=antialias,
             )
 
-    def taper(self, time=0.1):
+    def taper(self, time: float = 0.1) -> None:
         """
         Taper every record (see :meth:`Record.taper`).
         """
         for record in self.record:
             record.taper(time=time)
 
-    def shift(self, time, padding=True):
+    def shift(self, time: float, padding: bool = True) -> None:
         """
         Shift the samples of every record (see :meth:`Record.shift`).
         """
         for record in self.record:
             record.shift(time, padding=padding)
 
-    def integrate(self, method="fft"):
+    def integrate(self, method: str = "fft") -> None:
         """
         Integrate every record (see :meth:`Record.integrate`).
         """
         for record in self.record:
             record.integrate(method=method)
 
-    def differentiate(self, method="fft"):
+    def differentiate(self, method: str = "fft") -> None:
         """
         Differentiate every record (see :meth:`Record.differentiate`).
         """
         for record in self.record:
             record.differentiate(method=method)
 
-    def convolve_response(self, resp, stages=None):
+    def convolve_response(self, resp: Any, stages: Any = None) -> None:
         """
         Apply an instrumental response to all records.
 
@@ -3022,8 +3044,12 @@ class Stream:
             record.convolve_response(resp, stages=stages)
 
     def deconvolve_response(
-        self, resp, waterlevel=60.0, method="water", stages=None
-    ):
+        self,
+        resp: Any,
+        waterlevel: float = 60.0,
+        method: str = "water",
+        stages: Any = None,
+    ) -> None:
         """
         Remove an instrumental response from all records.
 
@@ -3044,7 +3070,7 @@ class Stream:
                 resp, waterlevel=waterlevel, method=method, stages=stages
             )
 
-    def remove_sensitivity(self, resp):
+    def remove_sensitivity(self, resp: Any) -> None:
         """
         Divide all records by the overall sensitivity, in place.
 
@@ -3070,7 +3096,7 @@ class StreamCollection:
         If ``None``, standard Stream objects are used.
     """
 
-    def __init__(self, max_duration=None):
+    def __init__(self, max_duration: Optional[Real] = None) -> None:
         if max_duration is not None:
             if (
                 isinstance(max_duration, bool)
@@ -3095,19 +3121,19 @@ class StreamCollection:
         self.max_duration = max_duration
         self.stream = []
 
-    def __len__(self):
+    def __len__(self) -> int:
         """
         Return the number of streams.
         """
         return len(self.stream)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Stream]:
         """
         Iterate over streams in insertion order.
         """
         return iter(self.stream)
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Any) -> Any:
         """
         Return one stream, or a collection of streams.
 
@@ -3154,10 +3180,10 @@ class StreamCollection:
             "source identifiers"
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"StreamCollection(streams={len(self.stream)})"
 
-    def __str__(self):
+    def __str__(self) -> str:
         if not self.stream:
             return "empty stream collection"
 
@@ -3178,7 +3204,7 @@ class StreamCollection:
         return "\n".join(lines)
 
     @property
-    def sid(self):
+    def sid(self) -> list:
         """
         Source identifiers associated with the streams.
 
@@ -3193,7 +3219,7 @@ class StreamCollection:
         ]
 
     @property
-    def nsamp(self):
+    def nsamp(self) -> int:
         """
         Total number of samples stored in the collection.
 
@@ -3227,7 +3253,7 @@ class StreamCollection:
             if stream.sid == sid
         ]
 
-    def get_stream(self, sid):
+    def get_stream(self, sid: str) -> Stream:
         """
         Return the stream associated with a source identifier.
 
@@ -3323,13 +3349,13 @@ class StreamCollection:
 
         return stream
 
-    def info(self):
+    def info(self) -> None:
         """
         Print a human-readable description of the collection.
         """
         print(self)
 
-    def copy(self):
+    def copy(self) -> StreamCollection:
         """
         Return an independent copy of the collection.
 
@@ -3352,11 +3378,11 @@ class StreamCollection:
 
     def append(
         self,
-        data,
-        enforce=False,
-        fillvalue=0.0,
-        merge_tolerance=None,
-    ):
+        data: Any,
+        enforce: bool = False,
+        fillvalue: float = 0.0,
+        merge_tolerance: Optional[float] = None,
+    ) -> None:
         """
         Append a record or stream to the collection.
 
@@ -3431,7 +3457,7 @@ class StreamCollection:
                 merge_tolerance=merge_tolerance,
             )
 
-    def remove(self, key):
+    def remove(self, key: Any) -> Stream:
         """
         Remove a stream from the collection.
 
@@ -3478,11 +3504,7 @@ class StreamCollection:
 
         return self.stream.pop(key)
 
-    def sort(
-        self,
-        sort_records=True,
-        reverse=False,
-    ):
+    def sort(self, sort_records: bool = True, reverse: bool = False) -> None:
         """
         Sort streams by source identifier.
 
@@ -3535,16 +3557,16 @@ class StreamCollection:
 
     def extract(
         self,
-        sid=None,
-        starttime=None,
-        endtime=None,
-        eid=None,
-        merge=False,
-        enforce=False,
-        fillvalue=0.0,
-        snap_tolerance=SNAP_TOLERANCE,
-        merge_tolerance=None,
-    ):
+        sid: Optional[str] = None,
+        starttime: Any = None,
+        endtime: Any = None,
+        eid: Optional[str] = None,
+        merge: bool = False,
+        enforce: bool = False,
+        fillvalue: float = 0.0,
+        snap_tolerance: float = SNAP_TOLERANCE,
+        merge_tolerance: Optional[float] = None,
+    ) -> Any:
         """
         Extract waveform data from one stream or from all streams.
 
@@ -3616,11 +3638,11 @@ class StreamCollection:
 
     def merge(
         self,
-        collection,
-        enforce=False,
-        fillvalue=0.0,
-        merge_tolerance=None,
-    ):
+        collection: StreamCollection,
+        enforce: bool = False,
+        fillvalue: float = 0.0,
+        merge_tolerance: Optional[float] = None,
+    ) -> None:
         """
         Append all streams from another collection.
 
@@ -3662,14 +3684,20 @@ class StreamCollection:
     # Processing applied to every stream
     # ------------------------------------------------------------------------
 
-    def remove_mean(self):
+    def remove_mean(self) -> None:
         """
         Remove the mean from every record (see :meth:`Record.remove_mean`).
         """
         for stream in self.stream:
             stream.remove_mean()
 
-    def filter(self, highpass=None, lowpass=None, order=4, minphase=False):
+    def filter(
+        self,
+        highpass: Optional[float] = None,
+        lowpass: Optional[float] = None,
+        order: int = 4,
+        minphase: bool = False,
+    ) -> None:
         """
         Filter every record (see :meth:`Record.filter`).
         """
@@ -3681,7 +3709,12 @@ class StreamCollection:
                 minphase=minphase,
             )
 
-    def resample(self, new_delta, method="interp", antialias=True):
+    def resample(
+        self,
+        new_delta: Real,
+        method: str = "interp",
+        antialias: bool = True,
+    ) -> None:
         """
         Resample every record (see :meth:`Record.resample`).
         """
@@ -3692,35 +3725,35 @@ class StreamCollection:
                 antialias=antialias,
             )
 
-    def taper(self, time=0.1):
+    def taper(self, time: float = 0.1) -> None:
         """
         Taper every record (see :meth:`Record.taper`).
         """
         for stream in self.stream:
             stream.taper(time=time)
 
-    def shift(self, time, padding=True):
+    def shift(self, time: float, padding: bool = True) -> None:
         """
         Shift the samples of every record (see :meth:`Record.shift`).
         """
         for stream in self.stream:
             stream.shift(time, padding=padding)
 
-    def integrate(self, method="fft"):
+    def integrate(self, method: str = "fft") -> None:
         """
         Integrate every record (see :meth:`Record.integrate`).
         """
         for stream in self.stream:
             stream.integrate(method=method)
 
-    def differentiate(self, method="fft"):
+    def differentiate(self, method: str = "fft") -> None:
         """
         Differentiate every record (see :meth:`Record.differentiate`).
         """
         for stream in self.stream:
             stream.differentiate(method=method)
 
-    def convolve_response(self, resp, stages=None):
+    def convolve_response(self, resp: Any, stages: Any = None) -> None:
         """
         Apply an instrumental response to all streams.
 
@@ -3739,8 +3772,12 @@ class StreamCollection:
             stream.convolve_response(resp, stages=stages)
 
     def deconvolve_response(
-        self, resp, waterlevel=60.0, method="water", stages=None
-    ):
+        self,
+        resp: Any,
+        waterlevel: float = 60.0,
+        method: str = "water",
+        stages: Any = None,
+    ) -> None:
         """
         Remove an instrumental response from all streams.
 
@@ -3760,7 +3797,7 @@ class StreamCollection:
                 resp, waterlevel=waterlevel, method=method, stages=stages
             )
 
-    def remove_sensitivity(self, resp):
+    def remove_sensitivity(self, resp: Any) -> None:
         """
         Divide all streams by the overall sensitivity, in place.
 
@@ -3769,7 +3806,7 @@ class StreamCollection:
         for stream in self.stream:
             stream.remove_sensitivity(resp)
 
-    def __mul__(self, value):
+    def __mul__(self, value: Any) -> StreamCollection:
         """
         Return a response-convolved copy of the collection.
 
@@ -3789,7 +3826,7 @@ class StreamCollection:
 
         return collection
 
-    def __truediv__(self, value):
+    def __truediv__(self, value: Any) -> StreamCollection:
         """
         Return a response-deconvolved copy of the collection.
 
@@ -3811,12 +3848,12 @@ class StreamCollection:
 
     def read(
         self,
-        file_path=None,
-        list_file=None,
-        format=None,
-        byte_order=None,
-        **format_options,
-    ):
+        file_path: Any = None,
+        list_file: Any = None,
+        format: Optional[str] = None,
+        byte_order: Optional[str] = None,
+        **format_options: Any,
+    ) -> StreamCollection:
         """
         Read waveform data into the collection.
 
@@ -3908,12 +3945,12 @@ class StreamCollection:
 
     def write(
         self,
-        file_path,
-        format=None,
-        byte_order=None,
-        owrite=False,
-        **format_options,
-    ):
+        file_path: Any,
+        format: Optional[str] = None,
+        byte_order: Optional[str] = None,
+        owrite: bool = False,
+        **format_options: Any,
+    ) -> None:
         """
         Write the collection to disk.
 
@@ -4005,7 +4042,7 @@ class StreamCollection:
 # ----------------------------------------------------------------------------
 
 
-def tukey_window(N, alpha=0.5):
+def tukey_window(N: int, alpha: float = 0.5) -> np.ndarray:
     """
     Return a Tukey (tapered cosine) window.
 

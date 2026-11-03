@@ -91,7 +91,10 @@ corrections. The format follows
   stage sets, channel epochs and metadata collections. The JSON format
   changed accordingly (stations and channel epochs). Without a time,
   `get` requires a channel with a single epoch (the stage set valid
-  "now" was used before).
+  "now" was used before). `StageSet.append` raises `TypeError` for
+  objects that are not stages (it raised `ValueError`), and indexing
+  a stage set with a non-integer raises `TypeError` (it raised
+  `NotImplementedError`).
 - `signals.response.StageSet.transfer_function`: poles-and-zeros and
   coefficient stages are normalized to unit amplitude at the frequency
   of the gain of the same stage, so that the stage amplitude there is
