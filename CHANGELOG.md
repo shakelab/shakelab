@@ -77,6 +77,15 @@ corrections. The format follows
   paths, XML text with or without declaration, bytes and open files.
   `stationxml_to_dict` returns `{"tag", "attrib", "text", "children"}`
   and keeps values as strings (codes such as `"00"` became floats).
+- `signals.respfile.parse_resp` renamed `read_resp`; it accepts paths,
+  RESP text, bytes and open files, and returns one stream response per
+  channel and one stage set per epoch. Lines are identified by their
+  `BxxxFyy` code, so RESP files of rdseed, of the Nominal Response
+  Library and of evalresp are read alike. The sampling rate of an
+  epoch is the output rate of the last decimation stage, as in
+  evalresp.
+- `ResponseCollection.read` reads RESP files (`ftype="resp"`, inferred
+  for file names starting with `RESP.` or ending with `.resp`).
 - `signals.Header` moved to the new module `signals.header` (it
   depends only on time and geodetic primitives); it is still available
   from `signals.base`.
@@ -138,6 +147,15 @@ corrections. The format follows
   `StageSet.validate()` and `ResponseCollection.validate()` (gains,
   sensitivity, normalization, units, decimation chain, FIR symmetry);
   `ResponseWarning`; `same_units`; `ResponseCollection.__contains__`.
+- `signals.respfile`: transfer function types (blockettes 53 and 54),
+  denominators of blockette 54, response lists (55), decimation and
+  time correction (57), overall sensitivity (58 of stage 0), FIR
+  filters with symmetry (61), polynomials (62, stage 0 as
+  `instrument_polynomial`), generic responses and response references
+  (56, 60) as `StageUnsupported`; continued blockettes are merged;
+  `parse_resp_time` for SEED times, also truncated.
+- `signals.response.expand_fir_symmetry`, shared by the StationXML and
+  RESP readers.
 - `signals.stationxml`: reading of `Coefficients`, `ResponseList`,
   `InstrumentSensitivity`, `InstrumentPolynomial` and `Decimation`;
   `iter_channels`.
@@ -195,6 +213,15 @@ corrections. The format follows
 - `signals.libio.dyna`: the header was assumed to have 64 lines; with
   the 65-line header of ESM 3.0 files the first sample was lost and the
   series was shifted by one sampling interval.
+- `signals.respfile`: the zeros of poles-and-zeros stages were never
+  read (e.g. the response of a velocity sensor lacked the factor
+  `s**2`); all channels and epochs of a file were merged into one
+  epoch; truncated SEED times (e.g. `1998,299,20`) and `No Ending Time`
+  were replaced by the current time; the overall sensitivity was read
+  as a stage; the frequency of the gains was set to 1 Hz; transfer
+  function types and units were ignored.
+- `signals.response.StagePoleZero`: a stage without poles raised
+  `ValueError`; SEED and StationXML allow it (e.g. a pure gain).
 - `signals.stationxml`: `Coefficients` stages were skipped, so the
   output units of the response were lost; `FIR` elements were read as
   a unit filter (`NumeratorCoefficient` ignored) and symmetric filters

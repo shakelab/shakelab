@@ -46,6 +46,7 @@ from shakelab.signals.response import (
     StageSet,
     StageUnsupported,
     StreamResponse,
+    expand_fir_symmetry,
     same_units,
     select_response,
     select_sensitivity,
@@ -686,3 +687,29 @@ def test_fir_delay_is_cancelled_by_time_correction(mode_response):
         if getattr(stage, "correction", None):
             stage.correction = 0.0
     assert _lag(collection, None, analog) == 34
+
+
+@pytest.mark.parametrize(
+    "symmetry, expected",
+    [
+        ("NONE", [0.1, 0.4, 0.5]),
+        ("odd", [0.1, 0.4, 0.5, 0.4, 0.1]),
+        ("EVEN", [0.1, 0.4, 0.5, 0.5, 0.4, 0.1]),
+        (None, [0.1, 0.4, 0.5]),
+    ],
+)
+def test_expand_fir_symmetry(symmetry, expected):
+    """Symmetric FIR filters are expanded from their first half."""
+    assert expand_fir_symmetry([0.1, 0.4, 0.5], symmetry) == expected
+
+
+def test_expand_fir_symmetry_unknown():
+    """An unknown symmetry raises ValueError."""
+    with pytest.raises(ValueError):
+        expand_fir_symmetry([1.0], "HALF")
+
+
+def test_paz_without_poles():
+    """Poles and zeros may be absent: the stage is a pure gain."""
+    stage = StagePoleZero(normalization_factor=3.0)
+    np.testing.assert_allclose(stage.transfer_function([0.0, 1.0]), 3.0)

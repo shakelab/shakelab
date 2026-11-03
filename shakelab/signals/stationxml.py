@@ -52,10 +52,11 @@ Design choices
 
 Notes
 -----
-FIR symmetry follows the FDSN definitions: with ``ODD`` symmetry the
-total number of coefficients is odd and the central coefficient is
-stored once; with ``EVEN`` symmetry it is even and every stored
-coefficient is mirrored.
+FIR symmetry follows the FDSN definitions (see
+:func:`shakelab.signals.response.expand_fir_symmetry`): with ``ODD``
+symmetry the total number of coefficients is odd and the central
+coefficient is stored once; with ``EVEN`` symmetry it is even and every
+stored coefficient is mirrored.
 """
 
 from __future__ import annotations
@@ -361,13 +362,9 @@ def _parse_fir(element: Element) -> rspm.StageCoefficients:
         if item.text and item.text.strip()
     ]
 
-    symmetry = (find_text(element, "Symmetry") or "NONE").upper()
-    if symmetry == "EVEN":
-        coefficients = coefficients + coefficients[::-1]
-    elif symmetry == "ODD":
-        coefficients = coefficients + coefficients[-2::-1]
-    elif symmetry != "NONE":
-        raise ValueError(f"Unknown FIR symmetry: {symmetry}")
+    coefficients = rspm.expand_fir_symmetry(
+        coefficients, find_text(element, "Symmetry") or "NONE"
+    )
 
     return rspm.StageCoefficients(
         cf_type="DIGITAL",

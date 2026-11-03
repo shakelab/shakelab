@@ -98,6 +98,7 @@ __all__ = [
     "select_sensitivity",
     "response_transfer",
     "same_units",
+    "expand_fir_symmetry",
     "paz_transfer_function",
     "polynomial_transfer_function",
     "fir_transfer_function",
@@ -252,16 +253,20 @@ class ResponseCollection:
         append: bool = False,
     ) -> None:
         """
-        Read responses from a StationXML or JSON file.
+        Read responses from a StationXML, RESP or JSON file.
 
         Parameters
         ----------
         byte_stream
-            File path; for StationXML also XML text, bytes or an open
-            file (see :func:`shakelab.signals.stationxml.read_stationxml`).
+            File path; for StationXML and RESP also text, bytes or an
+            open file (see
+            :func:`shakelab.signals.stationxml.read_stationxml` and
+            :func:`shakelab.signals.respfile.read_resp`).
         ftype
-            ``"xml"`` (also ``"sxml"``) or ``"json"``; inferred from the
-            file extension if None.
+            ``"xml"`` (also ``"sxml"``), ``"resp"`` or ``"json"``. If
+            None, it is inferred from the file name: ``"resp"`` for
+            names starting with ``RESP.`` (as written by rdseed) or
+            ending with ``.resp``, otherwise the extension.
         append
             If True, add to the current content; otherwise replace it.
 
@@ -271,8 +276,8 @@ class ResponseCollection:
             If the file type is unknown or a stage type is unsupported.
         """
         if ftype is None:
-            _, ext = _os.path.splitext(str(byte_stream))
-            ftype = ext.lstrip(".").lower()
+            ftype = _file_type(byte_stream)
+        ftype = ftype.lower()
 
         if ftype in ("xml", "sxml"):
             # Local import: the StationXML reader builds response
@@ -280,6 +285,11 @@ class ResponseCollection:
             from shakelab.signals.stationxml import read_stationxml
 
             new = read_stationxml(byte_stream)
+
+        elif ftype == "resp":
+            from shakelab.signals.respfile import read_resp
+
+            new = read_resp(byte_stream)
 
         elif ftype == "json":
             with open(byte_stream, "r") as fobj:
@@ -346,6 +356,15 @@ class ResponseCollection:
         """Print a summary of all stream responses."""
         for resp in self.response:
             resp.info()
+
+
+def _file_type(path: Any) -> str:
+    """Return the response file type inferred from a file name."""
+    name = _os.path.basename(str(path))
+    if name.upper().startswith("RESP."):
+        return "resp"
+    _, ext = _os.path.splitext(name)
+    return ext.lstrip(".").lower()
 
 
 def _collection_from_json(content: list) -> ResponseCollection:
@@ -1045,16 +1064,16 @@ class StagePoleZero(StageResponse):
         ``x`` is ``s = 2j*pi*f`` (rad/s), ``s = 1j*f`` (Hz) or
         ``z = exp(2j*pi*f/fs)`` (digital).
 
+        Missing poles or zeros mean none (e.g. a stage with gain only:
+        SEED allows zero poles and zeros).
+
         Raises
         ------
         ValueError
-            If the poles are not defined, or the sampling rate of a
-            digital stage is unknown.
+            If the sampling rate of a digital stage is unknown.
         """
-        if self.poles is None:
-            raise ValueError("Poles must be defined.")
-
         zeros = [] if self.zeros is None else self.zeros
+        poles = [] if self.poles is None else self.poles
         a0 = 1.0 if self.normalization_factor is None else (
             self.normalization_factor
         )
@@ -1065,7 +1084,7 @@ class StagePoleZero(StageResponse):
                 self, frequency, delta
             ))
             return (
-                a0 * _root_product(z, zeros) / _root_product(z, self.poles)
+                a0 * _root_product(z, zeros) / _root_product(z, poles)
                 * _time_correction(self, frequency)
             )
 
@@ -1074,11 +1093,11 @@ class StagePoleZero(StageResponse):
         if self.pz_type and "HERTZ" in self.pz_type.upper():
             frequency = frequency / (2.0 * np.pi)
 
-        return paz_transfer_function(a0, self.poles, zeros, frequency)
+        return paz_transfer_function(a0, poles, zeros, frequency)
 
     def validate(self, rtol=1e-3):
         """Check that ``|A0 * H(fn)| = 1`` at the normalization frequency."""
-        if self.normalization_frequency is None or self.poles is None:
+        if self.normalization_frequency is None:
             return []
         try:
             value = abs(self.transfer_function(
@@ -1555,6 +1574,51 @@ def same_units(first: Optional[str], second: Optional[str]) -> bool:
         return "count" if units == "counts" else units
 
     return normalize(first) == normalize(second)
+
+
+def expand_fir_symmetry(coefficients: Any, symmetry: str = "NONE") -> list:
+    """
+    Return all the coefficients of a symmetric FIR filter.
+
+    Symmetric filters are stored by their first half only (FDSN
+    StationXML ``FIR/Symmetry``; SEED blockette 61, field 5).
+
+    Parameters
+    ----------
+    coefficients
+        Stored coefficients, in forward order.
+    symmetry
+        ``"NONE"`` (all coefficients given), ``"ODD"`` (odd total
+        number: first half and central coefficient given) or
+        ``"EVEN"`` (even total number: first half given). Case is
+        ignored.
+
+    Returns
+    -------
+    list of float
+        The complete coefficients.
+
+    Raises
+    ------
+    ValueError
+        If the symmetry is unknown.
+
+    Examples
+    --------
+    >>> expand_fir_symmetry([1.0, 2.0, 3.0], "ODD")
+    [1.0, 2.0, 3.0, 2.0, 1.0]
+    >>> expand_fir_symmetry([1.0, 2.0], "EVEN")
+    [1.0, 2.0, 2.0, 1.0]
+    """
+    values = [float(c) for c in np.atleast_1d(coefficients)]
+    symmetry = (symmetry or "NONE").strip().upper()
+    if symmetry == "NONE":
+        return values
+    if symmetry == "EVEN":
+        return values + values[::-1]
+    if symmetry == "ODD":
+        return values + values[-2::-1]
+    raise ValueError(f"Unknown FIR symmetry: {symmetry!r}")
 
 
 # ----------------------------------------------------------------------------
