@@ -2,7 +2,14 @@
 
 | File | Content |
 |---|---|
-| `mseed/libmseed/*.mseed2`, `*.mseed3` | MiniSEED 2 and 3 test files of libmseed: the same series in every encoding and byte order (`reference-testdata-*`), text and detection records, historical encodings (CDSN, DWWSSN, GEOSCOPE, SRO), records with invalid blockette offsets or without blockette 1000, records of mixed lengths in mixed order, an unapplied time correction; from the test data of libmseed (EarthScope, Apache-2.0, [github.com/EarthScope/libmseed](https://github.com/EarthScope/libmseed), `test/data`; some files predate the current versions) |
-| `mseed/libmseed_reference.json` | What libmseed 3 reads (through `cymseed3`, reading only) from the MiniSEED 2 files of this folder and of `tests/signals/data`: source identifier, start time, rate, number of samples and SHA-256 of the samples as big-endian float64, for each segment; generated on 4 November 2026 with `AiSpace/Claude/Shakelab/tools/libmseed_reference.py` (outside the repository). Files that libmseed reads but ShakeLab does not support (historical encodings, invalid blockettes, no blockette 1000) and the text and detection records (not read by `cymseed3`) are not included |
-| `mseed/synth/fibonacci_enc{1,3,4,5,10,11}_len{256,...,4096}_{be,le}.mseed` | The first 13 Fibonacci numbers (channel `AA.NOA.00.Z`, 200 Hz) in each encoding, record length and byte order, with the expected values in the `.ascii` files |
-| `mseed/emilia_1st_shock/IV.MODE..HN?.IT-2012-0008.{ACC,VEL,DIS}.MP.mseed` | Records of station IV.MODE for the Mw 6.1 Emilia earthquake of 20 May 2012 processed by ESM, in MiniSEED with 32-bit float samples (encoding 4); an earlier ESM version of the files in `tests/signals/data/ESM/MSEED` (see the README there for the source and license) |
+| `mseed/libmseed/` | Unmodified copy of the folder `test/data` of libmseed (EarthScope, [github.com/EarthScope/libmseed](https://github.com/EarthScope/libmseed), commit `d6e6ad3`, 5 August 2026), licensed under the Apache License 2.0 (`mseed/libmseed/LICENSE`): MiniSEED 2 and 3 files with the same series in every encoding and byte order (`reference-testdata-*`), text and detection records, historical encodings (CDSN, DWWSSN, GEOSCOPE, SRO), invalid blockette offsets, records without blockette 1000, records of mixed lengths in mixed order, an unapplied time correction, odd sampling rates, dates before 1970 and nanosecond times |
+| `mseed/libmseed_reference.json` | What libmseed (same commit, `ms3_readtracelist`) reads from the MiniSEED 2 files of `mseed/libmseed` and of `tests/signals/data`: source identifier, start time, rate, number of samples and SHA-256 of the samples as big-endian float64, for each segment. Files that ShakeLab does not support (historical encodings, invalid blockettes, no blockette 1000) and segments without samples or with text are left out |
+
+The reference is generated with a small libmseed program and a Python
+script kept outside the repository
+(`AiSpace/Claude/Shakelab/tools/libmseed_reference/`); the script
+docstring gives the commands.
+
+Real waveforms used by these tests (station IV.MODE and the ESM
+records of the 2012 Emilia earthquake) are in `tests/signals/data`,
+with their sources and licenses.

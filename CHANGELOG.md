@@ -195,7 +195,8 @@ corrections. The format follows
   bytes after the last record are ignored (with a warning unless they
   are zeros). Integer samples are returned in native byte order.
 - MiniSEED writing (both backends): with `encoding=None` (new default)
-  the encoding follows the data type: STEIM2 for integers, 4 for
+  the encoding follows the data type: STEIM2 for integers (STEIM1, or
+  int32, when the differences between samples exceed its words), 4 for
   float32, 5 for float64. Start times keep the microseconds in
   blockette 1001 when needed.
 - `signals.libio.mseed.MSRecord`: built with `MSRecord.from_bytes` and

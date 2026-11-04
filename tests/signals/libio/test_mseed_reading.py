@@ -19,9 +19,11 @@
 Tests of the pure-Python MiniSEED backend on reference files.
 
 The files in ``data/mseed/libmseed`` are the test data of libmseed
-(EarthScope); those in ``data/mseed/synth`` hold a Fibonacci series in
-every supported encoding, byte order and record length, with the
-expected values in ASCII. The tests also fix the behavior on
+(EarthScope), read by both backends and compared with what libmseed
+reads (``data/mseed/libmseed_reference.json``). Round trips of
+generated series cover every encoding, record length and byte order;
+when cymseed3 is installed, files written by the pure-Python backend
+are also read with libmseed. The tests also fix the behavior on
 non-waveform records, unsupported encodings, time corrections,
 blockettes 100/1001 and the choice of the writing encoding.
 """
@@ -54,9 +56,16 @@ from shakelab.signals.libio.mseed import (
 
 DATA = Path(__file__).parent / "data" / "mseed"
 LIBMSEED = DATA / "libmseed"
-SYNTH = sorted((DATA / "synth").glob("*.mseed"))
 SIGNALS = Path(__file__).parents[1]
 REFERENCE = json.loads((DATA / "libmseed_reference.json").read_text())
+
+
+def _collection(*records):
+    """StreamCollection with the given records."""
+    collection = StreamCollection()
+    for record in records:
+        collection.append(record)
+    return collection
 
 
 def _reference(name):
@@ -115,14 +124,114 @@ def test_libmseed_reference(path, backend):
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("path", SYNTH, ids=lambda p: p.stem)
-def test_synthetic_files(path):
-    """Every encoding, byte order and record length gives the series."""
-    expected = np.loadtxt(path.with_suffix(".ascii"))
-    record = msread(path)[0][0]
+# ----------------------------------------------------------------------------
+# Round trips of generated series
+# ----------------------------------------------------------------------------
 
-    np.testing.assert_allclose(record.data, expected)
-    assert record.data.dtype.isnative
+
+def _series(name):
+    """Test series (as in the scripts formerly used with ObsPy)."""
+    t = np.linspace(0.0, 10.0, 2001)
+    if name == "fibonacci":
+        values = [1, 1]
+        while len(values) < 25:
+            values.append(values[-1] + values[-2])
+        return np.array(values)
+    if name == "linear":
+        return np.arange(1000)
+    if name == "triangular":
+        return 1000.0 * (2.0 * np.abs(2.0 * (t % 1.0) - 1.0) - 1.0)
+    if name == "harmonic":
+        return 1000.0 * np.sin(2.0 * np.pi * t) * np.exp(-0.5 * t)
+    # Differences that need the 30- and 32-bit STEIM words (up to
+    # 2**31 - 1), and the limits of the 32-bit range.
+    return np.array([0, 2**29 - 1, -(2**29), 0, 2**31 - 1, 0,
+                     -(2**31) + 1, 0, 5, -7, -(2**31)])
+
+
+SERIES = ["fibonacci", "linear", "triangular", "harmonic", "extremes"]
+ENCODINGS = {1: np.int16, 3: np.int32, 4: np.float32, 5: np.float64,
+             10: np.int32, 11: np.int32}
+
+
+def _typed(name, encoding):
+    """Series in the type of an encoding; None if it does not fit."""
+    values = _series(name)
+    dtype = ENCODINGS[encoding]
+    if np.issubdtype(dtype, np.integer):
+        values = np.rint(values)
+        info = np.iinfo(dtype)
+        if values.min() < info.min or values.max() > info.max:
+            return None
+        jump = np.abs(np.diff(values)).max()
+        if (encoding == 10 and jump >= 2**31) or (
+            encoding == 11 and jump >= 2**29
+        ):
+            return None
+    return values.astype(dtype)
+
+
+# Series and encodings that can represent them (e.g. no int16 for the
+# 75025 of the Fibonacci series, no STEIM2 for 32-bit differences).
+VALID = [
+    (name, encoding)
+    for name in SERIES
+    for encoding in sorted(ENCODINGS)
+    if _typed(name, encoding) is not None
+]
+
+
+@pytest.mark.parametrize("reclen", [128, 256, 512, 4096])
+@pytest.mark.parametrize("name, encoding", VALID)
+def test_round_trip(name, encoding, reclen):
+    """Every encoding and record length returns the samples."""
+    data = _typed(name, encoding)
+    record = Record(data=data, delta=0.005, time="2026-01-01T00:00:00",
+                    sid="AA.NOA.00.HHZ")
+    buffer = _io.BytesIO()
+    mswrite(buffer, _collection(record), encoding=encoding, reclen=reclen)
+
+    stream = msread(buffer.getvalue())[0]
+
+    assert len(stream) == 1
+    assert stream[0].data.dtype == data.dtype
+    np.testing.assert_array_equal(stream[0].data, data)
+
+
+@pytest.mark.parametrize("encoding", [1, 3, 4, 5])
+def test_little_endian_round_trip(encoding):
+    """Records rewritten in little-endian order are read back."""
+    data = _typed("harmonic", encoding)
+    record = Record(data=data, delta=0.005, time="2026-01-01T00:00:00",
+                    sid="AA.NOA.00.HHZ")
+    buffer = _io.BytesIO()
+    mswrite(buffer, _collection(record), encoding=encoding)
+    little = _io.BytesIO()
+    mseed.msrawwrite(msrawread(buffer.getvalue()), little, byte_order="le")
+
+    raw = msrawread(little.getvalue())
+    restored = msread(little.getvalue())[0][0]
+
+    assert {item.byte_order for item in raw} == {"le"}
+    np.testing.assert_array_equal(restored.data, data)
+
+
+@pytest.mark.parametrize("encoding", sorted(ENCODINGS))
+def test_written_files_read_by_libmseed(encoding, tmp_path):
+    """Files written by the pure-Python backend are read by libmseed."""
+    read = _backend_reader("libmseed")
+    data = _typed("harmonic", encoding)
+    time = "2026-01-01T00:00:00.123456"
+    record = Record(data=data, delta=0.005, time=time,
+                    sid="AA.NOA.00.HHZ")
+    path = tmp_path / "python.mseed"
+    mswrite(path, _collection(record), encoding=encoding, reclen=512)
+
+    restored = read(path)[0][0]
+
+    assert restored.sid == "AA.NOA.00.HHZ"
+    assert abs(restored.time - Date(time)) < 1e-6
+    np.testing.assert_array_equal(restored.data.astype(float), data)
 
 
 @pytest.mark.parametrize(
@@ -131,7 +240,7 @@ def test_synthetic_files(path):
 def test_libmseed_encodings_agree(name):
     """
     The same series is decoded from every encoding (the integer files
-    hold the floating-point series truncated).
+    hold the float64 series truncated; float32 rounds it).
     """
     expected = _reference("int32").data
     record = _reference(name)
@@ -139,8 +248,9 @@ def test_libmseed_encodings_agree(name):
 
     assert record.sid == "XX.TEST..BHZ"
     assert record.rate == 40.0
-    if name.startswith("float"):
+    if name == "float64":
         np.testing.assert_array_equal(np.trunc(record.data), expected)
+    elif name == "float32":
         np.testing.assert_allclose(
             record.data, _reference("float64").data, rtol=1e-6
         )
@@ -151,9 +261,7 @@ def test_libmseed_encodings_agree(name):
 @pytest.mark.parametrize("name", ["steim1", "steim2"])
 def test_little_endian_steim(name):
     """Little-endian STEIM records decode as the big-endian ones."""
-    with pytest.warns(MSeedWarning, match="trailing bytes"):
-        little = msread(LIBMSEED / f"reference-testdata-{name}-LE.mseed2")
-    little = little[0][0]
+    little = msread(LIBMSEED / f"reference-testdata-{name}-LE.mseed2")[0][0]
     big = _reference(name)
 
     np.testing.assert_array_equal(little.data, big.data)
@@ -320,14 +428,6 @@ def test_trailing_bytes():
 # ----------------------------------------------------------------------------
 
 
-def _collection(*records):
-    """StreamCollection with the given records."""
-    collection = StreamCollection()
-    for record in records:
-        collection.append(record)
-    return collection
-
-
 def test_records_joined_and_gaps_kept():
     """Contiguous records form one segment; a gap starts another."""
     data = np.arange(3000, dtype=np.int32)
@@ -379,6 +479,22 @@ def test_default_encoding(dtype, encoding):
 
     assert {item.encoding for item in raw} == {encoding}
     np.testing.assert_array_equal(restored.data, data)
+
+
+@pytest.mark.parametrize(
+    "jump, encoding", [(2**29 - 1, 11), (2**29, 10), (2**31, 3)]
+)
+def test_default_encoding_large_differences(jump, encoding):
+    """Differences beyond the STEIM2 (STEIM1) words choose STEIM1 (int32)."""
+    data = np.array([0, jump // 2, jump // 2 - jump], dtype=np.int64)
+    record = Record(data=data, delta=0.01, time="2026-01-01T00:00:00",
+                    sid="XX.STA..HHZ")
+    buffer = _io.BytesIO()
+    mswrite(buffer, _collection(record))
+
+    assert msrawread(buffer.getvalue())[0].encoding == encoding
+    np.testing.assert_array_equal(msread(buffer.getvalue())[0][0].data,
+                                  data)
 
 
 def test_steim_rejects_floating_point():

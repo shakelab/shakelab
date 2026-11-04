@@ -46,7 +46,8 @@ Writing
 - Big-endian records with blockette 1000, and blockette 1001 when the
   start time has microseconds beyond the 0.1 ms of the fixed header.
 - The encoding follows the type of the data unless given: STEIM2 for
-  integers, 4 for float32, 5 for float64.
+  integers (STEIM1 or int32 if the differences between samples exceed
+  the STEIM2 words), 4 for float32, 5 for float64.
 
 MiniSEED 3 is read and written by the libmseed backend only.
 """
@@ -1284,9 +1285,25 @@ def _write_shakelab_record(
 
 
 def _default_encoding(data: np.ndarray) -> int:
-    """Encoding following the type of the data."""
+    """
+    Encoding following the type of the data.
+
+    Integers use STEIM2 when the differences between samples fit its
+    30-bit words, otherwise STEIM1 (32-bit differences) or, beyond that,
+    uncompressed int32.
+    """
     if np.issubdtype(data.dtype, np.integer):
-        return ENCODING_STEIM2
+        values = data.astype(np.int64)
+        if values.size and (
+            values.min() < INT32_MIN or values.max() > INT32_MAX
+        ):
+            raise ValueError("integer samples exceed the 32-bit range")
+        jump = int(np.abs(np.diff(values)).max()) if values.size > 1 else 0
+        if jump < 2**29:
+            return ENCODING_STEIM2
+        if jump < 2**31:
+            return ENCODING_STEIM1
+        return ENCODING_INT32
     if data.dtype == np.float32:
         return ENCODING_FLOAT32
     if np.issubdtype(data.dtype, np.floating):
