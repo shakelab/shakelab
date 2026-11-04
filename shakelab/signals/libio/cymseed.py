@@ -1,6 +1,5 @@
 # ****************************************************************************
-#
-# Copyright (C) 2019-2024, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -15,134 +14,192 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
-An Cython I/O wrapper to the EarthScope MiniSeed library Version 3.
+MiniSEED reader and writer based on libmseed.
+
+This backend wraps the EarthScope libmseed library (version 3) through
+the ``cymseed3`` package. It reads MiniSEED 2 and 3 and writes either
+version. Its interface and results match those of the pure-Python
+backend (:mod:`shakelab.signals.libio.mseed`), which documents the
+behavior in detail.
+
+Notes
+-----
+``cymseed3`` returns samples as Python lists without their original
+type: integers are converted to int32 and floating-point values to
+float64 (float32 data read by the pure-Python backend stay float32).
+
+``cymseed3`` (up to 0.1.x) packs samples only as int32: floating-point
+and int16 data are corrupted, and one encoding is used for the whole
+file. Until it is fixed, MiniSEED 2 files that need other encodings
+(1, 4, 5) are written by the pure-Python backend, and MiniSEED 3 is
+limited to integer encodings (3, 10, 11).
 """
-from cymseed3 import MiniSeed
-from shakelab.signals import base
-from shakelab.signals import fdsnws
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
-from io import BytesIO
+from cymseed3 import MiniSeed
 
-# Default miniseed version
+from shakelab.libutils.timeN import Date
+from shakelab.signals.libio import mseed as _pymseed
+from shakelab.signals.libio.mseed import (
+    _default_encoding,
+    _read_source,
+    _split_fdsn_code,
+    _validate_encoding,
+    _validate_record_length,
+)
+
+if TYPE_CHECKING:
+    from shakelab.signals.base import StreamCollection
+
+__all__ = ["MSEED_VERSION", "msread", "mswrite"]
+
+# Default MiniSEED version for writing.
 MSEED_VERSION = 2
 
+# Encodings that cymseed3 packs correctly (samples held as int32).
+_CYMSEED3_ENCODINGS = (3, 10, 11)
 
-def msread(input_data_source, stream_collection=None):
+
+def msread(
+    source: Any,
+    stream_collection: Optional[StreamCollection] = None,
+) -> StreamCollection:
     """
-    Read MiniSEED data from a file or byte stream and populate a
-    StreamCollection.
+    Read MiniSEED 2 or 3 waveforms into a StreamCollection.
 
-    Parameters:
-        input_data_source (str or bytes):
-            The path to the MiniSEED file or a byte stream of MiniSEED data.
-        stream_collection (StreamCollection, optional):
-            A collection to store the read records. 
-            If None, a new StreamCollection is created.
+    Parameters
+    ----------
+    source : str, path-like, bytes or binary file object
+        MiniSEED file, its content, or a file opened in binary mode.
+    stream_collection : StreamCollection, optional
+        Collection to which the records are appended; a new one if
+        omitted.
 
-    Returns:
-        StreamCollection:
-            A collection of records containing the read MiniSEED data.
+    Returns
+    -------
+    StreamCollection
+        Collection with one record per contiguous segment of each
+        channel, as joined by libmseed.
     """
+    from shakelab.signals.base import Record, StreamCollection
+
     if stream_collection is None:
-        stream_collection = base.StreamCollection()
+        stream_collection = StreamCollection()
 
-    # Determine if the input is a file path or a byte stream
-    if isinstance(input_data_source, bytes):
-        fid = BytesIO(input_data_source)
-    else:
-        fid = open(input_data_source, 'rb')
+    content = bytes(_read_source(source))
+    if not content:
+        return stream_collection
 
-    # Read the MiniSEED data from the file or byte stream
-    buffer = fid.read()
+    ms = MiniSeed()
+    ms.read(content)
 
-    if buffer:
-        # Initialize the MiniSeed object and read the buffer data
-        ms = MiniSeed()
-        ms.read(buffer)
-
-        # Export the read records into a list of dictionaries
-        record_list = ms.export_records()
-
-        # Process each record dictionary and convert it into a Record object
-        if record_list:
-            for record_dict in record_list:
-
-                record = base.Record()
-
-                # Format the FDSN code
-                fdsn_code = '{0}.{1}.{2}.{3}'.format(
-                    record_dict['network'],
-                    record_dict['station'],
-                    record_dict['location'],
-                    record_dict['channel']
-                    )
-
-                # Populate the Record object's metadata and data
-                record.head.sid = fdsn_code
-                record.head.rate = record_dict['rate']
-                record.head.time = record_dict['starttime']
-                record.data = np.array(record_dict['data'])
-
-                # Append the Record to the StreamCollection
-                stream_collection.append(record)
+    for segment in ms.export_records() or []:
+        data = segment["data"]
+        if not data or isinstance(data[0], str):
+            continue
+        dtype = np.int32 if isinstance(data[0], int) else np.float64
+        stream_collection.append(
+            Record(
+                data=np.asarray(data, dtype=dtype),
+                delta=1.0 / segment["rate"],
+                time=Date(segment["starttime"]),
+                sid=".".join(
+                    segment[code].strip()
+                    for code in ("network", "station", "location", "channel")
+                ),
+            )
+        )
 
     return stream_collection
 
-def mswrite(output_data_source, stream_collection,
-            encoding=11, reclen=512, msformat=None):
+
+def mswrite(
+    target: Any,
+    stream_collection: Any,
+    encoding: Optional[int] = None,
+    reclen: int = 512,
+    msformat: Optional[int] = None,
+) -> None:
     """
-    Write a StreamCollection to a MiniSEED file.
+    Write waveforms to a MiniSEED file.
 
-    Parameters:
-        output_data_source (str):
-            The path to the output MiniSEED file.
-        stream_collection (StreamCollection):
-            A collection of records to be written to the MiniSEED file.
-        encoding (int, optional):
-            The encoding format to use for the MiniSEED data.
-            Default is 11 (Steim-2).
-        reclen (int, optional):
-            The record length to use for the MiniSEED data.
-            Default is 512 bytes.
-        msformat (int, optional):
-            The miniseed format version of the output file (2 or 3).
-            Default is 2.
+    Parameters
+    ----------
+    target : str or path-like
+        Output file.
+    stream_collection : StreamCollection
+        Waveforms to write.
+    encoding : int, optional
+        MiniSEED encoding. If None (default), it follows the type of
+        each record's data: STEIM2 for integers, 4 for float32 and 5
+        for other floating-point types.
+    reclen : int, optional
+        Record length in bytes. Default is 512.
+    msformat : {2, 3}, optional
+        MiniSEED version; :data:`MSEED_VERSION` if None.
 
-    Returns:
-        None
+    Raises
+    ------
+    ValueError
+        If the version, encoding, record length or a source identifier
+        is invalid.
+    NotImplementedError
+        For MiniSEED 3 with encodings other than 3, 10 and 11, or with
+        records needing different encodings (see the module notes).
     """
     if msformat is None:
         msformat = MSEED_VERSION
+    if msformat not in (2, 3):
+        raise ValueError(f"Unsupported MiniSEED version: {msformat}")
+    if encoding is not None:
+        _validate_encoding(encoding)
+    _validate_record_length(reclen)
 
-    # Initialize a new MiniSeed object
+    records = [record for stream in stream_collection for record in stream]
+    if not records:
+        return
+
+    encodings = {
+        _default_encoding(np.asarray(record.data))
+        if encoding is None else encoding
+        for record in records
+    }
+
+    if len(encodings) > 1 or not encodings <= set(_CYMSEED3_ENCODINGS):
+        if msformat == 2:
+            _pymseed.mswrite(target, stream_collection, encoding, reclen)
+            return
+        raise NotImplementedError(
+            "MiniSEED 3 is written by cymseed3 with one integer encoding "
+            "(3, 10 or 11) only"
+        )
+
+    (record_encoding,) = encodings
     ms = MiniSeed()
 
-    # Iterate through each stream/record in the StreamCollection
-    for stream in stream_collection:
-        code = fdsnws.FDSNCode(stream.sid)
+    for record in records:
+        network, station, location, channel = _split_fdsn_code(record.sid)
+        ms.import_record(
+            {
+                "network": network,
+                "station": station,
+                "location": location,
+                "channel": channel,
+                "starttime": record.time.get_date("iso8601"),
+                "rate": record.rate,
+                "nsamp": record.nsamp,
+                "data": np.asarray(record.data),
+            },
+            encoding=record_encoding,
+            reclen=reclen,
+        )
 
-        for record in stream:
-            # Create a record dictionary to store the metadata and data
-            record_dict = {
-                'network' : code.network,
-                'station' : code.station,
-                'location' : code.location,
-                'channel' : code.channel,
-                'starttime' : record.time.get_date('iso8601'),
-                'rate' : record.rate,
-                'nsamp' : record.nsamp,
-                'data' : record.data
-            }
-            # Import the record dictionary into the MiniSeed object
-            ms.import_record(record_dict, encoding=encoding, reclen=reclen)
-
-    # Write the MiniSEED data to a byte buffer
-    buffer = ms.write(msformat, reclen, encoding)
-
-    # Write the buffer to the specified output file
-    with open(output_data_source, 'wb') as fid:
-        fid.write(buffer)
+    content = ms.write(msformat, reclen, record_encoding)
+    with open(target, "wb") as fid:
+        fid.write(content)

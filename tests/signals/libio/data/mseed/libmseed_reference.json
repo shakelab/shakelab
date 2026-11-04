@@ -1,0 +1,421 @@
+{
+ "source": "libmseed 3 through cymseed3 (reading only), 2026-11-04",
+ "hash": "sha256 of the samples as big-endian float64",
+ "files": {
+  "libio/data/mseed/libmseed/reference-testdata-defaults.mseed2": [
+   {
+    "sid": "XX.TEST..BHZ",
+    "starttime": "2012-05-12T00:00:00Z",
+    "rate": 40.0,
+    "nsamp": 499,
+    "sha256": "9d5e614afd1fbd51c07ec2146c9b80bad8b1322b38f4a107f7601c6237513820"
+   }
+  ],
+  "libio/data/mseed/libmseed/reference-testdata-float32.mseed2": [
+   {
+    "sid": "XX.TEST..BHZ",
+    "starttime": "2012-05-12T00:00:00Z",
+    "rate": 40.0,
+    "nsamp": 500,
+    "sha256": "b3e09ca5f2b531d1ace875df2db5ba64e747be1f60f220477c1a6cd747864a0c"
+   }
+  ],
+  "libio/data/mseed/libmseed/reference-testdata-float64.mseed2": [
+   {
+    "sid": "XX.TEST..BHZ",
+    "starttime": "2012-05-12T00:00:00Z",
+    "rate": 40.0,
+    "nsamp": 500,
+    "sha256": "b3e09ca5f2b531d1ace875df2db5ba64e747be1f60f220477c1a6cd747864a0c"
+   }
+  ],
+  "libio/data/mseed/libmseed/reference-testdata-int16.mseed2": [
+   {
+    "sid": "XX.TEST..BHZ",
+    "starttime": "2012-05-12T00:00:00Z",
+    "rate": 40.0,
+    "nsamp": 220,
+    "sha256": "dd5bfe4a102b05f70c220b4daf7052f6bbf97d057f4bac8b9191432ba8384ef9"
+   }
+  ],
+  "libio/data/mseed/libmseed/reference-testdata-int32.mseed2": [
+   {
+    "sid": "XX.TEST..BHZ",
+    "starttime": "2012-05-12T00:00:00Z",
+    "rate": 40.0,
+    "nsamp": 500,
+    "sha256": "e2abcaccb7592f14f2736cbe5246d49f19a7642f8324be4a8e07de644623b405"
+   }
+  ],
+  "libio/data/mseed/libmseed/reference-testdata-steim1-LE.mseed2": [
+   {
+    "sid": "XX.TEST..BHZ",
+    "starttime": "2012-01-01T00:00:00Z",
+    "rate": 40.0,
+    "nsamp": 500,
+    "sha256": "e2abcaccb7592f14f2736cbe5246d49f19a7642f8324be4a8e07de644623b405"
+   }
+  ],
+  "libio/data/mseed/libmseed/reference-testdata-steim1.mseed2": [
+   {
+    "sid": "XX.TEST..BHZ",
+    "starttime": "2012-05-12T00:00:00Z",
+    "rate": 40.0,
+    "nsamp": 500,
+    "sha256": "e2abcaccb7592f14f2736cbe5246d49f19a7642f8324be4a8e07de644623b405"
+   }
+  ],
+  "libio/data/mseed/libmseed/reference-testdata-steim2-LE.mseed2": [
+   {
+    "sid": "XX.TEST..BHZ",
+    "starttime": "2012-01-01T00:00:00Z",
+    "rate": 40.0,
+    "nsamp": 499,
+    "sha256": "9d5e614afd1fbd51c07ec2146c9b80bad8b1322b38f4a107f7601c6237513820"
+   }
+  ],
+  "libio/data/mseed/libmseed/reference-testdata-steim2.mseed2": [
+   {
+    "sid": "XX.TEST..BHZ",
+    "starttime": "2012-05-12T00:00:00Z",
+    "rate": 40.0,
+    "nsamp": 499,
+    "sha256": "9d5e614afd1fbd51c07ec2146c9b80bad8b1322b38f4a107f7601c6237513820"
+   }
+  ],
+  "libio/data/mseed/libmseed/testdata-3channel-signal.mseed2": [
+   {
+    "sid": "IU.COLA.00.LH1",
+    "starttime": "2010-02-27T06:50:00.069539Z",
+    "rate": 1.0,
+    "nsamp": 4200,
+    "sha256": "7a93a8dd7884eb0c26306a06ea50492cc4bd539f4277322dd70134ce648d780f"
+   },
+   {
+    "sid": "IU.COLA.00.LH2",
+    "starttime": "2010-02-27T06:50:00.069539Z",
+    "rate": 1.0,
+    "nsamp": 4200,
+    "sha256": "9786888eba1b5710d879e64cb1a894cd23d660442a659882bde17d905edc1e7e"
+   },
+   {
+    "sid": "IU.COLA.00.LHZ",
+    "starttime": "2010-02-27T06:50:00.069539Z",
+    "rate": 1.0,
+    "nsamp": 4200,
+    "sha256": "37849cb344daece53a86fddf974c978d199b9bb5a8312828ad68345beda5f2c9"
+   }
+  ],
+  "libio/data/mseed/libmseed/testdata-oneseries-mixedlengths-mixedorder.mseed2": [
+   {
+    "sid": "XX.TEST.00.LHZ",
+    "starttime": "2010-02-27T06:50:00.069539Z",
+    "rate": 1.0,
+    "nsamp": 3952,
+    "sha256": "e8ea2246fe3481b0d674c94251300706691082429f52fe8befd0a54a2546d0a2"
+   }
+  ],
+  "libio/data/mseed/libmseed/testdata-unapplied-timecorrection.mseed2": [
+   {
+    "sid": "XX.TEST.00.BHZ",
+    "starttime": "2003-05-29T02:13:23.043400Z",
+    "rate": 40.0,
+    "nsamp": 5980,
+    "sha256": "843da4755948c3069793d37f23bf9148edf8077f969453ed2d37a48717a42554"
+   }
+  ],
+  "libio/data/mseed/emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.ACC.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNE",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "c2a4cac95eddb99a4dc520b4c00cd1f3b871717977dd473cd35186072308c298"
+   }
+  ],
+  "libio/data/mseed/emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.DIS.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNE",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "afcaf76af1bfff6e4772cd1bd60b304182983d5c43d8c7f551c5ccbd1d702a5a"
+   }
+  ],
+  "libio/data/mseed/emilia_1st_shock/IV.MODE..HNE.IT-2012-0008.VEL.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNE",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "e1b29a0962d490c384d1e0338842efb3d31e433be71eb8818634a225862fa814"
+   }
+  ],
+  "libio/data/mseed/emilia_1st_shock/IV.MODE..HNN.IT-2012-0008.ACC.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNN",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "8378400924759041acc04f36821b23ba5b577135d064926706086432ba43db1e"
+   }
+  ],
+  "libio/data/mseed/emilia_1st_shock/IV.MODE..HNN.IT-2012-0008.DIS.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNN",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "ce3e7f2fa32853772181600dae5b29d7255571062e2e95add06eee84eee08c76"
+   }
+  ],
+  "libio/data/mseed/emilia_1st_shock/IV.MODE..HNN.IT-2012-0008.VEL.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNN",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "0dbc2879d8397e7027c7d65b28c5a37fb5e34d17ac7e5a41c3027cbe8ac96133"
+   }
+  ],
+  "libio/data/mseed/emilia_1st_shock/IV.MODE..HNZ.IT-2012-0008.ACC.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNZ",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "ad5d527e42a75355b0b5c79f8c989d0e2fafcc100acedc584bc1460e498e9974"
+   }
+  ],
+  "libio/data/mseed/emilia_1st_shock/IV.MODE..HNZ.IT-2012-0008.DIS.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNZ",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "bbe5b124b13d1627c9662304459db94e696db94965f15a381efdfede94a42852"
+   }
+  ],
+  "libio/data/mseed/emilia_1st_shock/IV.MODE..HNZ.IT-2012-0008.VEL.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNZ",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "7d13774d796dfe3b887a9467a8e04ea86f2d90c676e95bd2bfb4e5e646a8d879"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc10_len512_be.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.102656Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc10_len512_le.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.099320Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc11_len512_be.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.108901Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc11_len512_le.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.105941Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc1_len512_be.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.079229Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc1_len512_le.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.076969Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc3_len512_be.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.084394Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc3_len512_le.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.082217Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc4_len512_be.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.090050Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc4_len512_le.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.087157Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc5_len512_be.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.095880Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "libio/data/mseed/synth/fibonacci_enc5_len512_le.mseed": [
+   {
+    "sid": "AA.NOA.00.Z",
+    "starttime": "2022-06-22T16:48:21.092897Z",
+    "rate": 200.0,
+    "nsamp": 13,
+    "sha256": "dcaab912d26fd8c5109f7f0bf155a28bbeb8b2fa53d55d1c84d89185c8b1dd7f"
+   }
+  ],
+  "data/ESM/MSEED/IV.MODE..HNE.IT-2012-0008.ACC.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNE",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "a5ffbbe35f6b640d1e71330de02f2b7160a5e2425d233ff131c8b6047999e2e0"
+   }
+  ],
+  "data/ESM/MSEED/IV.MODE..HNE.IT-2012-0008.DIS.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNE",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "9f79e7e74d85ada4e07bca261e7d330ea800b6fd02c299d3db845f0acdb72b76"
+   }
+  ],
+  "data/ESM/MSEED/IV.MODE..HNE.IT-2012-0008.VEL.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNE",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "55808ddfe9f899af4610f098d14117e19167f5fcb99f5fd04b7ae2ab866b26b6"
+   }
+  ],
+  "data/ESM/MSEED/IV.MODE..HNN.IT-2012-0008.ACC.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNN",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "63fca6fd342b4165b72f548db2c3d5827fb126ab595ebc355ebb9a0ac95dff10"
+   }
+  ],
+  "data/ESM/MSEED/IV.MODE..HNN.IT-2012-0008.DIS.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNN",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "0ce12459d45c0a87ee846eeea8ed79ef1d4a622d9126d90ff39f3e1d8a990457"
+   }
+  ],
+  "data/ESM/MSEED/IV.MODE..HNN.IT-2012-0008.VEL.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNN",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "5cc82d687e974c7ff5798f092a7178a3502f6075894fb9632fdb36c63baaebb5"
+   }
+  ],
+  "data/ESM/MSEED/IV.MODE..HNZ.IT-2012-0008.ACC.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNZ",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "e6a0dd7fba2b70d24d1e934e468b650620a5960dda21a55ecb7b822d7ef58f9e"
+   }
+  ],
+  "data/ESM/MSEED/IV.MODE..HNZ.IT-2012-0008.DIS.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNZ",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "f776ee4bea027e61848047fc4c0dce7a799087bb7be195cafc8a519de1003fc1"
+   }
+  ],
+  "data/ESM/MSEED/IV.MODE..HNZ.IT-2012-0008.VEL.MP.mseed": [
+   {
+    "sid": "IV.MODE..HNZ",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 200.0,
+    "nsamp": 40000,
+    "sha256": "d453dea2d690b89f23498b62b9d9f357456092619ab8f32a1c09fe5b25c776dd"
+   }
+  ],
+  "data/MODE.mseed": [
+   {
+    "sid": "IV.MODE..HNE",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 100.0,
+    "nsamp": 18001,
+    "sha256": "a26163b2fffe8e0f7312fd7146ae434abb946e8306380c906438f7d141701884"
+   },
+   {
+    "sid": "IV.MODE..HNN",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 100.0,
+    "nsamp": 18001,
+    "sha256": "ee98a5716ce74805fba4875dc1aa2edf6a97746c2ebe70df16e5596e0b7f8fd2"
+   },
+   {
+    "sid": "IV.MODE..HNZ",
+    "starttime": "2012-05-20T02:03:23Z",
+    "rate": 100.0,
+    "nsamp": 18001,
+    "sha256": "26b30f081fe27bbd93f07fe501e64d5739acc54c23f772c2e374243a87164285"
+   }
+  ]
+ }
+}

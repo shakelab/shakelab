@@ -1,5 +1,4 @@
 # ****************************************************************************
-#
 # Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
@@ -15,676 +14,750 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
-Lightweight MiniSEED reader and writer.
+Pure-Python MiniSEED 2 reader and writer.
 
-This module provides a minimal pure-Python MiniSEED implementation used by
-ShakeLab.  It is intended mainly as a transparent reader/writer and as a
-fallback implementation.  High-performance decoding of compressed MiniSEED
-records, especially STEIM1/2, should preferably be delegated to a libmseed
-backend by the calling layer.
+This module reads and writes MiniSEED 2 data records (SEED manual v2.4,
+chapter 8) without compiled extensions. It is the transparent fallback
+of the libmseed backend (:mod:`shakelab.signals.libio.cymseed`); both
+return the same ShakeLab objects.
 
-The implementation supports:
+Reading
+-------
+- Byte order of each record detected from its header (as libmseed
+  does), or imposed with ``byte_order``.
+- Encodings 0 (text), 1 (int16), 3 (int32), 4 (float32), 5 (float64),
+  10 (STEIM1) and 11 (STEIM2), in either word order. Records with
+  other encodings are skipped by :func:`msread` with a
+  :class:`MSeedWarning`.
+- Start time with the microseconds of blockette 1001 and the time
+  correction of the fixed header, when not already applied.
+- Sampling rate from blockette 100, if present, otherwise from the rate
+  factor and multiplier.
+- Records without samples or with a null rate (log, detection, timing
+  records) are not waveforms: :func:`msread` skips them, the raw
+  functions return them.
+- Contiguous records of a channel are joined into one
+  :class:`~shakelab.signals.base.Record`.
 
-- fixed section data header;
-- blockettes 1000 and 1001;
-- uncompressed encodings 0, 1, 3, 4;
-- STEIM1 and STEIM2 encoding and decoding in pure Python.
+Writing
+-------
+- Big-endian records with blockette 1000, and blockette 1001 when the
+  start time has microseconds beyond the 0.1 ms of the fixed header.
+- The encoding follows the type of the data unless given: STEIM2 for
+  integers, 4 for float32, 5 for float64.
 
-The public API includes:
-
-- msread()
-- mswrite()
-- msrawread()
-- msrawiter()
-- msrawwrite()
-- MSRecord
+MiniSEED 3 is read and written by the libmseed backend only.
 """
 
-import logging
-from collections.abc import Callable
-from copy import deepcopy
+from __future__ import annotations
+
+import os
+import struct
+import warnings
+from datetime import date as _date
 from fractions import Fraction
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional
 
 import numpy as np
 
 from shakelab.libutils.timeN import Date
-from shakelab.signals.binutils import ByteStream
+
+if TYPE_CHECKING:
+    from shakelab.signals.base import Record, StreamCollection
+
+__all__ = [
+    "ENCODING_ASCII",
+    "ENCODING_INT16",
+    "ENCODING_INT32",
+    "ENCODING_FLOAT32",
+    "ENCODING_FLOAT64",
+    "ENCODING_STEIM1",
+    "ENCODING_STEIM2",
+    "MSRecord",
+    "MSeedWarning",
+    "msread",
+    "mswrite",
+    "msrawiter",
+    "msrawread",
+    "msrawwrite",
+]
 
 
-LOGGER = logging.getLogger(__name__)
+# ----------------------------------------------------------------------------
+# Constants
+# ----------------------------------------------------------------------------
 
-# MiniSEED fixed-header and payload byte order used by default.
-DEFAULT_BYTE_ORDER = "be"
-
-# MiniSEED data encoding identifiers.
+# MiniSEED data encoding identifiers (SEED manual, blockette 1000).
 ENCODING_ASCII = 0
 ENCODING_INT16 = 1
 ENCODING_INT32 = 3
 ENCODING_FLOAT32 = 4
+ENCODING_FLOAT64 = 5
 ENCODING_STEIM1 = 10
 ENCODING_STEIM2 = 11
 
-ADMITTED_RECORD_LENGTH = (256, 512, 1024, 2048, 4096, 8192)
-ADMITTED_ENCODING = (
-    ENCODING_ASCII,
-    ENCODING_INT16,
-    ENCODING_INT32,
-    ENCODING_FLOAT32,
-    ENCODING_STEIM1,
-    ENCODING_STEIM2,
-)
+STEIM_ENCODINGS = (ENCODING_STEIM1, ENCODING_STEIM2)
 
-# Fixed section data header size in bytes.
-HEADER_SIZE = 48
-
-# One STEIM frame contains sixteen 32-bit words.
-FRAME_SIZE = 64
-
-# Signed 32-bit sample limits required by STEIM1 and STEIM2.
-INT32_MIN = -(2 ** 31)
-INT32_MAX = 2 ** 31 - 1
-
-SIMPLE_DATA_FORMAT = {
+# Uncompressed encodings: NumPy type code and sample size in bytes.
+SIMPLE_ENCODINGS = {
     ENCODING_ASCII: ("S1", 1),
     ENCODING_INT16: ("i2", 2),
     ENCODING_INT32: ("i4", 4),
     ENCODING_FLOAT32: ("f4", 4),
+    ENCODING_FLOAT64: ("f8", 8),
 }
 
-STRUCT_DATA_FORMAT = {
-    ENCODING_ASCII: ("s", 1),
-    ENCODING_INT16: ("h", 2),
-    ENCODING_INT32: ("i", 4),
-    ENCODING_FLOAT32: ("f", 4),
+SUPPORTED_ENCODINGS = tuple(SIMPLE_ENCODINGS) + STEIM_ENCODINGS
+
+# Record lengths: powers of two from 128 to 65536 bytes.
+RECORD_LENGTHS = tuple(2 ** k for k in range(7, 17))
+
+# Fixed section of the data header (48 bytes).
+HEADER_SIZE = 48
+
+# One STEIM frame holds sixteen 32-bit words.
+FRAME_SIZE = 64
+
+INT32_MIN = -(2 ** 31)
+INT32_MAX = 2 ** 31 - 1
+
+# Bit 1 of the activity flags: time correction already applied.
+TIME_CORRECTION_APPLIED = 0x02
+
+# Names of the fixed-header fields, in file order, and their layout.
+HEADER_FIELDS = (
+    "SEQUENCE_NUMBER",
+    "DATA_HEADER_QUALITY_INDICATOR",
+    "RESERVED_BYTE",
+    "STATION_CODE",
+    "LOCATION_IDENTIFIER",
+    "CHANNEL_IDENTIFIER",
+    "NETWORK_CODE",
+    "YEAR",
+    "DAY",
+    "HOURS",
+    "MINUTES",
+    "SECONDS",
+    "UNUSED",
+    "MSECONDS",
+    "NUMBER_OF_SAMPLES",
+    "SAMPLE_RATE_FACTOR",
+    "SAMPLE_RATE_MULTIPLIER",
+    "ACTIVITY_FLAGS",
+    "IO_FLAGS",
+    "DATA_QUALITY_FLAGS",
+    "NUMBER_OF_BLOCKETTES_TO_FOLLOW",
+    "TIME_CORRECTION",
+    "OFFSET_TO_BEGINNING_OF_DATA",
+    "OFFSET_TO_BEGINNING_OF_BLOCKETTE",
+)
+HEADER_FORMAT = "6sss5s2s3s2sHHBBBBHHhhBBBBiHH"
+TEXT_FIELDS = HEADER_FIELDS[:7]
+TEXT_WIDTH = dict(zip(TEXT_FIELDS, (6, 1, 1, 5, 2, 3, 2)))
+
+# Supported blockettes: field names and layout after the 4-byte
+# type/next header. Other blockettes are skipped.
+BLOCKETTE_FIELDS = {
+    100: (("SAMPLE_RATE", "FLAGS", "RESERVED"), "fB3s"),
+    1000: (
+        ("ENCODING_FORMAT", "WORD_ORDER", "DATA_RECORD_LENGTH",
+         "RESERVED"),
+        "BBBB",
+    ),
+    1001: (
+        ("TIMING_QUALITY", "MICRO_SEC", "RESERVED", "FRAME_COUNT"),
+        "BbBB",
+    ),
 }
 
+_UNIX_DAY0 = _date(1970, 1, 1).toordinal()
+_NS_PER_DAY = 86_400 * 10 ** 9
+_NS_PER_TENTH_MS = 100_000
 
-def msread(input_data_source, stream_collection=None,
-           byte_order=DEFAULT_BYTE_ORDER):
+
+class MSeedWarning(UserWarning):
+    """Warning about MiniSEED records that are skipped or suspicious."""
+
+
+# ----------------------------------------------------------------------------
+# High-level functions
+# ----------------------------------------------------------------------------
+
+
+def msread(
+    source: Any,
+    stream_collection: Optional[StreamCollection] = None,
+    byte_order: Optional[str] = None,
+) -> StreamCollection:
     """
-    Read a MiniSEED file and return a ShakeLab StreamCollection.
+    Read MiniSEED waveforms into a StreamCollection.
 
     Parameters
     ----------
-    input_data_source : str or ByteStream
-        Input MiniSEED file path or an already opened ByteStream.
+    source : str, path-like, bytes or binary file object
+        MiniSEED file, its content, or a file opened in binary mode.
     stream_collection : StreamCollection, optional
-        Existing collection to which decoded records are appended.
-    byte_order : str, optional
-        Byte order used by ByteStream. Default is ``"be"``.
+        Collection to which the records are appended; a new one if
+        omitted.
+    byte_order : {"be", "le"}, optional
+        Byte order of all records. If None (default), it is detected
+        from each record header.
 
     Returns
     -------
     StreamCollection
-        Collection containing the decoded ShakeLab records.
+        Collection with one record per contiguous segment of each
+        channel.
+
+    Warns
+    -----
+    MSeedWarning
+        Once per file, if records with unsupported encodings are
+        skipped; for each record whose last decoded sample differs from
+        the one declared in the STEIM frames (the data are kept).
+
+    Notes
+    -----
+    The records of each channel are sorted by time and joined when they
+    have the same sampling rate and the gap from the end of the
+    previous one is within
+    :data:`~shakelab.signals.base.MERGE_TOLERANCE` samples, whatever
+    their order in the file.
+    Records without samples or sampling rate (log, detection and timing
+    records) are skipped.
     """
-    from shakelab.signals.base import StreamCollection
+    from shakelab.signals.base import (
+        MERGE_TOLERANCE,
+        Record,
+        StreamCollection,
+    )
 
     if stream_collection is None:
         stream_collection = StreamCollection()
 
-    for record in msrawiter(input_data_source, byte_order=byte_order):
-        stream_collection.append(record.to_shakelab())
+    pieces: dict = {}
+    skipped: dict = {}
+
+    for raw in msrawiter(source, byte_order=byte_order):
+        if raw.is_waveform:
+            pieces.setdefault(raw.sid, []).append(
+                (raw.start_ns, raw.rate, raw.data)
+            )
+        elif raw.nsamp and raw.rate and raw.data is None:
+            skipped[raw.encoding] = skipped.get(raw.encoding, 0) + 1
+
+    if skipped:
+        counts = ", ".join(
+            f"{count} with encoding {enc}"
+            for enc, count in sorted(skipped.items())
+        )
+        warnings.warn(
+            f"MiniSEED records with unsupported encodings skipped: "
+            f"{counts}",
+            MSeedWarning,
+            stacklevel=2,
+        )
+
+    segments = []
+    for sid, records in pieces.items():
+        records.sort(key=lambda item: item[0])
+        segment = None
+        for start, rate, data in records:
+            if segment is not None:
+                step = 1e9 / rate
+                end = segment["start"] + segment["nsamp"] * step
+                if (
+                    abs(segment["rate"] - rate) <= 1e-9 * rate
+                    and abs(start - end) <= MERGE_TOLERANCE * step
+                ):
+                    segment["chunks"].append(data)
+                    segment["nsamp"] += data.size
+                    continue
+            segment = {
+                "sid": sid,
+                "start": start,
+                "rate": rate,
+                "nsamp": data.size,
+                "chunks": [data],
+            }
+            segments.append(segment)
+
+    for segment in segments:
+        chunks = segment["chunks"]
+        data = chunks[0] if len(chunks) == 1 else np.concatenate(chunks)
+        stream_collection.append(
+            Record(
+                data=data,
+                delta=1.0 / segment["rate"],
+                time=Date.from_unix_ns(segment["start"]),
+                sid=segment["sid"],
+            )
+        )
 
     return stream_collection
 
 
-def mswrite(output_data_source, stream_collection,
-            encoding=ENCODING_STEIM2, reclen=512,
-            msformat=None):
+def mswrite(
+    target: Any,
+    stream_collection: Any,
+    encoding: Optional[int] = None,
+    reclen: int = 512,
+    msformat: Optional[int] = None,
+) -> None:
     """
-    Write a ShakeLab StreamCollection to a MiniSEED 2 file.
+    Write waveforms to a MiniSEED 2 file.
 
     Parameters
     ----------
-    output_data_source : str or ByteStream
-        Output MiniSEED file path or an already opened ByteStream.
+    target : str, path-like or binary file object
+        Output file, or a file opened in binary mode.
     stream_collection : StreamCollection
-        ShakeLab waveform collection to write.
+        Waveforms to write; each record is split into as many MiniSEED
+        records as needed.
     encoding : int, optional
-        MiniSEED encoding. Default is STEIM2.
+        MiniSEED encoding. If None (default), it follows the type of
+        each record's data: STEIM2 for integers, 4 for float32 and 5
+        for other floating-point types.
     reclen : int, optional
-        MiniSEED record length in bytes. Default is 512.
+        Record length in bytes, a power of two from 128 to 65536.
+        Default is 512.
     msformat : int, optional
-        MiniSEED format version. Only version 2 is supported. ``None``
-        is interpreted as version 2.
+        MiniSEED version; only 2 (the default) is supported here.
 
     Raises
     ------
-    TypeError
-        If the input collection contains unsupported objects.
     ValueError
-        If the encoding, record length, format version or waveform
-        metadata are invalid.
+        If the version, encoding, record length or a source identifier
+        is invalid, or if the data cannot be represented with the
+        encoding (e.g. floating-point data with STEIM).
     """
-    if msformat is None:
-        msformat = 2
-
-    if msformat != 2:
+    if msformat not in (None, 2):
         raise ValueError(
-            "The pure-Python backend supports only MiniSEED 2"
+            "The pure-Python MiniSEED backend writes MiniSEED 2 only"
         )
-
-    _validate_encoding(encoding)
+    if encoding is not None:
+        _validate_encoding(encoding)
     _validate_record_length(reclen)
 
-    close_stream = not isinstance(output_data_source, ByteStream)
-
-    if close_stream:
-        byte_stream = ByteStream(byte_order=DEFAULT_BYTE_ORDER)
-        byte_stream.wopen(output_data_source)
-    else:
-        byte_stream = output_data_source
-
-    sequence_number = 1
-
-    try:
+    with _BinaryOutput(target) as fid:
+        sequence_number = 1
         for stream in stream_collection:
             for record in stream:
-                data = np.asarray(record.data)
-
-                if data.ndim != 1:
-                    raise ValueError(
-                        "MiniSEED waveform data must be one-dimensional"
-                    )
-
-                sample_index = 0
-
-                while sample_index < len(data):
-                    if sequence_number > 999999:
-                        raise ValueError(
-                            "MiniSEED sequence number exceeds six digits"
-                        )
-                
-                    raw_record = _from_shakelab_record(
-                        record,
-                        sample_index,
-                        encoding,
-                        reclen,
-                    )
-                
-                    raw_record.data = data[sample_index:]
-                
-                    previous_sample = None
-                
-                    if (
-                        sample_index > 0
-                        and encoding in (
-                            ENCODING_STEIM1,
-                            ENCODING_STEIM2,
-                        )
-                    ):
-                        previous_sample = int(
-                            data[sample_index - 1]
-                        )
-                
-                    sample_count = raw_record.write(
-                        byte_stream,
-                        sequence_number=sequence_number,
-                        record_length=reclen,
-                        encoding=encoding,
-                        allow_partial=True,
-                        previous_sample=previous_sample,
-                    )
-                
-                    if sample_count <= 0:
-                        raise ValueError(
-                            "No waveform samples could be written"
-                        )
-                
-                    sample_index += sample_count
-                    sequence_number += 1
-
-    finally:
-        if close_stream:
-            byte_stream.close()
+                sequence_number = _write_shakelab_record(
+                    fid, record, encoding, reclen, sequence_number
+                )
 
 
-def msrawread(input_data_source, byte_order=DEFAULT_BYTE_ORDER):
+def msrawiter(
+    source: Any,
+    byte_order: Optional[str] = None,
+) -> Iterator[MSRecord]:
     """
-    Read a MiniSEED file and return a list of raw MSRecord objects.
+    Iterate over the raw records of a MiniSEED file.
 
     Parameters
     ----------
-    input_data_source : str or ByteStream
-        Input MiniSEED file path or an already opened ByteStream.
-    byte_order : str, optional
-        Byte order used by ByteStream. Default is ``"be"``.
-
-    Returns
-    -------
-    list of MSRecord
-        Raw MiniSEED records.
-    """
-    return list(msrawiter(input_data_source, byte_order=byte_order))
-
-
-def msrawiter(input_data_source, byte_order=DEFAULT_BYTE_ORDER):
-    """
-    Iterate over raw MiniSEED records.
-
-    This generator avoids materialising the full raw record list before
-    conversion, reducing memory usage for long files.
-
-    Parameters
-    ----------
-    input_data_source : str or ByteStream
-        Input MiniSEED file path or an already opened ByteStream.
-    byte_order : str, optional
-        Byte order used by ByteStream. Default is ``"be"``.
+    source : str, path-like, bytes or binary file object
+        MiniSEED file, its content, or a file opened in binary mode.
+    byte_order : {"be", "le"}, optional
+        Byte order of all records; detected from each header if None.
 
     Yields
     ------
     MSRecord
-        One decoded raw MiniSEED record at a time.
+        Decoded records, in file order. Records with unsupported
+        encodings have ``data`` set to None.
+
+    Raises
+    ------
+    ValueError
+        If a record is invalid (the byte offset is in the message).
+
+    Warns
+    -----
+    MSeedWarning
+        If fewer bytes than a header remain after the last record and
+        they are not all zero (zero padding is ignored silently).
     """
-    close_stream = not isinstance(input_data_source, ByteStream)
+    buffer = memoryview(_read_source(source))
+    offset = 0
+    size = len(buffer)
 
-    if close_stream:
-        byte_stream = ByteStream(byte_order=byte_order)
-        byte_stream.ropen(input_data_source)
-    else:
-        byte_stream = input_data_source
+    while offset + HEADER_SIZE <= size:
+        if not any(buffer[offset:]):
+            return
+        try:
+            record = MSRecord.from_bytes(
+                buffer, offset=offset, byte_order=byte_order
+            )
+        except (ValueError, struct.error) as error:
+            raise ValueError(
+                f"Invalid MiniSEED record at byte offset {offset}: {error}"
+            ) from error
+        yield record
+        offset += record.record_length
 
-    try:
-        while byte_stream.offset < byte_stream.length:
-            offset = byte_stream.offset
-
-            try:
-                record = MSRecord()
-                record.read(byte_stream)
-            except EOFError as exc:
-                msg = "Truncated MiniSEED record at byte offset {0}"
-                raise EOFError(msg.format(offset)) from exc
-            except Exception as exc:
-                msg = "Invalid MiniSEED record at byte offset {0}"
-                raise ValueError(msg.format(offset)) from exc
-
-            yield record
-
-    finally:
-        if close_stream:
-            byte_stream.close()
+    if offset < size and any(buffer[offset:]):
+        warnings.warn(
+            f"{size - offset} trailing bytes after the last MiniSEED "
+            "record ignored",
+            MSeedWarning,
+            stacklevel=2,
+        )
 
 
-def msrawwrite(record_list, output_data_source,
-               byte_order=DEFAULT_BYTE_ORDER,
-               record_length=None,
-               encoding=None):
+def msrawread(source: Any, byte_order: Optional[str] = None) -> list:
     """
-    Write a list of raw MSRecord objects to MiniSEED.
+    Read all raw records of a MiniSEED file (see :func:`msrawiter`).
+
+    Returns
+    -------
+    list of MSRecord
+        Decoded records, in file order.
+    """
+    return list(msrawiter(source, byte_order=byte_order))
+
+
+def msrawwrite(
+    record_list: Any,
+    target: Any,
+    byte_order: str = "be",
+    record_length: Optional[int] = None,
+    encoding: Optional[int] = None,
+) -> None:
+    """
+    Write raw records to a MiniSEED file.
 
     Parameters
     ----------
     record_list : sequence of MSRecord
-        Records to write.
-    output_data_source : str or ByteStream
-        Output file path or an already opened ByteStream.
-    byte_order : str, optional
-        Byte order used by ByteStream. Default is ``"be"``.
+        Records to write; sequence numbers are renumbered from 1.
+    target : str, path-like or binary file object
+        Output file, or a file opened in binary mode.
+    byte_order : {"be", "le"}, optional
+        Byte order of headers and uncompressed data. STEIM frames are
+        always big-endian. Default is ``"be"``.
     record_length : int, optional
-        Output record length in bytes. If omitted, each record retains
-        the value declared in blockette 1000.
+        Record length in bytes; the declared one of each record if
+        None.
     encoding : int, optional
-        Output MiniSEED encoding. If omitted, each record retains the
-        encoding declared in blockette 1000.
+        Encoding; the declared one of each record if None.
+
+    Raises
+    ------
+    ValueError
+        If a record does not fit in the record length.
     """
-    close_stream = not isinstance(output_data_source, ByteStream)
-
-    if close_stream:
-        byte_stream = ByteStream(byte_order=byte_order)
-        byte_stream.wopen(output_data_source)
-    else:
-        byte_stream = output_data_source
-
-    try:
+    with _BinaryOutput(target) as fid:
         for index, record in enumerate(record_list, start=1):
-            record.write(
-                byte_stream,
+            content, _ = record.to_bytes(
                 sequence_number=index,
                 record_length=record_length,
                 encoding=encoding,
+                byte_order=byte_order,
             )
-    finally:
-        if close_stream:
-            byte_stream.close()
+            fid.write(content)
 
 
-def _from_shakelab_record(record, sample_index, encoding,
-                          record_length):
-    """
-    Create an MSRecord from a ShakeLab waveform record.
-
-    Parameters
-    ----------
-    record : Record
-        ShakeLab waveform record.
-    sample_index : int
-        Index of the first sample represented by the MiniSEED record.
-    encoding : int
-        MiniSEED encoding.
-    record_length : int
-        MiniSEED record length in bytes.
-
-    Returns
-    -------
-    MSRecord
-        Initialized raw MiniSEED record.
-    """
-    if not isinstance(sample_index, (int, np.integer)):
-        raise TypeError("sample_index must be an integer")
-
-    if sample_index < 0:
-        raise ValueError("sample_index cannot be negative")
-
-    if record.head.delta is None:
-        raise ValueError("Waveform sampling interval is not defined")
-
-    delta = float(record.head.delta)
-
-    if not np.isfinite(delta) or delta <= 0:
-        raise ValueError(
-            "Waveform sampling interval must be positive and finite"
-        )
-
-    start_time = record.head.time + sample_index * delta
-    rate_factor, rate_multiplier = _sampling_rate_factors(delta)
-
-    network, station, location, channel = _split_fdsn_code(
-        record.head.sid
-    )
-
-    year, day, hour, minute, second, fraction = _mseed_time_fields(
-        start_time
-    )
-
-    raw_record = MSRecord()
-
-    raw_record.header.update({
-        "SEQUENCE_NUMBER": "000001",
-        "DATA_HEADER_QUALITY_INDICATOR": "D",
-        "RESERVED_BYTE": " ",
-        "STATION_CODE": _format_ascii_field(
-            station,
-            5,
-            "station code",
-        ),
-        "LOCATION_IDENTIFIER": _format_ascii_field(
-            location,
-            2,
-            "location identifier",
-        ),
-        "CHANNEL_IDENTIFIER": _format_ascii_field(
-            channel,
-            3,
-            "channel identifier",
-        ),
-        "NETWORK_CODE": _format_ascii_field(
-            network,
-            2,
-            "network code",
-        ),
-        "YEAR": year,
-        "DAY": day,
-        "HOURS": hour,
-        "MINUTES": minute,
-        "SECONDS": second,
-        "UNUSED": 0,
-        "MSECONDS": fraction,
-        "NUMBER_OF_SAMPLES": 0,
-        "SAMPLE_RATE_FACTOR": rate_factor,
-        "SAMPLE_RATE_MULTIPLIER": rate_multiplier,
-        "ACTIVITY_FLAGS": 0,
-        "IO_FLAGS": 0,
-        "DATA_QUALITY_FLAGS": 0,
-        "NUMBER_OF_BLOCKETTES_TO_FOLLOW": 1,
-        "TIME_CORRECTION": 0,
-        "OFFSET_TO_BEGINNING_OF_DATA": 0,
-        "OFFSET_TO_BEGINNING_OF_BLOCKETTE": HEADER_SIZE,
-    })
-
-    raw_record.blockette[1000].update({
-        "ENCODING_FORMAT": int(encoding),
-        "WORD_ORDER": 1,
-        "DATA_RECORD_LENGTH": int(np.log2(record_length)),
-        "RESERVED": 0,
-    })
-
-    return raw_record
+# ----------------------------------------------------------------------------
+# Raw record
+# ----------------------------------------------------------------------------
 
 
 class MSRecord:
     """
-    MiniSEED record.
+    MiniSEED 2 data record.
 
-    The class stores fixed-header fields in ``header``, supported blockettes
-    in ``blockette`` and decoded data in ``data``.  For numeric encodings,
-    ``data`` is a NumPy array.  For encoding 0, ``data`` is a string.
+    Parameters
+    ----------
+    **fields
+        Initial values of fixed-header fields (names as in
+        :data:`HEADER_FIELDS`).
+
+    Attributes
+    ----------
+    header : dict
+        Fixed-header fields; text fields are strings.
+    blockette : dict
+        Supported blockettes (100, 1000, 1001) by type, each a dict of
+        fields.
+    data : numpy.ndarray, str or None
+        Decoded samples (native byte order), text for encoding 0, None
+        if the encoding is not supported.
+    byte_order : str
+        Byte order of the header as read (``"be"`` or ``"le"``).
+
+    Notes
+    -----
+    Records are built from bytes with :meth:`from_bytes` and converted
+    back with :meth:`to_bytes`; unsupported blockettes are not kept.
     """
 
-    def __init__(self, byte_stream=None, **kwargs):
-        self._record_offset = 0
-        self.header = _empty_header()
-        self.blockette = _empty_blockettes()
-        self.data = np.array([], dtype=np.float64)
+    def __init__(self, **fields: Any) -> None:
+        self.header: dict = {name: None for name in HEADER_FIELDS}
+        self.blockette: dict = {
+            1000: {
+                name: None for name in BLOCKETTE_FIELDS[1000][0]
+            }
+        }
+        self.data: Any = np.array([], dtype=np.int32)
+        self.byte_order = "be"
 
-        for key, value in kwargs.items():
-            if key in self.header:
-                self.header[key] = value
+        for key, value in fields.items():
+            if key not in self.header:
+                raise KeyError(f"unknown MiniSEED header field: {key}")
+            self.header[key] = value
 
-        if byte_stream is not None:
-            self.read(byte_stream)
-
-    def __len__(self):
+    def __len__(self) -> int:
         return self.nsamp
 
+    def __repr__(self) -> str:
+        return (
+            f"MSRecord({self.sid}, {self.time}, nsamp={self.nsamp}, "
+            f"rate={self.rate}, encoding={self.encoding})"
+        )
+
+    # -- properties -----------------------------------------------------
+
     @property
-    def nsamp(self):
+    def nsamp(self) -> int:
         """Number of samples declared in the fixed header."""
-        return self.header["NUMBER_OF_SAMPLES"]
+        return self.header["NUMBER_OF_SAMPLES"] or 0
 
     @property
-    def delta(self):
-        """Sampling interval in seconds."""
-        srate = self.header["SAMPLE_RATE_FACTOR"]
-        rmult = self.header["SAMPLE_RATE_MULTIPLIER"]
+    def rate(self) -> float:
+        """
+        Sampling rate in hertz (0 for records without sampling).
 
-        if srate < 0:
-            srate = -1.0 / srate
-
-        if rmult < 0:
-            rmult = 1.0 / rmult
-
-        srate *= rmult
-
-        return 1.0 / srate
+        Blockette 100 takes precedence over the rate factor and
+        multiplier of the fixed header.
+        """
+        b100 = self.blockette.get(100)
+        if b100 and b100["SAMPLE_RATE"] > 0:
+            return float(b100["SAMPLE_RATE"])
+        return _nominal_rate(
+            self.header["SAMPLE_RATE_FACTOR"],
+            self.header["SAMPLE_RATE_MULTIPLIER"],
+        )
 
     @property
-    def seqn(self):
+    def delta(self) -> Optional[float]:
+        """Sampling interval in seconds, None without sampling."""
+        rate = self.rate
+        return 1.0 / rate if rate > 0 else None
+
+    @property
+    def seqn(self) -> int:
         """Sequence number."""
-        return int(_decode_ascii(self.header["SEQUENCE_NUMBER"]))
+        text = self.header["SEQUENCE_NUMBER"].strip()
+        return int(text) if text.isdigit() else 0
 
     @property
-    def time(self):
-        """Record start time as a ShakeLab Date object."""
-        date = "{0:04d}-".format(self.header["YEAR"])
-        date += "{0:03d}T".format(self.header["DAY"])
-        date += "{0:02d}:".format(self.header["HOURS"])
-        date += "{0:02d}:".format(self.header["MINUTES"])
-        date += "{0:02d}.".format(self.header["SECONDS"])
-        date += "{0:04d}".format(self.header["MSECONDS"])
-
-        return Date(date)
-
-    @property
-    def code(self):
-        """FDSN stream identifier."""
-        net = _decode_ascii(self.header["NETWORK_CODE"]).strip()
-        sta = _decode_ascii(self.header["STATION_CODE"]).strip()
-        loc = _decode_ascii(self.header["LOCATION_IDENTIFIER"]).strip()
-        chn = _decode_ascii(self.header["CHANNEL_IDENTIFIER"]).strip()
-
-        return "{0}.{1}.{2}.{3}".format(net, sta, loc, chn)
+    def sid(self) -> str:
+        """Source identifier ``NET.STA.LOC.CHA``."""
+        h = self.header
+        return ".".join(
+            h[name].strip() for name in (
+                "NETWORK_CODE", "STATION_CODE", "LOCATION_IDENTIFIER",
+                "CHANNEL_IDENTIFIER",
+            )
+        )
 
     @property
-    def duration(self):
-        """Record duration in seconds."""
-        return (self.nsamp - 1) * self.delta
-
-    @property
-    def record_length(self):
-        """MiniSEED record length in bytes."""
-        try:
-            return 2 ** self.blockette[1000]["DATA_RECORD_LENGTH"]
-        except KeyError as exc:
-            raise ValueError("Missing required blockette 1000") from exc
-
-    @property
-    def data_byte_length(self):
-        """Available data payload length in bytes."""
-        return self.record_length - self.header["OFFSET_TO_BEGINNING_OF_DATA"]
-
-    def read(self, byte_stream):
+    def start_ns(self) -> int:
         """
-        Read the record from a ByteStream.
+        Start time in nanoseconds from the Unix epoch.
+
+        It includes the microseconds of blockette 1001 and the time
+        correction of the fixed header, unless the activity flags state
+        that it is already applied.
+        """
+        h = self.header
+        days = _date(h["YEAR"], 1, 1).toordinal() - _UNIX_DAY0
+        days += h["DAY"] - 1
+        ns = days * _NS_PER_DAY
+        ns += (h["HOURS"] * 3600 + h["MINUTES"] * 60 + h["SECONDS"]) * 10**9
+        ns += h["MSECONDS"] * _NS_PER_TENTH_MS
+
+        b1001 = self.blockette.get(1001)
+        if b1001:
+            ns += b1001["MICRO_SEC"] * 1000
+
+        correction = h["TIME_CORRECTION"] or 0
+        if correction and not (h["ACTIVITY_FLAGS"] or 0) & (
+            TIME_CORRECTION_APPLIED
+        ):
+            ns += correction * _NS_PER_TENTH_MS
+
+        return ns
+
+    @property
+    def time(self) -> Date:
+        """Start time (see :attr:`start_ns`)."""
+        return Date.from_unix_ns(self.start_ns)
+
+    @property
+    def duration(self) -> float:
+        """Time between the first and the last sample, in seconds."""
+        delta = self.delta
+        return (self.nsamp - 1) * delta if delta and self.nsamp else 0.0
+
+    @property
+    def encoding(self) -> Optional[int]:
+        """Encoding declared in blockette 1000."""
+        return self.blockette.get(1000, {}).get("ENCODING_FORMAT")
+
+    @property
+    def record_length(self) -> int:
+        """Record length in bytes, from blockette 1000."""
+        exponent = self.blockette.get(1000, {}).get("DATA_RECORD_LENGTH")
+        if exponent is None:
+            raise ValueError("Missing required blockette 1000")
+        return 2 ** exponent
+
+    @property
+    def is_waveform(self) -> bool:
+        """True for records with decoded numeric samples and a rate."""
+        return (
+            self.nsamp > 0
+            and self.rate > 0
+            and isinstance(self.data, np.ndarray)
+        )
+
+    # -- conversion -----------------------------------------------------
+
+    @classmethod
+    def from_bytes(
+        cls,
+        buffer: Any,
+        offset: int = 0,
+        byte_order: Optional[str] = None,
+    ) -> MSRecord:
+        """
+        Decode one record.
 
         Parameters
         ----------
-        byte_stream : ByteStream
-            Open binary stream positioned at the beginning of a MiniSEED
-            record.
-        """
-        self._record_offset = byte_stream.offset
-
-        self._get_header(byte_stream)
-        self._get_blockettes(byte_stream)
-        self._validate()
-        self._get_data(byte_stream)
-
-        byte_stream.goto(self._record_offset + self.record_length)
-
-    def write(self, byte_stream, sequence_number=None,
-              record_length=None, encoding=None,
-              allow_partial=False, previous_sample=None):
-        """
-        Write the record to a ByteStream.
-
-        Parameters
-        ----------
-        byte_stream : ByteStream
-            Open output stream.
-        sequence_number : int, optional
-            Sequence number to write. If omitted, the existing header value is
-            preserved.
-        record_length : int, optional
-            Output MiniSEED record length in bytes. If omitted, the value
-            declared in blockette 1000 is retained.
-        encoding : int, optional
-            Output MiniSEED encoding. If omitted, the value declared in
-            blockette 1000 is retained.
-        allow_partial : bool, optional
-            If ``True``, write as many samples as fit and return their
-            number. If ``False``, raise an error unless all samples fit.
-        previous_sample : int, optional
-            Sample immediately preceding this record. Used only by STEIM
-            encodings to calculate the first difference.
+        buffer : bytes-like
+            Content holding the record.
+        offset : int, optional
+            Byte offset of the record in ``buffer``.
+        byte_order : {"be", "le"}, optional
+            Byte order of the header; detected if None.
 
         Returns
         -------
-        int
-            Number of waveform samples written.
+        MSRecord
+            Decoded record.
 
+        Raises
+        ------
+        ValueError
+            If the header, the blockettes or the data are invalid.
         """
-        rec = MSRecord()
-        rec.header = deepcopy(self.header)
-        rec.blockette = deepcopy(self.blockette)
+        buffer = memoryview(buffer)
+        record = cls()
 
-        rec.header["NUMBER_OF_BLOCKETTES_TO_FOLLOW"] = len(
-            rec.blockette
+        if byte_order is None:
+            byte_order = _detect_byte_order(buffer, offset)
+        prefix = _struct_prefix(byte_order)
+        record.byte_order = byte_order
+
+        values = struct.unpack_from(prefix + HEADER_FORMAT, buffer, offset)
+        header = dict(zip(HEADER_FIELDS, values))
+        for name in TEXT_FIELDS:
+            header[name] = header[name].decode("ascii", errors="replace")
+        record.header = header
+        _check_header(header)
+
+        record.blockette = _read_blockettes(
+            buffer, offset, header, prefix
         )
+        if 1000 not in record.blockette:
+            raise ValueError("Missing required blockette 1000")
+
+        length = record.record_length
+        if length not in RECORD_LENGTHS:
+            raise ValueError(f"Unsupported record length: {length}")
+        if offset + length > len(buffer):
+            raise ValueError("Truncated record")
+
+        record.data = record._decode(buffer[offset:offset + length])
+        return record
+
+    def to_bytes(
+        self,
+        sequence_number: Optional[int] = None,
+        record_length: Optional[int] = None,
+        encoding: Optional[int] = None,
+        allow_partial: bool = False,
+        previous_sample: Optional[int] = None,
+        byte_order: str = "be",
+    ) -> tuple:
+        """
+        Encode the record.
+
+        Parameters
+        ----------
+        sequence_number : int, optional
+            Sequence number to write; the current one if None.
+        record_length : int, optional
+            Record length in bytes; the declared one if None.
+        encoding : int, optional
+            Encoding; the declared one if None.
+        allow_partial : bool, optional
+            If True, encode as many samples as fit; otherwise raise
+            ``ValueError`` unless all fit.
+        previous_sample : int, optional
+            Sample preceding the record, for the first STEIM difference.
+        byte_order : {"be", "le"}, optional
+            Byte order of the header and of uncompressed data (STEIM
+            frames are big-endian). Default is ``"be"``.
+
+        Returns
+        -------
+        tuple of (bytes, int)
+            Encoded record and number of samples it holds.
+        """
+        prefix = _struct_prefix(byte_order)
+        header = dict(self.header)
+        blockettes = {k: dict(v) for k, v in self.blockette.items()}
 
         if sequence_number is not None:
-            rec.header["SEQUENCE_NUMBER"] = "{0:06d}".format(
-                sequence_number
-            )
+            if not 0 < sequence_number <= 999999:
+                raise ValueError("sequence number exceeds six digits")
+            header["SEQUENCE_NUMBER"] = f"{sequence_number:06d}"
 
+        b1000 = blockettes[1000]
         if record_length is None:
-            record_length = rec.record_length
-        else:
-            _validate_record_length(record_length)
-            rec.blockette[1000]["DATA_RECORD_LENGTH"] = int(
-                np.log2(record_length)
-            )
+            record_length = self.record_length
+        _validate_record_length(record_length)
+        b1000["DATA_RECORD_LENGTH"] = record_length.bit_length() - 1
 
         if encoding is None:
-            encoding = rec.blockette[1000]["ENCODING_FORMAT"]
-        else:
-            _validate_encoding(encoding)
-            rec.blockette[1000]["ENCODING_FORMAT"] = int(encoding)
+            encoding = b1000["ENCODING_FORMAT"]
+        _validate_encoding(encoding)
+        b1000["ENCODING_FORMAT"] = int(encoding)
+        b1000["RESERVED"] = b1000.get("RESERVED") or 0
 
-        record_offset = byte_stream.offset
-        blockette_end = HEADER_SIZE + _total_blockette_size(
-            rec.blockette
+        steim = encoding in STEIM_ENCODINGS
+        b1000["WORD_ORDER"] = 1 if steim or byte_order == "be" else 0
+
+        # Blockettes: 1000 first, then the others in type order.
+        order = [1000] + sorted(k for k in blockettes if k != 1000)
+        blockette_end = HEADER_SIZE + sum(
+            _blockette_size(k) for k in order
         )
-
-        rec.header["OFFSET_TO_BEGINNING_OF_BLOCKETTE"] = HEADER_SIZE
-
-        if encoding in (
-            ENCODING_STEIM1,
-            ENCODING_STEIM2,
-        ):
-            data_offset = _next_frame_boundary(blockette_end)
-            rec.blockette[1000]["WORD_ORDER"] = 1
-        else:
-            data_offset = blockette_end
-            rec.blockette[1000]["WORD_ORDER"] = _mseed_word_order(
-                byte_stream
-            )
-
+        data_offset = (
+            _next_frame_boundary(blockette_end) if steim else blockette_end
+        )
         if data_offset >= record_length:
-            raise ValueError(
-                "MiniSEED record has no space available for data"
-            )
+            raise ValueError("record has no space available for data")
 
-        rec.header["OFFSET_TO_BEGINNING_OF_DATA"] = data_offset
-
-        if encoding in STRUCT_DATA_FORMAT:
-            data = _prepare_output_data(self.data, encoding)
-
-            _, sample_size = STRUCT_DATA_FORMAT[encoding]
-            max_samples = (
-                record_length - data_offset
-            ) // sample_size
-
-            sample_count = min(len(data), max_samples)
-
-            if sample_count != len(data) and not allow_partial:
-                raise ValueError(
-                    "Data do not fit in the selected MiniSEED record "
-                    "length: {0} of {1} samples can be written using "
-                    "encoding {2}".format(
-                        sample_count,
-                        len(data),
-                        encoding,
-                    )
-                )
-
-            payload = None
-            frame_count = None
-
-        elif encoding in (
-            ENCODING_STEIM1,
-            ENCODING_STEIM2,
-        ):
-            (
-                data,
-                payload,
-                sample_count,
-                frame_count,
-            ) = _encode_steim_payload(
+        if steim:
+            _, payload, count, frames = _encode_steim_payload(
                 self.data,
                 encoding,
                 record_length,
@@ -692,676 +765,788 @@ class MSRecord:
                 require_all=not allow_partial,
                 previous_sample=previous_sample,
             )
-
+            if 1001 in blockettes:
+                blockettes[1001]["FRAME_COUNT"] = frames
         else:
-            raise ValueError(
-                "Unsupported MiniSEED encoding: {0}".format(
-                    encoding
-                )
+            payload, count = _encode_simple(
+                self.data,
+                encoding,
+                record_length - data_offset,
+                prefix,
+                allow_partial,
             )
+            if 1001 in blockettes:
+                blockettes[1001]["FRAME_COUNT"] = 0
 
-        rec.header["NUMBER_OF_SAMPLES"] = sample_count
+        header["NUMBER_OF_SAMPLES"] = count
+        header["NUMBER_OF_BLOCKETTES_TO_FOLLOW"] = len(order)
+        header["OFFSET_TO_BEGINNING_OF_BLOCKETTE"] = HEADER_SIZE
+        header["OFFSET_TO_BEGINNING_OF_DATA"] = data_offset
 
-        if 1001 in rec.blockette:
-            if frame_count is None:
-                rec.blockette[1001]["FRAME_COUNT"] = 0
-            else:
-                rec.blockette[1001]["FRAME_COUNT"] = frame_count
-
-        self._write_header(byte_stream, rec)
-        self._write_blockettes(
-            byte_stream,
-            rec,
-            record_offset,
+        content = bytearray(record_length)
+        struct.pack_into(
+            prefix + HEADER_FORMAT,
+            content,
+            0,
+            *(_header_value(name, header[name]) for name in HEADER_FIELDS),
         )
 
-        byte_stream.goto(record_offset + data_offset)
-
-        if encoding in STRUCT_DATA_FORMAT:
-            self._write_data(
-                byte_stream,
-                data,
-                sample_count,
-                encoding,
+        position = HEADER_SIZE
+        for index, block_type in enumerate(order):
+            size = _blockette_size(block_type)
+            following = (
+                0 if index == len(order) - 1 else position + size
             )
-        else:
-            byte_stream.buffer.write(payload)
-
-        padding = record_offset + record_length - byte_stream.offset
-
-        if padding < 0:
-            raise ValueError(
-                "Encoded data exceed the selected MiniSEED record length"
+            names, layout = BLOCKETTE_FIELDS[block_type]
+            values = [blockettes[block_type].get(name) or 0
+                      for name in names]
+            if block_type == 100:
+                values[2] = b"\x00\x00\x00"
+            struct.pack_into(
+                prefix + "HH" + layout,
+                content,
+                position,
+                block_type,
+                following,
+                *values,
             )
+            position += size
 
-        if padding:
-            byte_stream.buffer.write(b"\x00" * padding)
+        content[data_offset:data_offset + len(payload)] = payload
+        return bytes(content), count
 
-        return sample_count
-
-    def append(self, record):
+    def to_shakelab(self) -> Record:
         """
-        Append another MSRecord to this record.
+        Convert the record to a ShakeLab Record.
 
-        Parameters
-        ----------
-        record : MSRecord
-            Record to append.
-
-        Notes
-        -----
-        This method assumes compatible stream id, sampling rate and timing.
-        Consistency checks should be performed by the calling code.
-        """
-        self.header["SEQUENCE_NUMBER"] = record.header["SEQUENCE_NUMBER"]
-        self.header["NUMBER_OF_SAMPLES"] += record.header[
-            "NUMBER_OF_SAMPLES"
-        ]
-
-        if isinstance(self.data, np.ndarray):
-            self.data = np.concatenate((self.data, record.data))
-        else:
-            self.data += record.data
-
-    def to_shakelab(self):
-        """
-        Convert the MiniSEED record to a ShakeLab Record.
-
-        Returns
-        -------
-        Record
-            ShakeLab signal record.
+        Raises
+        ------
+        ValueError
+            If the record holds no waveform (see :attr:`is_waveform`).
         """
         from shakelab.signals.base import Record
 
-        record = Record()
-
-        record.head.sid = self.code
-        record.head.delta = self.delta
-        record.head.time = self.time
-
-        if isinstance(self.data, np.ndarray):
-            record.data = self.data.copy()
-        else:
-            record.data = np.array(self.data)
-
-        return record
-
-    def _get_header(self, byte_stream):
-        """Read the fixed section data header."""
-        self.header = {}
-
-        for name, dtype, size in HEAD_STRUCT:
-            self.header[name] = byte_stream.get(dtype, size)
-
-    def _get_blockettes(self, byte_stream):
-        """Read supported blockettes."""
-        self.blockette = {}
-        block_offset = self.header["OFFSET_TO_BEGINNING_OF_BLOCKETTE"]
-
-        for _ in range(self.header["NUMBER_OF_BLOCKETTES_TO_FOLLOW"]):
-            byte_stream.goto(self._record_offset + block_offset)
-
-            block_type = byte_stream.get("H", 2)
-            next_offset = byte_stream.get("H", 2)
-
-            if block_type not in BLOCK_STRUCT:
-                LOGGER.debug("Unsupported MiniSEED blockette %s", block_type)
-                block_offset = next_offset
-                continue
-
-            blockette = {"OFFSET_NEXT": next_offset}
-
-            for name, dtype, size in BLOCK_STRUCT[block_type]:
-                blockette[name] = byte_stream.get(dtype, size)
-
-            self.blockette[block_type] = blockette
-            block_offset = next_offset
-
-            if block_offset == 0:
-                break
-
-    def _get_data(self, byte_stream):
-        """Read and decode the record payload."""
-        offset = (
-            self._record_offset
-            + self.header["OFFSET_TO_BEGINNING_OF_DATA"]
+        if not self.is_waveform:
+            raise ValueError("the MiniSEED record holds no waveform")
+        return Record(
+            data=self.data.copy(),
+            delta=self.delta,
+            time=self.time,
+            sid=self.sid,
         )
 
-        byte_stream.goto(offset)
+    # -- decoding -------------------------------------------------------
 
-        nsamp = self.header["NUMBER_OF_SAMPLES"]
-        encoding = self.blockette[1000]["ENCODING_FORMAT"]
-
-        if encoding in SIMPLE_DATA_FORMAT:
-            self.data = self._read_simple_data(byte_stream, encoding, nsamp)
-
-        elif encoding in (
-            ENCODING_STEIM1,
-            ENCODING_STEIM2,
-        ):
-            self.data = self._read_steim_data(byte_stream, encoding, nsamp)
-
-        else:
-            raise ValueError("Unsupported MiniSEED encoding: {0}".format(
-                encoding
-            ))
-
-    def _read_simple_data(self, byte_stream, encoding, nsamp):
-        """Read uncompressed data using NumPy from a single byte block."""
-        dtype_code, sample_size = SIMPLE_DATA_FORMAT[encoding]
-        byte_count = self.data_byte_length
-
-        raw = _read_bytes(byte_stream, byte_count)
-
-        if encoding == ENCODING_ASCII:
-            return raw[:nsamp].decode("ascii", errors="replace")
-
-        dtype = np.dtype(dtype_code).newbyteorder(_numpy_byte_order(
-            byte_stream
-        ))
-
-        available = byte_count // sample_size
-        count = min(nsamp, available)
-
-        data = np.frombuffer(raw, dtype=dtype, count=count)
-
-        return data.copy()
-
-    def _read_steim_data(self, byte_stream, encoding, nsamp):
-        """Read and decode STEIM1 or STEIM2 compressed data."""
-        word_order = self.blockette[1000]["WORD_ORDER"]
-
-        if word_order != 1:
-            raise ValueError(
-                "STEIM1/2 payload must use big-endian word order"
-            )
-
-        raw = _read_bytes(
-            byte_stream,
-            self.data_byte_length,
-        )
-
-        return _decode_steim(raw, encoding, nsamp)
-
-    def _validate(self):
-        """Validate minimal record consistency."""
-        if 1000 not in self.blockette:
-            raise ValueError("Missing required MiniSEED blockette 1000")
-
-        encoding = self.blockette[1000]["ENCODING_FORMAT"]
-        record_length = self.record_length
-
-        _validate_encoding(encoding)
-        _validate_record_length(record_length)
+    def _decode(self, content: memoryview) -> Any:
+        """Decode the data section of the record content."""
+        nsamp = self.nsamp
+        encoding = self.encoding
+        if nsamp == 0:
+            return np.array([], dtype=np.int32)
 
         data_offset = self.header["OFFSET_TO_BEGINNING_OF_DATA"]
+        if not HEADER_SIZE <= data_offset < len(content):
+            raise ValueError(f"Invalid data offset: {data_offset}")
+        payload = content[data_offset:]
+        word_order = "be" if self.blockette[1000]["WORD_ORDER"] else "le"
 
-        if data_offset < HEADER_SIZE:
-            raise ValueError("Invalid MiniSEED data offset")
+        if encoding in STEIM_ENCODINGS:
+            usable = len(payload) - len(payload) % FRAME_SIZE
+            samples, xn = _steim_samples(
+                payload[:usable], encoding, nsamp, word_order
+            )
+            if int(samples[-1]) != xn:
+                warnings.warn(
+                    f"{self.sid} {self.time}: last decoded sample "
+                    f"{int(samples[-1])} differs from the declared "
+                    f"{xn}; data kept",
+                    MSeedWarning,
+                    stacklevel=4,
+                )
+            return samples
 
-        if data_offset > record_length:
-            raise ValueError("MiniSEED data offset exceeds record length")
+        if encoding in SIMPLE_ENCODINGS:
+            code, size = SIMPLE_ENCODINGS[encoding]
+            if nsamp * size > len(payload):
+                raise ValueError("data exceed the record length")
+            if encoding == ENCODING_ASCII:
+                return bytes(payload[:nsamp]).decode(
+                    "ascii", errors="replace"
+                )
+            dtype = np.dtype(_struct_prefix(word_order) + code)
+            data = np.frombuffer(payload, dtype=dtype, count=nsamp)
+            return data.astype(dtype.newbyteorder("="))
 
-    @staticmethod
-    def _write_header(byte_stream, record):
-        """Write fixed section data header."""
-        for name, dtype, size in HEAD_STRUCT:
-            byte_stream.put(record.header[name], dtype, size)
-
-    @staticmethod
-    def _write_blockettes(byte_stream, record, record_offset):
-        """Write supported blockettes."""
-        block_offset = record.header["OFFSET_TO_BEGINNING_OF_BLOCKETTE"]
-        block_types = list(record.blockette)
-
-        for index, block_type in enumerate(block_types):
-            byte_stream.goto(record_offset + block_offset)
-
-            size = blockette_size(block_type)
-            next_offset = block_offset + size
-
-            if index == len(block_types) - 1:
-                next_offset = 0
-
-            byte_stream.put(block_type, "H", 2)
-            byte_stream.put(next_offset, "H", 2)
-
-            blockette = record.blockette[block_type]
-
-            for name, dtype, field_size in BLOCK_STRUCT[block_type]:
-                byte_stream.put(blockette[name], dtype, field_size)
-
-            block_offset += size
-
-    @staticmethod
-    def _write_data(byte_stream, data, sample_count, encoding):
-        """Write uncompressed data samples."""
-        dtype, size = STRUCT_DATA_FORMAT[encoding]
-
-        if encoding == ENCODING_ASCII:
-            byte_stream.buffer.write(bytes(data[:sample_count]))
-            return
-
-        for value in data[:sample_count]:
-            byte_stream.put(value.item(), dtype, size)
+        return None
 
 
-def _read_bytes(byte_stream, size):
+# ----------------------------------------------------------------------------
+# Reading helpers
+# ----------------------------------------------------------------------------
+
+
+def _read_source(source: Any) -> bytes:
+    """Return the content of a path, bytes-like or binary file."""
+    if isinstance(source, (bytes, bytearray, memoryview)):
+        return source
+    if isinstance(source, (str, os.PathLike)):
+        with open(source, "rb") as fid:
+            return fid.read()
+    if hasattr(source, "read"):
+        content = source.read()
+        if not isinstance(content, (bytes, bytearray)):
+            raise TypeError("the file must be opened in binary mode")
+        return content
+    raise TypeError(
+        "source must be a path, bytes or a binary file object"
+    )
+
+
+def _struct_prefix(byte_order: str) -> str:
+    """Return the struct/NumPy prefix of a byte order."""
+    if byte_order == "be":
+        return ">"
+    if byte_order == "le":
+        return "<"
+    raise ValueError(f"byte order must be 'be' or 'le', not {byte_order!r}")
+
+
+def _detect_byte_order(buffer: memoryview, offset: int) -> str:
     """
-    Read a raw byte block from ByteStream.
-
-    ByteStream.get("s", n) decodes byte strings to Python strings.
-    For MiniSEED binary payloads this is unsafe, so we read directly from
-    the underlying buffer.
+    Detect the byte order of a header from its year and day of year
+    (the test used by libmseed).
     """
-    raw = byte_stream.buffer.read(size)
-
-    if len(raw) != size:
-        raise EOFError("Unexpected end of MiniSEED byte stream")
-
-    return raw
-
-
-def _prepare_output_data(data, encoding):
-    """Convert record data to a writeable sequence."""
-    if encoding == ENCODING_ASCII:
-        if isinstance(data, str):
-            return data.encode("ascii")
-        return bytes(data)
-
-    if isinstance(data, np.ndarray):
-        return data
-
-    return np.asarray(data)
+    for byte_order in ("be", "le"):
+        year, day = struct.unpack_from(
+            _struct_prefix(byte_order) + "HH", buffer, offset + 20
+        )
+        if 1900 <= year <= 2100 and 1 <= day <= 366:
+            return byte_order
+    raise ValueError("not a MiniSEED header (invalid year or day)")
 
 
-def _decode_steim(data, encoding, nsamp):
+def _check_header(header: dict) -> None:
+    """Check the plausibility of a fixed header."""
+    sequence = header["SEQUENCE_NUMBER"]
+    if not all(c.isdigit() or c in " \x00" for c in sequence):
+        raise ValueError(f"invalid sequence number {sequence!r}")
+    if header["DATA_HEADER_QUALITY_INDICATOR"] not in "DRQM":
+        raise ValueError(
+            "invalid quality indicator "
+            f"{header['DATA_HEADER_QUALITY_INDICATOR']!r}"
+        )
+    if (
+        header["HOURS"] > 23
+        or header["MINUTES"] > 59
+        or header["SECONDS"] > 60
+        or header["MSECONDS"] > 9999
+    ):
+        raise ValueError("invalid start time")
+
+
+def _read_blockettes(
+    buffer: memoryview,
+    offset: int,
+    header: dict,
+    prefix: str,
+) -> dict:
+    """Read the supported blockettes of a record."""
+    blockettes: dict = {}
+    position = header["OFFSET_TO_BEGINNING_OF_BLOCKETTE"]
+    size = len(buffer) - offset
+
+    for _ in range(header["NUMBER_OF_BLOCKETTES_TO_FOLLOW"]):
+        if position == 0:
+            break
+        if position < HEADER_SIZE or position + 4 > size:
+            raise ValueError(f"invalid blockette offset {position}")
+        block_type, following = struct.unpack_from(
+            prefix + "HH", buffer, offset + position
+        )
+        if block_type in BLOCKETTE_FIELDS:
+            names, layout = BLOCKETTE_FIELDS[block_type]
+            values = struct.unpack_from(
+                prefix + layout, buffer, offset + position + 4
+            )
+            fields = dict(zip(names, values))
+            fields["OFFSET_NEXT"] = following
+            blockettes[block_type] = fields
+        if following and following <= position:
+            raise ValueError(f"invalid blockette offset {following}")
+        position = following
+
+    return blockettes
+
+
+def _nominal_rate(factor: Optional[int], multiplier: Optional[int]) -> float:
     """
-    Decode a STEIM1 or STEIM2 payload.
+    Sampling rate from the rate factor and multiplier (SEED manual,
+    fixed header field 10).
+    """
+    if not factor or not multiplier:
+        return 0.0
+    if factor > 0 and multiplier > 0:
+        return float(factor * multiplier)
+    if factor > 0:
+        return -factor / multiplier
+    if multiplier > 0:
+        return -multiplier / factor
+    return 1.0 / (factor * multiplier)
+
+
+# STEIM word types: (differences, bits) by control code (and, for
+# STEIM2, by the two leading bits of the word, "dnib").
+_STEIM1_TYPES = {1: (4, 8), 2: (2, 16), 3: (1, 32)}
+_STEIM2_TYPES = {
+    (1, 0): (4, 8), (1, 1): (4, 8), (1, 2): (4, 8), (1, 3): (4, 8),
+    (2, 1): (1, 30), (2, 2): (2, 15), (2, 3): (3, 10),
+    (3, 0): (5, 6), (3, 1): (6, 5), (3, 2): (7, 4),
+}
+
+
+def _steim_tables(types: dict, size: int) -> tuple:
+    """Lookup tables of differences and bits per word key."""
+    counts = np.zeros(size, dtype=np.int64)
+    bits = np.zeros(size, dtype=np.int64)
+    for key, (count, nbits) in types.items():
+        if isinstance(key, tuple):
+            key = key[0] * 4 + key[1]
+        counts[key] = count
+        bits[key] = nbits
+    return counts, bits
+
+
+_STEIM1_TABLES = _steim_tables(_STEIM1_TYPES, 4)
+_STEIM2_TABLES = _steim_tables(_STEIM2_TYPES, 16)
+
+
+def _steim_samples(
+    payload: Any,
+    encoding: int,
+    nsamp: int,
+    word_order: str = "be",
+) -> tuple:
+    """
+    Decode STEIM1 or STEIM2 frames (vectorized).
 
     Parameters
     ----------
-    data : bytes
-        Complete STEIM payload composed of 64-byte frames.
+    payload : bytes-like
+        Frames, a multiple of 64 bytes.
     encoding : int
-        MiniSEED encoding code for STEIM1 or STEIM2.
+        10 (STEIM1) or 11 (STEIM2).
     nsamp : int
         Number of samples declared for the record.
+    word_order : {"be", "le"}, optional
+        Byte order of the 32-bit words.
 
     Returns
     -------
-    numpy.ndarray
-        Decoded signed 32-bit samples.
+    tuple of (numpy.ndarray, int)
+        Samples (int32) and the last sample declared in the first frame
+        (XN), for the consistency check.
 
     Raises
     ------
     ValueError
-        If the payload or encoding is invalid, or if the decoded samples
-        are inconsistent with the integration constants.
+        If the frames hold fewer differences than ``nsamp``, contain an
+        invalid word code, or integrate beyond the 32-bit range.
     """
-    if encoding not in (
-        ENCODING_STEIM1,
-        ENCODING_STEIM2,
-    ):
-        raise ValueError(
-            "Unsupported STEIM encoding: {0}".format(encoding)
-        )
-
-    if nsamp < 0:
-        raise ValueError("STEIM sample count cannot be negative")
-
-    if nsamp == 0:
-        return np.array([], dtype=np.int32)
-
-    if len(data) % FRAME_SIZE != 0:
-        raise ValueError(
-            "STEIM payload length must be a multiple of 64 bytes"
-        )
-
-    frame_count = len(data) // FRAME_SIZE
-    samples = np.empty(nsamp, dtype=np.int32)
-
-    difference_count = 0
-    first = None
-    last = None
-
-    for frame_index in range(frame_count):
-        frame_offset = frame_index * FRAME_SIZE
-        frame = data[frame_offset:frame_offset + FRAME_SIZE]
-
-        words = np.frombuffer(
-            frame,
-            dtype=">i4",
-            count=16,
-        )
-
-        if frame_index == 0:
-            first = int(words[1])
-            last = int(words[2])
-
-        control = int(words[0])
-        start_word = 3 if frame_index == 0 else 1
-
-        for word_index in range(start_word, 16):
-            code = _binmask(
-                control,
-                2,
-                15 - word_index,
-            )
-
-            if code == 0:
-                continue
-
-            differences = _w32split(
-                int(words[word_index]),
-                code,
-                encoding,
-            )
-
-            for difference in differences:
-                if difference_count >= nsamp:
-                    break
-
-                samples[difference_count] = difference
-                difference_count += 1
-
-            if difference_count >= nsamp:
-                break
-
-        if difference_count >= nsamp:
-            break
-
-    if first is None or last is None:
+    if encoding not in STEIM_ENCODINGS:
+        raise ValueError(f"Unsupported STEIM encoding: {encoding}")
+    if len(payload) % FRAME_SIZE:
+        raise ValueError("STEIM payload length must be a multiple of 64")
+    if len(payload) == 0:
         raise ValueError("Empty STEIM data section")
 
-    if difference_count != nsamp:
-        raise ValueError(
-            "Insufficient differences in STEIM payload: "
-            "expected {0}, decoded {1}".format(
-                nsamp,
-                difference_count,
+    words = np.frombuffer(
+        payload, dtype=_struct_prefix(word_order) + "u4"
+    ).astype(np.int64).reshape(-1, 16)
+
+    x0 = _signed(int(words[0, 1]), 32)
+    xn = _signed(int(words[0, 2]), 32)
+
+    shifts = 2 * (15 - np.arange(16))
+    codes = (words[:, :1] >> shifts) & 3
+    codes[:, 0] = 0
+    codes[0, 1:3] = 0
+
+    flat = words.ravel()
+    codes = codes.ravel()
+
+    if word_order == "le":
+        # As in libmseed: 8-bit differences are bytes in file order,
+        # 16-bit ones (STEIM1) two little-endian halfwords in file
+        # order; the other words are little-endian 32-bit words.
+        flat = flat.copy()
+        bytewise = codes == 1
+        flat[bytewise] = (
+            np.ascontiguousarray(flat[bytewise], dtype="<u4")
+            .byteswap()
+            .astype(np.int64)
+        )
+        if encoding == ENCODING_STEIM1:
+            halves = codes == 2
+            flat[halves] = ((flat[halves] & 0xFFFF) << 16) | (
+                flat[halves] >> 16
             )
+
+    if encoding == ENCODING_STEIM1:
+        key = codes
+        count_table, bits_table = _STEIM1_TABLES
+    else:
+        key = codes * 4 + (flat >> 30)
+        count_table, bits_table = _STEIM2_TABLES
+
+    counts = count_table[key]
+    positions = np.cumsum(counts) - counts
+    total = int(counts.sum())
+
+    invalid = (codes != 0) & (counts == 0) & (positions < nsamp)
+    if np.any(invalid):
+        raise ValueError("invalid STEIM word code")
+    if total < nsamp:
+        raise ValueError(
+            f"Insufficient differences in STEIM payload: expected "
+            f"{nsamp}, decoded {total}"
         )
 
-    # The first encoded difference is d0 = X0 - X(-1). X0 is stored
-    # explicitly in the first frame, so d0 is replaced by X0 before
-    # integrating the remaining differences.
-    samples[0] = first
-
-    for index in range(1, nsamp):
-        value = int(samples[index - 1]) + int(samples[index])
-
-        if value < INT32_MIN or value > INT32_MAX:
-            raise ValueError(
-                "STEIM integration exceeds signed 32-bit range"
+    differences = np.empty(total, dtype=np.int64)
+    for value in np.unique(key[counts > 0]):
+        count = int(count_table[value])
+        bits = int(bits_table[value])
+        selected = key == value
+        word = flat[selected]
+        start = positions[selected]
+        mask = (1 << bits) - 1
+        half = 1 << (bits - 1)
+        for j in range(count):
+            field = (word >> (bits * (count - 1 - j))) & mask
+            differences[start + j] = np.where(
+                field >= half, field - (1 << bits), field
             )
 
-        samples[index] = value
+    differences = differences[:nsamp]
+    samples = x0 + np.cumsum(differences) - differences[0]
+    if samples.min() < INT32_MIN or samples.max() > INT32_MAX:
+        raise ValueError("STEIM integration exceeds the signed 32-bit range")
 
-    if int(samples[-1]) != last:
-        raise ValueError(
-            "Sample mismatch in STEIM payload: "
-            "expected XN={0}, decoded XN={1}".format(
-                last,
-                int(samples[-1]),
-            )
-        )
-
-    return samples
+    return samples.astype(np.int32), xn
 
 
-def _prepare_steim_data(data):
+def _decode_steim(
+    data: Any,
+    encoding: int,
+    nsamp: int,
+    word_order: str = "be",
+) -> np.ndarray:
     """
-    Validate and convert input samples for STEIM encoding.
-
-    Parameters
-    ----------
-    data : array-like
-        Input integer samples.
-
-    Returns
-    -------
-    numpy.ndarray
-        One-dimensional array with dtype int64.
+    Decode a STEIM payload, checking the last sample.
 
     Raises
     ------
     ValueError
-        If the input is not one-dimensional, contains non-integer values,
-        or exceeds the signed 32-bit range.
+        As :func:`_steim_samples`, and if the last decoded sample
+        differs from the declared one.
     """
-    samples = np.asarray(data)
+    if nsamp < 0:
+        raise ValueError("STEIM sample count cannot be negative")
+    if nsamp == 0:
+        return np.array([], dtype=np.int32)
+    samples, xn = _steim_samples(data, encoding, nsamp, word_order)
+    if int(samples[-1]) != xn:
+        raise ValueError(
+            f"Sample mismatch in STEIM payload: expected XN={xn}, "
+            f"decoded XN={int(samples[-1])}"
+        )
+    return samples
 
-    if samples.ndim != 1:
-        raise ValueError("STEIM data must be one-dimensional")
 
-    if not np.issubdtype(samples.dtype, np.integer):
-        raise ValueError("STEIM encoding requires integer samples")
+def _signed(value: int, bits: int) -> int:
+    """Interpret an unsigned integer as two's complement."""
+    return value - (1 << bits) if value >= 1 << (bits - 1) else value
 
-    samples = samples.astype(np.int64, copy=False)
 
-    if samples.size:
-        if np.any(samples < INT32_MIN) or np.any(samples > INT32_MAX):
+# ----------------------------------------------------------------------------
+# Writing helpers
+# ----------------------------------------------------------------------------
+
+
+class _BinaryOutput:
+    """Context manager for a path or an open binary file."""
+
+    def __init__(self, target: Any) -> None:
+        self._target = target
+        self._file = None
+
+    def __enter__(self) -> Any:
+        if isinstance(self._target, (str, os.PathLike)):
+            self._file = open(self._target, "wb")
+            return self._file
+        if hasattr(self._target, "write"):
+            return self._target
+        raise TypeError("target must be a path or a binary file object")
+
+    def __exit__(self, *args: Any) -> None:
+        if self._file is not None:
+            self._file.close()
+
+
+def _write_shakelab_record(
+    fid: Any,
+    record: Record,
+    encoding: Optional[int],
+    reclen: int,
+    sequence_number: int,
+) -> int:
+    """
+    Write one ShakeLab record as MiniSEED records; return the next
+    sequence number.
+    """
+    data = np.asarray(record.data)
+    if data.ndim != 1:
+        raise ValueError("MiniSEED waveform data must be one-dimensional")
+    if record.head.delta is None:
+        raise ValueError("Waveform sampling interval is not defined")
+    delta = float(record.head.delta)
+    if not np.isfinite(delta) or delta <= 0:
+        raise ValueError(
+            "Waveform sampling interval must be positive and finite"
+        )
+
+    if encoding is None:
+        encoding = _default_encoding(data)
+
+    network, station, location, channel = _split_fdsn_code(record.head.sid)
+    factor, multiplier = _sampling_rate_factors(delta)
+    start_ns = record.head.time.to_unix_ns()
+
+    raw = MSRecord(
+        DATA_HEADER_QUALITY_INDICATOR="D",
+        RESERVED_BYTE=" ",
+        STATION_CODE=_format_ascii_field(station, 5, "station code"),
+        LOCATION_IDENTIFIER=_format_ascii_field(
+            location, 2, "location identifier"
+        ),
+        CHANNEL_IDENTIFIER=_format_ascii_field(
+            channel, 3, "channel identifier"
+        ),
+        NETWORK_CODE=_format_ascii_field(network, 2, "network code"),
+        UNUSED=0,
+        SAMPLE_RATE_FACTOR=factor,
+        SAMPLE_RATE_MULTIPLIER=multiplier,
+        ACTIVITY_FLAGS=0,
+        IO_FLAGS=0,
+        DATA_QUALITY_FLAGS=0,
+        TIME_CORRECTION=0,
+    )
+    raw.blockette[1000].update(
+        ENCODING_FORMAT=int(encoding),
+        WORD_ORDER=1,
+        DATA_RECORD_LENGTH=reclen.bit_length() - 1,
+        RESERVED=0,
+    )
+
+    index = 0
+    while index < data.size:
+        time_fields, micro = _mseed_time_fields(
+            start_ns + round(index * delta * 1e9)
+        )
+        raw.header.update(time_fields)
+        if micro:
+            raw.blockette[1001] = {
+                "TIMING_QUALITY": 0,
+                "MICRO_SEC": micro,
+                "RESERVED": 0,
+                "FRAME_COUNT": 0,
+            }
+        else:
+            raw.blockette.pop(1001, None)
+
+        raw.data = data[index:]
+        previous = (
+            int(data[index - 1])
+            if index > 0 and encoding in STEIM_ENCODINGS
+            else None
+        )
+        content, count = raw.to_bytes(
+            sequence_number=sequence_number,
+            allow_partial=True,
+            previous_sample=previous,
+        )
+        if count <= 0:
+            raise ValueError("No waveform samples could be written")
+        fid.write(content)
+        index += count
+        sequence_number += 1
+
+    return sequence_number
+
+
+def _default_encoding(data: np.ndarray) -> int:
+    """Encoding following the type of the data."""
+    if np.issubdtype(data.dtype, np.integer):
+        return ENCODING_STEIM2
+    if data.dtype == np.float32:
+        return ENCODING_FLOAT32
+    if np.issubdtype(data.dtype, np.floating):
+        return ENCODING_FLOAT64
+    raise ValueError(
+        f"data of type {data.dtype} cannot be written as MiniSEED"
+    )
+
+
+def _encode_simple(
+    data: Any,
+    encoding: int,
+    available: int,
+    prefix: str,
+    allow_partial: bool,
+) -> tuple:
+    """
+    Encode uncompressed samples; return the bytes and their number.
+    """
+    code, size = SIMPLE_ENCODINGS[encoding]
+    capacity = available // size
+
+    if encoding == ENCODING_ASCII:
+        text = data if isinstance(data, (bytes, bytearray)) else (
+            str(data).encode("ascii")
+        )
+        count = min(len(text), capacity)
+        if count < len(text) and not allow_partial:
             raise ValueError(
-                "STEIM samples must fit in the signed 32-bit range"
+                f"Data do not fit in the record length: {count} of "
+                f"{len(text)} characters"
+            )
+        return bytes(text[:count]), count
+
+    values = np.asarray(data)
+    count = min(values.size, capacity)
+    if count < values.size and not allow_partial:
+        raise ValueError(
+            f"Data do not fit in the selected MiniSEED record length: "
+            f"{count} of {values.size} samples can be written using "
+            f"encoding {encoding}"
+        )
+    values = values[:count]
+    dtype = np.dtype(prefix + code)
+
+    if np.issubdtype(dtype, np.integer):
+        if not np.issubdtype(values.dtype, np.integer):
+            raise ValueError(
+                f"encoding {encoding} requires integer samples"
+            )
+        info = np.iinfo(dtype)
+        if values.size and (
+            values.min() < info.min or values.max() > info.max
+        ):
+            raise ValueError(
+                f"samples exceed the range of encoding {encoding}"
             )
 
-    return samples
+    return values.astype(dtype).tobytes(), count
+
+
+def _header_value(name: str, value: Any) -> Any:
+    """Return a fixed-header value ready for packing."""
+    if name in TEXT_WIDTH:
+        text = "" if value is None else str(value)
+        return text.ljust(TEXT_WIDTH[name]).encode("ascii")
+    return 0 if value is None else int(value)
+
+
+def _blockette_size(block_type: int) -> int:
+    """Size of a blockette in bytes, its 4-byte header included."""
+    if block_type not in BLOCKETTE_FIELDS:
+        raise ValueError(f"Unsupported MiniSEED blockette: {block_type}")
+    return 4 + struct.calcsize(">" + BLOCKETTE_FIELDS[block_type][1])
+
+
+def _next_frame_boundary(offset: int) -> int:
+    """First 64-byte frame boundary at or after an offset."""
+    return -(-offset // FRAME_SIZE) * FRAME_SIZE
+
+
+def _validate_encoding(encoding: Any) -> None:
+    """Check that an encoding is supported."""
+    if encoding not in SUPPORTED_ENCODINGS:
+        raise ValueError(f"Unsupported MiniSEED encoding: {encoding}")
+
+
+def _validate_record_length(record_length: Any) -> None:
+    """Check that a record length is supported."""
+    if record_length not in RECORD_LENGTHS:
+        raise ValueError(
+            f"Unsupported MiniSEED record length: {record_length}"
+        )
+
+
+def _split_fdsn_code(code: Any) -> tuple:
+    """
+    Split a source identifier ``NET.STA.LOC.CHA`` into its codes.
+
+    Raises
+    ------
+    TypeError
+        If the identifier is not a string.
+    ValueError
+        If it does not have four parts, or the station or channel code
+        is empty.
+    """
+    if not isinstance(code, str):
+        raise TypeError("Waveform source identifier must be a string")
+    parts = code.split(".")
+    if len(parts) != 4:
+        raise ValueError(
+            "Waveform source identifier must use NET.STA.LOC.CHA form"
+        )
+    if not parts[1]:
+        raise ValueError("Station code cannot be empty")
+    if not parts[3]:
+        raise ValueError("Channel code cannot be empty")
+    return tuple(parts)
+
+
+def _format_ascii_field(value: Any, width: int, field_name: str) -> str:
+    """Validate and pad a fixed-width ASCII field."""
+    value = str(value)
+    if not value.isascii():
+        raise ValueError(f"{field_name} must contain ASCII characters only")
+    if len(value) > width:
+        raise ValueError(
+            f"{field_name} exceeds the MiniSEED field width of {width}"
+        )
+    return value.ljust(width)
+
+
+def _mseed_time_fields(unix_ns: int) -> tuple:
+    """
+    Fixed-header time fields of an instant, and the microseconds for
+    blockette 1001.
+
+    The instant is rounded to the microsecond; the fixed header holds
+    it to 0.1 ms and the remainder, from -50 to 49 microseconds, goes
+    to blockette 1001 (as libmseed does).
+
+    Returns
+    -------
+    tuple of (dict, int)
+        Time fields of the fixed header and the microsecond offset.
+    """
+    micro_total = (unix_ns + 500) // 1000
+    tenths = (micro_total + 50) // 100
+    micro = micro_total - tenths * 100
+
+    days, rest = divmod(tenths, 864_000_000)
+    day = _date.fromordinal(days + _UNIX_DAY0)
+    seconds, fraction = divmod(rest, 10_000)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+
+    fields = {
+        "YEAR": day.year,
+        "DAY": day.timetuple().tm_yday,
+        "HOURS": hours,
+        "MINUTES": minutes,
+        "SECONDS": seconds,
+        "MSECONDS": fraction,
+    }
+    return fields, micro
+
+
+def _sampling_rate_factors(delta: float) -> tuple:
+    """
+    Rate factor and multiplier of a sampling interval.
+
+    Raises
+    ------
+    ValueError
+        If the rate cannot be represented by two signed 16-bit fields.
+    """
+    delta = float(delta)
+    if not np.isfinite(delta) or delta <= 0:
+        raise ValueError("Sampling interval must be positive and finite")
+
+    rate = 1.0 / delta
+    fraction = Fraction(str(rate)).limit_denominator(32767)
+    numerator, denominator = fraction.numerator, fraction.denominator
+
+    if numerator > 32767 or denominator > 32767:
+        raise ValueError(
+            "Sampling rate cannot be represented by MiniSEED factor and "
+            "multiplier fields"
+        )
+
+    multiplier = 1 if denominator == 1 else -denominator
+    if abs(_nominal_rate(numerator, multiplier) - rate) > max(
+        rate * 1e-12, 1e-15
+    ):
+        raise ValueError(
+            "Sampling rate cannot be represented accurately by MiniSEED "
+            "factor and multiplier fields"
+        )
+    return int(numerator), int(multiplier)
+
+
+# -- STEIM encoding -----------------------------------------------------------
 
 
 def _signed_fits(value: int, bits: int) -> bool:
-    """
-    Return True if a value fits in a signed integer field.
-
-    Parameters
-    ----------
-    value : int
-        Integer value.
-    bits : int
-        Number of available bits.
-
-    Returns
-    -------
-    bool
-        True if the value can be represented.
-    """
-    minimum = -(1 << (bits - 1))
-    maximum = (1 << (bits - 1)) - 1
-
-    return minimum <= int(value) <= maximum
+    """True if a value fits in a signed field of ``bits`` bits."""
+    return -(1 << (bits - 1)) <= int(value) <= (1 << (bits - 1)) - 1
 
 
-def _pack_signed_fields(
-    values: list[int],
-    bits: int,
-) -> int:
-    """
-    Pack signed integer fields into one 32-bit word.
-
-    Values are packed from the most significant field to the least
-    significant field.
-
-    Parameters
-    ----------
-    values : list of int
-        Values to pack.
-    bits : int
-        Number of bits assigned to each value.
-
-    Returns
-    -------
-    int
-        Unsigned 32-bit packed word.
-    """
+def _pack_signed_fields(values: list, bits: int) -> int:
+    """Pack signed fields into one word, most significant first."""
     mask = (1 << bits) - 1
     word = 0
-
     for value in values:
         if not _signed_fits(value, bits):
-            raise ValueError(
-                "Value {0} does not fit in {1} signed bits".format(
-                    value,
-                    bits,
-                )
-            )
-
+            raise ValueError(f"Value {value} does not fit in {bits} bits")
         word = (word << bits) | (int(value) & mask)
-
     return word & 0xFFFFFFFF
 
 
-def _set_steim_control(
-    control: int,
-    word_index: int,
-    code: int,
-) -> int:
+def _pack_steim1_word(differences: np.ndarray, index: int) -> tuple:
     """
-    Set the two-bit control code for one STEIM frame word.
-
-    Parameters
-    ----------
-    control : int
-        Current control word.
-    word_index : int
-        Frame word index, from 1 to 15.
-    code : int
-        Two-bit STEIM control code.
-
-    Returns
-    -------
-    int
-        Updated control word.
-    """
-    if word_index < 1 or word_index > 15:
-        raise ValueError("STEIM word index must be between 1 and 15")
-
-    if code < 0 or code > 3:
-        raise ValueError("STEIM control code must be between 0 and 3")
-
-    shift = (15 - word_index) * 2
-
-    return control | (code << shift)
-
-
-def _pack_steim1_word(
-    differences: np.ndarray,
-    index: int,
-) -> tuple[int, int, int]:
-    """
-    Pack the next STEIM1 difference word.
-
-    Packing priority is:
-
-    - four signed 8-bit differences;
-    - two signed 16-bit differences;
-    - one signed 32-bit difference.
-
-    Incomplete groups at the end are padded with zeros.
-
-    Parameters
-    ----------
-    differences : numpy.ndarray
-        Array of integer differences.
-    index : int
-        Index of the first unencoded difference.
-
-    Returns
-    -------
-    tuple
-        Packed word, control code and number of real differences consumed.
+    Pack the next STEIM1 word: four 8-bit, two 16-bit or one 32-bit
+    differences. Return the word, its control code and the number of
+    differences used.
     """
     remaining = len(differences) - index
-
     if remaining <= 0:
         raise ValueError("No STEIM1 differences available for packing")
 
-    count = min(4, remaining)
-    values = [
-        int(value)
-        for value in differences[index:index + count]
-    ]
-
-    if all(_signed_fits(value, 8) for value in values):
-        packed_values = values + [0] * (4 - count)
-
-        return (
-            _pack_signed_fields(packed_values, 8),
-            1,
-            count,
-        )
-
-    count = min(2, remaining)
-    values = [
-        int(value)
-        for value in differences[index:index + count]
-    ]
-
-    if all(_signed_fits(value, 16) for value in values):
-        packed_values = values + [0] * (2 - count)
-
-        return (
-            _pack_signed_fields(packed_values, 16),
-            2,
-            count,
-        )
+    for capacity, bits, code in ((4, 8, 1), (2, 16, 2)):
+        count = min(capacity, remaining)
+        values = [int(v) for v in differences[index:index + count]]
+        if all(_signed_fits(v, bits) for v in values):
+            word = _pack_signed_fields(
+                values + [0] * (capacity - count), bits
+            )
+            return word, code, count
 
     value = int(differences[index])
-
     if not _signed_fits(value, 32):
         raise ValueError(
-            "Difference {0} cannot be represented by STEIM1".format(
-                value
-            )
+            f"Difference {value} cannot be represented by STEIM1"
         )
-
     return value & 0xFFFFFFFF, 3, 1
 
 
-def _pack_steim2_word(
-    differences: np.ndarray,
-    index: int,
-) -> tuple[int, int, int]:
+def _pack_steim2_word(differences: np.ndarray, index: int) -> tuple:
     """
-    Pack the next STEIM2 difference word.
-
-    Packing priority is:
-
-    - seven signed 4-bit differences;
-    - six signed 5-bit differences;
-    - five signed 6-bit differences;
-    - four signed 8-bit differences;
-    - three signed 10-bit differences;
-    - two signed 15-bit differences;
-    - one signed 30-bit difference.
-
-    Incomplete groups at the end are padded with zeros.
-
-    Parameters
-    ----------
-    differences : numpy.ndarray
-        Array of integer differences.
-    index : int
-        Index of the first unencoded difference.
-
-    Returns
-    -------
-    tuple
-        Packed word, control code and number of real differences consumed.
-
-    Raises
-    ------
-    ValueError
-        If no differences are available or the next difference cannot be
-        represented by STEIM2.
+    Pack the next STEIM2 word (from seven 4-bit to one 30-bit
+    differences). Return the word, its control code and the number of
+    differences used.
     """
     remaining = len(differences) - index
-
     if remaining <= 0:
         raise ValueError("No STEIM2 differences available for packing")
 
     packings = (
-        # capacity, bits, control code, DNIB
+        # capacity, bits, control code, dnib
         (7, 4, 3, 2),
         (6, 5, 3, 1),
         (5, 6, 3, 0),
@@ -1370,807 +1555,208 @@ def _pack_steim2_word(
         (2, 15, 2, 2),
         (1, 30, 2, 1),
     )
-
-    for capacity, bits, control, dnib in packings:
+    for capacity, bits, code, dnib in packings:
         count = min(capacity, remaining)
-
-        values = [
-            int(value)
-            for value in differences[index:index + count]
-        ]
-
-        if not all(_signed_fits(value, bits) for value in values):
+        values = [int(v) for v in differences[index:index + count]]
+        if not all(_signed_fits(v, bits) for v in values):
             continue
-
-        packed_values = values + [0] * (capacity - count)
-        word = _pack_signed_fields(packed_values, bits)
-
+        word = _pack_signed_fields(values + [0] * (capacity - count), bits)
         if dnib is not None:
             word |= dnib << 30
-
-        return word & 0xFFFFFFFF, control, count
-
-    value = int(differences[index])
+        return word & 0xFFFFFFFF, code, count
 
     raise ValueError(
-        "Difference {0} cannot be represented by STEIM2".format(
-            value
-        )
+        f"Difference {int(differences[index])} cannot be represented by "
+        "STEIM2"
     )
 
 
-SteimWordPacker = Callable[
-    [np.ndarray, int],
-    tuple[int, int, int],
-]
-
-
-def _encode_steim(
-    data,
-    frame_count: int,
-    pack_word: SteimWordPacker,
-    scheme_name: str,
-    previous_sample: int | None = None,
-    prepared: bool = False,
-) -> tuple[bytes, int, int]:
+def _prepare_steim_data(data: Any) -> np.ndarray:
     """
-    Encode integer samples as a STEIM payload.
-
-    Parameters
-    ----------
-    data : array-like
-        Input signed integer samples.
-    frame_count : int
-        Maximum number of 64-byte frames available.
-    pack_word : callable
-        Function used to pack differences into one STEIM word.
-    scheme_name : str
-        Human-readable encoding name used in error messages.
-    previous_sample : int, optional
-        Sample immediately preceding the record. If omitted, zero is used
-        as the integration reference for the first difference.
-    prepared : bool, optional
-        If ``True``, input data are assumed to have already been validated
-        and converted by ``_prepare_steim_data()``.
-
-    Returns
-    -------
-    tuple
-        Encoded payload bytes, number of samples encoded and number of
-        frames used.
+    Check and convert samples for STEIM encoding (int64 copy).
 
     Raises
     ------
     ValueError
-        If the data, frame count or differences are invalid.
+        If the samples are not one-dimensional integers within the
+        signed 32-bit range.
+    """
+    samples = np.asarray(data)
+    if samples.ndim != 1:
+        raise ValueError("STEIM data must be one-dimensional")
+    if not np.issubdtype(samples.dtype, np.integer):
+        raise ValueError(
+            "STEIM encoding requires integer samples (use encoding 4 or "
+            "5, or None, for floating-point data)"
+        )
+    samples = samples.astype(np.int64, copy=False)
+    if samples.size and (
+        samples.min() < INT32_MIN or samples.max() > INT32_MAX
+    ):
+        raise ValueError("STEIM samples must fit in the signed 32-bit range")
+    return samples
 
-    Notes
-    -----
-    The returned payload contains only the frames actually used. Padding
-    to the full MiniSEED record length remains the responsibility of the
-    record writer.
+
+def _encode_steim(
+    data: Any,
+    frame_count: int,
+    pack_word: Callable,
+    scheme_name: str,
+    previous_sample: Optional[int] = None,
+    prepared: bool = False,
+) -> tuple:
+    """
+    Encode samples as STEIM frames.
+
+    Parameters
+    ----------
+    data : array-like
+        Signed integer samples.
+    frame_count : int
+        Maximum number of 64-byte frames.
+    pack_word : callable
+        Word packer (:func:`_pack_steim1_word` or
+        :func:`_pack_steim2_word`).
+    scheme_name : str
+        Name used in error messages.
+    previous_sample : int, optional
+        Sample preceding the record (0 if None), for the first
+        difference.
+    prepared : bool, optional
+        True if ``data`` already went through
+        :func:`_prepare_steim_data`.
+
+    Returns
+    -------
+    tuple of (bytes, int, int)
+        Frames actually used, number of samples encoded and number of
+        frames.
     """
     if frame_count < 1:
         raise ValueError("At least one STEIM frame is required")
 
-    if prepared:
-        samples = data
-    else:
-        samples = _prepare_steim_data(data)
-
+    samples = data if prepared else _prepare_steim_data(data)
     if samples.size == 0:
         return b"", 0, 0
 
-    if previous_sample is None:
-        previous_sample = 0
-
-    previous_sample = int(previous_sample)
-
+    previous_sample = int(previous_sample or 0)
     if not _signed_fits(previous_sample, 32):
-        raise ValueError(
-            "Previous STEIM sample must fit in signed 32 bits"
-        )
+        raise ValueError("Previous STEIM sample must fit in signed 32 bits")
 
     differences = np.empty(samples.size, dtype=np.int64)
-
     differences[0] = int(samples[0]) - previous_sample
-
-    if samples.size > 1:
-        differences[1:] = samples[1:] - samples[:-1]
+    differences[1:] = np.diff(samples)
 
     frames = []
-    difference_index = 0
-
+    used = 0
     for frame_index in range(frame_count):
         words = [0] * 16
         control = 0
-
+        word_index = 1
         if frame_index == 0:
             words[1] = int(samples[0]) & 0xFFFFFFFF
             word_index = 3
-        else:
-            word_index = 1
 
-        while (
-            word_index < 16
-            and difference_index < len(differences)
-        ):
-            word, code, consumed = pack_word(
-                differences,
-                difference_index,
-            )
-
+        while word_index < 16 and used < differences.size:
+            word, code, consumed = pack_word(differences, used)
             words[word_index] = word
-
-            control = _set_steim_control(
-                control,
-                word_index,
-                code,
-            )
-
-            difference_index += consumed
+            control |= code << (2 * (15 - word_index))
+            used += consumed
             word_index += 1
 
         words[0] = control
         frames.append(words)
-
-        if difference_index >= len(differences):
+        if used >= differences.size:
             break
 
-    sample_count = difference_index
+    if used == 0:
+        raise ValueError(f"No samples could be encoded as {scheme_name}")
 
-    if sample_count == 0:
-        raise ValueError(
-            "No samples could be encoded as {0}".format(
-                scheme_name
-            )
-        )
-
-    # XN is the last sample actually stored in this payload.
-    frames[0][2] = (
-        int(samples[sample_count - 1])
-        & 0xFFFFFFFF
-    )
-
-    payload = np.asarray(
-        frames,
-        dtype=">u4",
-    ).tobytes()
-
-    return payload, sample_count, len(frames)
+    # XN is the last sample actually stored.
+    frames[0][2] = int(samples[used - 1]) & 0xFFFFFFFF
+    payload = np.asarray(frames, dtype=">u4").tobytes()
+    return payload, used, len(frames)
 
 
 def _encode_steim1(
-    data,
+    data: Any,
     frame_count: int,
-    previous_sample: int | None = None,
+    previous_sample: Optional[int] = None,
     prepared: bool = False,
-) -> tuple[bytes, int, int]:
-    """
-    Encode integer samples as a STEIM1 payload.
-
-    Parameters
-    ----------
-    data : array-like
-        Input signed integer samples.
-    frame_count : int
-        Maximum number of 64-byte frames available.
-    previous_sample : int, optional
-        Sample immediately preceding the record.
-    prepared : bool, optional
-        If ``True``, input data are assumed to have already been validated
-        and converted by ``_prepare_steim_data()``.
-
-    Returns
-    -------
-    tuple
-        Encoded payload bytes, number of samples encoded and number of
-        frames used.
-    """
+) -> tuple:
+    """Encode samples as STEIM1 frames (see :func:`_encode_steim`)."""
     return _encode_steim(
-        data=data,
-        frame_count=frame_count,
-        pack_word=_pack_steim1_word,
-        scheme_name="STEIM1",
-        previous_sample=previous_sample,
-        prepared=prepared,
+        data, frame_count, _pack_steim1_word, "STEIM1",
+        previous_sample, prepared,
     )
 
 
 def _encode_steim2(
-    data,
+    data: Any,
     frame_count: int,
-    previous_sample: int | None = None,
+    previous_sample: Optional[int] = None,
     prepared: bool = False,
-) -> tuple[bytes, int, int]:
-    """
-    Encode integer samples as a STEIM2 payload.
-
-    Parameters
-    ----------
-    data : array-like
-        Input signed integer samples.
-    frame_count : int
-        Maximum number of 64-byte frames available.
-    previous_sample : int, optional
-        Sample immediately preceding the record.
-    prepared : bool, optional
-        If ``True``, input data are assumed to have already been validated
-        and converted by ``_prepare_steim_data()``.
-
-    Returns
-    -------
-    tuple
-        Encoded payload bytes, number of samples encoded and number of
-        frames used.
-    """
+) -> tuple:
+    """Encode samples as STEIM2 frames (see :func:`_encode_steim`)."""
     return _encode_steim(
-        data=data,
-        frame_count=frame_count,
-        pack_word=_pack_steim2_word,
-        scheme_name="STEIM2",
-        previous_sample=previous_sample,
-        prepared=prepared,
+        data, frame_count, _pack_steim2_word, "STEIM2",
+        previous_sample, prepared,
     )
 
 
 def _encode_steim_payload(
-    data,
+    data: Any,
     encoding: int,
     record_length: int,
     data_offset: int,
     require_all: bool = True,
-    previous_sample: int | None = None,
-) -> tuple[np.ndarray, bytes, int, int]:
+    previous_sample: Optional[int] = None,
+) -> tuple:
     """
-    Encode a complete STEIM payload for one MiniSEED record.
-
-    Parameters
-    ----------
-    data : array-like
-        Input integer samples.
-    encoding : int
-        MiniSEED encoding code for STEIM1 or STEIM2.
-    record_length : int
-        Total MiniSEED record length in bytes.
-    data_offset : int
-        Offset to the beginning of the STEIM payload.
-    require_all : bool, optional
-        If ``True``, raise an error unless all samples fit in the
-        available frames.
-    previous_sample : int, optional
-        Sample immediately preceding the record.
+    Encode the STEIM payload of one record.
 
     Returns
     -------
-    tuple
-        Prepared integer data, encoded payload bytes, number of samples
-        encoded and number of frames used.
+    tuple of (numpy.ndarray, bytes, int, int)
+        Prepared samples, frames, number of samples encoded and number
+        of frames.
 
     Raises
     ------
     ValueError
-        If the encoding is unsupported, no complete frame is available,
-        or the samples do not fit in the selected record length.
+        If the encoding is not STEIM, no frame fits, or (with
+        ``require_all``) not all samples fit.
     """
-    available_bytes = record_length - data_offset
-    max_frame_count = available_bytes // FRAME_SIZE
-
-    if max_frame_count < 1:
-        raise ValueError(
-            "MiniSEED record has no complete STEIM frame"
-        )
+    max_frames = (record_length - data_offset) // FRAME_SIZE
+    if max_frames < 1:
+        raise ValueError("MiniSEED record has no complete STEIM frame")
 
     if encoding == ENCODING_STEIM1:
-        encoder = _encode_steim1
-        scheme_name = "STEIM1"
-        max_differences_per_word = 4
-
+        encoder, name, per_word = _encode_steim1, "STEIM1", 4
     elif encoding == ENCODING_STEIM2:
-        encoder = _encode_steim2
-        scheme_name = "STEIM2"
-        max_differences_per_word = 7
-
+        encoder, name, per_word = _encode_steim2, "STEIM2", 7
     else:
-        raise ValueError(
-            "Unsupported MiniSEED STEIM encoding: {0}".format(
-                encoding
-            )
-        )
+        raise ValueError(f"Unsupported MiniSEED STEIM encoding: {encoding}")
 
-    input_data = np.asarray(data)
-
-    if input_data.ndim != 1:
+    values = np.asarray(data)
+    if values.ndim != 1:
         raise ValueError("STEIM data must be one-dimensional")
-
-    input_count = len(input_data)
+    input_count = values.size
 
     if not require_all:
-        data_word_count = (
-            13
-            + 15 * (max_frame_count - 1)
-        )
+        # Upper bound of the samples that fit: only these are prepared.
+        values = values[:(13 + 15 * (max_frames - 1)) * per_word]
 
-        max_sample_count = (
-            data_word_count
-            * max_differences_per_word
-        )
-
-        input_data = input_data[:max_sample_count]
-
-    samples = _prepare_steim_data(input_data)
-
-    payload, sample_count, frame_count = encoder(
+    samples = _prepare_steim_data(values)
+    payload, count, frames = encoder(
         samples,
-        frame_count=max_frame_count,
+        frame_count=max_frames,
         previous_sample=previous_sample,
         prepared=True,
     )
-
-    if sample_count != input_count and require_all:
+    if require_all and count != input_count:
         raise ValueError(
-            "{0} data do not fit in the selected MiniSEED "
-            "record length: {1} of {2} samples were "
-            "encoded".format(
-                scheme_name,
-                sample_count,
-                input_count,
-            )
+            f"{name} data do not fit in the selected MiniSEED record "
+            f"length: {count} of {input_count} samples were encoded"
         )
-
-    return samples, payload, sample_count, frame_count
-
-
-def _numpy_byte_order(byte_stream):
-    """Return NumPy byte-order marker from ByteStream byte order."""
-    if byte_stream.byte_order == "le":
-        return "<"
-
-    return ">"
-
-
-def _decode_ascii(value):
-    """Decode ASCII fields stored as bytes or return strings unchanged."""
-    if isinstance(value, bytes):
-        return value.decode("ascii", errors="replace")
-
-    return str(value)
-
-
-def _empty_header():
-    """Return an empty fixed-header dictionary."""
-    return {name: None for name, _, _ in HEAD_STRUCT}
-
-
-def _empty_blockettes():
-    """Return default blockette dictionary."""
-    blockettes = {1000: {}}
-
-    for name, _, _ in BLOCK_STRUCT[1000]:
-        blockettes[1000][name] = None
-
-    return blockettes
-
-
-def _validate_encoding(encoding):
-    """Validate MiniSEED encoding code."""
-    if encoding not in ADMITTED_ENCODING:
-        raise ValueError("Unsupported MiniSEED encoding: {0}".format(
-            encoding
-        ))
-
-
-def _validate_record_length(record_length):
-    """Validate MiniSEED record length."""
-    if record_length not in ADMITTED_RECORD_LENGTH:
-        raise ValueError("Unsupported MiniSEED record length: {0}".format(
-            record_length
-        ))
-
-
-def _total_blockette_size(blockettes):
-    """Return total encoded size of the supplied blockettes."""
-    return sum(blockette_size(block_type) for block_type in blockettes)
-
-
-def _next_frame_boundary(offset):
-    """
-    Return the first 64-byte frame boundary at or after an offset.
-
-    Parameters
-    ----------
-    offset : int
-        Byte offset relative to the beginning of the record.
-
-    Returns
-    -------
-    int
-        Offset aligned to a STEIM frame boundary.
-    """
-    remainder = offset % FRAME_SIZE
-
-    if remainder == 0:
-        return offset
-
-    return offset + FRAME_SIZE - remainder
-
-
-def _binmask(
-    word: int,
-    bits: int,
-    position: int,
-) -> int:
-    """
-    Extract an unsigned bit field from a 32-bit word.
-
-    Parameters
-    ----------
-    word : int
-        Input word.
-    bits : int
-        Number of bits to extract.
-    position : int
-        Field position, counted from the least significant side.
-
-    Returns
-    -------
-    int
-        Extracted unsigned integer.
-    """
-    return (word >> bits * position) & (2 ** bits - 1)
-
-
-def _getdiff(
-    word: int,
-    bits: int,
-    diff_count: int,
-) -> list[int]:
-    """
-    Split a 32-bit word into signed differences.
-
-    Parameters
-    ----------
-    word : int
-        Input 32-bit word.
-    bits : int
-        Number of bits per difference.
-    diff_count : int
-        Number of differences packed in the word.
-
-    Returns
-    -------
-    list of int
-        Signed integer differences.
-    """
-    output = [0] * diff_count
-
-    for index in range(diff_count):
-        value = _binmask(word, bits, index)
-
-        if value >= 2 ** (bits - 1):
-            value -= 2 ** bits
-
-        output[(diff_count - 1) - index] = value
-
-    return output
-
-
-def _w32split(
-    word: int,
-    order: int,
-    scheme: int,
-) -> list[int]:
-    """
-    Split a 32-bit STEIM word into integer differences.
-
-    Parameters
-    ----------
-    word : int
-        Input 32-bit word.
-    order : int
-        Two-bit STEIM control code.
-    scheme : int
-        STEIM scheme: 10 for STEIM1, 11 for STEIM2.
-
-    Returns
-    -------
-    list of int
-        Decoded differences.
-    """
-    if order == 1:
-        return _getdiff(word, 8, 4)
-
-    if scheme == ENCODING_STEIM1:
-        return _split_steim1(word, order)
-
-    if scheme == ENCODING_STEIM2:
-        return _split_steim2(word, order)
-
-    raise ValueError(
-        "Unsupported MiniSEED STEIM encoding: {0}".format(
-            scheme
-        )
-    )
-
-
-def _split_steim1(
-    word: int,
-    order: int,
-) -> list[int]:
-    """Decode differences from one STEIM1 data word."""
-    if order == 2:
-        return _getdiff(word, 16, 2)
-
-    if order == 3:
-        return _getdiff(word, 32, 1)
-
-    raise ValueError(
-        "Unsupported STEIM1 control code: {0}".format(
-            order
-        )
-    )
-
-
-def _split_steim2(
-    word: int,
-    order: int,
-) -> list[int]:
-    """Decode differences from one STEIM2 data word."""
-    dnib = _binmask(word, 2, 15)
-
-    if order == 2:
-        if dnib == 1:
-            return _getdiff(word, 30, 1)
-
-        if dnib == 2:
-            return _getdiff(word, 15, 2)
-
-        if dnib == 3:
-            return _getdiff(word, 10, 3)
-
-    if order == 3:
-        if dnib == 0:
-            return _getdiff(word, 6, 5)
-
-        if dnib == 1:
-            return _getdiff(word, 5, 6)
-
-        if dnib == 2:
-            return _getdiff(word, 4, 7)
-
-    raise ValueError(
-        "Unsupported STEIM2 control code and DNIB combination"
-    )
-
-
-def _mseed_word_order(byte_stream):
-    """Return MiniSEED blockette 1000 word-order code."""
-    if byte_stream.byte_order == "be":
-        return 1
-
-    if byte_stream.byte_order == "le":
-        return 0
-
-    raise ValueError("Unsupported byte order: {0}".format(
-        byte_stream.byte_order
-    ))
-
-
-def _split_fdsn_code(code):
-    """
-    Split an FDSN source identifier into MiniSEED header fields.
-
-    Parameters
-    ----------
-    code : str
-        Identifier in ``NET.STA.LOC.CHA`` form.
-
-    Returns
-    -------
-    tuple of str
-        Network, station, location and channel codes.
-    """
-    if not isinstance(code, str):
-        raise TypeError("Waveform source identifier must be a string")
-
-    parts = code.split(".")
-
-    if len(parts) != 4:
-        raise ValueError(
-            "Waveform source identifier must use NET.STA.LOC.CHA form"
-        )
-
-    network, station, location, channel = parts
-
-    if not station:
-        raise ValueError("Station code cannot be empty")
-
-    if not channel:
-        raise ValueError("Channel code cannot be empty")
-
-    return network, station, location, channel
-
-
-def _format_ascii_field(value, width, field_name):
-    """
-    Validate and pad a fixed-width MiniSEED ASCII field.
-    """
-    value = str(value)
-
-    try:
-        value.encode("ascii")
-    except UnicodeEncodeError as exc:
-        raise ValueError(
-            "{0} must contain ASCII characters only".format(
-                field_name
-            )
-        ) from exc
-
-    if len(value) > width:
-        raise ValueError(
-            "{0} exceeds the MiniSEED field width of {1}".format(
-                field_name,
-                width,
-            )
-        )
-
-    return value.ljust(width)
-
-
-def _mseed_time_fields(date):
-    """
-    Convert a Date object to MiniSEED fixed-header time fields.
-
-    The fractional-second field is expressed in units of 0.0001 seconds.
-    """
-    second_value = float(date.second)
-    second = int(second_value)
-    fraction = int(round(
-        (second_value - second) * 10000
-    ))
-
-    if fraction == 10000:
-        date = date + (1.0 - (second_value - second))
-        second_value = float(date.second)
-        second = int(second_value)
-        fraction = 0
-
-    return (
-        int(date.year),
-        int(date.ordinal_day),
-        int(date.hour),
-        int(date.minute),
-        second,
-        fraction,
-    )
-
-
-def _sampling_rate_factors(delta):
-    """
-    Convert a sampling interval to MiniSEED rate factor and multiplier.
-
-    Parameters
-    ----------
-    delta : float
-        Sampling interval in seconds.
-
-    Returns
-    -------
-    tuple of int
-        MiniSEED sample-rate factor and multiplier.
-
-    Raises
-    ------
-    ValueError
-        If the sampling rate cannot be represented by two signed
-        16-bit MiniSEED fields.
-    """
-    delta = float(delta)
-
-    if not np.isfinite(delta) or delta <= 0:
-        raise ValueError(
-            "Sampling interval must be positive and finite"
-        )
-
-    rate = 1.0 / delta
-    fraction = Fraction(str(rate)).limit_denominator(32767)
-
-    numerator = fraction.numerator
-    denominator = fraction.denominator
-
-    if numerator > 32767 or denominator > 32767:
-        raise ValueError(
-            "Sampling rate cannot be represented by MiniSEED "
-            "factor and multiplier fields"
-        )
-
-    if denominator == 1:
-        factor = numerator
-        multiplier = 1
-    else:
-        factor = numerator
-        multiplier = -denominator
-
-    reconstructed_rate = factor
-
-    if multiplier < 0:
-        reconstructed_rate /= abs(multiplier)
-    else:
-        reconstructed_rate *= multiplier
-
-    tolerance = max(abs(rate) * 1e-12, 1e-15)
-
-    if abs(reconstructed_rate - rate) > tolerance:
-        raise ValueError(
-            "Sampling rate cannot be represented accurately by "
-            "MiniSEED factor and multiplier fields"
-        )
-
-    return int(factor), int(multiplier)
-
-
-def blockette_size(block_type):
-    """
-    Return the encoded size of a MiniSEED blockette.
-
-    Parameters
-    ----------
-    block_type : int
-        Blockette type.
-
-    Returns
-    -------
-    int
-        Blockette size in bytes, including the common 4-byte header.
-    """
-    if block_type not in BLOCK_STRUCT:
-        raise ValueError("Unsupported MiniSEED blockette: {0}".format(
-            block_type
-        ))
-
-    size = sum(item[2] for item in BLOCK_STRUCT[block_type])
-
-    return size + 4
-
-
-HEAD_STRUCT = [
-    ("SEQUENCE_NUMBER", "s", 6),
-    ("DATA_HEADER_QUALITY_INDICATOR", "s", 1),
-    ("RESERVED_BYTE", "s", 1),
-    ("STATION_CODE", "s", 5),
-    ("LOCATION_IDENTIFIER", "s", 2),
-    ("CHANNEL_IDENTIFIER", "s", 3),
-    ("NETWORK_CODE", "s", 2),
-    ("YEAR", "H", 2),
-    ("DAY", "H", 2),
-    ("HOURS", "B", 1),
-    ("MINUTES", "B", 1),
-    ("SECONDS", "B", 1),
-    ("UNUSED", "B", 1),
-    ("MSECONDS", "H", 2),
-    ("NUMBER_OF_SAMPLES", "H", 2),
-    ("SAMPLE_RATE_FACTOR", "h", 2),
-    ("SAMPLE_RATE_MULTIPLIER", "h", 2),
-    ("ACTIVITY_FLAGS", "B", 1),
-    ("IO_FLAGS", "B", 1),
-    ("DATA_QUALITY_FLAGS", "B", 1),
-    ("NUMBER_OF_BLOCKETTES_TO_FOLLOW", "B", 1),
-    ("TIME_CORRECTION", "l", 4),
-    ("OFFSET_TO_BEGINNING_OF_DATA", "H", 2),
-    ("OFFSET_TO_BEGINNING_OF_BLOCKETTE", "H", 2),
-]
-
-BLOCK_STRUCT = {
-    1000: [
-        ("ENCODING_FORMAT", "B", 1),
-        ("WORD_ORDER", "B", 1),
-        ("DATA_RECORD_LENGTH", "B", 1),
-        ("RESERVED", "B", 1),
-    ],
-    1001: [
-        ("TIMING_QUALITY", "B", 1),
-        ("MICRO_SEC", "B", 1),
-        ("RESERVED", "B", 1),
-        ("FRAME_COUNT", "B", 1),
-    ],
-}
+    return samples, payload, count, frames

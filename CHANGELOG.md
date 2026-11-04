@@ -179,6 +179,34 @@ corrections. The format follows
   the sampling grid and keep the samples inside the window.
 - `signals.base.Record` operators `*` and `/` accept every response
   container (stage, stage set, stream response, response collection).
+- `signals.libio.mseed` (pure-Python MiniSEED 2 backend) rewritten:
+  byte order detected from each record (the `byte_order` argument
+  defaults to None), float64 data (encoding 5), little-endian STEIM
+  frames, record lengths from 128 to 65536 bytes, blockette 100
+  (actual sampling rate), and sources given as paths, bytes or binary
+  file objects. STEIM decoding is vectorized and the records of each
+  channel are sorted and joined into one `Record` per contiguous
+  segment before building the waveforms: reading is about 5 times
+  faster for STEIM and 20-30 times for uncompressed data, and no longer
+  grows quadratically with the file length. Records without waveform
+  (log, detection, timing) are skipped; records with unsupported
+  encodings are skipped with one `MSeedWarning`; a mismatch of the
+  last STEIM sample gives a warning instead of an exception; trailing
+  bytes after the last record are ignored (with a warning unless they
+  are zeros). Integer samples are returned in native byte order.
+- MiniSEED writing (both backends): with `encoding=None` (new default)
+  the encoding follows the data type: STEIM2 for integers, 4 for
+  float32, 5 for float64. Start times keep the microseconds in
+  blockette 1001 when needed.
+- `signals.libio.mseed.MSRecord`: built with `MSRecord.from_bytes` and
+  encoded with `to_bytes`; `code` renamed `sid`; new `rate`,
+  `start_ns`, `encoding` and `is_waveform`; `delta` is None for records
+  without sampling.
+- `signals.libio.cymseed` no longer depends on `signals.fdsnws`;
+  integer samples are int32. Until `cymseed3` packs non-integer
+  samples correctly, MiniSEED 2 files needing encodings 1, 4 or 5 are
+  written by the pure-Python backend, and MiniSEED 3 output is limited
+  to encodings 3, 10 and 11 (`NotImplementedError` otherwise).
 - `libutils.timezones.TIMEZONE`: outdated offsets updated (e.g.
   Caracas, Amman, Damascus, Casablanca, Samoa, Minsk, Novosibirsk,
   Astana, Greenland, Asuncion) and an IANA name added to each entry.
@@ -259,6 +287,16 @@ corrections. The format follows
 
 ### Fixed
 
+- `signals.libio.mseed`: a negative sampling-rate multiplier gave a
+  negative rate (it multiplied by 1/m instead of dividing by |m|); the
+  time correction of the fixed header was ignored when not yet applied;
+  the microseconds of blockette 1001 were read without sign and
+  ignored; files written by libmseed in little-endian order, with
+  float64 data, text or detection records could not be read; writing
+  floating-point data failed with the default encoding.
+- `signals.libio.cymseed`: input files were not closed; codes padded
+  with spaces by libmseed (e.g. channel `Z`) gave source identifiers
+  with trailing spaces.
 - `signals.base.Record.resample`: Fourier resampling produced a
   sampling interval different from the declared one; linear
   interpolation could assign the last value to a time beyond the end
@@ -341,3 +379,7 @@ corrections. The format follows
   classes), and `response.inverse_spectrum` (see
   `fourier.inverse_spectrum`).
 - Unused dependency `shapely`.
+- `signals.libio.mseed`: `MSRecord.append`, `MSRecord.read`/`write`
+  on `ByteStream` objects (replaced by `from_bytes`/`to_bytes`) and
+  the `ByteStream` arguments of the module functions; the module no
+  longer uses `signals.binutils`.
