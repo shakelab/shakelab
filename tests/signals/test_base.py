@@ -615,9 +615,16 @@ def test_collection_set_metadata(mode, mode_response):
     collection.append(Record(data=[1.0], delta=0.01, time=START,
                              sid="XX.STA..HHZ"))
 
-    with pytest.warns(MetadataWarning, match="XX.STA..HHZ"):
+    collection.append(Record(data=[1.0], delta=0.01, time=START,
+                             sid="XX.STA..HHN"))
+
+    with pytest.warns(MetadataWarning, match="XX.STA..HHZ") as caught:
         collection.set_metadata(mode_response)
 
+    # One warning for all the channels without metadata.
+    assert len(caught) == 1
+    assert "2 channel(s)" in str(caught[0].message)
+    assert "XX.STA..HHN" in str(caught[0].message)
     assert collection["IV.MODE..HNE"][0].orientation.azimuth == 90.0
     assert collection["XX.STA..HHZ"][0].head.meta.empty
 

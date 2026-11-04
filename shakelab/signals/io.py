@@ -38,11 +38,29 @@ by passing ``mseed_backend`` to :func:`reader` or :func:`writer`:
 - ``"python"`` selects the pure-Python backend.
 
 The per-call option takes precedence over the module-level preference.
+
+Channel metadata (StationXML, RESP or JSON) are read with
+:func:`read_metadata`; :func:`reader` assigns them to the records it
+reads when given ``metadata``.
 """
+
+from __future__ import annotations
 
 import os
 from glob import glob
+from typing import TYPE_CHECKING, Any, Optional
 
+if TYPE_CHECKING:
+    from shakelab.signals.base import StreamCollection
+    from shakelab.signals.metadata import MetadataCollection
+
+__all__ = [
+    "USE_LIBMSEED",
+    "get_mseed_module",
+    "read_metadata",
+    "reader",
+    "writer",
+]
 
 USE_LIBMSEED = True
 
@@ -164,8 +182,15 @@ def _use_libmseed_backend(backend=None):
     )
 
 
-def reader(file_path=None, list_file=None, stream_collection=None,
-           format=None, byte_order=None, **format_options):
+def reader(
+    file_path: Any = None,
+    list_file: Any = None,
+    stream_collection: Optional[StreamCollection] = None,
+    format: Optional[str] = None,
+    byte_order: Optional[str] = None,
+    metadata: Any = None,
+    **format_options: Any,
+) -> StreamCollection:
     """
     Read waveform data from one or more files.
 
@@ -187,6 +212,13 @@ def reader(file_path=None, list_file=None, stream_collection=None,
     byte_order : str or None, optional
         Byte order used by formats that support explicit selection. ``None``
         lets the target reader use its default byte-order policy.
+    metadata : MetadataCollection, ChannelEpoch, path or sequence, optional
+        Channel metadata assigned to the records read, as with
+        :meth:`~shakelab.signals.base.StreamCollection.set_metadata`.
+        Paths, wildcard patterns, directories and sequences of them are
+        read with :func:`read_metadata`. The records of
+        ``stream_collection`` that were already present are not
+        modified.
     **format_options
         Additional keyword arguments forwarded to the selected
         format-specific reader. For MiniSEED input, ``mseed_backend`` may
@@ -210,6 +242,13 @@ def reader(file_path=None, list_file=None, stream_collection=None,
     NotImplementedError
         If the selected format is known but unsupported.
 
+    Warns
+    -----
+    MetadataWarning
+        If ``metadata`` is given and some channels read have no epoch in
+        it (one warning listing them); these records keep empty
+        metadata.
+
     Examples
     --------
     Read MiniSEED using the configured default backend:
@@ -229,6 +268,10 @@ def reader(file_path=None, list_file=None, stream_collection=None,
     ...     "waveforms.mseed",
     ...     mseed_backend="libmseed",
     ... )
+
+    Assign the channel metadata of a StationXML file while reading:
+
+    >>> collection = reader("waveforms.mseed", metadata="station.xml")
     """
     if file_path is not None and list_file is not None:
         raise ValueError(
@@ -243,22 +286,95 @@ def reader(file_path=None, list_file=None, stream_collection=None,
     if list_file is not None:
         file_path = _read_file_list(list_file)
 
-    stream_collection = _ensure_stream_collection(stream_collection)
-    file_list = _expand_file_list(file_path)
+    # Metadata are read first, so that an error stops before the data.
+    metadata = _as_metadata(metadata)
 
-    for path in file_list:
+    # With metadata and an existing collection, the data are read into a
+    # new collection and added after the assignment, so that the records
+    # already present are left as they are.
+    if metadata is not None and stream_collection is not None:
+        collection = _ensure_stream_collection()
+    else:
+        collection = _ensure_stream_collection(stream_collection)
+
+    for path in _expand_file_list(file_path):
         current_format = _resolve_format(path, format)
-        stream_collection = _read_file(
+        collection = _read_file(
             path,
             current_format,
-            stream_collection,
+            collection,
             byte_order=byte_order,
             **format_options,
         )
 
-    stream_collection.sort()
+    if metadata is not None:
+        collection.set_metadata(metadata)
+        if stream_collection is not None:
+            for stream in collection:
+                stream_collection.append(stream)
+            collection = stream_collection
 
-    return stream_collection
+    collection.sort()
+
+    return collection
+
+
+def read_metadata(
+    source: Any,
+    ftype: Optional[str] = None,
+) -> MetadataCollection:
+    """
+    Read channel metadata from one or more files.
+
+    Parameters
+    ----------
+    source : str, path-like or sequence
+        Metadata file path, wildcard pattern, directory, or sequence of
+        them, expanded as in :func:`reader`.
+    ftype : str, optional
+        File type for all files: ``"xml"`` (StationXML), ``"resp"`` or
+        ``"json"``. If omitted, it is inferred from each file name (see
+        :meth:`~shakelab.signals.metadata.MetadataCollection.read`).
+
+    Returns
+    -------
+    MetadataCollection
+        Collection with the content of all files.
+
+    Raises
+    ------
+    TypeError
+        If ``source`` is not a path or a sequence of paths.
+    ValueError
+        If the type of a file is unknown.
+
+    Warns
+    -----
+    MetadataWarning
+        If epochs of the same channel from different files overlap.
+
+    Notes
+    -----
+    Files are added in order; an epoch equal to one already read is
+    ignored, so the same metadata can be listed twice. Text, bytes or
+    open files are read with
+    :class:`~shakelab.signals.metadata.MetadataCollection` directly.
+
+    Examples
+    --------
+    >>> meta = read_metadata(["station.xml", "RESP.IU.ANMO.00.BHZ"])
+    >>> meta = read_metadata("metadata/*.xml")
+    """
+    from shakelab.signals.metadata import MetadataCollection
+
+    if not isinstance(source, (str, os.PathLike, list, tuple)):
+        raise TypeError("source must be a path or a sequence of paths")
+
+    collection = MetadataCollection()
+    for path in _expand_file_list(source):
+        collection.read(path, ftype=ftype, append=True)
+
+    return collection
 
 
 def writer(input_data, file_path, format=None, byte_order=None,
@@ -513,6 +629,30 @@ def _ensure_stream_collection(stream_collection=None):
     from shakelab.signals.base import StreamCollection
 
     return StreamCollection()
+
+
+def _as_metadata(metadata):
+    """
+    Return the metadata source for :func:`reader`.
+
+    Collections and channel epochs are returned as they are; paths and
+    sequences of paths are read with :func:`read_metadata`.
+    """
+    if metadata is None:
+        return None
+
+    from shakelab.signals.metadata import ChannelEpoch, MetadataCollection
+
+    if isinstance(metadata, (MetadataCollection, ChannelEpoch)):
+        return metadata
+
+    if isinstance(metadata, (str, os.PathLike, list, tuple)):
+        return read_metadata(metadata)
+
+    raise TypeError(
+        "metadata must be a MetadataCollection, a ChannelEpoch, a path "
+        "or a sequence of paths"
+    )
 
 
 def _as_stream_collection(input_data):

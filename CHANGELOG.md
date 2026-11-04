@@ -107,7 +107,8 @@ corrections. The format follows
   copy per epoch, with a `MetadataWarning` when different metadata are
   replaced, when the declared sampling rate differs, or when a record
   extends beyond its epoch; streams and collections leave channels
-  missing from the collection unchanged, with a warning. The response
+  missing from the collection unchanged, with a single warning listing
+  them. The response
   corrections (`deconvolve_response`, `convolve_response`,
   `remove_sensitivity`) of `Record`, `Stream`, `StreamCollection` and
   `Spectrum` use the response of the metadata when called without a
@@ -184,6 +185,13 @@ corrections. The format follows
 
 ### Added
 
+- `signals.io.read_metadata(source, ftype=None)`: reads channel
+  metadata (StationXML, RESP, JSON) from a file, a wildcard pattern, a
+  directory or a sequence of them into one `MetadataCollection`.
+  `io.reader(..., metadata=...)` and `StreamCollection.read(...,
+  metadata=...)` assign the metadata (a collection, a channel epoch, or
+  files read with `read_metadata`) to the records read; records already
+  in a given collection are not modified.
 - `signals.base`: `MERGE_TOLERANCE` (0.5 samples, used when joining
   records) and `SNAP_TOLERANCE` (snapping times to samples);
   `Record(units=...)`;

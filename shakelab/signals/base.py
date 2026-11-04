@@ -3230,12 +3230,11 @@ class Stream:
         Notes
         -----
         The records of the same epoch share one copy of it. A record
-        without an epoch in a collection is left unchanged, with a
-        :class:`~shakelab.signals.metadata.MetadataWarning`.
+        without an epoch in a collection is left unchanged; a single
+        :class:`~shakelab.signals.metadata.MetadataWarning` lists the
+        channels concerned.
         """
-        cache: dict = {}
-        for record in self.record:
-            _set_metadata(record, source, cache, missing="warn")
+        _set_metadata_records(self.record, source)
 
 
 class StreamCollection:
@@ -3981,13 +3980,13 @@ class StreamCollection:
         Notes
         -----
         The records of the same epoch share one copy of it. A record
-        without an epoch in the collection is left unchanged, with a
-        :class:`~shakelab.signals.metadata.MetadataWarning`.
+        without an epoch in the collection is left unchanged; a single
+        :class:`~shakelab.signals.metadata.MetadataWarning` lists the
+        channels concerned.
         """
-        cache: dict = {}
-        for stream in self.stream:
-            for record in stream:
-                _set_metadata(record, source, cache, missing="warn")
+        _set_metadata_records(
+            (record for stream in self.stream for record in stream), source
+        )
 
     def __mul__(self, value: Any) -> StreamCollection:
         """
@@ -4035,6 +4034,7 @@ class StreamCollection:
         list_file: Any = None,
         format: Optional[str] = None,
         byte_order: Optional[str] = None,
+        metadata: Any = None,
         **format_options: Any,
     ) -> StreamCollection:
         """
@@ -4056,6 +4056,10 @@ class StreamCollection:
             Byte order used by formats supporting explicit selection.
             ``None`` delegates byte-order handling to the selected
             format-specific reader.
+        metadata : MetadataCollection, ChannelEpoch, path or sequence, optional
+            Channel metadata assigned to the records read (see
+            :func:`shakelab.signals.io.reader`); the records already in
+            the collection are not modified.
         **format_options
             Additional keyword arguments forwarded to
             :func:`shakelab.signals.io.reader`.
@@ -4108,6 +4112,10 @@ class StreamCollection:
 
         >>> collection.read(list_file="waveforms.txt")
 
+        Read and assign the channel metadata of a StationXML file:
+
+        >>> collection.read("waveforms.mseed", metadata="station.xml")
+
         Force the pure-Python MiniSEED backend:
 
         >>> collection.read(
@@ -4121,6 +4129,7 @@ class StreamCollection:
             stream_collection=self,
             format=format,
             byte_order=byte_order,
+            metadata=metadata,
             **format_options,
         )
 
@@ -4344,27 +4353,43 @@ def _fft_resample(data, old_delta, new_delta, new_nsamp):
 # ----------------------------------------------------------------------------
 
 
-def _set_metadata(record, source, cache, missing="raise"):
+def _set_metadata_records(records, source):
+    """
+    Assign the channel metadata of several records (see
+    :meth:`Stream.set_metadata`).
+
+    The records share one cache, hence one copy per epoch. Records
+    without an epoch in a collection are left unchanged and reported
+    together in one warning.
+    """
+    cache: dict = {}
+    missing = set()
+    for record in records:
+        try:
+            _set_metadata(record, source, cache)
+        except KeyError:
+            missing.add(record.sid)
+
+    if missing:
+        warnings.warn(
+            f"no metadata for {len(missing)} channel(s), left unchanged: "
+            + ", ".join(sorted(missing)),
+            metadata.MetadataWarning,
+            stacklevel=3,
+        )
+
+
+def _set_metadata(record, source, cache):
     """
     Assign the channel metadata of a record (see
     :meth:`Record.set_metadata`).
 
     ``cache`` maps the selected epochs to the copies stored in the
     records, so that the records of one call share one copy per epoch.
-    With ``missing="warn"`` a record without an epoch in a collection is
-    left unchanged with a warning.
+    A ``KeyError`` is raised if a collection has no epoch for the
+    record.
     """
-    try:
-        epoch = _resolve_epoch(source, record.sid, record.time, cache)
-    except KeyError as error:
-        if missing == "raise":
-            raise
-        warnings.warn(
-            f"{error.args[0]}: metadata left unchanged",
-            metadata.MetadataWarning,
-            stacklevel=3,
-        )
-        return
+    epoch = _resolve_epoch(source, record.sid, record.time, cache)
 
     current = record.head.meta
     sid = epoch.sid or "record"

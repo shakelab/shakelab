@@ -25,8 +25,8 @@ processed by the Engineering Strong-Motion database (ESM).
 
 Steps
 -----
-1. Read the raw records (counts) and the StationXML metadata, check
-   their consistency and assign them to the records.
+1. Read the StationXML metadata, check their consistency, and read the
+   raw records (counts) assigning the metadata to them.
 2. Read the ESM accelerations (DYNA 1.2 ASCII files, cm/s**2) and,
    from their header, the band-pass filter applied by ESM to each
    component.
@@ -40,14 +40,15 @@ Run from the root of the repository::
     python examples/signals/response_correction_esm.py
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from shakelab.signals.base import StreamCollection
+from shakelab.signals.io import read_metadata, reader
 from shakelab.signals.libio.dyna import Dyna, dynaread
-from shakelab.signals.metadata import MetadataCollection
 
 DATA = Path(__file__).resolve().parents[2] / "tests" / "signals" / "data"
 ESM = DATA / "ESM" / "ASCII"
@@ -58,13 +59,11 @@ COMPONENTS = ("HNE", "HNN", "HNZ")
 # Data
 # ----------------------------------------------------------------------------
 
-raw = StreamCollection()
-raw.read(str(DATA / "MODE.mseed"))
-meta = MetadataCollection(str(DATA / "MODE.xml"))
-
+meta = read_metadata(str(DATA / "MODE.xml"))
 issues = meta.validate()
 print("Metadata issues:", issues if issues else "none")
-raw.set_metadata(meta)
+
+raw = reader(str(DATA / "MODE.mseed"), metadata=meta)
 
 esm = {}
 for cha in COMPONENTS:
