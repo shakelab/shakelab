@@ -208,6 +208,21 @@ corrections. The format follows
   samples correctly, MiniSEED 2 files needing encodings 1, 4 or 5 are
   written by the pure-Python backend, and MiniSEED 3 output is limited
   to encodings 3, 10 and 11 (`NotImplementedError` otherwise).
+- `signals.libio.sac` rewritten: the coordinates, burial depth and
+  orientation of the header (`STLA`, `STLO`, `STEL`, `STDP`, `CMPAZ`,
+  `CMPINC`) become the channel metadata of the record and are written
+  from it; the other defined header fields (event, picks, user fields)
+  are kept in `record.head.extra["sac"]` (time markers as dates) and
+  written back; header version 7 (double-precision footer) is read;
+  sources and targets may be paths, bytes or binary file objects; the
+  byte order is detected from the header version. `Sac` holds undefined
+  fields as None and provides `from_bytes`, `to_bytes`,
+  `to_shakelab` and `from_shakelab`; files that are not evenly sampled
+  time series are read by `Sac` and rejected by `sacread`.
+- `set_metadata` warns only when the existing and the new channel
+  metadata disagree on an attribute defined in both (new
+  `ChannelEpoch.conflicts`), so the partial metadata read from data
+  files agree with complete StationXML epochs.
 - `libutils.timezones.TIMEZONE`: outdated offsets updated (e.g.
   Caracas, Amman, Damascus, Casablanca, Samoa, Minsk, Novosibirsk,
   Astana, Greenland, Asuncion) and an IANA name added to each entry.
@@ -295,6 +310,12 @@ corrections. The format follows
   ignored; files written by libmseed in little-endian order, with
   float64 data, text or detection records could not be read; writing
   floating-point data failed with the default encoding.
+- `signals.libio.sac`: the milliseconds of the reference time
+  (`NZMSEC`) were read as tenths of milliseconds and the begin time `B`
+  was ignored, so start times were wrong for most files written by
+  other programs; undefined codes appeared as `-12345` in the source
+  identifier and the location code (`KHOLE`) was ignored; writing
+  failed for records without source identifier.
 - `signals.libio.cymseed`: input files were not closed; codes padded
   with spaces by libmseed (e.g. channel `Z`) gave source identifiers
   with trailing spaces.

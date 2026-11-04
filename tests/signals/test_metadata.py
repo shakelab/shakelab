@@ -482,3 +482,20 @@ def test_select_sensitivity(mode):
 
     with pytest.raises(ValueError):
         select_sensitivity(StageSet())
+
+
+def test_channel_epoch_conflicts():
+    """Only attributes defined in both epochs and different conflict."""
+    partial = ChannelEpoch("XX.STA..HHZ", location=(13.0, 46.0),
+                           orientation=(0.0, -90.0))
+    close = ChannelEpoch("XX.STA..HHZ", location=(13.000004, 46.0, 100.0),
+                         orientation=(359.9999, -90.0), depth=0.01,
+                         sample_rate=100.0)
+    far = ChannelEpoch("XX.STA..HHZ", location=(13.001, 46.0),
+                       orientation=(90.0, 0.0))
+
+    assert partial.conflicts(close) == []
+    assert close.conflicts(partial) == []
+    assert partial.conflicts(far) == ["location", "orientation"]
+    with pytest.raises(TypeError):
+        partial.conflicts("XX.STA..HHZ")

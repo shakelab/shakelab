@@ -568,6 +568,79 @@ class ChannelEpoch(_Epoch):
 
     __hash__ = None
 
+    def conflicts(self, other: ChannelEpoch) -> list:
+        """
+        Attributes defined in both epochs with different values.
+
+        Attributes missing in either epoch are not conflicts, so the
+        partial metadata of a data file (e.g. coordinates read from SAC)
+        agree with a complete StationXML epoch of the same channel.
+        Coordinates are compared within 1e-5 degrees (about 1 m, the
+        precision of single-precision formats) and 0.1 m of elevation
+        (an elevation of 0, the default of coordinates given without
+        it, is not compared),
+        depths within 1 mm, orientations within 1e-3 degrees and
+        sampling rates within a relative 1e-4.
+
+        Parameters
+        ----------
+        other : ChannelEpoch
+            Epoch to compare.
+
+        Returns
+        -------
+        list of str
+            Names of the conflicting attributes, in definition order.
+
+        Raises
+        ------
+        TypeError
+            If ``other`` is not a ChannelEpoch.
+        """
+        if not isinstance(other, ChannelEpoch):
+            raise TypeError("other must be a ChannelEpoch")
+
+        def close(a: Any, b: Any, tol: float) -> bool:
+            return abs(a - b) <= tol
+
+        def same_location(a: WgsPoint, b: WgsPoint) -> bool:
+            # Elevation 0 also stands for "not given" (WgsPoint default).
+            elevations = (a.elevation or 0.0, b.elevation or 0.0)
+            return (
+                close(a.longitude, b.longitude, 1e-5)
+                and close(a.latitude, b.latitude, 1e-5)
+                and (0.0 in elevations
+                     or close(a.elevation, b.elevation, 0.1))
+            )
+
+        checks = {
+            "sid": lambda a, b: a == b,
+            "starttime": lambda a, b: a == b,
+            "endtime": lambda a, b: a == b,
+            "location": same_location,
+            "depth": lambda a, b: close(a, b, 1e-6),
+            "orientation": lambda a, b: (
+                close((a.azimuth - b.azimuth + 180.0) % 360.0, 180.0, 1e-3)
+                and close(a.dip, b.dip, 1e-3)
+            ),
+            "sample_rate": lambda a, b: close(a, b, 1e-4 * abs(b)),
+            "sensor": lambda a, b: a == b,
+            "datalogger": lambda a, b: a == b,
+            "response": lambda a, b: a.to_dict() == b.to_dict(),
+            "station": lambda a, b: a == b,
+        }
+        names = []
+        for name, same in checks.items():
+            a, b = getattr(self, name), getattr(other, name)
+            if a is not None and b is not None and not same(a, b):
+                names.append(name)
+        if any(
+            self.extra[key] != other.extra[key]
+            for key in self.extra.keys() & other.extra.keys()
+        ):
+            names.append("extra")
+        return names
+
     def info(self) -> None:
         """Print a summary of the channel epoch."""
         print(f"{self.sid}  {self._interval()}")

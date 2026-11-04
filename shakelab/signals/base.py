@@ -4395,12 +4395,13 @@ def _set_metadata(record, source, cache):
     sid = epoch.sid or "record"
 
     if not current.empty and current is not epoch:
-        key = ("same", id(current), id(epoch))
+        key = ("conflicts", id(current), id(epoch))
         if key not in cache:
-            cache[key] = current == epoch
-        if not cache[key]:
+            cache[key] = current.conflicts(epoch)
+        if cache[key]:
             warnings.warn(
-                f"{sid}: the existing metadata are replaced",
+                f"{sid}: the existing metadata are replaced (different "
+                f"{', '.join(cache[key])})",
                 metadata.MetadataWarning,
                 stacklevel=3,
             )
