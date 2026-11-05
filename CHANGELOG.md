@@ -23,9 +23,10 @@ corrections. The format follows
   format, owrite, **options)` takes `data` and `target` in place of
   `input_data` and `file_path`; `target` can be a file, a directory
   (one file per channel, or per record for SAC and DYNA) or a file
-  name template with `{network}`, `{station}`, `{location}`,
-  `{channel}`, `{sid}` and `{start}`; no file is written if one of
-  them exists and `owrite` is False. `writer(record, "x.sac")` now
+  name template with the fields of the SeedLink archives (`{net}`,
+  `{sta}`, `{loc}`, `{cha}`, `{time}` with a `strftime` format,
+  `{year}`, `{jday}`) and `{sid}` and `{start}`; no file is written if
+  one of them exists and `owrite` is False. `writer(record, "x.sac")` now
   writes the file (it created a directory `x.sac`), and DYNA files
   (`.asc`) can be written.
   `byte_order` and `mseed_backend` are options of the format readers
@@ -299,6 +300,11 @@ corrections. The format follows
 
 ### Added
 
+- `signals.io.reader`: `select` (channel patterns of
+  `signals.codes`), `starttime` and `endtime` (records cut to the
+  window, as `Record.cut`; metadata assigned after the selection), and
+  `layout="sds"` to read SeisComP Data Structure archives opening only
+  the files of the requested channels and days (and the day before).
 - `signals.io.formats()`: the supported waveform formats, with their
   extensions and whether they can be read, written and recognized
   from their content.

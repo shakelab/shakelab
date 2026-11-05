@@ -28,6 +28,7 @@ come from ``tests/signals/data`` (see the README in that folder).
 
 from __future__ import annotations
 
+import os
 import pickle
 import shutil
 import warnings
@@ -37,7 +38,9 @@ import numpy as np
 import pytest
 
 from shakelab.signals import io
-from shakelab.signals.base import Record, StreamCollection
+from shakelab.libutils.timeN import Date
+from shakelab.signals.base import Record, Stream, StreamCollection
+from shakelab.signals.codes import parse_sid_pattern
 from shakelab.signals.io import (
     IoWarning,
     formats,
@@ -529,24 +532,24 @@ def test_writer_template(tmp_path):
     """Templates name the files and create the folders."""
     collection = _collection()
 
-    writer(collection, str(tmp_path / "{station}" / "{channel}.{start}.sac"))
+    writer(collection, str(tmp_path / "{sta}" / "{cha}.{start}.sac"))
     assert len(list((tmp_path / "AA").glob("HH?.20260101T000000.sac"))) == 3
 
-    writer(collection, str(tmp_path / "{network}.{station}.mseed"))
+    writer(collection, str(tmp_path / "{net}.{sta}.mseed"))
     again = reader(str(tmp_path / "XX.AA.mseed"))
     assert again.sid == collection.sid
 
     with pytest.raises(ValueError, match="same name"):
-        writer(collection, str(tmp_path / "{station}.sac"))
+        writer(collection, str(tmp_path / "{sta}.sac"))
 
     with pytest.raises(ValueError, match="fields"):
-        writer(collection, str(tmp_path / "{year}.mseed"))
+        writer(collection, str(tmp_path / "{month}.mseed"))
 
 
 def test_writer_existing_files(tmp_path):
     """No file is written if one of them exists, unless owrite."""
     collection = _collection()
-    template = str(tmp_path / "{channel}.mseed")
+    template = str(tmp_path / "{cha}.mseed")
     (tmp_path / "HHN.mseed").write_bytes(b"")
 
     with pytest.raises(FileExistsError):
@@ -575,3 +578,184 @@ def test_writer_errors(tmp_path):
     with pytest.raises(TypeError, match="unknown option"):
         writer(collection[0][0], str(tmp_path / "a.sac"), reclen=512)
     assert not list(tmp_path.iterdir())
+
+
+def test_writer_template_time_fields(tmp_path):
+    """Templates take the fields of the SeedLink archives."""
+    collection = _collection()
+
+    writer(collection, str(tmp_path / "{year}" / "{jday}" /
+                           "{net}.{sta}.{loc}.{cha}.mseed"))
+    assert sorted(path.name for path in (tmp_path / "2026" / "001").iterdir()
+                  ) == [f"XX.AA..{cha}.mseed" for cha in ("HHE", "HHN",
+                                                          "HHZ")]
+
+    writer(collection, str(tmp_path / "{time:%Y-%m-%d}.{sid}.sac"))
+    assert (tmp_path / "2026-01-01.XX.AA..HHZ.sac").is_file()
+
+
+# ----------------------------------------------------------------------------
+# Selection
+# ----------------------------------------------------------------------------
+
+
+def test_reader_select():
+    """Channels are selected with the patterns of signals.codes."""
+    assert reader(MSEED, select="IV.MODE..HN[EN]").sid == [
+        "IV.MODE..HNE", "IV.MODE..HNN"
+    ]
+    assert reader(MSEED, select=["IV.MODE..HNZ", "XX"]).sid == [
+        "IV.MODE..HNZ"
+    ]
+    assert len(reader(MSEED, select="IV.{MODE,MIRA}")) == 3
+    assert len(reader(MSEED, select="IV.MIRA")) == 0
+
+    with pytest.raises(ValueError):
+        reader(MSEED, select="IV..")
+    with pytest.raises(TypeError, match="select"):
+        reader(MSEED, select=5)
+
+
+def test_reader_time_window():
+    """Records are cut to the window, bounds included."""
+    full = reader(MSEED)["IV.MODE..HNZ"][0]
+    start = full.time + 10.0
+    end = full.time + 20.0
+
+    cut = reader(MSEED, starttime=start, endtime=end)["IV.MODE..HNZ"][0]
+    assert cut.time == start
+    assert cut.nsamp == round(10.0 / full.delta) + 1
+    np.testing.assert_array_equal(
+        cut.data, full.data[1000:1000 + cut.nsamp]
+    )
+
+    assert reader(MSEED, starttime=start.iso8601).sid == reader(MSEED).sid
+    assert len(reader(MSEED, endtime=full.time - 1.0)) == 0
+
+    with pytest.raises(ValueError, match="precedes"):
+        reader(MSEED, starttime=end, endtime=start)
+    with pytest.raises(TypeError, match="ISO 8601"):
+        reader(MSEED, starttime=10.0)
+
+
+def test_reader_selection_with_collection_and_metadata():
+    """The metadata go to the selected records only; others untouched."""
+    collection = StreamCollection()
+    collection.append(Record(data=[1.0, 2.0], delta=0.01,
+                             time="2026-01-01T00:00:00", sid="XX.STA..HHZ"))
+
+    with pytest.warns(MetadataWarning) as caught:
+        reader(MSEED, select="IV.MODE..HNZ", metadata=OTHER,
+               stream_collection=collection)
+    messages = [str(item.message) for item in caught]
+    assert len(messages) == 1 and "1 channel(s)" in messages[0]
+    assert collection.sid == ["IV.MODE..HNZ", "XX.STA..HHZ"]
+    assert collection["XX.STA..HHZ"][0].nsamp == 2
+
+
+# ----------------------------------------------------------------------------
+# SDS archives
+# ----------------------------------------------------------------------------
+
+
+SDS = "{year}/{net}/{sta}/{cha}.D/{net}.{sta}.{loc}.{cha}.D.{year}.{jday}"
+
+
+@pytest.fixture
+def archive(tmp_path):
+    """
+    SDS archive of two stations at 1 Hz: per channel, one record per
+    day from 2026-05-02 to 2026-05-04 (00:00:00 to 23:58:59) and one
+    record from 23:59:00 to 00:00:59, stored in the file of the day it
+    begins.
+    """
+    root = tmp_path / "sds"
+    collection = StreamCollection()
+    for sta in ("AAA", "BBB"):
+        for cha in ("HHZ", "HHN"):
+            sid = f"XX.{sta}..{cha}"
+            for day in ("02", "03", "04"):
+                collection.append(Record(
+                    data=np.arange(86340.0), delta=1.0,
+                    time=f"2026-05-{day}T00:00:00", sid=sid))
+                collection.append(Record(
+                    data=np.arange(120.0) + 1e6, delta=1.0,
+                    time=f"2026-05-{day}T23:59:00", sid=sid))
+    # Records kept separate (Stream.append would join them).
+    records = StreamCollection()
+    for record in collection.records():
+        records.stream.append(Stream(sid=record.sid))
+        records.stream[-1].record.append(record)
+    writer(records, str(root / SDS), format="mseed",
+           mseed_backend="python")
+    return root
+
+
+def test_sds_reads_only_the_files_needed(archive):
+    """Only the requested channels and days are read."""
+    files = sorted(
+        path.relative_to(archive).as_posix()
+        for path in archive.rglob("*") if path.is_file()
+    )
+    assert len(files) == 2 * 2 * 3
+
+    # The day before the window and the day of the window.
+    needed = io._sds_files(
+        str(archive), parse_sid_pattern("XX.AAA..HHZ"),
+        Date("2026-05-03T10:00:00"), Date("2026-05-03T10:00:09"),
+    )
+    assert [os.path.basename(path) for path in needed] == [
+        "XX.AAA..HHZ.D.2026.122", "XX.AAA..HHZ.D.2026.123"
+    ]
+
+    collection = reader(archive, layout="sds", select="XX.AAA..HHZ",
+                        starttime="2026-05-03T10:00:00",
+                        endtime="2026-05-03T10:00:09")
+    assert collection.sid == ["XX.AAA..HHZ"]
+    record = collection[0][0]
+    assert record.nsamp == 10
+    assert record.data[0] == 36000.0
+
+
+def test_sds_previous_day(archive):
+    """Data just after midnight are in the file of the day before."""
+    collection = reader(archive, layout="sds", select="XX.*..HHN",
+                        starttime="2026-05-04T00:00:10",
+                        endtime="2026-05-04T00:00:19")
+    assert collection.sid == ["XX.AAA..HHN", "XX.BBB..HHN"]
+    for stream in collection:
+        assert stream[0].nsamp == 10
+        assert stream[0].data[0] == 1e6 + 70
+
+
+def test_sds_whole_days_and_patterns(archive):
+    """Patterns select stations and channels; missing days are fine."""
+    collection = reader(archive, layout="sds", select="XX.{AAA,BBB}",
+                        starttime="2026-05-01T00:00:00",
+                        endtime="2026-05-07T00:00:00")
+    assert len(collection) == 4
+    for stream in collection:
+        assert sum(record.nsamp for record in stream) == 3 * 86460
+
+
+def test_sds_errors(archive, tmp_path):
+    """Invalid requests, missing archives and empty results."""
+    with pytest.raises(ValueError, match="requires starttime and endtime"):
+        reader(archive, layout="sds", starttime="2026-05-03T00:00:00")
+    with pytest.raises(ValueError, match="unknown layout"):
+        reader(archive, layout="bud", starttime="2026-05-03T00:00:00",
+               endtime="2026-05-03T01:00:00")
+    with pytest.raises(ValueError, match="list_file"):
+        reader(archive, layout="sds", list_file="files.txt",
+               starttime="2026-05-03T00:00:00",
+               endtime="2026-05-03T01:00:00")
+    with pytest.raises(FileNotFoundError, match="archive"):
+        reader(tmp_path / "missing", layout="sds",
+               starttime="2026-05-03T00:00:00",
+               endtime="2026-05-03T01:00:00")
+
+    with pytest.warns(IoWarning, match="no data"):
+        collection = reader(archive, layout="sds", select="YY",
+                            starttime="2026-05-03T00:00:00",
+                            endtime="2026-05-03T01:00:00")
+    assert len(collection) == 0

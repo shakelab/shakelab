@@ -48,6 +48,13 @@ for intermediate results: a pickle file can run code when it is read,
 so only files from trusted sources should be read, and files written
 by one version of ShakeLab may not be readable by another.
 
+:func:`reader` can also select channels (``select``, with the patterns
+of :mod:`shakelab.signals.codes`) and a time window (``starttime``,
+``endtime``, as in :meth:`~shakelab.signals.base.Record.cut`), and
+read an archive organized by channel and day (``layout="sds"``, the
+SeisComP Data Structure), opening only the files of the channels and
+days requested.
+
 Format modules are imported only when a file of that format is read or
 written.
 """
@@ -59,10 +66,14 @@ import inspect
 import os
 import pickle
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from fnmatch import fnmatchcase
 from glob import glob
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
+from shakelab.libutils.timeN import Date
 from shakelab.libutils.utils import warn_external
+from shakelab.signals.codes import SidPattern, parse_sid_pattern
 
 if TYPE_CHECKING:
     from shakelab.signals.base import Record, StreamCollection
@@ -165,8 +176,12 @@ _MSEED_BACKENDS = {
     "python": "shakelab.signals.libio.mseed",
 }
 
-# Fields of the file name templates of writer().
-_NAME_FIELDS = ("network", "station", "location", "channel", "sid", "start")
+# Fields of the file name templates of writer() (as in seedlink).
+_NAME_FIELDS = ("net", "sta", "loc", "cha", "sid", "start", "time", "year",
+                "jday")
+
+# Archive layouts read by reader().
+_LAYOUTS = ("sds",)
 
 # Metadata types recognized from file names (see MetadataCollection.read).
 _METADATA_TYPES = ("xml", "sxml", "resp", "json")
@@ -215,6 +230,10 @@ def reader(
     *,
     list_file: Any = None,
     format: Optional[str] = None,
+    layout: Optional[str] = None,
+    select: Any = None,
+    starttime: Any = None,
+    endtime: Any = None,
     metadata: Any = None,
     stream_collection: Optional[StreamCollection] = None,
     **options: Any,
@@ -237,11 +256,30 @@ def reader(
         Format of all files (see :func:`formats`). If omitted, it is
         inferred from the extension of each file or, without a known
         extension or with ``.asc``, from its first bytes.
+    layout : {"sds"}, optional
+        Organization of an archive whose root is ``source``: ``"sds"``
+        is the SeisComP Data Structure, one MiniSEED file per channel
+        and day in ``YEAR/NET/STA/CHA.D/NET.STA.LOC.CHA.D.YEAR.DAY``.
+        Only the files of the channels and days requested are read
+        (also the day before ``starttime``, since a record is stored in
+        the file of the day it begins). ``starttime`` and ``endtime``
+        are required; missing days are not an error.
+    select : str or sequence of str, optional
+        Channels to keep: patterns ``NET.STA.LOC.CHA`` with ``*``,
+        ``?``, ``[...]`` and ``{A,B}``, codes missing at the end
+        matching anything (see :mod:`shakelab.signals.codes`).
+    starttime, endtime : Date or str, optional
+        Time window to keep, bounds included: records outside it are
+        dropped and the others cut to it (see
+        :meth:`~shakelab.signals.base.Record.cut`). The names differ
+        from the ``start`` option of some formats (the start time of
+        records without one, e.g. text tables).
     metadata : MetadataCollection, ChannelEpoch, path or sequence, optional
         Channel metadata assigned to the records read, as with
         :meth:`~shakelab.signals.base.StreamCollection.set_metadata`.
-        Paths are read with :func:`metadata_reader`, before the data.
-        The records already in ``stream_collection`` are not modified.
+        Paths are read with :func:`metadata_reader`, before the data;
+        the metadata are assigned after the selection. The records
+        already in ``stream_collection`` are not modified.
     stream_collection : StreamCollection, optional
         Collection to which the records are added; a new one if
         omitted.
@@ -260,10 +298,13 @@ def reader(
     Raises
     ------
     ValueError
-        If no source is given, or if the format of a file given by
-        name is not recognized.
+        If no source is given, if the format of a file given by name
+        is not recognized, if a pattern is invalid, if the time window
+        is reversed, or if ``layout`` is unknown or given without
+        ``starttime`` and ``endtime``.
     FileNotFoundError
-        If a file does not exist or a pattern matches no file.
+        If a file, or the root of an archive, does not exist, or if a
+        pattern matches no file.
     TypeError
         If a source has an unsupported type, or if an option is not
         accepted by the reader of a format.
@@ -274,8 +315,8 @@ def reader(
     -----
     IoWarning
         If files of unknown format, found in directories or patterns,
-        are skipped (one warning listing them). Hidden files are
-        ignored.
+        are skipped (one warning listing them; hidden files are
+        ignored), or if an archive has no data for the request.
     MetadataWarning
         If ``metadata`` is given and some channels read have no epoch
         in it (one warning listing them).
@@ -288,16 +329,33 @@ def reader(
     >>> sc = reader(list_file="files.txt")
     >>> sc = reader("data/*.mseed", mseed_backend="python")
     >>> sc = reader("SDS/2026/IV/MODE/HNZ.D/")   # files without extension
+    >>> sc = reader("event/", select="IV.MODE..HN?",
+    ...             starttime="2012-05-29T07:00:00",
+    ...             endtime="2012-05-29T07:02:00")
+    >>> sc = reader("/archive", layout="sds", select="IV.{MODE,MIRA}",
+    ...             starttime="2026-05-03T23:50:00",
+    ...             endtime="2026-05-04T00:20:00")
     """
-    # Metadata are read first, so that an error stops before the data.
+    # Arguments and metadata are checked first, so that an error stops
+    # before the data.
+    patterns = _patterns(select)
+    start, end = _window(starttime, endtime)
     metadata = _as_metadata(metadata)
-    files = _input_files(source, list_file)
     name = None if format is None else _format_name(format)
+    if layout is None:
+        files = _input_files(source, list_file)
+    else:
+        files = _archive_files(source, list_file, layout, patterns,
+                               start, end)
+        name = name or "mseed"
+    selecting = patterns is not None or start is not None or (
+        end is not None
+    )
 
-    # With metadata and an existing collection, the data are read into
-    # a new collection and added after the assignment, so that the
-    # records already present are left as they are.
-    if stream_collection is None or metadata is not None:
+    # With a selection or with metadata, the data are read into a new
+    # collection, so that the records already in stream_collection are
+    # left as they are.
+    if stream_collection is None or selecting or metadata is not None:
         from shakelab.signals.base import StreamCollection
 
         collection = StreamCollection()
@@ -320,12 +378,22 @@ def reader(
     if skipped:
         _warn_skipped(skipped)
 
+    if selecting:
+        collection = _collection(
+            _selected(collection.records(), patterns, start, end)
+        )
+    if layout is not None and not len(collection):
+        warn_external(
+            f"no data in the archive for {select or 'all channels'} "
+            f"from {start} to {end}",
+            IoWarning,
+        )
     if metadata is not None:
         collection.set_metadata(metadata)
-        if stream_collection is not None:
-            for stream in collection:
-                stream_collection.append(stream)
-            collection = stream_collection
+    if stream_collection is not None and collection is not stream_collection:
+        for stream in collection:
+            stream_collection.append(stream)
+        collection = stream_collection
 
     collection.sort()
 
@@ -437,11 +505,14 @@ def writer(
           per channel, or per record for formats holding one record
           per file, named ``NET.STA.LOC.CHA`` (with ``.{start}`` for
           one record per file) and the extension of the format;
-        - a file name template with the fields ``{network}``,
-          ``{station}``, ``{location}``, ``{channel}``, ``{sid}`` and
-          ``{start}`` (start time as ``20260101T000000``): the records
-          with the same name go to the same file. Missing folders are
-          created.
+        - a file name template with the fields of the SeedLink
+          archives (:mod:`shakelab.signals.seedlink.archiver`):
+          ``{net}``, ``{sta}``, ``{loc}``, ``{cha}``, ``{sid}``, the
+          start time ``{time}`` (a ``datetime``, with a ``strftime``
+          format such as ``{time:%Y%m%dT%H%M%S}``), ``{year}``,
+          ``{jday}`` (day of the year, three digits) and ``{start}``,
+          short for ``{time:%Y%m%dT%H%M%S}``. The records with the same
+          name go to the same file; missing folders are created.
     format : str, optional
         Output format (see :func:`formats`). If omitted, it is
         inferred from the extension of ``target``; it is required
@@ -473,8 +544,9 @@ def writer(
     >>> writer(sc, "waveforms.mseed", encoding=11)
     >>> writer(record, "record.sac")
     >>> writer(sc, "sac_out/", format="sac")
-    >>> writer(sc, "{station}/{station}.{channel}.{start}.sac")
-    >>> writer(sc, "{station}.mseed")    # one MiniSEED file per station
+    >>> writer(sc, "{sta}/{sta}.{cha}.{start}.sac")
+    >>> writer(sc, "{sta}.mseed")    # one MiniSEED file per station
+    >>> writer(sc, "{year}/{jday}/{net}.{sta}.{loc}.{cha}.mseed")
     """
     from shakelab.signals.base import Record, Stream, StreamCollection
 
@@ -520,14 +592,14 @@ def writer(
                     f"{name}: one record per file, {len(records)} "
                     "records given; write into a directory or use a "
                     "name template such as "
-                    f"'{{station}}.{{channel}}.{{start}}{fmt.suffix}'"
+                    f"'{{sta}}.{{cha}}.{{start}}{fmt.suffix}'"
                 )
             content = records[0]
         write(target, content, owrite=owrite, **options)
         return
 
     if directory:
-        fields = "{network}.{station}.{location}.{channel}"
+        fields = "{net}.{sta}.{loc}.{cha}"
         if fmt.per_record:
             fields += ".{start}"
         target = os.path.join(target, fields + fmt.suffix)
@@ -833,16 +905,25 @@ def _names(records: list[Record], template: str) -> dict[str, list]:
     return files
 
 
-def _name_fields(record: Record) -> dict[str, str]:
+def _name_fields(record: Record) -> dict[str, Any]:
     """Values of the template fields for a record."""
     sid = record.sid or ""
     codes = sid.split(".")
     if len(codes) != 4:
         codes = ["", "", "", sid]
-    start = ""
+    fields: dict[str, Any] = dict(zip(_NAME_FIELDS, codes + [sid]))
     if record.time is not None:
-        start = record.time.iso8601[:19].replace("-", "").replace(":", "")
-    return dict(zip(_NAME_FIELDS, codes + [sid, start]))
+        nanoseconds = record.time.to_unix_ns()
+        time = datetime.fromtimestamp(
+            nanoseconds // 10 ** 9, tz=timezone.utc
+        ) + timedelta(microseconds=nanoseconds % 10 ** 9 // 1000)
+        fields.update(
+            start=time.strftime("%Y%m%dT%H%M%S"),
+            time=time,
+            year=f"{time.year:04d}",
+            jday=f"{time.timetuple().tm_yday:03d}",
+        )
+    return fields
 
 
 def _collection(records: list[Record]) -> StreamCollection:
@@ -859,3 +940,161 @@ def _collection(records: list[Record]) -> StreamCollection:
         collection.stream[-1].record.append(record)
 
     return collection
+
+
+def _patterns(select: Any) -> Optional[list[SidPattern]]:
+    """Patterns of ``select`` (a string or a sequence), or None."""
+    if select is None:
+        return None
+    if isinstance(select, str):
+        select = [select]
+    elif not isinstance(select, (list, tuple)):
+        raise TypeError("select must be a pattern or a list of patterns")
+    patterns = []
+    for item in select:
+        patterns.extend(parse_sid_pattern(item))
+    return patterns
+
+
+def _window(
+    starttime: Any,
+    endtime: Any,
+) -> tuple[Optional[Date], Optional[Date]]:
+    """Bounds of the time window, as dates."""
+    bounds = []
+    for name, value in (("starttime", starttime), ("endtime", endtime)):
+        if value is not None and not isinstance(value, (Date, str)):
+            raise TypeError(
+                f"{name} must be a Date or an ISO 8601 string"
+            )
+        bounds.append(None if value is None else Date(value))
+    if None not in bounds and bounds[0] > bounds[1]:
+        raise ValueError("the end of the time window precedes its start")
+    return bounds[0], bounds[1]
+
+
+def _selected(
+    records: list[Record],
+    patterns: Optional[list[SidPattern]],
+    start: Optional[Date],
+    end: Optional[Date],
+) -> list[Record]:
+    """Records of the selected channels, cut to the time window."""
+    kept = []
+    for record in records:
+        if patterns is not None and not any(
+            pattern.matches(record.sid) for pattern in patterns
+        ):
+            continue
+        if start is not None or end is not None:
+            if record.time is None:
+                raise ValueError(
+                    f"{record.sid}: a record without start time cannot "
+                    "be cut to a time window"
+                )
+            if (
+                (start is not None and record.endtime < start)
+                or (end is not None and record.time > end)
+            ):
+                continue
+            try:
+                record.cut(start, end)
+            except ValueError:
+                continue    # no sample within the window
+        kept.append(record)
+    return kept
+
+
+def _archive_files(
+    source: Any,
+    list_file: Any,
+    layout: Any,
+    patterns: Optional[list[SidPattern]],
+    start: Optional[Date],
+    end: Optional[Date],
+) -> list[tuple[str, bool]]:
+    """Files of the archives in ``source`` needed for a request."""
+    if layout not in _LAYOUTS:
+        raise ValueError(
+            f"unknown layout {layout!r}; supported: {', '.join(_LAYOUTS)}"
+        )
+    if start is None or end is None:
+        raise ValueError(
+            f"layout={layout!r} requires starttime and endtime"
+        )
+    if list_file is not None:
+        raise ValueError("list_file cannot be used with layout")
+    if source is None:
+        raise ValueError("source must be the root of the archive")
+
+    roots = source if isinstance(source, (list, tuple)) else [source]
+    files = []
+    for root in roots:
+        if not isinstance(root, (str, os.PathLike)):
+            raise TypeError("the root of an archive must be a path")
+        root = os.path.expandvars(os.path.expanduser(os.fspath(root)))
+        if not os.path.isdir(root):
+            raise FileNotFoundError(f"No such archive: {root}")
+        files.extend(
+            (path, False)
+            for path in _sds_files(root, patterns, start, end)
+        )
+    return files
+
+
+def _sds_files(
+    root: str,
+    patterns: Optional[list[SidPattern]],
+    start: Date,
+    end: Date,
+) -> list[str]:
+    """
+    Files of an SDS archive for the channels and days requested (the
+    day before ``start`` included).
+    """
+    if patterns is None:
+        patterns = [SidPattern("*", "*", "*", "*")]
+
+    first = datetime(start.year, start.month, start.day) - timedelta(1)
+    last = datetime(end.year, end.month, end.day)
+    days: dict[str, set] = {}
+    day = first
+    while day <= last:
+        days.setdefault(f"{day.year:04d}",
+                        set()).add(f"{day.timetuple().tm_yday:03d}")
+        day += timedelta(1)
+
+    def folders(path: str, names: list[str]) -> list[str]:
+        if not os.path.isdir(path):
+            return []
+        return sorted(
+            entry for entry in os.listdir(path)
+            if os.path.isdir(os.path.join(path, entry))
+            and any(fnmatchcase(entry, name) for name in names)
+        )
+
+    files = []
+    for year, jdays in days.items():
+        top = os.path.join(root, year)
+        for net in folders(top, [p.network for p in patterns]):
+            current = [p for p in patterns if fnmatchcase(net, p.network)]
+            for sta in folders(os.path.join(top, net),
+                               [p.station for p in current]):
+                here = [p for p in current if fnmatchcase(sta, p.station)]
+                folder = os.path.join(top, net, sta)
+                for cha in folders(folder,
+                                   [p.channel + ".D" for p in here]):
+                    path = os.path.join(folder, cha)
+                    for entry in sorted(os.listdir(path)):
+                        parts = entry.split(".")
+                        if (
+                            len(parts) == 7
+                            and parts[4] == "D"
+                            and parts[5] == year
+                            and parts[6] in jdays
+                            and any(p.matches(".".join(parts[:4]))
+                                    for p in here)
+                        ):
+                            files.append(os.path.join(path, entry))
+    return files
+
