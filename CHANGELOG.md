@@ -245,6 +245,14 @@ corrections. The format follows
   channel metadata to the records as they arrive. `seedlink.read`
   collects a duration or a time window in one call. MiniSEED 3
   packets (SeedLink 4) are decoded with cymseed3.
+  `Client.set_archive` appends the records, as received, to MiniSEED
+  files named by a template (`{net}`, `{sta}`, `{loc}`, `{cha}`, and
+  with `rotate` in seconds or `"10min"`, `"1h"`, `"1d"` the interval
+  fields `{time}`, `{year}`, `{jday}`), or in the SeisComP Data
+  Structure (`layout="sds"`); `state_file=` saves the last sequence
+  number of each station so that a new client resumes where the
+  previous one stopped. `seedlink.archive` archives continuously and
+  `seedlink.records` iterates over the records as they arrive.
 - `signals.io.read_metadata(source, ftype=None)`: reads channel
   metadata (StationXML, RESP, JSON) from a file, a wildcard pattern, a
   directory or a sequence of them into one `MetadataCollection`.

@@ -22,9 +22,11 @@ The package has two layers:
 
 - :mod:`~shakelab.signals.seedlink.protocol`: connection, negotiation
   of the protocol version (3.1 or 4), commands and packets;
+- :mod:`~shakelab.signals.seedlink.archiver`: MiniSEED archive files;
 - :mod:`~shakelab.signals.seedlink.client`: the :class:`Client`, which
-  requests channels and distributes the records to a buffer and to
-  callbacks, and the :func:`read` function.
+  requests channels and distributes the records to a buffer, an archive
+  and callbacks, and the :func:`read`, :func:`archive` and
+  :func:`records` functions.
 
 Examples
 --------
@@ -35,13 +37,23 @@ Examples
 
 from __future__ import annotations
 
-from shakelab.signals.seedlink.client import Client, SeedLinkEvent, read
+from shakelab.signals.seedlink.archiver import Archive
+from shakelab.signals.seedlink.client import (
+    Client,
+    SeedLinkEvent,
+    archive,
+    read,
+    records,
+)
 from shakelab.signals.seedlink.protocol import DEFAULT_PORT, SeedLinkError
 
 __all__ = [
     "DEFAULT_PORT",
+    "Archive",
     "Client",
     "SeedLinkError",
     "SeedLinkEvent",
+    "archive",
     "read",
+    "records",
 ]

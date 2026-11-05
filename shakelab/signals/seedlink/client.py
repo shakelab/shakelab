@@ -25,6 +25,9 @@ receives to its destinations:
 - a buffer (:meth:`Client.set_buffer`): a
   :class:`~shakelab.signals.base.StreamCollection`, unlimited or
   circular (records older than a given duration are discarded);
+- an archive of MiniSEED files (:meth:`Client.set_archive`), one file
+  or many, by channel, station or time interval, or in the SeisComP
+  Data Structure;
 - callbacks: at every record (:meth:`Client.on_record`), at regular
   intervals of wall-clock or data time (:meth:`Client.every`), and at
   connection events and data gaps (:meth:`Client.on_event`).
@@ -33,10 +36,13 @@ The client runs in the calling thread (:meth:`Client.run`, blocking)
 or in a background thread (:meth:`Client.start`, :meth:`Client.stop`).
 It reconnects after network failures and resumes each station from the
 packet after the last one received, so that no data are lost while the
-server keeps them. Callbacks run in the thread that receives the data;
+server keeps them; with a state file, also after a restart. Callbacks
+run in the thread that receives the data;
 other threads read the buffer with :meth:`Client.get_data`.
 
-:func:`read` collects a time window, or a given duration, in one call.
+:func:`read` collects a time window, or a given duration, in one call;
+:func:`archive` archives data continuously; :func:`records` iterates
+over the records as they arrive.
 
 Examples
 --------
@@ -51,12 +57,16 @@ Examples
 from __future__ import annotations
 
 import fnmatch
+import json
 import logging
+import os
+import queue
 import threading
 import time as _time
 import warnings
 from dataclasses import dataclass
 from numbers import Real
+from pathlib import Path
 from typing import Any, Callable, Iterator, NamedTuple, Optional
 
 import numpy as np
@@ -70,6 +80,7 @@ from shakelab.signals.base import (
     _compatible_meta,
     _set_metadata,
 )
+from shakelab.signals.seedlink.archiver import Archive
 from shakelab.signals.seedlink.protocol import (
     DEFAULT_PORT,
     Connection,
@@ -84,7 +95,7 @@ from shakelab.signals.seedlink.protocol import (
     station_command,
 )
 
-__all__ = ["Client", "SeedLinkEvent", "read"]
+__all__ = ["Client", "SeedLinkEvent", "archive", "read", "records"]
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +118,13 @@ RECONNECT_DELAY = (1.0, 60.0)
 # Seconds without packets after which a time window that ended in the
 # past is considered complete.
 WINDOW_IDLE = 10.0
+
+# Seconds between two saves of the state file.
+STATE_INTERVAL = 10.0
+
+# Identification of the state files.
+STATE_FORMAT = "shakelab-seedlink-state"
+STATE_VERSION = 1
 
 # Event kinds reported to the on_event callbacks.
 EVENT_KINDS = (
@@ -228,6 +246,11 @@ class Client:
     reconnect : bool, optional
         Whether to reconnect after a network failure. Default is True.
         A failure of the first connection is always raised.
+    state_file : str or path-like, optional
+        JSON file where the client saves the last sequence number of
+        each station (every 10 s and at the end of each run), so that a
+        new client resumes where the previous one stopped. It is ignored
+        if it belongs to another server or protocol version.
 
     Attributes
     ----------
@@ -261,6 +284,7 @@ class Client:
         timeout: Real = 600.0,
         keepalive: Optional[Real] = 60.0,
         reconnect: bool = True,
+        state_file: Any = None,
     ) -> None:
         if not isinstance(host, str):
             raise TypeError("host must be a string")
@@ -268,6 +292,10 @@ class Client:
             raise TypeError("port must be an integer")
         if not isinstance(reconnect, bool):
             raise TypeError("reconnect must be a boolean")
+        if state_file is not None and not isinstance(
+            state_file, (str, os.PathLike)
+        ):
+            raise TypeError("state_file must be a path")
 
         self.host = host
         self.port = port
@@ -279,6 +307,9 @@ class Client:
         self.reconnect = reconnect
         self._requested_protocol = normalize_protocol(protocol)
         self._metadata = _as_metadata(metadata)
+        self.state_file = (
+            Path(state_file) if state_file is not None else None
+        )
 
         self.server: Optional[str] = None
         self.organization: Optional[str] = None
@@ -286,12 +317,14 @@ class Client:
 
         self._patterns: list = []
         self._buffer: Optional[StreamCollection] = None
+        self._archive: Optional[Archive] = None
         self._pending: dict = {}
         self._record_callbacks: list = []
         self._timers: list = []
         self._event_callbacks: list = []
 
         self._sequence: dict = {}
+        self._stored_state: Optional[tuple] = None
         self._next_start: dict = {}
         self._run_end: dict = {}
         self._metadata_cache: dict = {}
@@ -419,6 +452,65 @@ class Client:
         with self._lock:
             self._flush()
             return self._buffer
+
+    def set_archive(
+        self,
+        path: Any,
+        rotate: Any = None,
+        layout: Optional[str] = None,
+    ) -> None:
+        """
+        Archive the records in MiniSEED files.
+
+        Parameters
+        ----------
+        path : str or path-like
+            Path template. The fields ``{net}``, ``{sta}``, ``{loc}``
+            and ``{cha}`` separate the files by network, station or
+            channel; a template without fields writes a single file.
+            With ``layout="sds"``, the root directory of the archive.
+        rotate : float or str, optional
+            Duration of each file: seconds, or a string with a unit
+            (``"30s"``, ``"10min"``, ``"1h"``, ``"1d"``). Intervals are
+            aligned with the clock; ``{time}`` (with a ``strftime``
+            format, e.g. ``{time:%Y%m%dT%H%M}``), ``{year}`` and
+            ``{jday}`` give the start of the interval.
+        layout : {"sds"}, optional
+            SeisComP Data Structure: one file per channel and day in
+            ``YEAR/NET/STA/CHA.D/NET.STA.LOC.CHA.D.YEAR.DAY``.
+
+        Raises
+        ------
+        ValueError
+            If the template or ``rotate`` is invalid (see
+            :class:`~shakelab.signals.seedlink.archiver.Archive`).
+        RuntimeError
+            If the client is running.
+
+        Notes
+        -----
+        The records of the selected channels are appended as received
+        (MiniSEED 2 or 3, unchanged), each to the file of its start
+        time; log records of the server are not archived. Existing
+        files are extended, so that an archive can be resumed.
+
+        Examples
+        --------
+        >>> client.set_archive("data/today.mseed")
+        >>> client.set_archive("data/{net}.{sta}.{loc}.{cha}.mseed")
+        >>> client.set_archive(
+        ...     "data/{net}.{sta}.{cha}.{time:%Y%m%dT%H%M}.mseed",
+        ...     rotate="10min",
+        ... )
+        >>> client.set_archive("archive", layout="sds")
+        """
+        self._require_idle()
+        self._archive = Archive(path, rotate=rotate, layout=layout)
+
+    @property
+    def archive(self) -> Optional[Archive]:
+        """Archive of the records (None if not set)."""
+        return self._archive
 
     def on_record(self, func: Callable) -> Callable:
         """
@@ -712,8 +804,11 @@ class Client:
         if end_ns is not None and end_ns <= Date.now().to_unix_ns():
             fetch = True
 
+        self._stored_state = self._load_state()
+
         if (
             self._buffer is None
+            and self._archive is None
             and not self._record_callbacks
             and not self._timers
         ):
@@ -778,6 +873,9 @@ class Client:
             self._active = False
             with self._lock:
                 self._flush()
+            if self._archive is not None:
+                self._archive.close()
+            self._save_state()
 
     def _open(self, connection: Connection, settings: _RunSettings) -> None:
         """Connect, negotiate and request the selected channels."""
@@ -785,6 +883,7 @@ class Client:
         self.server = connection.server
         self.organization = connection.organization
         self.protocol = connection.version
+        self._apply_state(connection.version)
         logger.info(
             "connected to %s:%d (%s), protocol %s",
             self.host, self.port, connection.server, connection.version,
@@ -910,6 +1009,7 @@ class Client:
         """
         last_packet = _time.monotonic()
         last_keepalive = last_packet
+        last_save = last_packet
 
         while True:
             now = _time.monotonic()
@@ -922,6 +1022,12 @@ class Client:
             ):
                 return True
             self._run_wall_timers(now)
+            if (
+                self.state_file is not None
+                and now - last_save >= STATE_INTERVAL
+            ):
+                self._save_state()
+                last_save = now
 
             try:
                 packet = connection.read_packet()
@@ -988,16 +1094,24 @@ class Client:
                 return
             self._sequence[station] = packet.sequence
 
-        for record in records:
+        selected = [
+            record for record in records
+            if any(pattern.matches(record.sid) for pattern in self._patterns)
+        ]
+        if len(selected) < len(records):
+            logger.debug("records of unselected channels skipped")
+        if selected and self._archive is not None:
+            self._archive.write(
+                packet.payload,
+                selected[0].sid,
+                selected[0].time.to_unix_ns(),
+            )
+        for record in selected:
             self._deliver(record)
 
     def _deliver(self, record: Record) -> None:
         """Send a record to the buffer and to the callbacks."""
         sid = record.sid
-        if not any(pattern.matches(sid) for pattern in self._patterns):
-            logger.debug("record of %s not selected, skipped", sid)
-            return
-
         if self._metadata is not None:
             self._assign_metadata(record)
 
@@ -1072,6 +1186,71 @@ class Client:
             start=Date.from_unix_ns(expected),
             end=record.time,
         )
+
+    # -- state file ------------------------------------------------------
+
+    def _load_state(self) -> Optional[tuple]:
+        """
+        Read the state file: ``(protocol, sequences)``, or None if it
+        does not exist or belongs to another server.
+        """
+        if self.state_file is None or not self.state_file.exists():
+            return None
+        try:
+            content = json.loads(self.state_file.read_text("utf-8"))
+            if content.get("format") != STATE_FORMAT:
+                raise ValueError("not a SeedLink state file")
+            sequences = {
+                str(key): int(value)
+                for key, value in content["sequence"].items()
+            }
+            server, protocol = content["server"], content["protocol"]
+        except (OSError, ValueError, KeyError, TypeError,
+                AttributeError) as error:
+            raise ValueError(
+                f"invalid state file {self.state_file}: {error}"
+            ) from None
+
+        if server != f"{self.host}:{self.port}":
+            logger.warning(
+                "state file %s belongs to %s, not to %s:%d: ignored",
+                self.state_file, server, self.host, self.port,
+            )
+            return None
+        return protocol, sequences
+
+    def _apply_state(self, version: str) -> None:
+        """Resume the stations of the state file (once per run)."""
+        if self._stored_state is None:
+            return
+        protocol, sequences = self._stored_state
+        self._stored_state = None
+        if protocol != version:
+            logger.warning(
+                "state file %s written with protocol %s, now %s: "
+                "sequence numbers ignored",
+                self.state_file, protocol, version,
+            )
+            return
+        for station, sequence in sequences.items():
+            self._sequence.setdefault(station, sequence)
+
+    def _save_state(self) -> None:
+        """Write the state file atomically."""
+        if self.state_file is None or self.protocol is None:
+            return
+        content = {
+            "format": STATE_FORMAT,
+            "version": STATE_VERSION,
+            "server": f"{self.host}:{self.port}",
+            "protocol": self.protocol,
+            "updated": Date.now().iso8601,
+            "sequence": dict(sorted(self._sequence.items())),
+        }
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.state_file.with_name(self.state_file.name + ".tmp")
+        temporary.write_text(json.dumps(content, indent=1), "utf-8")
+        os.replace(temporary, self.state_file)
 
     # -- callbacks -------------------------------------------------------
 
@@ -1172,6 +1351,131 @@ def read(
             endtime=_as_date(end, "end"),
         )
     return collection
+
+
+def archive(
+    host: str,
+    select: Any,
+    path: Any,
+    rotate: Any = None,
+    layout: Optional[str] = None,
+    port: int = DEFAULT_PORT,
+    protocol: str = "auto",
+    state_file: Any = None,
+    timeout: Real = 600.0,
+    duration: Optional[Real] = None,
+) -> None:
+    """
+    Archive data from a SeedLink server in MiniSEED files.
+
+    The function runs until it is interrupted (or for ``duration``
+    seconds), reconnecting after network failures.
+
+    Parameters
+    ----------
+    host : str
+        Server host name or address.
+    select : str or sequence of str
+        Channel patterns (see :meth:`Client.select`).
+    path, rotate, layout
+        Archive (see :meth:`Client.set_archive`).
+    port, protocol, state_file, timeout
+        See :class:`Client`. A state file lets a new run resume where
+        the previous one stopped.
+    duration : float, optional
+        Wall-clock seconds after which the function returns.
+
+    Examples
+    --------
+    >>> archive("rtserve.example.org", "OX.*.*.HH?", "archive",
+    ...         layout="sds", state_file="archive.state")
+    """
+    client = Client(
+        host, port=port, protocol=protocol, timeout=timeout,
+        state_file=state_file,
+    )
+    client.select(select)
+    client.set_archive(path, rotate=rotate, layout=layout)
+    client.run(duration=duration)
+
+
+def records(
+    host: str,
+    select: Any,
+    port: int = DEFAULT_PORT,
+    protocol: str = "auto",
+    metadata: Any = None,
+    timeout: Real = 600.0,
+    state_file: Any = None,
+    start: Any = None,
+    end: Any = None,
+    fetch: bool = False,
+    max_queue: int = 1000,
+) -> Iterator[Record]:
+    """
+    Iterate over the records received from a SeedLink server.
+
+    A client runs in the background and passes the records through a
+    queue. When the queue is full (the loop is slower than the data),
+    reception pauses and the data wait on the server. Leaving the loop
+    stops the client.
+
+    Parameters
+    ----------
+    host : str
+        Server host name or address.
+    select : str or sequence of str
+        Channel patterns (see :meth:`Client.select`).
+    port, protocol, metadata, timeout, state_file
+        See :class:`Client`.
+    start, end, fetch
+        See :meth:`Client.run`. Without ``end`` or ``fetch`` the
+        iteration lasts until the loop is left.
+    max_queue : int, optional
+        Records waiting in the queue at most. Default is 1000.
+
+    Yields
+    ------
+    Record
+        Records of the selected channels, in order of arrival.
+
+    Examples
+    --------
+    >>> for record in records("rtserve.example.org", "OX.CAE..HHZ"):
+    ...     print(record.sid, record.time, record.peak)
+    """
+    if isinstance(max_queue, bool) or not isinstance(max_queue, int):
+        raise TypeError("max_queue must be an integer")
+    if max_queue < 1:
+        raise ValueError("max_queue must be positive")
+
+    client = Client(
+        host, port=port, protocol=protocol, metadata=metadata,
+        timeout=timeout, state_file=state_file,
+    )
+    client.select(select)
+    waiting: queue.Queue = queue.Queue(maxsize=max_queue)
+
+    def enqueue(client, record):
+        while not client._stop_request.is_set():
+            try:
+                waiting.put(record, timeout=POLL_INTERVAL)
+                return
+            except queue.Full:
+                continue
+
+    client.on_record(enqueue)
+    client.start(start=start, end=end, fetch=fetch)
+    try:
+        while True:
+            try:
+                yield waiting.get(timeout=POLL_INTERVAL)
+            except queue.Empty:
+                if not client.running:
+                    break
+        client.wait()
+    finally:
+        client.stop()
 
 
 # ----------------------------------------------------------------------------
