@@ -9,6 +9,11 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.metadata.MetadataCollection.select` and `stations` match
+  patterns code by code (`signals.codes`): a joker no longer spans
+  the dots (`"*Z"` becomes `"*.*.*.*Z"`), missing trailing codes match
+  anything (`"IV"` is every channel of IV) and `{A,B}` alternatives
+  are accepted.
 - **License**: ShakeLab is now released under the GNU Lesser General
   Public License v3.0 or later (previously AGPL v3 in the source
   headers and GPL v3 in the license file). The license texts are in
@@ -253,6 +258,17 @@ corrections. The format follows
   number of each station so that a new client resumes where the
   previous one stopped. `seedlink.archive` archives continuously and
   `seedlink.records` iterates over the records as they arrive.
+  `Client.select` also accepts `{A,B}` alternatives, a file of
+  patterns (`file=`) and a `MetadataCollection` (its channels valid
+  now); `Client.stations()` and `Client.streams()` list what the
+  server offers (streams with the time span held); `Client.status()`
+  and `Client.info()` report latency, packets, gaps and overlaps per
+  channel. Command-line client `slab-seedlink` (also
+  `python -m shakelab.signals.seedlink`) with the subcommands `info`,
+  `monitor`, `get` and `archive`.
+- `signals.codes`: source identifier patterns matched code by code
+  (`*`, `?`, `[...]`, `{A,B}` alternatives, missing trailing codes
+  match anything), shared by the channel selections of the library.
 - `signals.io.read_metadata(source, ftype=None)`: reads channel
   metadata (StationXML, RESP, JSON) from a file, a wildcard pattern, a
   directory or a sequence of them into one `MetadataCollection`.

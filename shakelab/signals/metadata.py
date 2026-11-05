@@ -77,7 +77,6 @@ Conventions
 
 from __future__ import annotations
 
-import fnmatch
 import json as _json
 import math
 import os as _os
@@ -93,6 +92,7 @@ import numpy as np
 from shakelab.libutils.geodeticN import WgsPoint
 from shakelab.libutils.timeN import Date
 from shakelab.signals import response as rspm
+from shakelab.signals.codes import match_code, parse_sid_pattern
 
 __all__ = [
     "MetadataWarning",
@@ -919,8 +919,9 @@ class MetadataCollection:
         Parameters
         ----------
         sid
-            Source identifier, with optional shell wildcards (``*``,
-            ``?``), e.g. ``"IV.*..HN?"``.
+            Source identifier pattern, matched code by code (see
+            :mod:`shakelab.signals.codes`), e.g. ``"IV.*..HN?"``,
+            ``"IV.{MODE,CAE}"`` or ``"IV"`` (every channel of IV).
         time
             If given, keep only the epochs valid at that time.
 
@@ -929,9 +930,10 @@ class MetadataCollection:
         MetadataCollection
             Copies of the matching epochs, with their stations.
         """
+        patterns = parse_sid_pattern(sid)
         result = MetadataCollection()
         for epoch in self:
-            if not fnmatch.fnmatchcase(epoch.sid, sid):
+            if not any(pattern.matches(epoch.sid) for pattern in patterns):
                 continue
             if time is not None and not epoch.match(time):
                 continue
@@ -945,7 +947,8 @@ class MetadataCollection:
         Parameters
         ----------
         code
-            Station code ``NET.STA``, with optional shell wildcards.
+            Station code pattern ``NET.STA``, matched code by code (see
+            :mod:`shakelab.signals.codes`), e.g. ``"IV.*"`` or ``"IV"``.
         time
             If given, keep only the epochs valid at that time.
 
@@ -956,7 +959,7 @@ class MetadataCollection:
         """
         return [
             station for station in self._stations
-            if fnmatch.fnmatchcase(station.code, code)
+            if match_code(station.code, code)
             and (time is None or station.match(time))
         ]
 

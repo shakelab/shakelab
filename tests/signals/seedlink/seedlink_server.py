@@ -136,15 +136,18 @@ class FakeServer:
         Close the first connection after sending this many packets.
     reject : str, optional
         Command prefix answered with an error.
+    info_error : bool, optional
+        Answer the INFO requests with an error.
     """
 
     def __init__(self, stations, version="3.1", hello=None,
-                 drop_after=None, reject=None):
+                 drop_after=None, reject=None, info_error=False):
         self.stations = {item.key: item for item in stations}
         self.version = version
         self.hello = hello or (HELLO_V4 if version == "4.0" else HELLO_V3)
         self.drop_after = drop_after
         self.reject = reject
+        self.info_error = info_error
         self.commands = []
         self.connections = 0
         self._listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -292,32 +295,97 @@ class FakeServer:
             return header + key + block
         return f"SL{sequence % 2 ** 24:06X}".encode() + block
 
-    def _send_info(self, conn, item):
-        if self.version == "4.0":
-            content = {"software": "fake", "organization": "test"}
-            if item == "STATIONS":
-                content["station"] = [
-                    {"id": key, "description": "", "start_seq": 0,
-                     "end_seq": 0}
-                    for key in self.stations
-                ]
-            payload = json.dumps(content).encode()
-            conn.sendall(
-                struct.pack("<2sccIQB", b"SE", b"J", b"I", len(payload),
-                            0, 0)
-                + payload
+    def _streams(self, station):
+        """(location, channel, start ns, end ns) of a station's data."""
+        spans = {}
+        for _, start, end, block in station.packets:
+            msr = mseed.MSRecord.from_bytes(block)
+            key = (
+                msr.header["LOCATION_IDENTIFIER"].strip(),
+                msr.header["CHANNEL_IDENTIFIER"].strip(),
             )
-            return
-        stations = "".join(
-            f'<station name="{item.station}" network="{item.network}" '
-            'description="" begin_seq="000000" end_seq="000000"/>'
-            for item in self.stations.values()
+            first, last = spans.get(key, (start, end))
+            spans[key] = (min(first, start), max(last, end))
+        return [key + span for key, span in sorted(spans.items())]
+
+    def _send_info(self, conn, item):
+        if self.info_error:
+            item = "ERROR"
+        if self.version == "4.0":
+            self._send_info_v4(conn, item)
+        else:
+            self._send_info_v3(conn, item)
+
+    def _send_info_v4(self, conn, item):
+        content = {"software": "fake", "organization": "test"}
+        if item == "ERROR":
+            content["error"] = {"code": "UNAUTHORIZED",
+                                "message": "not allowed"}
+        elif item in ("STATIONS", "STREAMS"):
+            content["station"] = []
+            for key, station in self.stations.items():
+                entry = {
+                    "id": key, "description": f"Station {station.station}",
+                    "start_seq": station.packets[0][0],
+                    "end_seq": station.packets[-1][0] + 1,
+                }
+                if item == "STREAMS":
+                    entry["stream"] = [
+                        {"id": f"{loc}_{'_'.join(cha)}", "format": "2",
+                         "subformat": "D", "start_time": _iso(start),
+                         "end_time": _iso(end)}
+                        for loc, cha, start, end in self._streams(station)
+                    ] + [{"id": "_L_O_G", "format": "2", "subformat": "L",
+                          "start_time": _iso(0), "end_time": _iso(0)}]
+                content["station"].append(entry)
+        payload = json.dumps(content).encode()
+        subformat = b"E" if item == "ERROR" else b"I"
+        conn.sendall(
+            struct.pack("<2sccIQB", b"SE", b"J", subformat, len(payload),
+                        0, 0)
+            + payload
         )
-        text = f'<?xml version="1.0"?><seedlink>{stations}</seedlink>'
+
+    def _send_info_v3(self, conn, item):
+        if item == "ERROR":
+            text = '<?xml version="1.0"?><seedlink><error message=' \
+                '"not allowed"/></seedlink>'
+        else:
+            body = []
+            for station in self.stations.values():
+                streams = ""
+                if item == "STREAMS":
+                    streams = "".join(
+                        f'<stream location="{loc or "  "}" '
+                        f'seedname="{cha}" type="D" '
+                        f'begin_time="{_v3_info_time(start)}" '
+                        f'end_time="{_v3_info_time(end)}"/>'
+                        for loc, cha, start, end in self._streams(station)
+                    ) + '<stream location="  " seedname="LOG" type="L"/>'
+                body.append(
+                    f'<station name="{station.station}" '
+                    f'network="{station.network}" '
+                    f'description="Station {station.station}" '
+                    f'begin_seq="{station.packets[0][0]:06X}" '
+                    f'end_seq="{station.packets[-1][0]:06X}">'
+                    f"{streams}</station>"
+                )
+            text = (
+                '<?xml version="1.0"?><seedlink software="fake">'
+                + "".join(body) + "</seedlink>"
+            )
         blocks = log_records(text)
         for index, block in enumerate(blocks):
             flag = b"*" if index < len(blocks) - 1 else b" "
             conn.sendall(b"SLINFO " + flag + block)
+
+
+def _iso(ns):
+    return Date.from_unix_ns(ns).iso8601
+
+
+def _v3_info_time(ns):
+    return Date.from_unix_ns(ns).strformat("%Y/%m/%d %H:%M:%S")
 
 
 class _LineReader:

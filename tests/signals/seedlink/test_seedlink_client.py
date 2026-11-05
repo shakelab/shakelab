@@ -107,15 +107,8 @@ def test_select_patterns():
     assert client.selection == [
         "IV.MODE.*.*", "IV.CAE*.*.HH[ZN]", "OX.ABC..HHZ",
     ]
-    pattern = client_module._parse_pattern("IV.CAE*.*.HH[ZN]")
-    assert pattern.matches("IV.CAE1.00.HHN")
-    assert not pattern.matches("IV.CAE1.00.HHE")
-    assert client_module._parse_pattern("OX.ABC..HHZ").matches(
-        "OX.ABC..HHZ"
-    )
-    assert not client_module._parse_pattern("OX.ABC..HHZ").matches(
-        "OX.ABC.00.HHZ"
-    )
+    client.select("OX.{CAE,BAD}.*.HHZ")
+    assert client.selection[-2:] == ["OX.CAE.*.HHZ", "OX.BAD.*.HHZ"]
 
 
 @pytest.mark.parametrize("pattern", ["", "A.B.C.D.E", "IV..*.HHZ",
@@ -393,7 +386,7 @@ def test_background_and_get_data(make_server, mode):
 
     assert not client.running
     _assert_same(data, records)
-    window = client.get_data("*Z", start=START + 1.0, end=START + 2.0)
+    window = client.get_data("*.*.*.*Z", start=START + 1.0, end=START + 2.0)
     assert window.sid == ["IV.MODE..HNZ"]
     assert window["IV.MODE..HNZ"].nsamp == 101
 

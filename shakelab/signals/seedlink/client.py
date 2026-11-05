@@ -67,7 +67,7 @@ import warnings
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
-from typing import Any, Callable, Iterator, NamedTuple, Optional
+from typing import Any, Callable, Iterator, Optional
 
 import numpy as np
 
@@ -80,6 +80,7 @@ from shakelab.signals.base import (
     _compatible_meta,
     _set_metadata,
 )
+from shakelab.signals.codes import SidPattern, parse_sid_pattern
 from shakelab.signals.seedlink.archiver import Archive
 from shakelab.signals.seedlink.protocol import (
     DEFAULT_PORT,
@@ -95,7 +96,16 @@ from shakelab.signals.seedlink.protocol import (
     station_command,
 )
 
-__all__ = ["Client", "SeedLinkEvent", "archive", "read", "records"]
+__all__ = [
+    "ChannelStatus",
+    "Client",
+    "SeedLinkEvent",
+    "StationInfo",
+    "StreamInfo",
+    "archive",
+    "read",
+    "records",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -170,25 +180,80 @@ class SeedLinkEvent:
     end: Optional[Date] = None
 
 
-class _Pattern(NamedTuple):
-    """Channel pattern ``NET.STA.LOC.CHA`` with ``*`` and ``?``."""
+@dataclass(frozen=True)
+class StationInfo:
+    """
+    Station offered by a SeedLink server (see :meth:`Client.stations`).
+
+    Attributes
+    ----------
+    network, station : str
+        Codes.
+    description : str
+        Description given by the server.
+    begin_sequence, end_sequence : int or None
+        Sequence numbers of the first packet held by the server and of
+        the last one (version 3) or the next one (version 4).
+    """
 
     network: str
     station: str
-    location: str
-    channel: str
+    description: str = ""
+    begin_sequence: Optional[int] = None
+    end_sequence: Optional[int] = None
 
-    def matches(self, sid: Optional[str]) -> bool:
-        """Whether a source identifier matches the pattern."""
-        if sid is None:
-            return False
-        parts = sid.split(".")
-        if len(parts) != 4:
-            return False
-        return all(
-            fnmatch.fnmatchcase(code, pattern)
-            for code, pattern in zip(parts, self)
-        )
+    @property
+    def code(self) -> str:
+        """Station code ``NET.STA``."""
+        return f"{self.network}.{self.station}"
+
+
+@dataclass(frozen=True)
+class StreamInfo:
+    """
+    Data stream held by a SeedLink server (see :meth:`Client.streams`).
+
+    Attributes
+    ----------
+    sid : str
+        Source identifier ``NET.STA.LOC.CHA``.
+    start, end : Date or None
+        Time span of the data held by the server.
+    """
+
+    sid: str
+    start: Optional[Date] = None
+    end: Optional[Date] = None
+
+
+@dataclass(frozen=True)
+class ChannelStatus:
+    """
+    Reception status of a channel (see :meth:`Client.status`).
+
+    Attributes
+    ----------
+    sid : str
+        Source identifier.
+    last_sample : Date
+        Time of the last sample received.
+    last_packet : Date
+        Wall-clock time at which the last packet arrived.
+    latency : float
+        Seconds from the last sample to the time of the call.
+    packets : int
+        Records received.
+    gaps, overlaps : int
+        Discontinuities between consecutive records.
+    """
+
+    sid: str
+    last_sample: Date
+    last_packet: Date
+    latency: float
+    packets: int
+    gaps: int
+    overlaps: int
 
 
 @dataclass
@@ -326,6 +391,7 @@ class Client:
         self._sequence: dict = {}
         self._stored_state: Optional[tuple] = None
         self._next_start: dict = {}
+        self._channels: dict = {}
         self._run_end: dict = {}
         self._metadata_cache: dict = {}
         self._missing_metadata: set = set()
@@ -352,40 +418,70 @@ class Client:
 
     # -- configuration ---------------------------------------------------
 
-    def select(self, patterns: Any) -> None:
+    def select(self, patterns: Any = None, file: Any = None) -> None:
         """
         Add channels to request.
 
         Parameters
         ----------
-        patterns : str or sequence of str
-            Source identifier patterns ``NET.STA.LOC.CHA`` with the
-            ``*`` (any sequence) and ``?`` (one character) jokers, and
-            ``[...]`` for one of a set of characters (as in
-            ``HH[ZNE]``). Missing trailing codes match anything:
+        patterns : str, sequence of str or MetadataCollection, optional
+            Source identifier patterns ``NET.STA.LOC.CHA``, matched code
+            by code (see :mod:`shakelab.signals.codes`): ``*`` (any
+            sequence), ``?`` (one character), ``[...]`` (one of a set,
+            as in ``HH[ZNE]``) and ``{A,B}`` (alternative words, as in
+            ``OX.{CAE,BAD}``). Missing trailing codes match anything:
             ``"IV.MODE"`` requests every channel of MODE. An empty
             location (``"IV.MODE..HHZ"``) is the blank location code.
+            A metadata collection requests its channels with an epoch
+            valid now.
+        file : str or path-like, optional
+            Text file of patterns: one or more per line, separated by
+            spaces; ``#`` starts a comment.
 
         Raises
         ------
         TypeError
             If a pattern is not a string.
         ValueError
-            If a pattern is malformed.
+            If a pattern is malformed, or nothing is given.
         RuntimeError
             If the client is running.
 
         Examples
         --------
         >>> client.select("IV.MODE.*.HH?")
-        >>> client.select(["IV.CAE*.*.HHZ", "OX.*.*.HH[ZN]"])
+        >>> client.select(["OX.{CAE,BAD}.*.HHZ", "OX.*.*.HH[ZN]"])
+        >>> client.select(file="stations.txt")
+        >>> client.select(read_metadata("network.xml"))
         """
         self._require_idle()
-        if isinstance(patterns, str):
-            patterns = [patterns]
-        if not isinstance(patterns, (list, tuple)):
-            raise TypeError("patterns must be a string or a sequence")
-        parsed = [_parse_pattern(pattern) for pattern in patterns]
+        if patterns is None and file is None:
+            raise ValueError("give patterns or a file")
+
+        texts: list = []
+        if isinstance(patterns, _metadata.MetadataCollection):
+            now = Date.now()
+            texts.extend(sorted({
+                epoch.sid for epoch in patterns
+                if epoch.sid is not None and epoch.match(now)
+            }))
+            if not texts:
+                raise ValueError("no channel of the metadata is valid now")
+        elif isinstance(patterns, str):
+            texts.append(patterns)
+        elif isinstance(patterns, (list, tuple)):
+            texts.extend(patterns)
+        elif patterns is not None:
+            raise TypeError(
+                "patterns must be a string, a sequence or a "
+                "MetadataCollection"
+            )
+        if file is not None:
+            texts.extend(_read_pattern_file(file))
+
+        parsed = [
+            pattern for text in texts for pattern in parse_sid_pattern(text)
+        ]
         for pattern in parsed:
             if pattern not in self._patterns:
                 self._patterns.append(pattern)
@@ -393,7 +489,7 @@ class Client:
     @property
     def selection(self) -> list:
         """Selected patterns, as ``NET.STA.LOC.CHA`` strings."""
-        return [".".join(pattern) for pattern in self._patterns]
+        return [str(pattern) for pattern in self._patterns]
 
     def set_buffer(
         self,
@@ -740,8 +836,8 @@ class Client:
         Parameters
         ----------
         sid : str, optional
-            Pattern of the source identifiers to copy, with the ``*``
-            and ``?`` jokers. Default is every channel.
+            Pattern of the source identifiers to copy (see
+            :meth:`select`). Default is every channel.
         start, end : Date or str, optional
             Time window to extract.
 
@@ -755,8 +851,7 @@ class Client:
         RuntimeError
             If no buffer is set.
         """
-        if not isinstance(sid, str):
-            raise TypeError("sid must be a string")
+        patterns = parse_sid_pattern(sid)
         with self._lock:
             self._flush()
             if self._buffer is None:
@@ -767,8 +862,7 @@ class Client:
             collection.stream = [
                 stream.copy()
                 for stream in self._buffer
-                if stream.sid is not None
-                and fnmatch.fnmatchcase(stream.sid, sid)
+                if any(pattern.matches(stream.sid) for pattern in patterns)
             ]
         if start is not None or end is not None:
             collection = collection.extract(
@@ -776,6 +870,124 @@ class Client:
                 endtime=_as_date(end, "end"),
             )
         return collection
+
+    def status(self, sid: str = "*") -> list:
+        """
+        Return the reception status of the channels.
+
+        Parameters
+        ----------
+        sid : str, optional
+            Pattern of the source identifiers (see :meth:`select`).
+            Default is every channel received.
+
+        Returns
+        -------
+        list of ChannelStatus
+            One entry per channel received by this client, sorted by
+            source identifier; the latency refers to the time of the
+            call.
+
+        Notes
+        -----
+        Safe from any thread, also while the client runs in the
+        background.
+        """
+        patterns = parse_sid_pattern(sid)
+        now_ns = Date.now().to_unix_ns()
+        with self._lock:
+            channels = {
+                key: list(value) for key, value in self._channels.items()
+                if any(pattern.matches(key) for pattern in patterns)
+            }
+        return [
+            ChannelStatus(
+                sid=key,
+                last_sample=Date.from_unix_ns(value[3]),
+                last_packet=Date.from_unix_ns(value[4]),
+                latency=(now_ns - value[3]) / _NS,
+                packets=value[0],
+                gaps=value[1],
+                overlaps=value[2],
+            )
+            for key, value in sorted(channels.items())
+        ]
+
+    def info(self) -> None:
+        """
+        Print the reception status of the channels as a table.
+        """
+        print(_status_table(self.status()))
+
+    def stations(self, pattern: str = "*") -> list:
+        """
+        Return the stations offered by the server.
+
+        Parameters
+        ----------
+        pattern : str, optional
+            Pattern of the stations (see :meth:`select`; codes after the
+            station are ignored), e.g. ``"OX"`` or ``"OX.{CAE,BAD}"``.
+
+        Returns
+        -------
+        list of StationInfo
+
+        Notes
+        -----
+        A short connection is opened for the request, also while the
+        client runs.
+        """
+        patterns = parse_sid_pattern(pattern)
+        return [
+            station for station, _ in self._query_info("STATIONS")
+            if any(
+                fnmatch.fnmatchcase(station.network, item.network)
+                and fnmatch.fnmatchcase(station.station, item.station)
+                for item in patterns
+            )
+        ]
+
+    def streams(self, pattern: str = "*") -> list:
+        """
+        Return the data streams held by the server.
+
+        Parameters
+        ----------
+        pattern : str, optional
+            Pattern of the channels (see :meth:`select`), e.g.
+            ``"OX.CAE"`` or ``"OX.*.*.HHZ"``.
+
+        Returns
+        -------
+        list of StreamInfo
+            With the time span of the data held by the server.
+
+        Notes
+        -----
+        A short connection is opened for the request, also while the
+        client runs. Some servers restrict this request.
+        """
+        patterns = parse_sid_pattern(pattern)
+        return [
+            stream
+            for _, streams in self._query_info("STREAMS")
+            for stream in streams
+            if any(item.matches(stream.sid) for item in patterns)
+        ]
+
+    def _query_info(self, item: str) -> list:
+        """Stations and streams of an INFO request."""
+        connection = Connection(self.host, self.port, timeout=CONNECT_TIMEOUT)
+        try:
+            connection.open(self._requested_protocol)
+            text = connection.info(item)
+            version = connection.version
+        finally:
+            connection.close()
+        if version == "4.0":
+            return _parse_info_json(text)
+        return _parse_info_xml(text)
 
     # -- run internals ---------------------------------------------------
 
@@ -972,14 +1184,19 @@ class Client:
         if (
             connection.version == "4.0"
             or "NSWILDCARD" in connection.capabilities
-            or not any(_has_joker("".join(key)) for key in groups)
+            or not any(
+                pattern.has_station_joker for pattern in self._patterns
+            )
         ):
             return groups
 
-        available = _v3_stations(connection.info("STATIONS"))
+        available = [
+            (station.network, station.station)
+            for station, _ in _parse_info_xml(connection.info("STATIONS"))
+        ]
         expanded: dict = {}
         for (network, station), selectors in groups.items():
-            if not _has_joker(network + station):
+            if not SidPattern(network, station, "", "").has_station_joker:
                 expanded.setdefault((network, station), []).extend(
                     selectors
                 )
@@ -1117,9 +1334,18 @@ class Client:
 
         start_ns = record.time.to_unix_ns()
         end_ns = start_ns + round(record.nsamp * record.delta * _NS)
-        self._check_continuity(record, start_ns)
+        kind = self._check_continuity(record, start_ns)
 
         with self._lock:
+            # Packets, gaps, overlaps, last sample and arrival (ns).
+            channel = self._channels.setdefault(sid, [0, 0, 0, 0, 0])
+            channel[0] += 1
+            channel[1] += kind == "gap"
+            channel[2] += kind == "overlap"
+            channel[3] = max(
+                channel[3], end_ns - round(record.delta * _NS)
+            )
+            channel[4] = Date.now().to_unix_ns()
             self._next_start[sid] = max(
                 end_ns, self._next_start.get(sid, end_ns)
             )
@@ -1170,14 +1396,21 @@ class Client:
                     stacklevel=2,
                 )
 
-    def _check_continuity(self, record: Record, start_ns: int) -> None:
-        """Report a gap or an overlap with the previous record."""
+    def _check_continuity(
+        self,
+        record: Record,
+        start_ns: int,
+    ) -> Optional[str]:
+        """
+        Report a gap or an overlap with the previous record, and return
+        its kind (None if contiguous).
+        """
         expected = self._next_start.get(record.sid)
         if expected is None:
-            return
+            return None
         offset = (start_ns - expected) / (record.delta * _NS)
         if abs(offset) <= MERGE_TOLERANCE:
-            return
+            return None
         kind = "gap" if offset > 0 else "overlap"
         self._emit(
             kind,
@@ -1186,6 +1419,7 @@ class Client:
             start=Date.from_unix_ns(expected),
             end=record.time,
         )
+        return kind
 
     # -- state file ------------------------------------------------------
 
@@ -1483,43 +1717,142 @@ def records(
 # ----------------------------------------------------------------------------
 
 
-def _parse_pattern(pattern: Any) -> _Pattern:
-    """Parse a channel pattern ``NET.STA.LOC.CHA``."""
-    if not isinstance(pattern, str):
-        raise TypeError("channel patterns must be strings")
-    text = pattern.strip()
-    parts = text.split(".")
-    if not text or len(parts) > 4:
-        raise ValueError(
-            f"invalid channel pattern {pattern!r}: expected NET.STA.LOC.CHA"
-        )
-    parts += ["*"] * (4 - len(parts))
-
-    for index, part in enumerate(parts):
-        if not part and index != 2:
-            raise ValueError(
-                f"invalid channel pattern {pattern!r}: empty code"
-            )
-        if any(char.isspace() for char in part):
-            raise ValueError(
-                f"invalid channel pattern {pattern!r}: spaces"
-            )
-    return _Pattern(*parts)
+def _read_pattern_file(path: Any) -> list:
+    """Patterns of a text file (spaces or lines; ``#`` comments)."""
+    if not isinstance(path, (str, os.PathLike)):
+        raise TypeError("file must be a path")
+    patterns = []
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            patterns.extend(line.split("#", 1)[0].split())
+    if not patterns:
+        raise ValueError(f"no pattern in {path}")
+    return patterns
 
 
-def _has_joker(text: str) -> bool:
-    return any(char in text for char in "*?[")
+def _parse_info_xml(text: str) -> list:
+    """
+    Stations and streams of a version 3 INFO response (XML).
 
-
-def _v3_stations(xml_text: str) -> list:
-    """``(network, station)`` pairs of a version 3 INFO STATIONS."""
+    Returns a list of ``(StationInfo, list of StreamInfo)``.
+    """
     from shakelab.libutils.xml import read_xml
 
-    root = read_xml(xml_text.strip())
-    return [
-        (element.get("network", ""), element.get("name", ""))
-        for element in root.iter("station")
-    ]
+    root = read_xml(text.strip())
+    error = root.find("error")
+    if root.tag == "error" or error is not None:
+        element = root if root.tag == "error" else error
+        raise SeedLinkError(
+            "INFO rejected by the server: "
+            + (element.get("message") or element.text or "").strip()
+        )
+
+    result = []
+    for element in root.iter("station"):
+        network = element.get("network", "").strip()
+        code = element.get("name", "").strip()
+        station = StationInfo(
+            network=network,
+            station=code,
+            description=element.get("description", "").strip(),
+            begin_sequence=_hex(element.get("begin_seq")),
+            end_sequence=_hex(element.get("end_seq")),
+        )
+        streams = [
+            StreamInfo(
+                sid=".".join((
+                    network, code,
+                    stream.get("location", "").strip(),
+                    stream.get("seedname", "").strip(),
+                )),
+                start=_info_time(stream.get("begin_time")),
+                end=_info_time(stream.get("end_time")),
+            )
+            for stream in element.iter("stream")
+            if stream.get("type", "D").strip() == "D"
+        ]
+        result.append((station, streams))
+    return result
+
+
+def _parse_info_json(text: str) -> list:
+    """
+    Stations and streams of a version 4 INFO response (JSON).
+
+    Returns a list of ``(StationInfo, list of StreamInfo)``.
+    """
+    try:
+        content = json.loads(text)
+    except ValueError as error:
+        raise SeedLinkError(f"invalid INFO response: {error}") from None
+    if "error" in content:
+        error = content["error"] or {}
+        raise SeedLinkError(
+            f"INFO rejected by the server: {error.get('message', '')}",
+            code=error.get("code"),
+        )
+
+    result = []
+    for item in content.get("station", []):
+        network, _, code = str(item.get("id", "")).partition("_")
+        station = StationInfo(
+            network=network,
+            station=code,
+            description=str(item.get("description", "")),
+            begin_sequence=item.get("start_seq"),
+            end_sequence=item.get("end_seq"),
+        )
+        streams = []
+        for stream in item.get("stream", []):
+            if stream.get("subformat", "D") != "D":
+                continue
+            location, _, channel = str(stream.get("id", "")).partition("_")
+            streams.append(StreamInfo(
+                sid=".".join((
+                    network, code, location, channel.replace("_", "")
+                )),
+                start=_info_time(stream.get("start_time")),
+                end=_info_time(stream.get("end_time")),
+            ))
+        result.append((station, streams))
+    return result
+
+
+def _info_time(text: Any) -> Optional[Date]:
+    """Time of an INFO response (``2026/11/05 12:00:00.0000``, ISO)."""
+    if not text or not isinstance(text, str):
+        return None
+    value = text.strip().replace("/", "-").replace(" ", "T", 1)
+    try:
+        return Date(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _hex(text: Any) -> Optional[int]:
+    """Hexadecimal sequence number of a version 3 INFO response."""
+    try:
+        return int(text, 16)
+    except (TypeError, ValueError):
+        return None
+
+
+def _status_table(statuses: list) -> str:
+    """Table of channel statuses."""
+    header = (
+        f"{'channel':<16} {'last sample':<28} {'latency (s)':>11} "
+        f"{'packets':>8} {'gaps':>5} {'overlaps':>8}"
+    )
+    lines = [header]
+    for item in statuses:
+        lines.append(
+            f"{item.sid:<16} {str(item.last_sample):<28} "
+            f"{item.latency:>11.1f} {item.packets:>8d} {item.gaps:>5d} "
+            f"{item.overlaps:>8d}"
+        )
+    if not statuses:
+        lines.append("no data received")
+    return "\n".join(lines)
 
 
 def _decode(packet: Packet) -> tuple:

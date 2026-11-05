@@ -39,8 +39,11 @@ from __future__ import annotations
 
 from shakelab.signals.seedlink.archiver import Archive
 from shakelab.signals.seedlink.client import (
+    ChannelStatus,
     Client,
     SeedLinkEvent,
+    StationInfo,
+    StreamInfo,
     archive,
     read,
     records,
@@ -50,9 +53,12 @@ from shakelab.signals.seedlink.protocol import DEFAULT_PORT, SeedLinkError
 __all__ = [
     "DEFAULT_PORT",
     "Archive",
+    "ChannelStatus",
     "Client",
     "SeedLinkError",
     "SeedLinkEvent",
+    "StationInfo",
+    "StreamInfo",
     "archive",
     "read",
     "records",
