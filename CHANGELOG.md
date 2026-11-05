@@ -224,6 +224,22 @@ corrections. The format follows
   fields as None and provides `from_bytes`, `to_bytes`,
   `to_shakelab` and `from_shakelab`; files that are not evenly sampled
   time series are read by `Sac` and rejected by `sacread`.
+- `signals.libio.dyna` rewritten: the station coordinates and sensor
+  depth become the channel metadata of the record and are written from
+  it, `EVENT_ID` the event identifier, the units are declared in the
+  record header (`CM/S**2`, `CM/S`, `CM`, values not converted) and the
+  other header fields are kept in `record.head.extra["dyna"]` and
+  written back. `dynawrite(target, record, fmt="%.9g", owrite=False)`
+  (arguments in the order of `sacwrite`) writes the 64 header lines in
+  the ESM order, computes the number of samples, duration and peak
+  from the data and converts records in SI units to centimetres.
+  `Dyna` reads files, contents or file objects (`Dyna.read`,
+  `from_text`, `to_text`, `write`, `to_shakelab`, `from_shakelab`,
+  `info`), holds empty fields as None and samples as a NumPy array,
+  and reads the response and Fourier spectra (`abscissa`: periods or
+  frequencies), which `dynaread` rejects.
+- `signals.io`: the extension `.asc` (ESM files) selects the DYNA
+  reader; `.txt` no longer does.
 - `set_metadata` warns only when the existing and the new channel
   metadata disagree on an attribute defined in both (new
   `ChannelEpoch.conflicts`), so the partial metadata read from data
@@ -378,9 +394,14 @@ corrections. The format follows
   file type; reading JSON with a `coefficients` stage raised
   `NameError`, and several epochs of one channel were dropped; the
   poles-and-zeros response modified the stage when zeros were missing.
-- `signals.libio.dyna`: the header was assumed to have 64 lines; with
-  the 65-line header of ESM 3.0 files the first sample was lost and the
-  series was shifted by one sampling interval.
+- `signals.libio.dyna`: the header was assumed to have 64 lines; ESM
+  3.0 files write `DATABASE_VERSION` and `HEADER_FORMAT` on one line
+  (63 lines), so the first sample was lost and the series was shifted
+  by one sampling interval; the two fields are now separated.
+- `signals.libio.dyna`: the milliseconds of the start time were lost
+  on writing, writing failed for NumPy data and for velocity and
+  displacement, empty fields were filled with blank lines, and `None`
+  values were read as text.
 - `signals.respfile`: the zeros of poles-and-zeros stages were never
   read (e.g. the response of a velocity sensor lacked the factor
   `s**2`); all channels and epochs of a file were merged into one

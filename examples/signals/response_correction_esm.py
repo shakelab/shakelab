@@ -48,7 +48,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from shakelab.signals.io import read_metadata, reader
-from shakelab.signals.libio.dyna import Dyna, dynaread
+from shakelab.signals.libio.dyna import dynaread
 
 DATA = Path(__file__).resolve().parents[2] / "tests" / "signals" / "data"
 ESM = DATA / "ESM" / "ASCII"
@@ -67,16 +67,15 @@ raw = reader(str(DATA / "MODE.mseed"), metadata=meta)
 
 esm = {}
 for cha in COMPONENTS:
-    path = ESM / f"IV.MODE..{cha}.D.IT-2012-0008.ACC.MP.ASC"
-    header = Dyna()
-    header.read(str(path))
+    record = dynaread(ESM / f"IV.MODE..{cha}.D.IT-2012-0008.ACC.MP.ASC")
+    header = record.head.extra["dyna"]
     esm[cha] = {
-        "record": dynaread(str(path)),
+        "record": record,
         "band": (
-            header.header["LOW_CUT_FREQUENCY_HZ"],
-            header.header["HIGH_CUT_FREQUENCY_HZ"],
+            header["LOW_CUT_FREQUENCY_HZ"],
+            header["HIGH_CUT_FREQUENCY_HZ"],
         ),
-        "order": header.header["FILTER_ORDER"],
+        "order": header["FILTER_ORDER"],
     }
 
 

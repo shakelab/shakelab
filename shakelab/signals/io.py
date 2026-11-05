@@ -95,7 +95,7 @@ EXTENSION_FORMATS = {
     ".miniseed": "mseed",
     ".seed": "mseed",
     ".sac": "sac",
-    ".txt": "dyna",
+    ".asc": "dyna",
     ".tdms": "tdms",
 }
 
