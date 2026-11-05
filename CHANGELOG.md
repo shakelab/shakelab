@@ -229,6 +229,22 @@ corrections. The format follows
 
 ### Added
 
+- `signals.seedlink`: new SeedLink client (package replacing the
+  former `signals.seedlink` module). `Client` speaks SeedLink 4 and
+  3.1 (negotiated from `HELLO`, or chosen with `protocol=`), selects
+  channels with `NET.STA.LOC.CHA` patterns (`*`, `?`, `[...]`; lists
+  accepted), and delivers records to a buffer (`set_buffer`,
+  unlimited or circular with `max_duration`) and to callbacks
+  (`on_record`, `every` on wall-clock or data time, `on_event` for
+  connections, gaps and overlaps). It runs blocking (`run`) or in a
+  background thread (`start`, `stop`, `wait`, `get_data` for a
+  thread-safe copy of the buffer), in real time or dial-up mode
+  (`fetch=True`), with optional time windows (`start`, `end`); it
+  reconnects after network failures and resumes every station from
+  its next packet, discarding repeated packets; `metadata=` assigns
+  channel metadata to the records as they arrive. `seedlink.read`
+  collects a duration or a time window in one call. MiniSEED 3
+  packets (SeedLink 4) are decoded with cymseed3.
 - `signals.io.read_metadata(source, ftype=None)`: reads channel
   metadata (StationXML, RESP, JSON) from a file, a wildcard pattern, a
   directory or a sequence of them into one `MetadataCollection`.
@@ -405,3 +421,5 @@ corrections. The format follows
   on `ByteStream` objects (replaced by `from_bytes`/`to_bytes`) and
   the `ByteStream` arguments of the module functions; the module no
   longer uses `signals.binutils`.
+- `signals.seedlink` module (`Client` prototype, `RingBuffer`): replaced
+  by the `signals.seedlink` package.

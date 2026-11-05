@@ -40,9 +40,7 @@ ROOT = Path(importlib.import_module(PACKAGE).__file__).parent
 
 # Modules that cannot be imported at present (they import modules
 # removed from the repository); they will be revised separately.
-BROKEN = {
-    f"{PACKAGE}.seedlink",
-}
+BROKEN: set[str] = set()
 
 
 def _module_name(path: Path) -> str:
@@ -143,8 +141,8 @@ def _import_params():
     params = []
     for name in sorted(_modules()):
         if name in BROKEN:
-            # Skipped rather than expected to fail: importing them would
-            # still load heavy dependencies (seedlink imports matplotlib).
+            # Skipped rather than expected to fail: importing them could
+            # still load heavy dependencies.
             params.append(pytest.param(name, marks=pytest.mark.skip(
                 reason="imports modules removed from the repository",
             )))
