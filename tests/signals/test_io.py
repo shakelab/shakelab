@@ -26,6 +26,7 @@ their assignment while reading waveforms (``metadata`` in
 
 from __future__ import annotations
 
+import pickle
 import shutil
 import warnings
 from pathlib import Path
@@ -34,7 +35,7 @@ import numpy as np
 import pytest
 
 from shakelab.signals.base import Record, StreamCollection
-from shakelab.signals.io import read_metadata, reader
+from shakelab.signals.io import read_metadata, reader, writer
 from shakelab.signals.metadata import MetadataCollection, MetadataWarning
 
 DATA = Path(__file__).parent / "data"
@@ -199,3 +200,47 @@ def test_reader_metadata_checked_first(tmp_path):
 
     with pytest.raises(FileNotFoundError):
         reader(MSEED, metadata=str(tmp_path / "missing.xml"))
+
+
+# ----------------------------------------------------------------------------
+# pickle
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["data.pkl", "data.pickle"])
+def test_pickle_round_trip(tmp_path, name):
+    """Collections keep data and metadata through a pickle file."""
+    collection = reader(MSEED, metadata=SXML)
+    path = str(tmp_path / name)
+    writer(collection, path)
+
+    again = reader(path)
+    for stream in collection:
+        rec, other = stream[0], again[stream.sid][0]
+        assert other.time == rec.time
+        assert other.delta == rec.delta
+        np.testing.assert_array_equal(other.data, rec.data)
+        assert other.location == rec.location
+        assert other.head.meta.response is not None
+
+
+def test_pickle_record_and_existing_file(tmp_path):
+    """A Record is written; files are not overwritten unless asked."""
+    rec = reader(MSEED)["IV.MODE..HNZ"][0]
+    path = str(tmp_path / "rec.pkl")
+    writer(rec, path)
+
+    with pytest.raises(FileExistsError):
+        writer(rec, path)
+    writer(rec, path, owrite=True)
+    again = reader(path, format="pickle")
+    assert list(again)[0].sid == "IV.MODE..HNZ"
+
+
+def test_pickle_of_other_objects(tmp_path):
+    """Pickle files of other objects are rejected."""
+    path = tmp_path / "other.pkl"
+    path.write_bytes(pickle.dumps({"a": 1}))
+
+    with pytest.raises(TypeError, match="not a Record"):
+        reader(str(path))

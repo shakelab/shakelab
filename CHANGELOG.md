@@ -267,6 +267,10 @@ corrections. The format follows
 
 ### Added
 
+- `signals.io`: `format="pickle"` (extensions `.pkl` and `.pickle`)
+  in `reader` and `writer`, to save and reload a Record, Stream or
+  StreamCollection with all its metadata (trusted files only; files
+  may not be readable by other versions of ShakeLab).
 - `libutils.ascii.read_columns`: numeric tables of any layout (files
   of simple user programs, spreadsheet exports) into NumPy columns
   (`TextColumns`): the delimiter (tabulation, semicolon, vertical bar,
@@ -502,6 +506,9 @@ corrections. The format follows
 
 ### Removed
 
+- `signals.libio.pickutils` (`write_to_pickle`, `read_from_pickle`),
+  replaced by `format="pickle"` in `signals.io`; the module configured
+  the logging of the whole application when imported.
 - `signals.libio.ascii.read_ascii`, replaced by `asciiread` (the
   sampling interval given as `dt` was lost and tab-separated files
   could not be read).

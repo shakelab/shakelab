@@ -39,6 +39,12 @@ by passing ``mseed_backend`` to :func:`reader` or :func:`writer`:
 
 The per-call option takes precedence over the module-level preference.
 
+The ``pickle`` format (``.pkl``, ``.pickle``) saves a Record, Stream or
+StreamCollection as Python objects, with all their metadata. It is
+meant for intermediate results: a pickle file can run code when it is
+read, so only files from trusted sources should be read, and files
+written by one version of ShakeLab may not be readable by another.
+
 Channel metadata (StationXML, RESP or JSON) are read with
 :func:`read_metadata`; :func:`reader` assigns them to the records it
 reads when given ``metadata``.
@@ -47,6 +53,7 @@ reads when given ``metadata``.
 from __future__ import annotations
 
 import os
+import pickle
 from glob import glob
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -74,6 +81,7 @@ DYNA_FORMATS = ("dyna",)
 SIMPLEASCII_FORMATS = ("simpleascii",)
 ASCII_FORMATS = ("ascii",)
 TDMS_FORMATS = ("tdms",)
+PICKLE_FORMATS = ("pickle",)
 
 UNSUPPORTED_FORMATS = (
     "seisan",
@@ -87,6 +95,7 @@ FORMAT_ALIASES = {
     "miniseed": "mseed",
     "ms": "mseed",
     "seed": "mseed",
+    "pkl": "pickle",
 }
 
 EXTENSION_FORMATS = {
@@ -98,6 +107,8 @@ EXTENSION_FORMATS = {
     ".asc": "dyna",
     ".csv": "ascii",
     ".tdms": "tdms",
+    ".pkl": "pickle",
+    ".pickle": "pickle",
 }
 
 
@@ -457,6 +468,10 @@ def writer(input_data, file_path, format=None, byte_order=None,
             **format_options,
         )
 
+    elif current_format == "pickle":
+        _write_pickle(stream_collection, file_path, owrite=owrite,
+                      **format_options)
+
     elif current_format == "simpleascii":
         from shakelab.signals.libio import simpleascii
 
@@ -561,6 +576,9 @@ def _read_file(path, format, stream_collection, byte_order=None,
             **format_options,
         )
 
+    if format == "pickle":
+        return _read_pickle(path, stream_collection, **format_options)
+
     if format == "tdms":
         from shakelab.signals.libio import tdms
 
@@ -652,6 +670,64 @@ def _write_sac(stream_collection, directory, byte_order=None,
                 record,
                 **options,
             )
+
+
+def _write_pickle(stream_collection, file_path, owrite=False):
+    """
+    Write a StreamCollection as a pickle file.
+
+    Parameters
+    ----------
+    stream_collection : StreamCollection
+        Waveform collection to write.
+    file_path : str or path-like
+        Output path.
+    owrite : bool, optional
+        If ``True``, overwrite an existing output file.
+
+    Raises
+    ------
+    FileExistsError
+        If the output file already exists and ``owrite`` is ``False``.
+    """
+    if os.path.exists(file_path) and not owrite:
+        raise FileExistsError(f"File exists: {file_path}")
+    with open(file_path, "wb") as fid:
+        pickle.dump(stream_collection, fid, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def _read_pickle(path, stream_collection):
+    """
+    Read a pickle file written by :func:`writer` (trusted files only).
+
+    The records of the Record, Stream or StreamCollection in the file
+    are appended to ``stream_collection``.
+
+    Raises
+    ------
+    TypeError
+        If the file does not hold a ShakeLab waveform container.
+    """
+    from shakelab.signals.base import Record, Stream, StreamCollection
+
+    with open(path, "rb") as fid:
+        content = pickle.load(fid)
+
+    if isinstance(content, Record):
+        records = [content]
+    elif isinstance(content, Stream):
+        records = list(content)
+    elif isinstance(content, StreamCollection):
+        records = [record for stream in content for record in stream]
+    else:
+        raise TypeError(
+            f"{path}: the pickle file holds a "
+            f"{type(content).__name__}, not a Record, Stream or "
+            "StreamCollection"
+        )
+    for record in records:
+        stream_collection.append(record)
+    return stream_collection
 
 
 def _ensure_stream_collection(stream_collection=None):
