@@ -49,7 +49,9 @@ Writing
   integers (STEIM1 or int32 if the differences between samples exceed
   the STEIM2 words), 4 for float32, 5 for float64.
 
-MiniSEED 3 is read and written by the libmseed backend only.
+MiniSEED 3 is read and written by the libmseed backend only;
+:func:`is_mseed` recognizes both versions from the first bytes of a
+file.
 """
 
 from __future__ import annotations
@@ -78,6 +80,7 @@ __all__ = [
     "ENCODING_STEIM2",
     "MSRecord",
     "MSeedWarning",
+    "is_mseed",
     "msread",
     "mswrite",
     "msrawiter",
@@ -479,6 +482,51 @@ def msrawwrite(
                 byte_order=byte_order,
             )
             fid.write(content)
+
+
+def is_mseed(head: bytes) -> bool:
+    """
+    Tell whether the beginning of a file is a MiniSEED record.
+
+    Parameters
+    ----------
+    head : bytes
+        First bytes of the file (at least 48).
+
+    Returns
+    -------
+    bool
+        True for a MiniSEED 3 header (``MS`` and version 3) or for a
+        plausible MiniSEED 2 fixed header: sequence number of digits,
+        spaces or zeros, quality indicator ``D``, ``R``, ``Q`` or
+        ``M``, valid year, day and time of day (the checks of
+        libmseed).
+
+    Examples
+    --------
+    >>> with open("IV.MODE..HNZ.D.2026.123", "rb") as fid:
+    ...     is_mseed(fid.read(64))
+    True
+    """
+    if not isinstance(head, (bytes, bytearray, memoryview)):
+        raise TypeError("head must be bytes")
+    head = bytes(head)
+    if len(head) >= 40 and head[:2] == b"MS" and head[2] == 3:
+        return True
+    if len(head) < 48:
+        return False
+    try:
+        _detect_byte_order(memoryview(head), 0)
+    except ValueError:
+        return False
+    return (
+        all(byte in b"0123456789 \x00" for byte in head[:6])
+        and head[6:7] in (b"D", b"R", b"Q", b"M")
+        and head[7:8] in (b" ", b"\x00")
+        and head[24] <= 23
+        and head[25] <= 59
+        and head[26] <= 60
+    )
 
 
 # ----------------------------------------------------------------------------

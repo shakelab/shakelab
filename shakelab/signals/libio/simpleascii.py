@@ -72,6 +72,7 @@ __all__ = [
     "HEADER_FIELDS",
     "SimpleAscii",
     "SimpleAsciiWarning",
+    "is_simpleascii",
     "simpleasciiread",
     "simpleasciiwrite",
 ]
@@ -182,6 +183,35 @@ def simpleasciiwrite(
         for record in stream_collection.records()
     )
     write_text(target, content, owrite)
+
+
+def is_simpleascii(head: bytes) -> bool:
+    """
+    Tell whether the beginning of a file is a Simple ASCII file.
+
+    Parameters
+    ----------
+    head : bytes
+        First bytes of the file.
+
+    Returns
+    -------
+    bool
+        True if the first line that is not blank starts with
+        ``TIMESERIES ``.
+
+    Examples
+    --------
+    >>> with open("waveforms.txt", "rb") as fid:
+    ...     is_simpleascii(fid.read(1024))
+    True
+    """
+    if not isinstance(head, (bytes, bytearray, memoryview)):
+        raise TypeError("head must be bytes")
+    for line in bytes(head).decode("latin-1").splitlines():
+        if line.strip():
+            return line.lstrip().startswith("TIMESERIES ")
+    return False
 
 
 # ----------------------------------------------------------------------------

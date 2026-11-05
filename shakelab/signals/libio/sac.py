@@ -69,6 +69,7 @@ __all__ = [
     "SAC_UNDEFINED",
     "Sac",
     "SacWarning",
+    "is_sac",
     "sacread",
     "sacwrite",
 ]
@@ -195,6 +196,51 @@ def sacwrite(
         If the file exists and ``owrite`` is False.
     """
     Sac.from_shakelab(record).write(target, byte_order, owrite)
+
+
+def is_sac(head: bytes) -> bool:
+    """
+    Tell whether the beginning of a file is a binary SAC header.
+
+    Parameters
+    ----------
+    head : bytes
+        First bytes of the file (at least the 632 of the header).
+
+    Returns
+    -------
+    bool
+        True if, in one byte order, the header version (``NVHDR``) is
+        6 or 7, the number of points is not negative, the file type
+        (``IFTYPE``) is known and ``LEVEN`` is 0 or 1.
+
+    Examples
+    --------
+    >>> with open("record.sac", "rb") as fid:
+    ...     is_sac(fid.read(1024))
+    True
+    """
+    if not isinstance(head, (bytes, bytearray, memoryview)):
+        raise TypeError("head must be bytes")
+    if len(head) < HEADER_SIZE:
+        return False
+    buffer = memoryview(bytes(head))
+
+    def integer(name: str, prefix: str) -> int:
+        offset = 4 * (70 + _INTEGERS.index(name))
+        return struct.unpack_from(prefix + "i", buffer, offset)[0]
+
+    leven = 4 * (70 + len(_INTEGERS))
+    for prefix in (">", "<"):
+        if (
+            integer("NVHDR", prefix) in (6, 7)
+            and integer("NPTS", prefix) >= 0
+            and integer("IFTYPE", prefix) in (1, 2, 3, 4, 51)
+            and struct.unpack_from(prefix + "i", buffer, leven)[0]
+            in (0, 1)
+        ):
+            return True
+    return False
 
 
 # ----------------------------------------------------------------------------

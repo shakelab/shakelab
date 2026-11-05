@@ -16,14 +16,18 @@ corrections. The format follows
   unknown format found in directories or patterns are skipped with one
   `IoWarning` (hidden files are ignored); a file given by name must
   have a known format; a missing file or a pattern without matches
-  raises `FileNotFoundError`. `writer(data, target, *, format, owrite,
-  **options)` takes `data` and `target` in place of `input_data` and
-  `file_path`; `target` can be a file, a directory (one file per
-  channel, or per record for SAC and DYNA) or a file name template
-  with `{network}`, `{station}`, `{location}`, `{channel}`, `{sid}`
-  and `{start}`; no file is written if one of them exists and `owrite`
-  is False. `writer(record, "x.sac")` now writes the file (it created
-  a directory `x.sac`), and DYNA files (`.asc`) can be written.
+  raises `FileNotFoundError`. Files without a known extension (e.g.
+  the daily files of an SDS archive) or with `.asc` (DYNA or Simple
+  ASCII) are recognized from their first bytes (MiniSEED 2 and 3, SAC,
+  TDMS, DYNA, Simple ASCII; never pickle). `writer(data, target, *,
+  format, owrite, **options)` takes `data` and `target` in place of
+  `input_data` and `file_path`; `target` can be a file, a directory
+  (one file per channel, or per record for SAC and DYNA) or a file
+  name template with `{network}`, `{station}`, `{location}`,
+  `{channel}`, `{sid}` and `{start}`; no file is written if one of
+  them exists and `owrite` is False. `writer(record, "x.sac")` now
+  writes the file (it created a directory `x.sac`), and DYNA files
+  (`.asc`) can be written.
   `byte_order` and `mseed_backend` are options of the format readers
   and writers; options not accepted by a format raise `TypeError`
   (`byte_order` was ignored by the libmseed backend). The arguments
@@ -296,7 +300,11 @@ corrections. The format follows
 ### Added
 
 - `signals.io.formats()`: the supported waveform formats, with their
-  extensions and whether they can be read and written.
+  extensions and whether they can be read, written and recognized
+  from their content.
+- `is_mseed`, `is_sac`, `is_dyna`, `is_simpleascii` and `is_tdms` in
+  `signals.libio`: tell whether the first bytes of a file belong to the
+  format.
 - `records()` of `Record`, `Stream` and `StreamCollection`: the
   stored records of any waveform container, as a list.
 - `libutils.utils.warn_external`: warnings attributed to the first

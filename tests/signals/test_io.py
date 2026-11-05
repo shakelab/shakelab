@@ -45,6 +45,11 @@ from shakelab.signals.io import (
     reader,
     writer,
 )
+from shakelab.signals.libio.dyna import is_dyna
+from shakelab.signals.libio.mseed import is_mseed
+from shakelab.signals.libio.sac import is_sac
+from shakelab.signals.libio.simpleascii import is_simpleascii
+from shakelab.signals.libio.tdms import is_tdms
 from shakelab.signals.metadata import MetadataCollection, MetadataWarning
 
 DATA = Path(__file__).parent / "data"
@@ -290,14 +295,111 @@ def test_reader_directory_skips_unknown_files(tmp_path):
 
 
 def test_reader_named_file_of_unknown_format(tmp_path):
-    """A file given by name must have a known format."""
-    path = tmp_path / "MODE"
-    shutil.copy(MSEED, path)
+    """A file given by name must have a recognizable format."""
+    path = tmp_path / "notes"
+    path.write_text("not a waveform")
 
     with pytest.raises(ValueError, match="set format"):
         reader(path)
 
-    assert len(reader(path, format="miniseed")) == 3
+    # Pickle files are never recognized from their content.
+    pickled = tmp_path / "saved"
+    writer(reader(MSEED), str(tmp_path / "saved.pkl"))
+    (tmp_path / "saved.pkl").rename(pickled)
+    with pytest.raises(ValueError, match="set format"):
+        reader(pickled)
+    assert len(reader(pickled, format="pkl")) == 3
+
+
+# ----------------------------------------------------------------------------
+# Formats recognized from the content
+# ----------------------------------------------------------------------------
+
+
+LIBIO = Path(__file__).parent / "libio" / "data"
+
+DETECTORS = {
+    "mseed": is_mseed,
+    "sac": is_sac,
+    "dyna": is_dyna,
+    "simpleascii": is_simpleascii,
+    "tdms": is_tdms,
+}
+
+
+def _expected_format(path):
+    """Format of a test data file, or None for other files."""
+    if path.suffix in (".json", ".npz", ".xml", ".md", ".txt") and (
+        "simpleascii" not in path.parts
+    ):
+        return None
+    if path.name.startswith("LICENSE"):
+        return None
+    if "libmseed" in path.parts or "MSEED" in path.parts:
+        return "mseed"
+    if path.name == "MODE.mseed":
+        return "mseed"
+    if "sac" in path.parts:
+        return None if path.name == "testxy.sac" else "sac"   # text SAC
+    for name, folder in (("simpleascii", "simpleascii"), ("tdms", "tdms"),
+                         ("dyna", "ASCII")):
+        if folder in path.parts:
+            return name
+    return None
+
+
+SAMPLES = sorted(
+    path for folder in (DATA, LIBIO) for path in folder.rglob("*")
+    if path.is_file()
+)
+
+
+@pytest.mark.parametrize(
+    "path", SAMPLES, ids=[path.name for path in SAMPLES]
+)
+def test_detectors_recognize_only_their_format(path):
+    """Each test file is recognized by its own format only."""
+    head = path.read_bytes()[:1024]
+    found = [name for name, detect in DETECTORS.items() if detect(head)]
+
+    expected = _expected_format(path)
+    assert found == ([expected] if expected else [])
+
+
+def test_detectors_short_or_wrong_input():
+    """Short heads are not recognized; text is not accepted."""
+    for detect in DETECTORS.values():
+        assert not detect(b"")
+        assert not detect(b"\x00" * 16)
+        with pytest.raises(TypeError):
+            detect("TIMESERIES")
+    assert formats()["mseed"]["detect"]
+    assert not formats()["pickle"]["detect"]
+
+
+def test_reader_by_content(tmp_path):
+    """Files without a known extension are read after their content."""
+    sds = tmp_path / "2012" / "IV" / "MODE" / "HNZ.D"
+    sds.mkdir(parents=True)
+    shutil.copy(MSEED, sds / "IV.MODE..HNZ.D.2012.153")
+    shutil.copy(LIBIO / "simpleascii" / "int32.slist.txt", sds / "slist")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        collection = reader(sds)
+    assert len(collection) == 3 + 1
+
+    dyna = tmp_path / "acc"
+    shutil.copy(DATA / "ESM" / "ASCII" /
+                "IV.MODE..HNE.D.IT-2012-0008.ACC.MP.ASC", dyna)
+    assert reader(dyna).sid == ["IV.MODE..HNE"]
+
+    simple = tmp_path / "waveform.asc"    # .asc, but not DYNA
+    shutil.copy(LIBIO / "simpleascii" / "int32.slist.txt", simple)
+    assert len(reader(simple)) == 1
+
+    pattern = reader(str(LIBIO / "mseed" / "libmseed" / "*-int32.mseed2"))
+    assert len(pattern) == 1
 
 
 def test_reader_missing_files(tmp_path):

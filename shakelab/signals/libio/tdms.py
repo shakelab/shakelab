@@ -82,6 +82,7 @@ __all__ = [
     "TdmsFile",
     "TdmsGroup",
     "TdmsWarning",
+    "is_tdms",
     "tdms_to_matrix",
     "tdmsread",
 ]
@@ -602,6 +603,33 @@ def tdms_to_matrix(
         start_time=start_time,
         properties=properties,
     )
+
+
+def is_tdms(head: bytes) -> bool:
+    """
+    Tell whether the beginning of a file is a TDMS segment.
+
+    Parameters
+    ----------
+    head : bytes
+        First bytes of the file (at least 4).
+
+    Returns
+    -------
+    bool
+        True if the file starts with the tag of a TDMS segment
+        (``TDSm``); index files (``.tdms_index``, tag ``TDSh``) are not
+        data files.
+
+    Examples
+    --------
+    >>> with open("measurement.tdms", "rb") as fid:
+    ...     is_tdms(fid.read(4))
+    True
+    """
+    if not isinstance(head, (bytes, bytearray, memoryview)):
+        raise TypeError("head must be bytes")
+    return bytes(head[:4]) == TDS_TAG
 
 
 # ----------------------------------------------------------------------------

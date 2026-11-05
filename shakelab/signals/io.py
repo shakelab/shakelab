@@ -29,10 +29,13 @@ implemented in :mod:`shakelab.signals.libio`; :func:`formats` lists
 them.
 
 Files can be given as a path, a wildcard pattern, a directory, a
-sequence of them, or a text file listing them (``list_file``). The
-format is inferred from each file name unless ``format`` is given;
-files of unknown format found in directories or patterns are skipped
-with one :class:`IoWarning`.
+sequence of them, or a text file listing them (``list_file``). Unless
+``format`` is given, the format of each file is inferred from its
+extension or, for files without a known extension (e.g. the daily files
+of an SDS archive) or with an ambiguous one (``.asc``), from its first
+bytes; files of unknown format found in directories or patterns are
+skipped with one :class:`IoWarning`. Pickle files are never recognized
+from their content.
 
 MiniSEED is read and written by the libmseed-based ``cymseed`` module
 or by the pure-Python ``mseed`` module: :data:`USE_LIBMSEED` sets the
@@ -98,25 +101,29 @@ class _Format:
     extensions: tuple[str, ...] = ()
     suffix: str = ""
     per_record: bool = False
+    detect: Optional[str] = None
 
 
 _FORMATS = {
     "mseed": _Format(
         "MiniSEED 2 and 3", "shakelab.signals.libio.mseed",
         "msread", "mswrite", (".mseed", ".miniseed", ".ms", ".seed"),
-        ".mseed",
+        ".mseed", detect="is_mseed",
     ),
     "sac": _Format(
         "SAC binary", "shakelab.signals.libio.sac",
         "sacread", "sacwrite", (".sac",), ".sac", per_record=True,
+        detect="is_sac",
     ),
     "dyna": _Format(
         "DYNA 1.2 (ESM, ITACA)", "shakelab.signals.libio.dyna",
         "dynaread", "dynawrite", (".asc",), ".asc", per_record=True,
+        detect="is_dyna",
     ),
     "simpleascii": _Format(
         "Simple ASCII (EarthScope)", "shakelab.signals.libio.simpleascii",
         "simpleasciiread", "simpleasciiwrite", (), ".txt",
+        detect="is_simpleascii",
     ),
     "ascii": _Format(
         "Text tables", "shakelab.signals.libio.ascii",
@@ -124,7 +131,7 @@ _FORMATS = {
     ),
     "tdms": _Format(
         "NI TDMS", "shakelab.signals.libio.tdms",
-        "tdmsread", None, (".tdms",),
+        "tdmsread", None, (".tdms",), detect="is_tdms",
     ),
     "pickle": _Format(
         "Python pickle (trusted files only)", __name__,
@@ -140,6 +147,12 @@ _ALIASES = {
 }
 
 _UNSUPPORTED = ("gse", "reftek", "seg2", "segy", "seisan")
+
+# Extensions shared by several formats: the content decides.
+_AMBIGUOUS = (".asc",)
+
+# Bytes read to recognize a format from the content.
+_HEAD_SIZE = 1024
 
 _EXTENSIONS = {
     extension: name
@@ -168,8 +181,9 @@ def formats() -> dict[str, dict]:
     dict
         For each format name: ``description``, ``extensions`` (used to
         infer the format from file names), ``read`` and ``write``
-        (whether it can be read and written) and ``per_record`` (True
-        for formats holding one record per file).
+        (whether it can be read and written), ``per_record`` (True
+        for formats holding one record per file) and ``detect`` (True
+        if files are recognized from their content).
 
     Examples
     --------
@@ -185,6 +199,7 @@ def formats() -> dict[str, dict]:
             "read": fmt.read is not None,
             "write": fmt.write is not None,
             "per_record": fmt.per_record,
+            "detect": fmt.detect is not None,
         }
         for name, fmt in _FORMATS.items()
     }
@@ -220,7 +235,8 @@ def reader(
         list. The files listed are read after those of ``source``.
     format : str, optional
         Format of all files (see :func:`formats`). If omitted, it is
-        inferred from each file name.
+        inferred from the extension of each file or, without a known
+        extension or with ``.asc``, from its first bytes.
     metadata : MetadataCollection, ChannelEpoch, path or sequence, optional
         Channel metadata assigned to the records read, as with
         :meth:`~shakelab.signals.base.StreamCollection.set_metadata`.
@@ -271,6 +287,7 @@ def reader(
     >>> sc = reader(["a.sac", "b.sac"], byte_order="le")
     >>> sc = reader(list_file="files.txt")
     >>> sc = reader("data/*.mseed", mseed_backend="python")
+    >>> sc = reader("SDS/2026/IV/MODE/HNZ.D/")   # files without extension
     """
     # Metadata are read first, so that an error stops before the data.
     metadata = _as_metadata(metadata)
@@ -289,12 +306,12 @@ def reader(
 
     skipped = []
     for path, explicit in files:
-        current = name or _format_from_name(path)
+        current = name or _format_of(path)
         if current is None:
             if explicit:
                 raise ValueError(
-                    f"{path}: format not recognized from the file name; "
-                    "set format"
+                    f"{path}: format not recognized from the file name "
+                    "or content; set format"
                 )
             skipped.append(path)
             continue
@@ -671,6 +688,28 @@ def _format_name(format: Any) -> str:
 def _format_from_name(path: str) -> Optional[str]:
     """Format inferred from a file extension, or None."""
     return _EXTENSIONS.get(os.path.splitext(path)[1].lower())
+
+
+def _format_of(path: str) -> Optional[str]:
+    """
+    Format of a file to read: from its extension, or from its first
+    bytes for unknown and ambiguous extensions; None if unknown.
+    """
+    extension = os.path.splitext(path)[1].lower()
+    name = _EXTENSIONS.get(extension)
+    if name is not None and extension not in _AMBIGUOUS:
+        return name
+
+    with open(path, "rb") as fid:
+        head = fid.read(_HEAD_SIZE)
+    for candidate, fmt in _FORMATS.items():
+        if fmt.detect is None:
+            continue
+        module = importlib.import_module(fmt.module)
+        if getattr(module, fmt.detect)(head):
+            return candidate
+
+    return name
 
 
 def _input_files(source: Any, list_file: Any) -> list[tuple[str, bool]]:

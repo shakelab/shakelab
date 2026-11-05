@@ -77,6 +77,7 @@ __all__ = [
     "DynaWarning",
     "dynaread",
     "dynawrite",
+    "is_dyna",
 ]
 
 
@@ -229,6 +230,35 @@ def dynawrite(
         If the units of the record are missing or not supported.
     """
     Dyna.from_shakelab(record).write(target, fmt=fmt, owrite=owrite)
+
+
+def is_dyna(head: bytes) -> bool:
+    """
+    Tell whether the beginning of a file is a DYNA file.
+
+    Parameters
+    ----------
+    head : bytes
+        First bytes of the file.
+
+    Returns
+    -------
+    bool
+        True if the first line that is not blank starts with
+        ``EVENT_NAME:``.
+
+    Examples
+    --------
+    >>> with open("IV.MODE..HNZ.D.IT-2012-0008.ACC.MP.ASC", "rb") as fid:
+    ...     is_dyna(fid.read(1024))
+    True
+    """
+    if not isinstance(head, (bytes, bytearray, memoryview)):
+        raise TypeError("head must be bytes")
+    for line in bytes(head).decode("latin-1").splitlines():
+        if line.strip():
+            return line.lstrip().startswith("EVENT_NAME:")
+    return False
 
 
 # ----------------------------------------------------------------------------
