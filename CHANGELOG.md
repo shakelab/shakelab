@@ -221,8 +221,8 @@ corrections. The format follows
   written back; header version 7 (double-precision footer) is read;
   sources and targets may be paths, bytes or binary file objects; the
   byte order is detected from the header version. `Sac` holds undefined
-  fields as None and provides `from_bytes`, `to_bytes`,
-  `to_shakelab` and `from_shakelab`; files that are not evenly sampled
+  fields as None and provides `read`, `write`, `from_bytes`,
+  `to_bytes`, `to_shakelab` and `from_shakelab`; files that are not evenly sampled
   time series are read by `Sac` and rejected by `sacread`.
 - `signals.libio.dyna` rewritten: the station coordinates and sensor
   depth become the channel metadata of the record and are written from

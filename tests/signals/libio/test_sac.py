@@ -265,6 +265,40 @@ def test_existing_file(tmp_path):
     sacwrite(path, record, owrite=True)
 
 
+def test_sac_read_sources():
+    """``Sac.read`` accepts paths, bytes and binary file objects."""
+    path = DATA / "seism.sac"
+    content = path.read_bytes()
+    expected = Sac.from_bytes(content)
+
+    for source in (path, str(path), content, _io.BytesIO(content)):
+        sac = Sac.read(source)
+        assert sac.head == expected.head
+        np.testing.assert_array_equal(sac.data, expected.data)
+    with pytest.raises(TypeError, match="binary mode"):
+        Sac.read(_io.StringIO("text"))
+
+
+@pytest.mark.parametrize("byte_order", ["be", "le"])
+def test_sac_write_keeps_non_time_series(byte_order, tmp_path):
+    """``Sac.write`` writes what ``sacwrite`` cannot: x-y data."""
+    sac = Sac.read(DATA / "seism.sac")
+    sac.head["IFTYPE"] = 4  # x-y data
+    sac.data2 = np.arange(sac.data.size, dtype=np.float32)
+    path = tmp_path / "xy.sac"
+    sac.write(path, byte_order)
+
+    again = Sac.read(path)
+    assert again.byte_order == byte_order
+    assert again.head["IFTYPE"] == 4
+    np.testing.assert_array_equal(again.data2, sac.data2)
+    with pytest.raises(FileExistsError):
+        sac.write(path)
+    sac.write(path, owrite=True)
+    with pytest.raises(TypeError, match="binary file object"):
+        sac.write(42)
+
+
 # ----------------------------------------------------------------------------
 # Metadata from files and from collections
 # ----------------------------------------------------------------------------

@@ -166,7 +166,7 @@ def sacread(source: Any, byte_order: Optional[str] = None) -> Record:
     ValueError
         If the file is invalid or is not an evenly sampled time series.
     """
-    return Sac.from_bytes(_read_source(source), byte_order).to_shakelab()
+    return Sac.read(source, byte_order).to_shakelab()
 
 
 def sacwrite(
@@ -194,17 +194,7 @@ def sacwrite(
     FileExistsError
         If the file exists and ``owrite`` is False.
     """
-    content = Sac.from_shakelab(record).to_bytes(byte_order)
-
-    if isinstance(target, (str, os.PathLike)):
-        if os.path.exists(target) and not owrite:
-            raise FileExistsError(f"File exists: {target}")
-        with open(target, "wb") as fid:
-            fid.write(content)
-    elif hasattr(target, "write"):
-        target.write(content)
-    else:
-        raise TypeError("target must be a path or a binary file object")
+    Sac.from_shakelab(record).write(target, byte_order, owrite)
 
 
 # ----------------------------------------------------------------------------
@@ -292,6 +282,25 @@ class Sac:
         return reference + round((self.head["B"] or 0.0) * 1e9)
 
     # -- conversion -----------------------------------------------------
+
+    @classmethod
+    def read(cls, source: Any, byte_order: Optional[str] = None) -> Sac:
+        """
+        Read a SAC file.
+
+        Parameters
+        ----------
+        source : str, path-like, bytes or binary file object
+            SAC file, its content, or a file opened in binary mode.
+        byte_order : {"be", "le"}, optional
+            Byte order; detected from the header if None.
+
+        Raises
+        ------
+        ValueError
+            If the file is invalid.
+        """
+        return cls.from_bytes(_read_source(source), byte_order)
 
     @classmethod
     def from_bytes(cls, buffer: Any, byte_order: Optional[str] = None) -> Sac:
@@ -410,6 +419,40 @@ class Sac:
         if self.data2 is not None:
             content += np.asarray(self.data2).astype(prefix + "f4").tobytes()
         return content
+
+    def write(
+        self,
+        target: Any,
+        byte_order: str = DEFAULT_BYTE_ORDER,
+        owrite: bool = False,
+    ) -> None:
+        """
+        Write the SAC file.
+
+        Parameters
+        ----------
+        target : str, path-like or binary file object
+            Output file, or a file opened in binary mode.
+        byte_order : {"be", "le"}, optional
+            Byte order. Default is ``"be"``.
+        owrite : bool, optional
+            If True, overwrite an existing file.
+
+        Raises
+        ------
+        FileExistsError
+            If the file exists and ``owrite`` is False.
+        """
+        content = self.to_bytes(byte_order)
+        if isinstance(target, (str, os.PathLike)):
+            if os.path.exists(target) and not owrite:
+                raise FileExistsError(f"File exists: {target}")
+            with open(target, "wb") as fid:
+                fid.write(content)
+        elif hasattr(target, "write"):
+            target.write(content)
+        else:
+            raise TypeError("target must be a path or a binary file object")
 
     def to_shakelab(self) -> Record:
         """
