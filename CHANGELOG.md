@@ -240,6 +240,8 @@ corrections. The format follows
   frequencies), which `dynaread` rejects.
 - `signals.io`: the extension `.asc` (ESM files) selects the DYNA
   reader; `.txt` no longer does.
+- `signals.io`: `"itaca"` is no longer listed as an unsupported format
+  (ITACA files are DYNA files: `format="dyna"`).
 - `set_metadata` warns only when the existing and the new channel
   metadata disagree on an attribute defined in both (new
   `ChannelEpoch.conflicts`), so the partial metadata read from data
@@ -250,6 +252,14 @@ corrections. The format follows
 
 ### Added
 
+- `signals.libio.simpleascii`: reader and writer of the Simple ASCII
+  time series format of EarthScope (`mseed2ascii`): sample lists
+  (`SLIST`, one or more columns) and time-sample pairs (`TSPAIR`),
+  several segments and channels per file, integer, floating-point and
+  text segments (`SimpleAscii`, `simpleasciiread`, `simpleasciiwrite`).
+  Files are written as by `mseed2ascii`, with the sampling rate written
+  exactly. Available in `io.reader` and `io.writer` as
+  `format="simpleascii"`.
 - `signals.seedlink`: new SeedLink client (package replacing the
   former `signals.seedlink` module). `Client` speaks SeedLink 4 and
   3.1 (negotiated from `HELLO`, or chosen with `protocol=`), selects

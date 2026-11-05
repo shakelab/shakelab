@@ -71,6 +71,7 @@ MSEED_BACKEND_PYTHON = "python"
 MSEED_FORMATS = ("mseed", "miniseed", "ms", "seed")
 SAC_FORMATS = ("sac",)
 DYNA_FORMATS = ("dyna",)
+SIMPLEASCII_FORMATS = ("simpleascii",)
 TDMS_FORMATS = ("tdms",)
 
 UNSUPPORTED_FORMATS = (
@@ -80,7 +81,6 @@ UNSUPPORTED_FORMATS = (
     "dat",
     "gse",
     "reftek",
-    "itaca",
 )
 
 FORMAT_ALIASES = {
@@ -446,6 +446,16 @@ def writer(input_data, file_path, format=None, byte_order=None,
             **format_options,
         )
 
+    elif current_format == "simpleascii":
+        from shakelab.signals.libio import simpleascii
+
+        simpleascii.simpleasciiwrite(
+            file_path,
+            stream_collection,
+            owrite=owrite,
+            **format_options,
+        )
+
     elif current_format in UNSUPPORTED_FORMATS:
         raise NotImplementedError(
             "{0}: format not yet implemented".format(current_format)
@@ -521,6 +531,15 @@ def _read_file(path, format, stream_collection, byte_order=None,
         stream_collection.append(record)
 
         return stream_collection
+
+    if format == "simpleascii":
+        from shakelab.signals.libio import simpleascii
+
+        return simpleascii.simpleasciiread(
+            path,
+            stream_collection=stream_collection,
+            **format_options,
+        )
 
     if format == "tdms":
         from shakelab.signals.libio import tdms
