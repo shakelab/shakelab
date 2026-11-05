@@ -153,6 +153,7 @@ class TestMiniSeed(unittest.TestCase):
             output_file,
             record_length=record_length,
             encoding=encoding,
+            owrite=True,
         )
 
         restored = msrawread(output_file)

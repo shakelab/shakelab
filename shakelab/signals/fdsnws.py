@@ -217,7 +217,7 @@ class FDSNClient:
             sc.deconvolve_response(meta)
 
         if file_name:
-            writer(sc, file_name, format)
+            writer(sc, file_name, format=format)
             return True
         else:
             return sc

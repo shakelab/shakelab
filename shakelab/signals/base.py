@@ -75,9 +75,9 @@ from scipy.signal import windows
 from shakelab.signals import fourier
 from shakelab.signals import metadata
 from shakelab.signals import response
-from shakelab.signals import io
 from shakelab.signals.header import Header
 from shakelab.libutils.timeN import Date
+from shakelab.libutils.utils import warn_external
 
 if TYPE_CHECKING:
     # Annotations only: spectrum sits above this module.
@@ -402,6 +402,21 @@ class Record:
         record.data = self.data.copy()
 
         return record
+
+    def records(self) -> list[Record]:
+        """
+        Return the record in a list.
+
+        Records, streams and collections share this method, so that
+        any waveform container can be handled as a sequence of
+        records.
+
+        Returns
+        -------
+        list of Record
+            The record itself (not a copy).
+        """
+        return [self]
 
     def info(self) -> None:
         """
@@ -2725,6 +2740,17 @@ class Stream:
 
         return stream
 
+    def records(self) -> list[Record]:
+        """
+        Return the records of the stream.
+
+        Returns
+        -------
+        list of Record
+            Stored records (not copies), in stream order.
+        """
+        return list(self.record)
+
     def append(
         self,
         record: Record,
@@ -3533,6 +3559,22 @@ class StreamCollection:
 
         return collection
 
+    def records(self) -> list[Record]:
+        """
+        Return the records of all streams.
+
+        Returns
+        -------
+        list of Record
+            Stored records (not copies), stream by stream.
+
+        Examples
+        --------
+        >>> for record in collection.records():
+        ...     print(record.sid, record.time)
+        """
+        return [record for stream in self.stream for record in stream]
+
     def append(
         self,
         data: Any,
@@ -4030,203 +4072,98 @@ class StreamCollection:
 
     def read(
         self,
-        file_path: Any = None,
+        source: Any = None,
+        *,
         list_file: Any = None,
         format: Optional[str] = None,
-        byte_order: Optional[str] = None,
         metadata: Any = None,
-        **format_options: Any,
+        **options: Any,
     ) -> StreamCollection:
         """
         Read waveform data into the collection.
 
         Parameters
         ----------
-        file_path : str, path-like or sequence, optional
-            Waveform file path, wildcard pattern, directory, or sequence of
-            waveform paths. Mutually exclusive with ``list_file``.
+        source : str, path-like or sequence, optional
+            File, wildcard pattern, directory, or sequence of them.
         list_file : str or path-like, optional
-            Text file containing one waveform path per line. Mutually
-            exclusive with ``file_path``. Relative paths are resolved
-            against the directory containing the list file.
+            Text file listing the files to read, one per line.
         format : str, optional
-            Input waveform format. If omitted, the format is inferred
-            independently from the extension of each input file.
-        byte_order : str or None, optional
-            Byte order used by formats supporting explicit selection.
-            ``None`` delegates byte-order handling to the selected
-            format-specific reader.
+            Waveform format; inferred from each file name if omitted.
         metadata : MetadataCollection, ChannelEpoch, path or sequence, optional
-            Channel metadata assigned to the records read (see
-            :func:`shakelab.signals.io.reader`); the records already in
-            the collection are not modified.
-        **format_options
-            Additional keyword arguments forwarded to
-            :func:`shakelab.signals.io.reader`.
-
-            For MiniSEED input, ``mseed_backend`` may be:
-
-            - ``"auto"`` to use the configured default backend;
-            - ``"libmseed"`` to use the libmseed-backed implementation;
-            - ``"python"`` to use the pure-Python implementation.
-
-            Other options are forwarded to the selected format-specific
-            reader.
+            Channel metadata assigned to the records read; the records
+            already in the collection are not modified.
+        **options
+            Options of the format reader (e.g. ``byte_order`` for SAC,
+            ``mseed_backend`` for MiniSEED).
 
         Returns
         -------
         StreamCollection
-            The current collection, updated with the loaded waveform data.
-
-        Raises
-        ------
-        TypeError
-            If an input source or a format-specific option has an
-            unsupported type.
-        ValueError
-            If neither input source is provided, both sources are provided,
-            or the waveform format cannot be determined.
-        NotImplementedError
-            If the selected waveform format is known but not implemented.
+            The collection itself, with the records read.
 
         Notes
         -----
-        Loaded records are appended to the current collection. Existing
-        streams and records are preserved.
-
-        Input expansion, format detection, MiniSEED backend selection,
-        byte-order handling, and final stream sorting are delegated entirely
-        to :func:`shakelab.signals.io.reader`.
+        Reading is delegated to :func:`shakelab.signals.io.reader`,
+        which documents the arguments in full.
 
         Examples
         --------
-        Read a single file using format inference:
-
-        >>> collection.read("waveforms.mseed")
-
-        Read all supported files in a directory:
-
-        >>> collection.read("/path/to/waveforms")
-
-        Read paths listed in a text file:
-
-        >>> collection.read(list_file="waveforms.txt")
-
-        Read and assign the channel metadata of a StationXML file:
-
         >>> collection.read("waveforms.mseed", metadata="station.xml")
-
-        Force the pure-Python MiniSEED backend:
-
-        >>> collection.read(
-        ...     "waveforms.mseed",
-        ...     mseed_backend="python",
-        ... )
+        >>> collection.read(list_file="waveforms.txt")
         """
+        # Local import: io sits above this module.
+        from shakelab.signals import io
+
         io.reader(
-            file_path=file_path,
+            source,
             list_file=list_file,
-            stream_collection=self,
             format=format,
-            byte_order=byte_order,
             metadata=metadata,
-            **format_options,
+            stream_collection=self,
+            **options,
         )
 
         return self
 
     def write(
         self,
-        file_path: Any,
+        target: Any,
+        *,
         format: Optional[str] = None,
-        byte_order: Optional[str] = None,
         owrite: bool = False,
-        **format_options: Any,
+        **options: Any,
     ) -> None:
         """
-        Write the collection to disk.
+        Write the collection to one or more files.
 
         Parameters
         ----------
-        file_path : str or path-like
-            Output file path for single-file formats, or output directory for
-            multi-file formats such as SAC.
+        target : str or path-like
+            Output file, directory, or file name template with fields
+            such as ``{station}``, ``{channel}`` and ``{start}``.
         format : str, optional
-            Output waveform format. If omitted, the format is inferred from
-            ``file_path``.
-        byte_order : str or None, optional
-            Byte order used by formats supporting explicit selection.
-            ``None`` delegates byte-order handling to the selected
-            format-specific writer.
+            Waveform format; inferred from ``target`` if omitted.
         owrite : bool, optional
-            If ``True``, existing output files may be overwritten. Default
-            is ``False``.
-        **format_options
-            Additional keyword arguments forwarded to
-            :func:`shakelab.signals.io.writer`.
-    
-            For MiniSEED output, ``mseed_backend`` may be:
-    
-            - ``"auto"`` to use the configured default backend;
-            - ``"libmseed"`` to use the libmseed-backed implementation;
-            - ``"python"`` to use the pure-Python implementation.
-    
-            MiniSEED-specific options such as ``encoding`` and ``reclen`` may
-            also be supplied when supported by the selected backend.
-
-        Raises
-        ------
-        TypeError
-            If a format-specific option has an unsupported type.
-        ValueError
-            If the output format cannot be inferred or is not recognized.
-        FileExistsError
-            If an output file already exists and ``owrite`` is ``False``.
-        NotImplementedError
-            If the selected output format is known but not implemented.
+            If True, overwrite existing files. Default is False.
+        **options
+            Options of the format writer (e.g. ``encoding`` for
+            MiniSEED, ``byte_order`` for SAC).
 
         Notes
         -----
-        Format selection, output validation, MiniSEED backend selection, and
-        conversion to the representation required by each backend are
-        delegated entirely to :func:`shakelab.signals.io.writer`.
-
-        MiniSEED is written to a single output file. SAC output uses
-        ``file_path`` as a directory and creates one SAC file for each
-        record.
+        Writing is delegated to :func:`shakelab.signals.io.writer`,
+        which documents the arguments in full.
 
         Examples
         --------
-        Write MiniSEED using format inference:
-
-        >>> collection.write("waveforms.mseed")
-
-        Write MiniSEED with the pure-Python backend:
-
-        >>> collection.write(
-        ...     "waveforms.mseed",
-        ...     mseed_backend="python",
-        ...     encoding=11,
-        ...     reclen=4096,
-        ... )
-
-        Write one SAC file per record:
-
-        >>> collection.write(
-        ...     "sac_output",
-        ...     format="sac",
-        ...     byte_order="be",
-        ...     owrite=True,
-        ... )
+        >>> collection.write("waveforms.mseed", encoding=11)
+        >>> collection.write("{station}.{channel}.{start}.sac")
         """
-        io.writer(
-            input_data=self,
-            file_path=file_path,
-            format=format,
-            byte_order=byte_order,
-            owrite=owrite,
-            **format_options,
-        )
+        # Local import: io sits above this module.
+        from shakelab.signals import io
+
+        io.writer(self, target, format=format, owrite=owrite, **options)
 
 
 # ----------------------------------------------------------------------------
@@ -4371,11 +4308,10 @@ def _set_metadata_records(records, source):
             missing.add(record.sid)
 
     if missing:
-        warnings.warn(
+        warn_external(
             f"no metadata for {len(missing)} channel(s), left unchanged: "
             + ", ".join(sorted(missing)),
             metadata.MetadataWarning,
-            stacklevel=3,
         )
 
 
@@ -4399,11 +4335,10 @@ def _set_metadata(record, source, cache):
         if key not in cache:
             cache[key] = current.conflicts(epoch)
         if cache[key]:
-            warnings.warn(
+            warn_external(
                 f"{sid}: the existing metadata are replaced (different "
                 f"{', '.join(cache[key])})",
                 metadata.MetadataWarning,
-                stacklevel=3,
             )
 
     if (
@@ -4411,11 +4346,10 @@ def _set_metadata(record, source, cache):
         and record.rate is not None
         and not np.isclose(record.rate, epoch.sample_rate, rtol=1e-4)
     ):
-        warnings.warn(
+        warn_external(
             f"{sid}: sampling rate {record.rate} Hz differs from the "
             f"declared {epoch.sample_rate} Hz",
             metadata.MetadataWarning,
-            stacklevel=3,
         )
 
     if (
@@ -4423,12 +4357,11 @@ def _set_metadata(record, source, cache):
         and record.endtime is not None
         and record.endtime >= epoch.endtime
     ):
-        warnings.warn(
+        warn_external(
             f"{sid}: the record extends beyond the end of the metadata "
             f"epoch ({epoch.endtime}); the epoch valid at its start is "
             "used",
             metadata.MetadataWarning,
-            stacklevel=3,
         )
 
     record.head.meta = epoch

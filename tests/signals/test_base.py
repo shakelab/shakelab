@@ -1332,6 +1332,26 @@ def test_collection_append_copies_records():
         collection.append([1, 2])
 
 
+def test_records_of_all_containers():
+    """records() gives the stored records of any waveform container."""
+    stream = _two_record_stream()
+    collection = StreamCollection()
+    collection.append(stream)
+    collection.append(Record(data=[1.0], delta=1.0, time=START,
+                             sid="XX.ABC..HHN"))
+    record = collection["XX.ABC..HHN"][0]
+
+    assert record.records() == [record]
+    assert record.records()[0] is record
+    assert len(stream.records()) == 2
+    records = collection.records()
+    assert [rec.sid for rec in records] == [
+        "XX.STA..HHZ", "XX.STA..HHZ", "XX.ABC..HHN"
+    ]
+    assert records[0] is collection["XX.STA..HHZ"][0]
+    assert records[-1] is record
+
+
 def test_collection_remove_sort_copy_merge():
     """Streams are removed, sorted, copied and merged."""
     collection = StreamCollection()

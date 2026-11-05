@@ -47,7 +47,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from shakelab.signals.io import read_metadata, reader
+from shakelab.signals.io import metadata_reader, reader
 from shakelab.signals.libio.dyna import dynaread
 
 DATA = Path(__file__).resolve().parents[2] / "tests" / "signals" / "data"
@@ -59,7 +59,7 @@ COMPONENTS = ("HNE", "HNN", "HNZ")
 # Data
 # ----------------------------------------------------------------------------
 
-meta = read_metadata(str(DATA / "MODE.xml"))
+meta = metadata_reader(str(DATA / "MODE.xml"))
 issues = meta.validate()
 print("Metadata issues:", issues if issues else "none")
 

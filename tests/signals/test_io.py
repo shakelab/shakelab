@@ -18,10 +18,12 @@
 """
 Unit tests for :mod:`shakelab.signals.io`.
 
-They cover the reading of channel metadata (:func:`read_metadata`) and
-their assignment while reading waveforms (``metadata`` in
-:func:`reader` and :meth:`StreamCollection.read`). Real data come from
-``tests/signals/data`` (see the README in that folder).
+They cover the sources of :func:`reader` and :func:`metadata_reader`
+(files, patterns, directories, lists), the format table, the options
+of the format readers and writers, the outputs of :func:`writer` (file,
+directory, name template), the reading of channel metadata and their
+assignment while reading waveforms, and the pickle format. Real data
+come from ``tests/signals/data`` (see the README in that folder).
 """
 
 from __future__ import annotations
@@ -34,8 +36,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from shakelab.signals import io
 from shakelab.signals.base import Record, StreamCollection
-from shakelab.signals.io import read_metadata, reader, writer
+from shakelab.signals.io import (
+    IoWarning,
+    formats,
+    metadata_reader,
+    reader,
+    writer,
+)
 from shakelab.signals.metadata import MetadataCollection, MetadataWarning
 
 DATA = Path(__file__).parent / "data"
@@ -45,65 +54,65 @@ OTHER = str(DATA / "TT_T01.xml")
 
 
 # ----------------------------------------------------------------------------
-# read_metadata
+# metadata_reader
 # ----------------------------------------------------------------------------
 
 
-def test_read_metadata_single_file():
+def test_metadata_reader_single_file():
     """One file gives the same content as the collection constructor."""
-    meta = read_metadata(SXML)
+    meta = metadata_reader(SXML)
 
     assert isinstance(meta, MetadataCollection)
     assert sorted(meta.sid) == sorted(MetadataCollection(SXML).sid)
     assert len(meta) == 3
 
 
-def test_read_metadata_list():
+def test_metadata_reader_list():
     """The files of a list are joined in one collection."""
-    meta = read_metadata([SXML, Path(OTHER)])
+    meta = metadata_reader([SXML, Path(OTHER)])
 
     assert len(meta) == 3 + 30
     assert len(meta.stations()) == 2
 
 
-def test_read_metadata_pattern_and_directory(tmp_path):
+def test_metadata_reader_pattern_and_directory(tmp_path):
     """Wildcard patterns and directories are expanded as in reader."""
     for path in (SXML, OTHER):
         shutil.copy(path, tmp_path)
 
-    by_pattern = read_metadata(str(tmp_path / "*.xml"))
-    by_directory = read_metadata(tmp_path)
+    by_pattern = metadata_reader(str(tmp_path / "*.xml"))
+    by_directory = metadata_reader(tmp_path)
 
     assert len(by_pattern) == len(by_directory) == 33
 
 
-def test_read_metadata_repeated_file():
+def test_metadata_reader_repeated_file():
     """Epochs equal to those already read are ignored, silently."""
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        meta = read_metadata([SXML, SXML])
+        meta = metadata_reader([SXML, SXML])
 
     assert len(meta) == 3
 
 
-def test_read_metadata_ftype(tmp_path):
-    """The file type can be given explicitly for unusual names."""
+def test_metadata_reader_format(tmp_path):
+    """The format can be given explicitly for unusual names."""
     path = tmp_path / "mode.station"
     shutil.copy(SXML, path)
 
-    with pytest.raises(ValueError, match="Unknown file type"):
-        read_metadata(path)
+    with pytest.raises(ValueError, match="Unknown metadata format"):
+        metadata_reader(path)
 
-    assert len(read_metadata(path, ftype="xml")) == 3
+    assert len(metadata_reader(path, format="xml")) == 3
 
 
-def test_read_metadata_type_error():
+def test_metadata_reader_type_error():
     """Sources other than paths are rejected."""
     with pytest.raises(TypeError):
-        read_metadata(42)
+        metadata_reader(42)
 
     with pytest.raises(TypeError):
-        read_metadata(b"<FDSNStationXML/>")
+        metadata_reader(b"<FDSNStationXML/>")
 
 
 # ----------------------------------------------------------------------------
@@ -141,7 +150,7 @@ def test_reader_metadata_same_as_set_metadata():
 
 
 def test_reader_metadata_list_of_files():
-    """A list of metadata files is read with read_metadata."""
+    """A list of metadata files is read with metadata_reader."""
     collection = reader(MSEED, metadata=[SXML, OTHER])
 
     assert all(not stream[0].head.meta.empty for stream in collection)
@@ -244,3 +253,223 @@ def test_pickle_of_other_objects(tmp_path):
 
     with pytest.raises(TypeError, match="not a Record"):
         reader(str(path))
+
+
+# ----------------------------------------------------------------------------
+# Sources
+# ----------------------------------------------------------------------------
+
+
+def _collection(nsamp=10):
+    """Three channels of one station, one record each."""
+    collection = StreamCollection()
+    for cha in ("HHE", "HHN", "HHZ"):
+        collection.append(
+            Record(data=np.arange(float(nsamp)), delta=0.01,
+                   time="2026-01-01T00:00:00", sid=f"XX.AA..{cha}",
+                   units="m/s**2")
+        )
+    return collection
+
+
+def test_reader_directory_skips_unknown_files(tmp_path):
+    """Unknown files of a directory are skipped with one warning."""
+    shutil.copy(MSEED, tmp_path)
+    (tmp_path / "notes.txt").write_text("not a waveform")
+    (tmp_path / "readme").write_text("not a waveform")
+    (tmp_path / ".hidden.txt").write_text("ignored")
+    (tmp_path / "sub").mkdir()
+
+    with pytest.warns(IoWarning, match="2 file") as caught:
+        collection = reader(tmp_path)
+
+    assert len(collection) == 3
+    assert "notes.txt" in str(caught[0].message)
+    assert ".hidden" not in str(caught[0].message)
+    assert caught[0].filename == __file__
+
+
+def test_reader_named_file_of_unknown_format(tmp_path):
+    """A file given by name must have a known format."""
+    path = tmp_path / "MODE"
+    shutil.copy(MSEED, path)
+
+    with pytest.raises(ValueError, match="set format"):
+        reader(path)
+
+    assert len(reader(path, format="miniseed")) == 3
+
+
+def test_reader_missing_files(tmp_path):
+    """Missing files and patterns without matches are errors."""
+    with pytest.raises(FileNotFoundError, match="No such file"):
+        reader(tmp_path / "missing.mseed")
+
+    with pytest.raises(FileNotFoundError, match="No file matches"):
+        reader(str(tmp_path / "*.mseed"))
+
+    with pytest.raises(ValueError, match="source or list_file"):
+        reader()
+
+    with pytest.raises(TypeError, match="source must be"):
+        reader(42)
+
+
+def test_reader_list_file(tmp_path):
+    """List files hold paths, patterns and comments; both sources add."""
+    folder = tmp_path / "data"
+    folder.mkdir()
+    shutil.copy(MSEED, folder / "a.mseed")
+    writer(_collection(), str(folder / "b.mseed"))
+    writer(Record(data=[1.0, 2.0], delta=0.5, time="2026-01-01T00:00:00",
+                  sid="XX.BB..HHZ"), str(tmp_path / "c.sac"))
+
+    listing = tmp_path / "files.txt"
+    listing.write_text("# waveforms\n\ndata/a.mseed\n  data/b*  \n")
+
+    by_list = reader(list_file=listing)
+    assert sorted(by_list.sid) == [
+        "IV.MODE..HNE", "IV.MODE..HNN", "IV.MODE..HNZ",
+        "XX.AA..HHE", "XX.AA..HHN", "XX.AA..HHZ",
+    ]
+
+    both = reader(str(tmp_path / "c.sac"), list_file=str(listing))
+    assert len(both) == 7
+    assert "XX.BB..HHZ" in both.sid
+
+
+def test_reader_options_checked():
+    """Options must be accepted by the reader of the format."""
+    with pytest.raises(TypeError, match="unknown option"):
+        reader(MSEED, mseed_backend="python", encoding=11)
+
+    with pytest.raises(ValueError, match="mseed_backend"):
+        reader(MSEED, mseed_backend=True)
+
+    collection = reader(MSEED, mseed_backend="python", byte_order="be")
+    assert len(collection) == 3
+
+
+def test_format_names():
+    """Formats are listed, aliased, rejected or not supported yet."""
+    table = formats()
+    assert table["sac"]["per_record"]
+    assert table["mseed"]["write"] and not table["tdms"]["write"]
+    assert ".asc" in table["dyna"]["extensions"]
+
+    with pytest.raises(ValueError, match="unknown format"):
+        reader(MSEED, format="xyz")
+    with pytest.raises(NotImplementedError):
+        reader(MSEED, format="seisan")
+    with pytest.raises(TypeError):
+        reader(MSEED, format=5)
+
+
+def test_metadata_reader_skips_unknown_files(tmp_path):
+    """Metadata directories may hold other files."""
+    shutil.copy(SXML, tmp_path)
+    (tmp_path / "notes.txt").write_text("not metadata")
+
+    with pytest.warns(IoWarning, match="notes.txt"):
+        meta = metadata_reader(tmp_path)
+
+    assert len(meta) == 3
+
+
+def test_metadata_warning_points_to_the_caller():
+    """Metadata warnings while reading point to the user's code."""
+    with pytest.warns(MetadataWarning) as caught:
+        reader(MSEED, metadata=OTHER)
+    assert caught[0].filename == __file__
+
+    with pytest.warns(MetadataWarning) as caught:
+        StreamCollection().read(MSEED, metadata=OTHER)
+    assert caught[0].filename == __file__
+
+
+# ----------------------------------------------------------------------------
+# writer
+# ----------------------------------------------------------------------------
+
+
+def test_writer_one_record_per_file(tmp_path):
+    """SAC and DYNA files hold one record; a file name gets one only."""
+    collection = _collection()
+    record = collection[0][0]
+
+    writer(record, str(tmp_path / "rec.sac"))
+    assert (tmp_path / "rec.sac").is_file()
+    writer(record, str(tmp_path / "rec.asc"))
+    assert reader(str(tmp_path / "rec.asc"))[0][0].nsamp == 10
+
+    with pytest.raises(ValueError, match="one record per file"):
+        writer(collection, str(tmp_path / "all.sac"))
+    assert not (tmp_path / "all.sac").exists()
+
+
+def test_writer_directory(tmp_path):
+    """A directory gets one file per record or per channel."""
+    collection = _collection()
+
+    writer(collection, str(tmp_path / "sac") + "/", format="sac")
+    assert sorted(path.name for path in (tmp_path / "sac").iterdir()) == [
+        f"XX.AA..{cha}.20260101T000000.sac" for cha in ("HHE", "HHN", "HHZ")
+    ]
+
+    writer(collection, tmp_path / "sac", format="mseed")
+    assert (tmp_path / "sac" / "XX.AA..HHZ.mseed").is_file()
+
+    with pytest.raises(ValueError, match="set format"):
+        writer(collection, tmp_path / "sac")
+
+
+def test_writer_template(tmp_path):
+    """Templates name the files and create the folders."""
+    collection = _collection()
+
+    writer(collection, str(tmp_path / "{station}" / "{channel}.{start}.sac"))
+    assert len(list((tmp_path / "AA").glob("HH?.20260101T000000.sac"))) == 3
+
+    writer(collection, str(tmp_path / "{network}.{station}.mseed"))
+    again = reader(str(tmp_path / "XX.AA.mseed"))
+    assert again.sid == collection.sid
+
+    with pytest.raises(ValueError, match="same name"):
+        writer(collection, str(tmp_path / "{station}.sac"))
+
+    with pytest.raises(ValueError, match="fields"):
+        writer(collection, str(tmp_path / "{year}.mseed"))
+
+
+def test_writer_existing_files(tmp_path):
+    """No file is written if one of them exists, unless owrite."""
+    collection = _collection()
+    template = str(tmp_path / "{channel}.mseed")
+    (tmp_path / "HHN.mseed").write_bytes(b"")
+
+    with pytest.raises(FileExistsError):
+        writer(collection, template)
+    assert not (tmp_path / "HHE.mseed").exists()
+
+    writer(collection, template, owrite=True)
+    assert len(reader(str(tmp_path / "HHN.mseed"))) == 1
+
+    with pytest.raises(FileExistsError):
+        writer(collection, str(tmp_path / "HHN.mseed"), mseed_backend="python")
+
+
+def test_writer_errors(tmp_path):
+    """Invalid data, targets, formats and options are rejected."""
+    collection = _collection()
+
+    with pytest.raises(TypeError, match="data must be"):
+        writer([1, 2], str(tmp_path / "a.mseed"))
+    with pytest.raises(TypeError, match="target"):
+        writer(collection, 3)
+    with pytest.raises(ValueError, match="set format"):
+        writer(collection, str(tmp_path / "a.xyz"))
+    with pytest.raises(NotImplementedError, match="writing"):
+        writer(collection, str(tmp_path / "a.tdms"))
+    with pytest.raises(TypeError, match="unknown option"):
+        writer(collection[0][0], str(tmp_path / "a.sac"), reclen=512)
+    assert not list(tmp_path.iterdir())

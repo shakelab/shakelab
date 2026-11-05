@@ -235,14 +235,14 @@ def test_read_tt_epochs(tt):
     assert tt.validate() == []
 
 
-def test_read_ftypes():
+def test_read_formats():
     """StationXML is recognized by name or by an explicit type."""
     for ftype in (None, "xml", "sxml"):
-        assert MetadataCollection(str(MODE), ftype=ftype).sid == [
+        assert MetadataCollection(str(MODE), format=ftype).sid == [
             "IV.MODE..HNZ", "IV.MODE..HNN", "IV.MODE..HNE"
         ]
     with pytest.raises(ValueError):
-        MetadataCollection(str(MODE), ftype="txt")
+        MetadataCollection(str(MODE), format="txt")
 
 
 def test_channel_without_coordinates_takes_station():

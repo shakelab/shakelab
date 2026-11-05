@@ -750,8 +750,8 @@ class MetadataCollection:
     ----------
     source
         Optional file to read (see :meth:`read`).
-    ftype
-        File type; inferred from the file name if None.
+    format
+        File format; inferred from the file name if None.
 
     Notes
     -----
@@ -760,11 +760,11 @@ class MetadataCollection:
     time; :meth:`select` a sub-collection.
     """
 
-    def __init__(self, source: Any = None, ftype: Optional[str] = None):
+    def __init__(self, source: Any = None, format: Optional[str] = None):
         self._channels: dict[str, list[ChannelEpoch]] = {}
         self._stations: list[StationEpoch] = []
         if source is not None:
-            self.read(source, ftype=ftype)
+            self.read(source, format=format)
 
     def __len__(self) -> int:
         return sum(len(epochs) for epochs in self._channels.values())
@@ -1044,7 +1044,7 @@ class MetadataCollection:
     def read(
         self,
         source: Any,
-        ftype: Optional[str] = None,
+        format: Optional[str] = None,
         append: bool = False,
     ) -> None:
         """
@@ -1057,7 +1057,7 @@ class MetadataCollection:
             open file (see
             :func:`shakelab.signals.stationxml.read_stationxml` and
             :func:`shakelab.signals.respfile.read_resp`).
-        ftype
+        format
             ``"xml"`` (also ``"sxml"``), ``"resp"`` or ``"json"``. If
             None, it is inferred from the file name: ``"resp"`` for
             names starting with ``RESP.`` (as written by rdseed) or
@@ -1068,37 +1068,37 @@ class MetadataCollection:
         Raises
         ------
         ValueError
-            If the file type is unknown.
+            If the file format is unknown.
         """
-        if ftype is None:
-            ftype = _file_type(source)
-        ftype = ftype.lower()
+        if format is None:
+            format = _file_type(source)
+        format = format.lower()
 
-        if ftype in ("xml", "sxml"):
+        if format in ("xml", "sxml"):
             # Local imports: the readers build metadata objects, so
             # they sit above this module.
             from shakelab.signals.stationxml import read_stationxml
 
             new = read_stationxml(source)
 
-        elif ftype == "resp":
+        elif format == "resp":
             from shakelab.signals.respfile import read_resp
 
             new = read_resp(source)
 
-        elif ftype == "json":
+        elif format == "json":
             with open(source, "r") as fobj:
                 new = _collection_from_json(_json.load(fobj))
 
         else:
-            raise ValueError(f"Unknown file type: {ftype}")
+            raise ValueError(f"Unknown metadata format: {format}")
 
         if not append:
             self._channels = {}
             self._stations = []
         self.extend(new)
 
-    def write(self, file: Any, ftype: str = "json") -> None:
+    def write(self, file: Any, format: str = "json") -> None:
         """
         Write the metadata to a JSON file.
 
@@ -1108,9 +1108,9 @@ class MetadataCollection:
         Raises
         ------
         NotImplementedError
-            For file types other than JSON.
+            For formats other than JSON.
         """
-        if ftype != "json":
+        if format != "json":
             raise NotImplementedError("Only the json format is supported")
 
         index = {id(station): i for i, station in enumerate(self._stations)}

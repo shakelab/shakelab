@@ -39,6 +39,7 @@ limited to integer encodings (3, 10, 11).
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -125,6 +126,7 @@ def mswrite(
     encoding: Optional[int] = None,
     reclen: int = 512,
     msformat: Optional[int] = None,
+    owrite: bool = False,
 ) -> None:
     """
     Write waveforms to a MiniSEED file.
@@ -133,7 +135,7 @@ def mswrite(
     ----------
     target : str or path-like
         Output file.
-    stream_collection : StreamCollection
+    stream_collection : StreamCollection, Stream or Record
         Waveforms to write.
     encoding : int, optional
         MiniSEED encoding. If None (default), it follows the type of
@@ -143,9 +145,15 @@ def mswrite(
         Record length in bytes. Default is 512.
     msformat : {2, 3}, optional
         MiniSEED version; :data:`MSEED_VERSION` if None.
+    owrite : bool, optional
+        If True, overwrite an existing file. Default is False.
 
     Raises
     ------
+    TypeError
+        If ``stream_collection`` is not a waveform container.
+    FileExistsError
+        If the file exists and ``owrite`` is False.
     ValueError
         If the version, encoding, record length or a source identifier
         is invalid.
@@ -153,6 +161,15 @@ def mswrite(
         For MiniSEED 3 with encodings other than 3, 10 and 11, or with
         records needing different encodings (see the module notes).
     """
+    from shakelab.signals.base import Record, Stream, StreamCollection
+
+    if not isinstance(stream_collection, (Record, Stream, StreamCollection)):
+        raise TypeError(
+            "expected a StreamCollection, a Stream or a Record, got "
+            f"{type(stream_collection).__name__}"
+        )
+    if os.path.exists(target) and not owrite:
+        raise FileExistsError(f"File exists: {target}")
     if msformat is None:
         msformat = MSEED_VERSION
     if msformat not in (2, 3):
@@ -161,7 +178,7 @@ def mswrite(
         _validate_encoding(encoding)
     _validate_record_length(reclen)
 
-    records = [record for stream in stream_collection for record in stream]
+    records = stream_collection.records()
     if not records:
         return
 
@@ -173,7 +190,8 @@ def mswrite(
 
     if len(encodings) > 1 or not encodings <= set(_CYMSEED3_ENCODINGS):
         if msformat == 2:
-            _pymseed.mswrite(target, stream_collection, encoding, reclen)
+            _pymseed.mswrite(target, stream_collection, encoding, reclen,
+                             owrite=True)
             return
         raise NotImplementedError(
             "MiniSEED 3 is written by cymseed3 with one integer encoding "

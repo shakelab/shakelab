@@ -300,7 +300,7 @@ class Client:
         server supports it, version 3.1 otherwise.
     metadata : MetadataCollection, path or sequence of paths, optional
         Channel metadata assigned to the records as they arrive (see
-        :func:`shakelab.signals.io.read_metadata`).
+        :func:`shakelab.signals.io.metadata_reader`).
     timeout : float, optional
         Seconds without data after which the connection is considered
         lost and reopened. Default is 600 s.
@@ -452,7 +452,7 @@ class Client:
         >>> client.select("IV.MODE.*.HH?")
         >>> client.select(["OX.{CAE,BAD}.*.HHZ", "OX.*.*.HH[ZN]"])
         >>> client.select(file="stations.txt")
-        >>> client.select(read_metadata("network.xml"))
+        >>> client.select(metadata_reader("network.xml"))
         """
         self._require_idle()
         if patterns is None and file is None:
@@ -1933,9 +1933,9 @@ def _as_metadata(metadata: Any) -> Any:
         return None
     if isinstance(metadata, _metadata.MetadataCollection):
         return metadata
-    from shakelab.signals.io import read_metadata
+    from shakelab.signals.io import metadata_reader
 
-    return read_metadata(metadata)
+    return metadata_reader(metadata)
 
 
 def _as_date(value: Any, name: str) -> Optional[Date]:

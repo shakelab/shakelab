@@ -19,8 +19,9 @@
 General-purpose helpers shared across ShakeLab.
 
 The module groups small utilities for value casting, empty-value
-checks, rounding, basic statistics, item selection and JSON-friendly
-(de)serialization of NumPy arrays and complex numbers.
+checks, rounding, basic statistics, item selection, JSON-friendly
+(de)serialization of NumPy arrays and complex numbers, and warnings
+attributed to the caller's code.
 
 Conventions
 -----------
@@ -32,6 +33,7 @@ Conventions
 
 from __future__ import annotations
 
+import sys
 import warnings
 from typing import Any, Callable, Sequence
 
@@ -48,6 +50,7 @@ __all__ = [
     "none_check",
     "serialize_ndarray",
     "deserialize_complex",
+    "warn_external",
 ]
 
 _NULL_STRINGS = frozenset({"", "None", "none", "NaN", "nan"})
@@ -335,3 +338,38 @@ def deserialize_complex(obj: Any) -> Any:
         return [deserialize_complex(v) for v in obj]
 
     return obj
+
+
+# ----------------------------------------------------------------------------
+# Warnings
+# ----------------------------------------------------------------------------
+
+
+def warn_external(message: str, category: type = UserWarning) -> None:
+    """
+    Issue a warning attributed to the first caller outside ShakeLab.
+
+    The warning points to the line of the user's code that called
+    ShakeLab, however deep in the library it is raised, so that it is
+    shown once per calling line and is easy to locate.
+
+    Parameters
+    ----------
+    message : str
+        Warning message.
+    category : type, optional
+        Warning class. Default is :class:`UserWarning`.
+
+    Examples
+    --------
+    >>> warn_external("no metadata for 2 channels", MetadataWarning)
+    """
+    frame = sys._getframe(1)
+    level = 2
+    while (
+        frame.f_back is not None
+        and frame.f_globals.get("__name__", "").startswith("shakelab.")
+    ):
+        frame = frame.f_back
+        level += 1
+    warnings.warn(message, category, stacklevel=level)

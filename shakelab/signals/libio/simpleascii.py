@@ -163,14 +163,23 @@ def simpleasciiwrite(
 
     Raises
     ------
+    TypeError
+        If ``stream_collection`` is not a waveform container.
     FileExistsError
         If the file exists and ``owrite`` is False.
     ValueError
         If the style, the number of columns or a record is invalid.
     """
+    from shakelab.signals.base import Record, Stream, StreamCollection
+
+    if not isinstance(stream_collection, (Record, Stream, StreamCollection)):
+        raise TypeError(
+            "expected a StreamCollection, a Stream or a Record, got "
+            f"{type(stream_collection).__name__}"
+        )
     content = "".join(
         SimpleAscii.from_shakelab(record).to_text(style, columns)
-        for record in _records(stream_collection)
+        for record in stream_collection.records()
     )
     write_text(target, content, owrite)
 
@@ -540,22 +549,6 @@ class SimpleAscii:
 # ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
-
-
-def _records(stream_collection: Any) -> list:
-    """Records of a StreamCollection, Stream or Record."""
-    from shakelab.signals.base import Record, Stream, StreamCollection
-
-    if isinstance(stream_collection, Record):
-        return [stream_collection]
-    if isinstance(stream_collection, Stream):
-        return list(stream_collection)
-    if isinstance(stream_collection, StreamCollection):
-        return [rec for stream in stream_collection for rec in stream]
-    raise TypeError(
-        "expected a StreamCollection, a Stream or a Record, got "
-        f"{type(stream_collection).__name__}"
-    )
 
 
 def _source_codes(source: Optional[str]) -> Optional[tuple]:

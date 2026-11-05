@@ -306,6 +306,7 @@ def mswrite(
     encoding: Optional[int] = None,
     reclen: int = 512,
     msformat: Optional[int] = None,
+    owrite: bool = False,
 ) -> None:
     """
     Write waveforms to a MiniSEED 2 file.
@@ -314,7 +315,7 @@ def mswrite(
     ----------
     target : str, path-like or binary file object
         Output file, or a file opened in binary mode.
-    stream_collection : StreamCollection
+    stream_collection : StreamCollection, Stream or Record
         Waveforms to write; each record is split into as many MiniSEED
         records as needed.
     encoding : int, optional
@@ -326,14 +327,27 @@ def mswrite(
         Default is 512.
     msformat : int, optional
         MiniSEED version; only 2 (the default) is supported here.
+    owrite : bool, optional
+        If True, overwrite an existing file. Default is False.
 
     Raises
     ------
+    TypeError
+        If ``stream_collection`` is not a waveform container.
+    FileExistsError
+        If the file exists and ``owrite`` is False.
     ValueError
         If the version, encoding, record length or a source identifier
         is invalid, or if the data cannot be represented with the
         encoding (e.g. floating-point data with STEIM).
     """
+    from shakelab.signals.base import Record, Stream, StreamCollection
+
+    if not isinstance(stream_collection, (Record, Stream, StreamCollection)):
+        raise TypeError(
+            "expected a StreamCollection, a Stream or a Record, got "
+            f"{type(stream_collection).__name__}"
+        )
     if msformat not in (None, 2):
         raise ValueError(
             "The pure-Python MiniSEED backend writes MiniSEED 2 only"
@@ -341,14 +355,14 @@ def mswrite(
     if encoding is not None:
         _validate_encoding(encoding)
     _validate_record_length(reclen)
+    records = stream_collection.records()
 
-    with _BinaryOutput(target) as fid:
+    with _BinaryOutput(target, owrite) as fid:
         sequence_number = 1
-        for stream in stream_collection:
-            for record in stream:
-                sequence_number = _write_shakelab_record(
-                    fid, record, encoding, reclen, sequence_number
-                )
+        for record in records:
+            sequence_number = _write_shakelab_record(
+                fid, record, encoding, reclen, sequence_number
+            )
 
 
 def msrawiter(
@@ -427,6 +441,7 @@ def msrawwrite(
     byte_order: str = "be",
     record_length: Optional[int] = None,
     encoding: Optional[int] = None,
+    owrite: bool = False,
 ) -> None:
     """
     Write raw records to a MiniSEED file.
@@ -445,13 +460,17 @@ def msrawwrite(
         None.
     encoding : int, optional
         Encoding; the declared one of each record if None.
+    owrite : bool, optional
+        If True, overwrite an existing file. Default is False.
 
     Raises
     ------
+    FileExistsError
+        If the file exists and ``owrite`` is False.
     ValueError
         If a record does not fit in the record length.
     """
-    with _BinaryOutput(target) as fid:
+    with _BinaryOutput(target, owrite) as fid:
         for index, record in enumerate(record_list, start=1):
             content, _ = record.to_bytes(
                 sequence_number=index,
@@ -1176,12 +1195,15 @@ def _signed(value: int, bits: int) -> int:
 class _BinaryOutput:
     """Context manager for a path or an open binary file."""
 
-    def __init__(self, target: Any) -> None:
+    def __init__(self, target: Any, owrite: bool = False) -> None:
         self._target = target
+        self._owrite = owrite
         self._file = None
 
     def __enter__(self) -> Any:
         if isinstance(self._target, (str, os.PathLike)):
+            if os.path.exists(self._target) and not self._owrite:
+                raise FileExistsError(f"File exists: {self._target}")
             self._file = open(self._target, "wb")
             return self._file
         if hasattr(self._target, "write"):

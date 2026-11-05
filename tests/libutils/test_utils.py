@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 
 import numpy as np
 import pytest
@@ -43,6 +44,7 @@ from shakelab.libutils.utils import (
     none_check,
     pick,
     serialize_ndarray,
+    warn_external,
 )
 
 
@@ -225,3 +227,28 @@ def test_deserialize_keeps_other_dicts():
     """Dicts that are not complex mappings are kept as dicts."""
     obj = {"real": 1.0, "imag": 2.0, "unit": "m"}
     assert deserialize_complex(obj) == obj
+
+
+# ----------------------------------------------------------------------------
+# Warnings
+# ----------------------------------------------------------------------------
+
+
+def test_warn_external_points_to_the_caller():
+    """Warnings raised deep in ShakeLab point to the calling code."""
+    library = {"__name__": "shakelab.fake", "warn_external": warn_external}
+    exec(
+        "def inner():\n"
+        "    warn_external('deep', RuntimeWarning)\n"
+        "def outer():\n"
+        "    inner()\n",
+        library,
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        library["outer"]()
+
+    assert len(caught) == 1
+    assert caught[0].category is RuntimeWarning
+    assert caught[0].filename == __file__

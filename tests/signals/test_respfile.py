@@ -284,10 +284,10 @@ def test_collection_infers_resp(name):
 
 
 def test_collection_explicit_resp(tmp_path):
-    """ftype="resp" reads files with any name."""
+    """format="resp" reads files with any name."""
     path = tmp_path / "response.txt"
     path.write_text(NRL_RESP.read_text())
-    collection = MetadataCollection(str(path), ftype="resp")
+    collection = MetadataCollection(str(path), format="resp")
     assert collection.sid == ["IV.MODE.00.HNZ"]
 
     other = tmp_path / "mode.resp"

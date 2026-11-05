@@ -9,6 +9,34 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.io` revised. `reader(source, *, list_file, format,
+  metadata, stream_collection, **options)` takes `source` in place of
+  `file_path`; `source` and `list_file` can be given together, and the
+  lines of a list file can also be patterns or directories. Files of
+  unknown format found in directories or patterns are skipped with one
+  `IoWarning` (hidden files are ignored); a file given by name must
+  have a known format; a missing file or a pattern without matches
+  raises `FileNotFoundError`. `writer(data, target, *, format, owrite,
+  **options)` takes `data` and `target` in place of `input_data` and
+  `file_path`; `target` can be a file, a directory (one file per
+  channel, or per record for SAC and DYNA) or a file name template
+  with `{network}`, `{station}`, `{location}`, `{channel}`, `{sid}`
+  and `{start}`; no file is written if one of them exists and `owrite`
+  is False. `writer(record, "x.sac")` now writes the file (it created
+  a directory `x.sac`), and DYNA files (`.asc`) can be written.
+  `byte_order` and `mseed_backend` are options of the format readers
+  and writers; options not accepted by a format raise `TypeError`
+  (`byte_order` was ignored by the libmseed backend). The arguments
+  after `source` (`target` for `writer`) are keyword-only.
+  `get_mseed_module` is no longer public and does not print the
+  backend in use; `mseed_backend` no longer accepts booleans.
+  `StreamCollection.read` and `write` take the same arguments.
+- `signals.libio.mseed.mswrite`, `msrawwrite` and
+  `signals.libio.cymseed.mswrite` refuse to overwrite an existing file
+  unless `owrite=True`, as the other writers; `mswrite` also accepts a
+  Record or a Stream.
+- Metadata warnings issued while reading or assigning metadata point
+  to the line of the user's code.
 - `signals.libio.tdms` rewritten: `TdmsFile.read(source, scaled=True)`
   (path, bytes or binary file; files mapped in memory) and
   `TdmsFile.info()` replace `tdms_read`, `tdms_info` and
@@ -166,7 +194,7 @@ corrections. The format follows
   epoch is the output rate of the last decimation stage, as in
   evalresp.
 - RESP files are recognized by `MetadataCollection.read`
-  (`ftype="resp"`, inferred for file names starting with `RESP.` or
+  (`format="resp"`, inferred for file names starting with `RESP.` or
   ending with `.resp`).
 - `signals.Header` moved to the new module `signals.header` (it
   depends only on time primitives and on `signals.metadata`); it is
@@ -267,6 +295,12 @@ corrections. The format follows
 
 ### Added
 
+- `signals.io.formats()`: the supported waveform formats, with their
+  extensions and whether they can be read and written.
+- `records()` of `Record`, `Stream` and `StreamCollection`: the
+  stored records of any waveform container, as a list.
+- `libutils.utils.warn_external`: warnings attributed to the first
+  caller outside ShakeLab.
 - `signals.io`: `format="pickle"` (extensions `.pkl` and `.pickle`)
   in `reader` and `writer`, to save and reload a Record, Stream or
   StreamCollection with all its metadata (trusted files only; files
@@ -334,12 +368,13 @@ corrections. The format follows
 - `signals.codes`: source identifier patterns matched code by code
   (`*`, `?`, `[...]`, `{A,B}` alternatives, missing trailing codes
   match anything), shared by the channel selections of the library.
-- `signals.io.read_metadata(source, ftype=None)`: reads channel
-  metadata (StationXML, RESP, JSON) from a file, a wildcard pattern, a
-  directory or a sequence of them into one `MetadataCollection`.
+- `signals.io.metadata_reader(source, *, list_file, format)`: reads
+  channel metadata (StationXML, RESP, JSON) from a file, a wildcard
+  pattern, a directory, a sequence of them or a list file into one
+  `MetadataCollection`.
   `io.reader(..., metadata=...)` and `StreamCollection.read(...,
   metadata=...)` assign the metadata (a collection, a channel epoch, or
-  files read with `read_metadata`) to the records read; records already
+  files read with `metadata_reader`) to the records read; records already
   in a given collection are not modified.
 - `signals.base`: `MERGE_TOLERANCE` (0.5 samples, used when joining
   records) and `SNAP_TOLERANCE` (snapping times to samples);

@@ -297,15 +297,24 @@ def asciiwrite(
 
     Raises
     ------
+    TypeError
+        If ``stream_collection`` is not a waveform container.
     FileExistsError
         If the file exists and ``owrite`` is False.
     ValueError
         If the records cannot form one table or ``time`` is invalid.
     """
+    from shakelab.signals.base import Record, Stream, StreamCollection
+
+    if not isinstance(stream_collection, (Record, Stream, StreamCollection)):
+        raise TypeError(
+            "expected a StreamCollection, a Stream or a Record, got "
+            f"{type(stream_collection).__name__}"
+        )
     if time not in ("relative", "absolute", None):
         raise ValueError(f"time must be 'relative', 'absolute' or None: "
                          f"{time!r}")
-    records = _records(stream_collection)
+    records = stream_collection.records()
     if not records:
         raise ValueError("no records to write")
     first = records[0]
@@ -541,22 +550,6 @@ def _per_column(value: Any, n: int, name: str) -> list:
     if len(value) != n:
         raise ValueError(f"{len(value)} {name} values for {n} data columns")
     return value
-
-
-def _records(stream_collection: Any) -> list:
-    """Records of a StreamCollection, Stream or Record."""
-    from shakelab.signals.base import Record, Stream, StreamCollection
-
-    if isinstance(stream_collection, Record):
-        return [stream_collection]
-    if isinstance(stream_collection, Stream):
-        return list(stream_collection)
-    if isinstance(stream_collection, StreamCollection):
-        return [rec for stream in stream_collection for rec in stream]
-    raise TypeError(
-        "expected a StreamCollection, a Stream or a Record, got "
-        f"{type(stream_collection).__name__}"
-    )
 
 
 def _format_date(unix_ns: int) -> str:
