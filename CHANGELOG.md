@@ -252,6 +252,26 @@ corrections. The format follows
 
 ### Added
 
+- `libutils.ascii.read_columns`: numeric tables of any layout (files
+  of simple user programs, spreadsheet exports) into NumPy columns
+  (`TextColumns`): the delimiter (tabulation, semicolon, vertical bar,
+  comma or blanks), the decimal comma, the line of column names (also
+  commented) and `key: value` or `key = value` lines before the table
+  are recognized; dates are kept as text; tables of numbers only are
+  read in one pass. `write_columns` writes them back; `read_text` and
+  `write_text` read text from a path, a content or a file object and
+  write it to a path or a file object (shared by the text formats).
+- `signals.libio.ascii.asciiread` and `asciiwrite`: waveforms from and
+  to text tables. The parameters (`rate`, `delta`, `start`, `sid`,
+  `network`, `station`, `location`, `units`) can be arguments or
+  `key: value` lines of the file, with the same names and common
+  synonyms; arguments take precedence over the file, and the file over
+  what is derived from a column of times (seconds or dates). Only the
+  samples and the sampling interval are required. Without a line of
+  names the columns are named with `columns` (None skips a column);
+  without a column of times the times follow from the start time and
+  the sampling interval. Available in `io` as `format="ascii"` and for
+  the extension `.csv`.
 - `signals.libio.simpleascii`: reader and writer of the Simple ASCII
   time series format of EarthScope (`mseed2ascii`): sample lists
   (`SLIST`, one or more columns) and time-sample pairs (`TSPAIR`),
@@ -459,6 +479,9 @@ corrections. The format follows
 
 ### Removed
 
+- `signals.libio.ascii.read_ascii`, replaced by `asciiread` (the
+  sampling interval given as `dt` was lost and tab-separated files
+  could not be read).
 - `libutils.time`, replaced by `libutils.timeN`.
 - `libutils.geodetic`, replaced by `libutils.geodeticN` (note the
   `(longitude, latitude)` argument order of `WgsPoint`).

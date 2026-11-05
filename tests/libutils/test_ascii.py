@@ -21,16 +21,28 @@ Unit tests for :mod:`shakelab.libutils.ascii`.
 The tests cover row and column editing, broadcasting and validation
 of column data, reading files with comments, blank lines, skipped
 lines, unnamed columns and per-column types, the write/read round
-trip, quoted fields, and the selection helpers (``add_row``,
-``to_array``, ``unique``, ``filter``, ``select``, ``sort``).
+trip, quoted fields, the selection helpers (``add_row``,
+``to_array``, ``unique``, ``filter``, ``select``, ``sort``), the text
+sources and the numeric tables of any layout (``read_columns``,
+``write_columns``).
 """
 
 from __future__ import annotations
 
+import io
+
 import numpy as np
 import pytest
 
-from shakelab.libutils.ascii import AsciiTable
+from shakelab.libutils.ascii import (
+    AsciiTable,
+    AsciiWarning,
+    TextColumns,
+    read_columns,
+    read_text,
+    write_columns,
+    write_text,
+)
 
 
 # ----------------------------------------------------------------------------
@@ -377,3 +389,193 @@ def test_sort(catalogue):
 
     catalogue.sort("Mag", reverse=True)
     assert catalogue["Id"] == [3, 1, 4, 2]
+
+
+# ----------------------------------------------------------------------------
+# Text sources
+# ----------------------------------------------------------------------------
+
+
+def test_read_text_sources(tmp_path):
+    """Paths, content, bytes and file objects give the same text."""
+    path = tmp_path / "x.txt"
+    path.write_text("a\nb\n", encoding="utf-8")
+
+    for source in (path, str(path), "a\nb\n", b"a\nb\n",
+                   io.StringIO("a\nb\n"), io.BytesIO(b"a\nb\n")):
+        assert read_text(source) == "a\nb\n"
+    with pytest.raises(TypeError):
+        read_text(42)
+
+
+def test_write_text(tmp_path):
+    """Files are not overwritten unless requested."""
+    path = tmp_path / "x.txt"
+    write_text(path, "one\n")
+    with pytest.raises(FileExistsError):
+        write_text(path, "two\n")
+    write_text(path, "two\n", owrite=True)
+    assert path.read_text() == "two\n"
+
+    buffer = io.StringIO()
+    write_text(buffer, "three\n")
+    assert buffer.getvalue() == "three\n"
+    with pytest.raises(TypeError):
+        write_text(42, "x")
+
+
+# ----------------------------------------------------------------------------
+# Numeric tables of any layout
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text, delimiter, decimal",
+    [
+        ("a,b\n1.5,2\n3,4.25\n", ",", "."),
+        ("a;b\n1,5;2\n3;4,25\n", ";", ","),
+        ("a\tb\n1.5\t2\n3\t4.25\n", "\t", "."),
+        ("a|b\n1.5|2\n3|4.25\n", "|", "."),
+        ("a b\n 1.5   2\n 3   4.25\n", None, "."),
+        ("a b\n1,5 2\n3 4,25\n", None, ","),
+    ],
+)
+def test_read_columns_layouts(text, delimiter, decimal):
+    """Delimiter and decimal separator are recognized."""
+    table = read_columns(text)
+
+    assert table.delimiter == delimiter
+    assert table.decimal == decimal
+    assert table.names == ["a", "b"]
+    np.testing.assert_array_equal(table["a"], [1.5, 3.0])
+    np.testing.assert_array_equal(table[1], [2.0, 4.25])
+    assert table.nrows == 2 and len(table) == 2
+
+
+def test_read_columns_metadata():
+    """Key-value lines before the table, commented or not."""
+    text = (
+        "\ufeffExported by logger v2\n"
+        "# station: IV.MODE\n"
+        "Sampling rate = 200 Hz\n"
+        "# start: 2012-05-20T02:03:23\n"
+        "\n"
+        "time,X\n"
+        "0,1\n"
+        "0.005,2\n"
+    )
+    table = read_columns(text)
+
+    assert table.metadata == {
+        "station": "IV.MODE",
+        "Sampling rate": "200 Hz",
+        "start": "2012-05-20T02:03:23",
+    }
+    assert table.names == ["time", "X"]
+
+
+def test_read_columns_commented_names():
+    """A commented line of names (numpy.savetxt) is used."""
+    table = read_columns("# t acc\n0.0 1e-3\n0.5 2e-3\n")
+
+    assert table.names == ["t", "acc"]
+    np.testing.assert_array_equal(table["acc"], [1e-3, 2e-3])
+
+
+def test_read_columns_without_names():
+    """Without a line of names, names are None or given."""
+    text = "1 2 3\n4 5 6\n"
+    assert read_columns(text).names is None
+
+    table = read_columns(text, names=["x", "y", "z"])
+    np.testing.assert_array_equal(table["z"], [3.0, 6.0])
+    with pytest.raises(ValueError, match="2 names for 3 columns"):
+        read_columns(text, names=["x", "y"])
+
+
+def test_read_columns_names_mismatch_warns():
+    """A line of names with a different number of fields is ignored."""
+    with pytest.warns(AsciiWarning, match="names ignored"):
+        table = read_columns("a,b,c\n1,2\n3,4\n")
+    assert table.names is None
+
+
+def test_read_columns_dates():
+    """Dates (also with a blank) are kept as text."""
+    table = read_columns(
+        "date\tvalue\n2026-11-05 10:00:00.000\t1.5\n"
+        "2026-11-05T10:00:00.010Z\t1.6\n"
+    )
+    assert table["date"].dtype.kind == "U"
+    assert list(table["date"]) == [
+        "2026-11-05T10:00:00.000", "2026-11-05T10:00:00.010"
+    ]
+
+
+def test_read_columns_empty_and_invalid_values():
+    """Empty values are NaN; other text in numbers gives a warning."""
+    with pytest.warns(AsciiWarning, match="column b: 1 values"):
+        table = read_columns("a,b\n1,2\n3,\n5,x\n")
+    np.testing.assert_array_equal(table["a"], [1.0, 3.0, 5.0])
+    assert np.isnan(table["b"][1]) and np.isnan(table["b"][2])
+
+
+def test_read_columns_errors():
+    """Missing tables and rows of a different length are rejected."""
+    with pytest.raises(ValueError, match="no table"):
+        read_columns("only: metadata\n")
+    with pytest.raises(ValueError, match="line 3: 1 fields, expected 2"):
+        read_columns("1,2\n3,4\n5\n")
+    with pytest.raises(ValueError, match="decimal"):
+        read_columns("1\n", decimal=";")
+
+
+def test_read_columns_skipline_and_comments():
+    """Skipped lines and comment lines inside the table."""
+    table = read_columns(
+        "garbage 1 2 3\n% a b\n1 2\n% note\n3 4\n", skipline=1,
+        comment="%",
+    )
+    assert table.names == ["a", "b"]
+    np.testing.assert_array_equal(table["a"], [1.0, 3.0])
+
+
+def test_read_columns_large_table_fast_path():
+    """Tables of numbers only are read in one pass."""
+    data = np.arange(30000.0).reshape(-1, 3)
+    text = "\n".join(",".join(f"{v:g}" for v in row) for row in data)
+    table = read_columns(text + "\n")
+    np.testing.assert_array_equal(np.column_stack(table.columns), data)
+
+
+def test_write_columns_round_trip(tmp_path):
+    """Written tables are read back with names and metadata."""
+    path = tmp_path / "t.csv"
+    write_columns(
+        path, [[0.0, 0.5], np.array(["2026-01-01T00:00:00", "x"]),
+               [1.25, -3.0]],
+        names=["t", "label", "v"], metadata={"units": "M/S"},
+    )
+    assert path.read_text().splitlines()[:2] == ["# units: M/S", "t,label,v"]
+
+    table = read_columns(path)
+    assert table.metadata == {"units": "M/S"}
+    np.testing.assert_array_equal(table["v"], [1.25, -3.0])
+    with pytest.raises(FileExistsError):
+        write_columns(path, [[1.0]])
+    with pytest.raises(ValueError, match="same length"):
+        write_columns(io.StringIO(), [[1.0], [1.0, 2.0]])
+    with pytest.raises(ValueError, match="names"):
+        write_columns(io.StringIO(), [[1.0]], names=["a", "b"])
+
+
+def test_text_columns_access():
+    """Columns by name or index."""
+    table = TextColumns([[1.0], [2.0]], names=["a", "b"])
+    assert table["b"][0] == 2.0 and table[0][0] == 1.0
+    with pytest.raises(KeyError):
+        table["c"]
+    with pytest.raises(KeyError):
+        TextColumns([[1.0]])["a"]
+    with pytest.raises(ValueError):
+        TextColumns([[1.0]], names=["a", "b"])

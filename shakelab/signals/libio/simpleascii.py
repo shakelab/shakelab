@@ -56,13 +56,13 @@ Writing
 
 from __future__ import annotations
 
-import os
 import warnings
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
+from shakelab.libutils.ascii import read_text, write_text
 from shakelab.libutils.timeN import Date
 
 if TYPE_CHECKING:
@@ -172,7 +172,7 @@ def simpleasciiwrite(
         SimpleAscii.from_shakelab(record).to_text(style, columns)
         for record in _records(stream_collection)
     )
-    _write_text(target, content, owrite)
+    write_text(target, content, owrite)
 
 
 # ----------------------------------------------------------------------------
@@ -271,7 +271,7 @@ class SimpleAscii:
         ValueError
             If the file is invalid.
         """
-        return cls.from_text(_read_source(source))
+        return cls.from_text(read_text(source))
 
     @classmethod
     def from_text(cls, text: str) -> list:
@@ -384,7 +384,7 @@ class SimpleAscii:
         FileExistsError
             If the file exists and ``owrite`` is False.
         """
-        _write_text(target, self.to_text(style, columns), owrite)
+        write_text(target, self.to_text(style, columns), owrite)
 
     def to_shakelab(self) -> Record:
         """
@@ -556,36 +556,6 @@ def _records(stream_collection: Any) -> list:
         "expected a StreamCollection, a Stream or a Record, got "
         f"{type(stream_collection).__name__}"
     )
-
-
-def _read_source(source: Any) -> str:
-    """Return the text of a path, content or file object."""
-    if isinstance(source, (bytes, bytearray, memoryview)):
-        return bytes(source).decode("utf-8", errors="replace")
-    if isinstance(source, str) and ("\n" in source or "\r" in source):
-        return source
-    if isinstance(source, (str, os.PathLike)):
-        with open(source, "r", encoding="utf-8", errors="replace") as fid:
-            return fid.read()
-    if hasattr(source, "read"):
-        content = source.read()
-        if isinstance(content, (bytes, bytearray)):
-            content = content.decode("utf-8", errors="replace")
-        return content
-    raise TypeError("source must be a path, its content or a file object")
-
-
-def _write_text(target: Any, content: str, owrite: bool) -> None:
-    """Write text to a path or a text file object."""
-    if isinstance(target, (str, os.PathLike)):
-        if os.path.exists(target) and not owrite:
-            raise FileExistsError(f"File exists: {target}")
-        with open(target, "w", encoding="utf-8") as fid:
-            fid.write(content)
-    elif hasattr(target, "write"):
-        target.write(content)
-    else:
-        raise TypeError("target must be a path or a text file object")
 
 
 def _source_codes(source: Optional[str]) -> Optional[tuple]:

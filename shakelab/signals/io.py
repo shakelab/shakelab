@@ -72,10 +72,10 @@ MSEED_FORMATS = ("mseed", "miniseed", "ms", "seed")
 SAC_FORMATS = ("sac",)
 DYNA_FORMATS = ("dyna",)
 SIMPLEASCII_FORMATS = ("simpleascii",)
+ASCII_FORMATS = ("ascii",)
 TDMS_FORMATS = ("tdms",)
 
 UNSUPPORTED_FORMATS = (
-    "ascii",
     "seisan",
     "seg2",
     "dat",
@@ -96,6 +96,7 @@ EXTENSION_FORMATS = {
     ".seed": "mseed",
     ".sac": "sac",
     ".asc": "dyna",
+    ".csv": "ascii",
     ".tdms": "tdms",
 }
 
@@ -446,6 +447,16 @@ def writer(input_data, file_path, format=None, byte_order=None,
             **format_options,
         )
 
+    elif current_format == "ascii":
+        from shakelab.signals.libio import ascii
+
+        ascii.asciiwrite(
+            file_path,
+            stream_collection,
+            owrite=owrite,
+            **format_options,
+        )
+
     elif current_format == "simpleascii":
         from shakelab.signals.libio import simpleascii
 
@@ -531,6 +542,15 @@ def _read_file(path, format, stream_collection, byte_order=None,
         stream_collection.append(record)
 
         return stream_collection
+
+    if format == "ascii":
+        from shakelab.signals.libio import ascii
+
+        return ascii.asciiread(
+            path,
+            stream_collection=stream_collection,
+            **format_options,
+        )
 
     if format == "simpleascii":
         from shakelab.signals.libio import simpleascii

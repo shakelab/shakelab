@@ -22,6 +22,17 @@ Tabular data from and to delimited ASCII files.
 (``header``) and a list of rows (``db``), each row being a dict that
 maps column names to values.
 
+:func:`read_columns` reads numeric tables of any layout, such as the
+files written by simple user programs or exported from spreadsheets,
+into NumPy columns (:class:`TextColumns`): it recognizes the
+delimiter, the decimal comma, the line of column names and
+``key: value`` (or ``key = value``) lines before the table, commented
+or not. :func:`write_columns` writes them back.
+
+:func:`read_text` and :func:`write_text` read the text of a path, a
+content or a file object, and write text to a path or a file object;
+they are shared by the text formats of ShakeLab.
+
 Conventions
 -----------
 - Lines starting with the comment marker (leading blanks ignored) and
@@ -34,11 +45,15 @@ Conventions
   field stands for a literal quote. Quoted fields are kept verbatim.
   When writing, only the fields that need it are quoted.
 - Columns with an empty name in the header are ignored when reading.
-- Errors are reported with exceptions; nothing is printed.
+- Errors are reported with exceptions, anomalies that do not prevent
+  reading with warnings; nothing is printed.
 """
 
 from __future__ import annotations
 
+import os
+import re
+import warnings
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Sequence, Union
 
@@ -46,10 +61,22 @@ import numpy as np
 
 from shakelab.libutils.utils import cast_value, is_empty
 
-__all__ = ["AsciiTable"]
+__all__ = [
+    "AsciiTable",
+    "AsciiWarning",
+    "TextColumns",
+    "read_columns",
+    "read_text",
+    "write_columns",
+    "write_text",
+]
 
 PathLike = Union[str, Path]
 DType = Union[Callable, Sequence[Callable]]
+
+
+class AsciiWarning(UserWarning):
+    """Warning about values or lines of a text table."""
 
 
 class AsciiTable:
@@ -539,6 +566,335 @@ class AsciiTable:
         return list(value)
 
 
+# ----------------------------------------------------------------------------
+# Text sources
+# ----------------------------------------------------------------------------
+
+
+def read_text(source: Any) -> str:
+    """
+    Return the text of a path, a content or a file object.
+
+    Parameters
+    ----------
+    source : str, path-like, bytes or file object
+        File path, content (a string with line breaks, or bytes in
+        UTF-8), or a file opened in text or binary mode.
+
+    Raises
+    ------
+    TypeError
+        If ``source`` is none of these.
+    """
+    if isinstance(source, (bytes, bytearray, memoryview)):
+        return bytes(source).decode("utf-8", errors="replace")
+    if isinstance(source, str) and ("\n" in source or "\r" in source):
+        return source
+    if isinstance(source, (str, os.PathLike)):
+        with open(source, "r", encoding="utf-8", errors="replace") as fid:
+            return fid.read()
+    if hasattr(source, "read"):
+        content = source.read()
+        if isinstance(content, (bytes, bytearray)):
+            content = content.decode("utf-8", errors="replace")
+        return content
+    raise TypeError("source must be a path, its content or a file object")
+
+
+def write_text(target: Any, content: str, owrite: bool = False) -> None:
+    """
+    Write text to a path or a text file object.
+
+    Parameters
+    ----------
+    target : str, path-like or text file object
+        Output file, or a file opened in text mode.
+    content
+        Text to write.
+    owrite
+        If True, overwrite an existing file.
+
+    Raises
+    ------
+    FileExistsError
+        If the file exists and ``owrite`` is False.
+    TypeError
+        If ``target`` is neither a path nor a file object.
+    """
+    if isinstance(target, (str, os.PathLike)):
+        if os.path.exists(target) and not owrite:
+            raise FileExistsError(f"File exists: {target}")
+        with open(target, "w", encoding="utf-8") as fid:
+            fid.write(content)
+    elif hasattr(target, "write"):
+        target.write(content)
+    else:
+        raise TypeError("target must be a path or a text file object")
+
+
+# ----------------------------------------------------------------------------
+# Numeric columns
+# ----------------------------------------------------------------------------
+
+# Delimiters tried, in order of preference; None stands for blanks.
+DELIMITERS = ("\t", ";", "|", ",", None)
+
+_KEY_VALUE = re.compile(r"^([A-Za-z][^:=]*?)\s*[:=]\s*(.*)$")
+_NUMBER = re.compile(r"^[+-]?(\d+([.,]\d*)?|[.,]\d+)([eE][+-]?\d+)?$")
+_DECIMAL_COMMA = re.compile(r"^[+-]?\d*,\d+([eE][+-]?\d+)?$")
+_DATE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?Z?$"
+)
+_DATE_SPACE = re.compile(r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})")
+_SPECIAL = {"nan", "inf", "-inf", "+inf", "infinity", "-infinity"}
+
+
+class TextColumns:
+    """
+    Columns of a text table.
+
+    Attributes
+    ----------
+    names : list of str or None
+        Column names, None if the file has no line of names and none
+        were given.
+    columns : list of numpy.ndarray
+        Columns in file order: float64 for numbers (NaN for empty or
+        invalid values), strings for dates (``YYYY-MM-DDTHH:MM:SS``,
+        a space in place of ``T`` replaced) and other text.
+    metadata : dict
+        ``key: value`` pairs found before the table, keys and values
+        as written (stripped).
+    delimiter : str or None
+        Field delimiter, None for blanks.
+    decimal : str
+        Decimal separator, ``"."`` or ``","``.
+    """
+
+    def __init__(
+        self,
+        columns: Sequence[Any],
+        names: Sequence[str] | None = None,
+        metadata: Mapping[str, str] | None = None,
+        delimiter: str | None = None,
+        decimal: str = ".",
+    ) -> None:
+        self.columns: list[np.ndarray] = [np.asarray(c) for c in columns]
+        if names is not None and len(names) != len(self.columns):
+            raise ValueError(
+                f"{len(names)} names for {len(self.columns)} columns"
+            )
+        self.names: list[str] | None = (
+            None if names is None else list(names)
+        )
+        self.metadata: dict[str, str] = dict(metadata or {})
+        self.delimiter = delimiter
+        self.decimal = decimal
+
+    def __repr__(self) -> str:
+        return (
+            f"TextColumns(names={self.names!r}, nrows={self.nrows}, "
+            f"metadata={len(self.metadata)} keys)"
+        )
+
+    def __len__(self) -> int:
+        return len(self.columns)
+
+    def __getitem__(self, key: int | str) -> np.ndarray:
+        if isinstance(key, str):
+            if self.names is None or key not in self.names:
+                raise KeyError(key)
+            key = self.names.index(key)
+        return self.columns[key]
+
+    @property
+    def nrows(self) -> int:
+        """Number of rows."""
+        return len(self.columns[0]) if self.columns else 0
+
+
+def read_columns(
+    source: Any,
+    names: Sequence[str] | None = None,
+    delimiter: str | None = None,
+    decimal: str | None = None,
+    comment: str = "#",
+    skipline: int = 0,
+) -> TextColumns:
+    """
+    Read a numeric table of any layout.
+
+    Before the table, blank lines are skipped, ``key: value`` and
+    ``key = value`` lines (commented or not) become metadata and the
+    last other line with as many fields as the table gives the column
+    names (also when commented, as written by ``numpy.savetxt``). The
+    table starts at the first line made of numbers or dates.
+
+    Parameters
+    ----------
+    source : str, path-like, bytes or file object
+        File path, content (a string with line breaks, or bytes), or an
+        open file.
+    names
+        Column names; they replace the line of names of the file.
+    delimiter
+        Field delimiter; recognized if None (tabulation, semicolon,
+        vertical bar, comma or blanks).
+    decimal
+        Decimal separator, ``"."`` or ``","``; recognized if None (a
+        comma when it is not the delimiter and numbers use it).
+    comment
+        Comment marker.
+    skipline
+        Number of initial lines to skip before anything else.
+
+    Returns
+    -------
+    TextColumns
+
+    Raises
+    ------
+    ValueError
+        If no table is found, a row has a different number of fields,
+        or ``names`` does not match the number of columns.
+
+    Warns
+    -----
+    AsciiWarning
+        Values that are not numbers in a numeric column (read as NaN),
+        and a line of names that does not match the table.
+    """
+    if decimal not in (None, ".", ","):
+        raise ValueError(f"decimal must be '.' or ',': {decimal!r}")
+    lines = read_text(source).lstrip("﻿").splitlines()[skipline:]
+
+    metadata: dict[str, str] = {}
+    candidates: list[tuple[str, bool]] = []
+    start = None
+    for k, line in enumerate(lines):
+        text = line.strip()
+        if not text:
+            continue
+        commented = bool(comment) and text.startswith(comment)
+        if commented:
+            text = text[len(comment):].strip()
+        elif _is_row(text):
+            start = k
+            break
+        match = _KEY_VALUE.match(text)
+        if match:
+            metadata[match.group(1).strip()] = match.group(2).strip()
+        elif text:
+            candidates.append((text, commented))
+    if start is None:
+        raise ValueError("no table of numbers found")
+
+    rows = [
+        (skipline + k + 1, line.strip())
+        for k, line in enumerate(lines[start:], start)
+        if line.strip()
+        and not (comment and line.strip().startswith(comment))
+    ]
+    sample = [_DATE_SPACE.sub(r"\1T\2", text) for _, text in rows[:20]]
+    if delimiter is None:
+        delimiter = _guess_delimiter(sample)
+    sample_fields = [_fields(text, delimiter) for text in sample]
+    ncol = len(sample_fields[0])
+    if decimal is None:
+        decimal = "," if delimiter != "," and any(
+            _DECIMAL_COMMA.match(v) for row in sample_fields for v in row
+        ) else "."
+
+    if names is None:
+        names = _guess_names(candidates, delimiter, ncol)
+    elif len(names) != ncol:
+        raise ValueError(f"{len(names)} names for {ncol} columns")
+
+    columns = _numeric_columns(
+        [text for _, text in rows], delimiter, decimal, ncol
+    )
+    if columns is None:
+        fields = [
+            _fields(_DATE_SPACE.sub(r"\1T\2", text), delimiter)
+            for _, text in rows
+        ]
+        for (n, _), values in zip(rows, fields):
+            if len(values) != ncol:
+                raise ValueError(
+                    f"line {n}: {len(values)} fields, expected {ncol}"
+                )
+        columns = [
+            _column([row[j] for row in fields], decimal,
+                    names[j] if names else j + 1)
+            for j in range(ncol)
+        ]
+    return TextColumns(columns, names, metadata, delimiter, decimal)
+
+
+def write_columns(
+    target: Any,
+    columns: Sequence[Any],
+    names: Sequence[str] | None = None,
+    metadata: Mapping[str, Any] | None = None,
+    delimiter: str = ",",
+    fmt: str = "%.9g",
+    comment: str = "#",
+    owrite: bool = False,
+) -> None:
+    """
+    Write columns to a text table readable by :func:`read_columns`.
+
+    Parameters
+    ----------
+    target : str, path-like or text file object
+        Output file, or a file opened in text mode.
+    columns
+        Columns of equal length; numbers are written with ``fmt``,
+        other values as text.
+    names
+        Column names, written as the first line of the table.
+    metadata
+        Pairs written as ``# key: value`` lines before the table.
+    delimiter
+        Field delimiter.
+    fmt
+        ``%`` format of the numbers.
+    comment
+        Comment marker of the metadata lines.
+    owrite
+        If True, overwrite an existing file.
+
+    Raises
+    ------
+    ValueError
+        If the columns have different lengths or the names do not
+        match them.
+    """
+    columns = [np.asarray(c) for c in columns]
+    if len({c.size for c in columns}) > 1:
+        raise ValueError("columns must have the same length")
+    if names is not None and len(names) != len(columns):
+        raise ValueError(f"{len(names)} names for {len(columns)} columns")
+
+    lines = [
+        f"{comment} {key}: {value}" for key, value in (metadata or {}).items()
+    ]
+    if names is not None:
+        lines.append(delimiter.join(str(name) for name in names))
+    texts = [
+        [fmt % v for v in c] if np.issubdtype(c.dtype, np.number)
+        else [str(v) for v in c]
+        for c in columns
+    ]
+    lines.extend(delimiter.join(row) for row in zip(*texts))
+    write_text(target, "\n".join(lines) + "\n", owrite)
+
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+
+
 def _split(
     line: str,
     delimiter: str,
@@ -620,3 +976,120 @@ def _quote(text: str, delimiter: str, quotechar: str | None) -> str:
 
     doubled = text.replace(quotechar, quotechar * 2)
     return f"{quotechar}{doubled}{quotechar}"
+
+
+def _is_value(text: str) -> bool:
+    """Whether a field is a number, a date or a null marker."""
+    return bool(
+        _NUMBER.match(text) or _DATE.match(text)
+        or text.lower() in _SPECIAL or is_empty(text)
+    )
+
+
+def _is_row(text: str) -> bool:
+    """Whether a line is a row of the table (numbers or dates)."""
+    text = _DATE_SPACE.sub(r"\1T\2", text)
+    fields = [f for f in re.split(r"[\t;|,\s]+", text) if f]
+    return bool(fields) and all(
+        _NUMBER.match(f) or _DATE.match(f) or f.lower() in _SPECIAL
+        for f in fields
+    )
+
+
+def _fields(text: str, delimiter: str | None) -> list[str]:
+    """Fields of a row."""
+    if delimiter is None:
+        return text.split()
+    return [f.strip() for f in text.split(delimiter)]
+
+
+def _guess_delimiter(rows: list[str]) -> str | None:
+    """
+    First delimiter splitting the first row into more than one valid
+    field; None (blanks) otherwise. Rows with a different number of
+    fields are reported by the caller.
+    """
+    for delimiter in DELIMITERS:
+        if delimiter is None or delimiter not in rows[0]:
+            continue
+        fields = _fields(rows[0], delimiter)
+        if len(fields) > 1 and all(_is_value(v) for v in fields):
+            return delimiter
+    return None
+
+
+def _numeric_columns(
+    rows: list[str],
+    delimiter: str | None,
+    decimal: str,
+    ncol: int,
+) -> list[np.ndarray] | None:
+    """Columns of a table made only of numbers, None otherwise."""
+    if decimal == ",":
+        rows = [row.replace(",", ".") for row in rows]
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            table = np.loadtxt(
+                rows, delimiter=delimiter, dtype=np.float64, ndmin=2,
+                comments=None,
+            )
+    except ValueError:
+        return None
+    if table.shape != (len(rows), ncol):
+        return None
+    return [table[:, j].copy() for j in range(ncol)]
+
+
+def _guess_names(
+    candidates: list[tuple[str, bool]],
+    delimiter: str | None,
+    ncol: int,
+) -> list[str] | None:
+    """Column names from the last fitting line before the table."""
+    for text, commented in reversed(candidates):
+        names = [
+            name.strip().strip('"').strip()
+            for name in _fields(text, delimiter)
+        ]
+        if len(names) == ncol:
+            return names
+        if not commented:
+            warnings.warn(
+                f"line of names {text!r} has {len(names)} fields, the "
+                f"table {ncol}: names ignored",
+                AsciiWarning,
+                stacklevel=3,
+            )
+            return None
+    return None
+
+
+def _column(values: list[str], decimal: str, name: Any) -> np.ndarray:
+    """Column of floats, or of strings if it holds dates or text."""
+    texts = [v.replace(",", ".") if decimal == "," else v for v in values]
+    try:
+        return np.array(
+            [np.nan if is_empty(v) else v for v in texts], dtype=np.float64
+        )
+    except ValueError:
+        pass
+    filled = [v for v in values if not is_empty(v)]
+    if filled and all(_DATE.match(v) for v in filled):
+        return np.array([v.rstrip("Z") for v in values])
+    numbers = []
+    bad = 0
+    for v in texts:
+        try:
+            numbers.append(float(v) if not is_empty(v) else np.nan)
+        except ValueError:
+            numbers.append(np.nan)
+            bad += 1
+    if bad == len(values):
+        return np.array(values)
+    warnings.warn(
+        f"column {name}: {bad} values that are not numbers read as NaN",
+        AsciiWarning,
+        stacklevel=3,
+    )
+    return np.array(numbers, dtype=np.float64)
