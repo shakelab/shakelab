@@ -445,5 +445,8 @@ corrections. The format follows
   on `ByteStream` objects (replaced by `from_bytes`/`to_bytes`) and
   the `ByteStream` arguments of the module functions; the module no
   longer uses `signals.binutils`.
+- `signals.binutils` (`ByteStream`): no longer used; binary formats
+  are read with `struct.unpack_from` on a `memoryview` and
+  `numpy.frombuffer`, as in `signals.libio.mseed`.
 - `signals.seedlink` module (`Client` prototype, `RingBuffer`): replaced
   by the `signals.seedlink` package.
