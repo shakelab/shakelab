@@ -564,15 +564,11 @@ def _read_file(path, format, stream_collection, byte_order=None,
     if format == "tdms":
         from shakelab.signals.libio import tdms
 
-        tdms_collection = tdms.tdms_stream_read(
+        return tdms.tdmsread(
             path,
+            stream_collection=stream_collection,
             **format_options,
         )
-
-        for stream in tdms_collection:
-            stream_collection.append(stream)
-
-        return stream_collection
 
     if format in UNSUPPORTED_FORMATS:
         raise NotImplementedError(

@@ -9,6 +9,21 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.libio.tdms` rewritten: `TdmsFile.read(source, scaled=True)`
+  (path, bytes or binary file; files mapped in memory) and
+  `TdmsFile.info()` replace `tdms_read`, `tdms_info` and
+  `tdms_list_groups`; `tdmsread(source, stream_collection, group,
+  scaled, rate, start, network, station, location, channel_prefix,
+  dtype)` replaces `tdms_to_stream` (empty network and station codes
+  by default, previously `XX` and `DAS`); `tdms_to_matrix` takes
+  `group`, `rate` and `start` in place of `group_name`,
+  `sampling_rate` and `start_time` (provisional, until the DAS
+  containers are designed). New: channels of text, timestamps, floats
+  with units and complex numbers; NI scales (linear, polynomial, sums
+  and differences; other scales give a warning and the raw values);
+  LabVIEW waveform properties of the channels (`wf_increment`,
+  `wf_start_time`, `wf_start_offset`, `unit_string`); channel
+  properties in `record.head.extra["tdms"]`.
 - `signals.metadata.MetadataCollection.select` and `stations` match
   patterns code by code (`signals.codes`): a joker no longer spans
   the dots (`"*Z"` becomes `"*.*.*.*Z"`), missing trailing codes match
@@ -428,6 +443,14 @@ corrections. The format follows
   3.0 files write `DATABASE_VERSION` and `HEADER_FORMAT` on one line
   (63 lines), so the first sample was lost and the series was shifted
   by one sampling interval; the two fields are now separated.
+- `signals.libio.tdms`: `io.reader` could not read TDMS files (it
+  called a missing function); timestamps of big-endian files were
+  read with seconds and fractions swapped; a text channel shifted the
+  numeric channels written after it in the same segment; segments
+  with less data than declared put values in the wrong channel or
+  failed; interleaved channels of different widths could not be read;
+  the sampling rate and start time of LabVIEW waveforms (channel
+  properties) were ignored.
 - `signals.libio.dyna`: the milliseconds of the start time were lost
   on writing, writing failed for NumPy data and for velocity and
   displacement, empty fields were filled with blank lines, and `None`
