@@ -124,11 +124,11 @@ class Sensitivity:
 
     Parameters
     ----------
-    value
+    value : float, optional
         Sensitivity (output units per input unit).
-    frequency
+    frequency : float, optional
         Frequency in Hz at which the value applies.
-    input_units, output_units
+    input_units, output_units : str, optional
         Units of the ground motion and of the recorded data.
     """
 
@@ -171,7 +171,7 @@ class StageSet:
 
     Parameters
     ----------
-    sample_rate
+    sample_rate : float, optional
         Sampling rate of the recorded data in Hz, if known (output rate
         of the response).
 
@@ -226,6 +226,8 @@ class StageSet:
         )
         print(f"Stages: {stage_str}")
 
+    # -- stages ---------------------------------------------------------
+
     def append(self, stage_response: Any) -> None:
         """
         Append one or more stages.
@@ -263,9 +265,14 @@ class StageSet:
 
         Parameters
         ----------
-        stages
+        stages : str or sequence of str, optional
             Stage type or sequence of stage types (see
             ``STAGE_TYPES``); None selects all stages.
+
+        Returns
+        -------
+        list of StageResponse
+            Selected stages, in order.
 
         Raises
         ------
@@ -280,6 +287,8 @@ class StageSet:
         if unknown:
             raise ValueError(f"unknown stage types: {sorted(unknown)}")
         return [s for s in self.stage if s.stage_type in stages]
+
+    # -- units and transfer function ------------------------------------
 
     @property
     def input_units(self) -> Optional[str]:
@@ -313,7 +322,7 @@ class StageSet:
 
         Parameters
         ----------
-        stages
+        stages : str or sequence of str, optional
             Stage types (see :meth:`select_stages`); None for the
             complete response, which falls back on the units of the
             overall sensitivity.
@@ -338,12 +347,12 @@ class StageSet:
 
         Parameters
         ----------
-        frequency
+        frequency : float or array-like
             Frequencies in Hz.
-        delta
+        delta : float, optional
             Sampling interval of the data, used by digital stages that
             do not declare their own sampling rate.
-        stages
+        stages : str or sequence of str, optional
             Stage types to include (see :meth:`select_stages`); None
             for the complete response.
 
@@ -395,6 +404,8 @@ class StageSet:
                 frequencies.setdefault(stage.stage_number, stage.frequency)
         return frequencies
 
+    # -- checks and conversion ------------------------------------------
+
     def validate(self, rtol: float = 1e-3) -> list:
         """
         Check the consistency of the response metadata.
@@ -408,7 +419,7 @@ class StageSet:
 
         Parameters
         ----------
-        rtol
+        rtol : float, optional
             Relative tolerance of the numerical checks.
 
         Returns
@@ -658,11 +669,16 @@ class StageResponse:
 
         Parameters
         ----------
-        frequency
+        frequency : float or array-like
             Frequencies in Hz.
-        delta
+        delta : float, optional
             Sampling interval of the data, for digital stages that do
             not declare their own sampling rate.
+
+        Returns
+        -------
+        numpy.ndarray
+            Complex transfer function, one value per frequency.
         """
         raise NotImplementedError(
             f"transfer function not available for {type(self).__name__}"
@@ -1042,7 +1058,7 @@ class StagePolynomial(StageResponse):
 
         Parameters
         ----------
-        y
+        y : float or array-like
             Values in the output units of the stage (e.g. Volts).
 
         Returns
@@ -1220,13 +1236,13 @@ def response_transfer(
 
     Parameters
     ----------
-    resp
+    resp : StageResponse or StageSet
         Stage or stage set (see :func:`select_response`).
-    frequency
+    frequency : float or array-like
         Frequencies in Hz.
-    delta
+    delta : float, optional
         Sampling interval of the data.
-    stages
+    stages : str or sequence of str, optional
         Stage types of a stage set to include (None: all); ignored for
         a single stage.
 
@@ -1269,9 +1285,9 @@ def expand_fir_symmetry(coefficients: Any, symmetry: str = "NONE") -> list:
 
     Parameters
     ----------
-    coefficients
+    coefficients : array-like
         Stored coefficients, in forward order.
-    symmetry
+    symmetry : str, optional
         ``"NONE"`` (all coefficients given), ``"ODD"`` (odd total
         number: first half and central coefficient given) or
         ``"EVEN"`` (even total number: first half given). Case is

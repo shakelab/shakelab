@@ -1,6 +1,6 @@
 # ShakeLab development and architecture guidelines
 
-*Version 2.1, 31 October 2026*
+*Version 2.2, 6 November 2026*
 
 This document defines the design philosophy of ShakeLab and the
 principles that all contributions follow. Parts I to III state
@@ -557,12 +557,27 @@ all repository-facing text. The reference style is that of
   followed by the module docstring (see below);
 - lines of at most 79 characters;
 - type hints on public functions and methods, with
-  `from __future__ import annotations`;
-- NumPy-style (numpydoc) docstrings; when type hints are present, the
-  Parameters section may list names and descriptions only;
-- comment separators of the form `# ----` (or `# ====` for major
-  sections) to structure long modules;
-- explicit imports, never wildcard imports.
+  `from __future__ import annotations`; `Optional[X]` for values that
+  may be None (not `X | None`), built-in generics (`list[str]`,
+  `dict[str, Any]`, `tuple[int, ...]`) rather than `typing.List` and
+  similar;
+- NumPy-style (numpydoc) docstrings: a summary line ending with a
+  period; multi-line docstrings opened on the line after the quotes;
+  sections in numpydoc order (Parameters, Attributes, Returns or
+  Yields, Raises, Warns, See Also, Notes, References, Examples) with
+  underlines as long as their titles; every parameter entry written
+  `name : type`, with `, optional` when it has a default (alternatives
+  as `str, path-like or file object`; `**kwargs` without a type); a
+  Returns (or Yields) section in functions that return a value;
+  parameters grouped on one line (`x, y : float`) only when they share
+  type and description; module docstrings may add free sections
+  (Conventions, Design choices, Reading, Writing);
+- comment separators: module sections as three lines of 78 characters
+  (`# ` followed by 76 dashes, the title, the dashes again); sections
+  inside a class as one line of 73 characters (`    # -- title ---`);
+- imports grouped as standard library, third-party packages and
+  ShakeLab, each group in alphabetical order; explicit imports, never
+  wildcard imports.
 
 The license header is:
 

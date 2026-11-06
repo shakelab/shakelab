@@ -197,9 +197,15 @@ def asciiread(
         seconds), UTC.
     units : str or sequence, optional
         Units of all data columns, or one per data column.
-    delimiter, decimal, comment, skipline : optional
-        Table layout, recognized if None (see
+    delimiter : str, optional
+        Column delimiter, recognized if None (see
         :func:`shakelab.libutils.ascii.read_columns`).
+    decimal : str, optional
+        Decimal separator, recognized if None.
+    comment : str, optional
+        Comment character. Default is ``"#"``.
+    skipline : int, optional
+        Lines skipped at the beginning of the file. Default is 0.
 
     Returns
     -------

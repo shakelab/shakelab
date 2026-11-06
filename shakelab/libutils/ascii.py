@@ -55,7 +55,8 @@ import os
 import re
 import warnings
 from pathlib import Path
-from typing import Any, Callable, Iterator, Mapping, Sequence, Union
+from typing import (Any, Callable, Iterator, Mapping, Optional, Sequence,
+                    Union)
 
 import numpy as np
 
@@ -85,7 +86,7 @@ class AsciiTable:
 
     Parameters
     ----------
-    header
+    header : sequence of str, optional
         Column names. The list is copied.
 
     Attributes
@@ -96,13 +97,11 @@ class AsciiTable:
         Table rows, each mapping column names to values.
     """
 
-    def __init__(self, header: Sequence[str] | None = None) -> None:
+    def __init__(self, header: Optional[Sequence[str]] = None) -> None:
         self.header: list[str] = list(header) if header else []
         self.db: list[dict[str, Any]] = []
 
-    # ------------------------------------------------------------------------
-    # Container protocol
-    # ------------------------------------------------------------------------
+    # -- container protocol ---------------------------------------------
 
     def __getitem__(self, key: str) -> list[Any]:
         return self.extract(key)
@@ -133,9 +132,7 @@ class AsciiTable:
         """Number of rows and number of columns."""
         return len(self.db), len(self.header)
 
-    # ------------------------------------------------------------------------
-    # Rows and columns
-    # ------------------------------------------------------------------------
+    # -- rows and columns -----------------------------------------------
 
     def add_element(self, data: Sequence[Any]) -> None:
         """
@@ -143,7 +140,7 @@ class AsciiTable:
 
         Parameters
         ----------
-        data
+        data : sequence
             Row values, one per column.
 
         Raises
@@ -164,7 +161,7 @@ class AsciiTable:
 
         Parameters
         ----------
-        row
+        row : mapping
             Row values by column name. Missing columns are set to
             ``None``.
 
@@ -189,11 +186,11 @@ class AsciiTable:
 
         Parameters
         ----------
-        key
+        key : str
             New column name.
-        index
+        index : int, optional
             Position in the header; ``-1`` appends the column.
-        data
+        data : scalar or sequence, optional
             Column values: a scalar (broadcast to all rows) or a
             sequence with one value per row.
 
@@ -221,7 +218,7 @@ class AsciiTable:
 
         Parameters
         ----------
-        key
+        key : str
             Column name.
         """
         self._require_key(key)
@@ -235,9 +232,9 @@ class AsciiTable:
 
         Parameters
         ----------
-        old_key
+        old_key : str
             Current column name.
-        new_key
+        new_key : str
             New column name.
         """
         self._require_key(old_key)
@@ -254,24 +251,24 @@ class AsciiTable:
 
         Parameters
         ----------
-        key
+        key : str
             Column name.
-        dtype
+        dtype : callable
             Target type; empty values become ``None``.
         """
         self._require_key(key)
         for row in self.db:
             row[key] = cast_value(row.get(key), dtype)
 
-    def extract(self, key: str, dtype: Callable | None = None) -> list[Any]:
+    def extract(self, key: str, dtype: Optional[Callable] = None) -> list[Any]:
         """
         Return the values of a column.
 
         Parameters
         ----------
-        key
+        key : str
             Column name.
-        dtype
+        dtype : callable, optional
             Optional target type; empty values become ``None``.
 
         Returns
@@ -296,11 +293,11 @@ class AsciiTable:
 
         Parameters
         ----------
-        key
+        key : str
             Column name.
-        dtype
+        dtype : callable, optional
             Type applied to each value.
-        empty
+        empty : scalar, optional
             Value used for empty entries (NaN by default).
 
         Returns
@@ -319,7 +316,7 @@ class AsciiTable:
 
         Parameters
         ----------
-        key
+        key : str
             Column name.
 
         Returns
@@ -330,9 +327,7 @@ class AsciiTable:
         self._require_key(key)
         return list(dict.fromkeys(row.get(key) for row in self.db))
 
-    # ------------------------------------------------------------------------
-    # Selection and ordering
-    # ------------------------------------------------------------------------
+    # -- selection and ordering -----------------------------------------
 
     def filter(
         self,
@@ -343,7 +338,7 @@ class AsciiTable:
 
         Parameters
         ----------
-        predicate
+        predicate : callable
             Function called with each row (a dict) and returning True
             for the rows to keep.
 
@@ -366,7 +361,7 @@ class AsciiTable:
 
         Parameters
         ----------
-        keys
+        keys : sequence of str
             Column names to keep, in the desired order.
 
         Returns
@@ -389,9 +384,9 @@ class AsciiTable:
 
         Parameters
         ----------
-        key
+        key : str
             Column name.
-        reverse
+        reverse : bool, optional
             Sort in descending order.
         """
         self._require_key(key)
@@ -406,7 +401,7 @@ class AsciiTable:
 
         Parameters
         ----------
-        table
+        table : AsciiTable
             Table to append; its rows are copied.
 
         Raises
@@ -418,20 +413,18 @@ class AsciiTable:
             raise ValueError("headers do not match")
         self.db.extend(dict(row) for row in table.db)
 
-    # ------------------------------------------------------------------------
-    # File input/output
-    # ------------------------------------------------------------------------
+    # -- file input/output ----------------------------------------------
 
     def read(
         self,
         ascii_file: PathLike,
-        header: Sequence[str] | None = None,
+        header: Optional[Sequence[str]] = None,
         dtype: DType = str,
         delimiter: str = ",",
         skipline: int = 0,
         comment: str = "#",
         empty: Any = None,
-        quotechar: str | None = '"',
+        quotechar: Optional[str] = '"',
     ) -> None:
         """
         Load the table from a delimited ASCII file.
@@ -440,22 +433,22 @@ class AsciiTable:
 
         Parameters
         ----------
-        ascii_file
+        ascii_file : str or path-like
             Input file path.
-        header
+        header : sequence of str, optional
             Column names. If None, the first data line is used.
-        dtype
+        dtype : callable or sequence of callable, optional
             Type applied to all columns, or one type per column of the
             file (including unnamed ones).
-        delimiter
+        delimiter : str, optional
             Field separator.
-        skipline
+        skipline : int, optional
             Number of initial lines to skip before anything else.
-        comment
+        comment : str, optional
             Comment marker.
-        empty
+        empty : scalar, optional
             Value assigned to empty fields.
-        quotechar
+        quotechar : str, optional
             Quote character; None disables quoting.
 
         Raises
@@ -511,20 +504,20 @@ class AsciiTable:
         ascii_file: PathLike,
         header: bool = True,
         delimiter: str = ",",
-        quotechar: str | None = '"',
+        quotechar: Optional[str] = '"',
     ) -> None:
         """
         Save the table to a delimited ASCII file.
 
         Parameters
         ----------
-        ascii_file
+        ascii_file : str or path-like
             Output file path.
-        header
+        header : bool, optional
             Whether to write the header line.
-        delimiter
+        delimiter : str, optional
             Field separator.
-        quotechar
+        quotechar : str, optional
             Quote character used for fields that contain the
             delimiter, the quote itself or surrounding blanks; None
             writes fields verbatim.
@@ -545,9 +538,7 @@ class AsciiTable:
             for line in lines:
                 fobj.write(line + "\n")
 
-    # ------------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------------
+    # -- internal helpers -----------------------------------------------
 
     def _require_key(self, key: str) -> None:
         if key not in self.header:
@@ -581,6 +572,11 @@ def read_text(source: Any) -> str:
         File path, content (a string with line breaks, or bytes in
         UTF-8), or a file opened in text or binary mode.
 
+    Returns
+    -------
+    str
+        Text of the source.
+
     Raises
     ------
     TypeError
@@ -609,9 +605,9 @@ def write_text(target: Any, content: str, owrite: bool = False) -> None:
     ----------
     target : str, path-like or text file object
         Output file, or a file opened in text mode.
-    content
+    content : str
         Text to write.
-    owrite
+    owrite : bool, optional
         If True, overwrite an existing file.
 
     Raises
@@ -674,9 +670,9 @@ class TextColumns:
     def __init__(
         self,
         columns: Sequence[Any],
-        names: Sequence[str] | None = None,
-        metadata: Mapping[str, str] | None = None,
-        delimiter: str | None = None,
+        names: Optional[Sequence[str]] = None,
+        metadata: Optional[Mapping[str, str]] = None,
+        delimiter: Optional[str] = None,
         decimal: str = ".",
     ) -> None:
         self.columns: list[np.ndarray] = [np.asarray(c) for c in columns]
@@ -684,7 +680,7 @@ class TextColumns:
             raise ValueError(
                 f"{len(names)} names for {len(self.columns)} columns"
             )
-        self.names: list[str] | None = (
+        self.names: Optional[list[str]] = (
             None if names is None else list(names)
         )
         self.metadata: dict[str, str] = dict(metadata or {})
@@ -715,9 +711,9 @@ class TextColumns:
 
 def read_columns(
     source: Any,
-    names: Sequence[str] | None = None,
-    delimiter: str | None = None,
-    decimal: str | None = None,
+    names: Optional[Sequence[str]] = None,
+    delimiter: Optional[str] = None,
+    decimal: Optional[str] = None,
     comment: str = "#",
     skipline: int = 0,
 ) -> TextColumns:
@@ -735,17 +731,17 @@ def read_columns(
     source : str, path-like, bytes or file object
         File path, content (a string with line breaks, or bytes), or an
         open file.
-    names
+    names : sequence of str, optional
         Column names; they replace the line of names of the file.
-    delimiter
+    delimiter : str, optional
         Field delimiter; recognized if None (tabulation, semicolon,
         vertical bar, comma or blanks).
-    decimal
+    decimal : str, optional
         Decimal separator, ``"."`` or ``","``; recognized if None (a
         comma when it is not the delimiter and numbers use it).
-    comment
+    comment : str, optional
         Comment marker.
-    skipline
+    skipline : int, optional
         Number of initial lines to skip before anything else.
 
     Returns
@@ -834,8 +830,8 @@ def read_columns(
 def write_columns(
     target: Any,
     columns: Sequence[Any],
-    names: Sequence[str] | None = None,
-    metadata: Mapping[str, Any] | None = None,
+    names: Optional[Sequence[str]] = None,
+    metadata: Optional[Mapping[str, Any]] = None,
     delimiter: str = ",",
     fmt: str = "%.9g",
     comment: str = "#",
@@ -848,20 +844,20 @@ def write_columns(
     ----------
     target : str, path-like or text file object
         Output file, or a file opened in text mode.
-    columns
+    columns : sequence of array-like
         Columns of equal length; numbers are written with ``fmt``,
         other values as text.
-    names
+    names : sequence of str, optional
         Column names, written as the first line of the table.
-    metadata
+    metadata : mapping, optional
         Pairs written as ``# key: value`` lines before the table.
-    delimiter
+    delimiter : str, optional
         Field delimiter.
-    fmt
+    fmt : str, optional
         ``%`` format of the numbers.
-    comment
+    comment : str, optional
         Comment marker of the metadata lines.
-    owrite
+    owrite : bool, optional
         If True, overwrite an existing file.
 
     Raises
@@ -898,8 +894,8 @@ def write_columns(
 def _split(
     line: str,
     delimiter: str,
-    quotechar: str | None = '"',
-    lineno: int | None = None,
+    quotechar: Optional[str] = '"',
+    lineno: Optional[int] = None,
 ) -> list[str]:
     """
     Split a line into fields, honouring quoted fields.
@@ -960,7 +956,7 @@ def _split(
     return fields
 
 
-def _quote(text: str, delimiter: str, quotechar: str | None) -> str:
+def _quote(text: str, delimiter: str, quotechar: Optional[str]) -> str:
     """Quote a field for writing only when needed."""
     if not quotechar:
         return text
@@ -996,14 +992,14 @@ def _is_row(text: str) -> bool:
     )
 
 
-def _fields(text: str, delimiter: str | None) -> list[str]:
+def _fields(text: str, delimiter: Optional[str]) -> list[str]:
     """Fields of a row."""
     if delimiter is None:
         return text.split()
     return [f.strip() for f in text.split(delimiter)]
 
 
-def _guess_delimiter(rows: list[str]) -> str | None:
+def _guess_delimiter(rows: list[str]) -> Optional[str]:
     """
     First delimiter splitting the first row into more than one valid
     field; None (blanks) otherwise. Rows with a different number of
@@ -1020,10 +1016,10 @@ def _guess_delimiter(rows: list[str]) -> str | None:
 
 def _numeric_columns(
     rows: list[str],
-    delimiter: str | None,
+    delimiter: Optional[str],
     decimal: str,
     ncol: int,
-) -> list[np.ndarray] | None:
+) -> Optional[list[np.ndarray]]:
     """Columns of a table made only of numbers, None otherwise."""
     if decimal == ",":
         rows = [row.replace(",", ".") for row in rows]
@@ -1043,9 +1039,9 @@ def _numeric_columns(
 
 def _guess_names(
     candidates: list[tuple[str, bool]],
-    delimiter: str | None,
+    delimiter: Optional[str],
     ncol: int,
-) -> list[str] | None:
+) -> Optional[list[str]]:
     """Column names from the last fitting line before the table."""
     for text, commented in reversed(candidates):
         names = [

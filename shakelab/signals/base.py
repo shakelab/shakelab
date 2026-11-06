@@ -62,7 +62,6 @@ Conventions
 
 from __future__ import annotations
 
-import warnings
 from copy import deepcopy
 from fractions import Fraction
 from numbers import Integral, Number, Real
@@ -72,12 +71,12 @@ import numpy as np
 from scipy import integrate, signal
 from scipy.signal import windows
 
+from shakelab.libutils.timeN import Date
+from shakelab.libutils.utils import warn_external
 from shakelab.signals import fourier
 from shakelab.signals import metadata
 from shakelab.signals import response
 from shakelab.signals.header import Header
-from shakelab.libutils.timeN import Date
-from shakelab.libutils.utils import warn_external
 
 if TYPE_CHECKING:
     # Annotations only: spectrum sits above this module.
@@ -197,13 +196,8 @@ class Record:
 
     def __str__(self) -> str:
         return (
-            "starttime {0}, duration {1}s, sampling rate {2} Hz, "
-            "{3} samples\n"
-        ).format(
-            self.starttime,
-            self.duration,
-            self.rate,
-            self.nsamp,
+            f"starttime {self.starttime}, duration {self.duration}s, "
+            f"sampling rate {self.rate} Hz, {self.nsamp} samples\n"
         )
 
     @staticmethod
@@ -468,9 +462,8 @@ class Record:
             return record
 
         raise TypeError(
-            "unsupported operand type for Record addition: {0}".format(
-                type(value).__name__
-            )
+            "unsupported operand type for Record addition: "
+            f"{type(value).__name__}"
         )
 
     def __radd__(self, value: Any) -> Record:
@@ -501,7 +494,7 @@ class Record:
         if not self._is_numeric_scalar(value):
             raise TypeError(
                 "unsupported operand type for Record subtraction: "
-                "{0}".format(type(value).__name__)
+                f"{type(value).__name__}"
             )
 
         record = self.copy()
@@ -516,7 +509,7 @@ class Record:
         if not self._is_numeric_scalar(value):
             raise TypeError(
                 "unsupported operand type for Record subtraction: "
-                "{0}".format(type(value).__name__)
+                f"{type(value).__name__}"
             )
 
         record = self.copy()
@@ -557,7 +550,7 @@ class Record:
 
         raise TypeError(
             "unsupported operand type for Record multiplication: "
-            "{0}".format(type(value).__name__)
+            f"{type(value).__name__}"
         )
 
     def __rmul__(self, value: Any) -> Record:
@@ -605,9 +598,8 @@ class Record:
             return record
 
         raise TypeError(
-            "unsupported operand type for Record division: {0}".format(
-                type(value).__name__
-            )
+            "unsupported operand type for Record division: "
+            f"{type(value).__name__}"
         )
 
     @property
@@ -742,14 +734,14 @@ class Record:
 
             if not np.isfinite(value):
                 raise ValueError(
-                    "{0} must be finite".format(name)
+                    f"{name} must be finite"
                 )
 
             return value
 
         raise TypeError(
-            "{0} must be a Date, string, or relative time in "
-            "seconds".format(name)
+            f"{name} must be a Date, string, or relative time in "
+            "seconds"
         )
 
     def _relative_time_window(
@@ -1353,25 +1345,25 @@ class Record:
                 or isinstance(value, (bool, np.bool_))
             ):
                 raise TypeError(
-                    "{0} must be a real number".format(name)
+                    f"{name} must be a real number"
                 )
 
             value = float(value)
 
             if not np.isfinite(value):
                 raise ValueError(
-                    "{0} must be finite".format(name)
+                    f"{name} must be finite"
                 )
 
             if value <= 0.0:
                 raise ValueError(
-                    "{0} must be strictly positive".format(name)
+                    f"{name} must be strictly positive"
                 )
 
             if value >= nyquist:
                 raise ValueError(
-                    "{0} must be lower than the Nyquist frequency "
-                    "({1} Hz)".format(name, nyquist)
+                    f"{name} must be lower than the Nyquist frequency "
+                    f"({nyquist} Hz)"
                 )
 
             return value
@@ -1967,8 +1959,8 @@ class Record:
                 array = np.asarray(value)
             except Exception as error:
                 raise TypeError(
-                    "{0} must be a Record or an array-like "
-                    "object".format(name)
+                    f"{name} must be a Record or an array-like "
+                    "object"
                 ) from error
 
         if array.ndim == 0:
@@ -1976,12 +1968,12 @@ class Record:
 
         if array.ndim != 1:
             raise ValueError(
-                "{0} must be one-dimensional".format(name)
+                f"{name} must be one-dimensional"
             )
 
         if array.size == 0:
             raise ValueError(
-                "{0} cannot be empty".format(name)
+                f"{name} cannot be empty"
             )
 
         return array.copy()
@@ -2315,18 +2307,18 @@ class Record:
             Stage types to include, e.g. ``("gain", "paz")``; None
             (default) for the complete response.
 
-        Notes
-        -----
-        The operation is performed in place, in the frequency domain
-        (see :meth:`shakelab.signals.spectrum.Spectrum.convolve_response`).
-        The units become the output units of the response, if declared.
-
         Raises
         ------
         ValueError
             If no response is available, or if the units of the data
             and the input units of the response are both declared and
             differ.
+
+        Notes
+        -----
+        The operation is performed in place, in the frequency domain
+        (see :meth:`shakelab.signals.spectrum.Spectrum.convolve_response`).
+        The units become the output units of the response, if declared.
         """
         spectrum = self.to_spectrum()
         spectrum.convolve_response(resp, stages=stages)
@@ -2360,6 +2352,13 @@ class Record:
             Stage types to include, e.g. ``("gain", "paz")``; None
             (default) for the complete response.
 
+        Raises
+        ------
+        ValueError
+            If no response is available, or if the units of the data
+            and the output units of the response are both declared and
+            differ (e.g. data already corrected).
+
         Notes
         -----
         The operation is performed in place, in the frequency domain
@@ -2367,13 +2366,6 @@ class Record:
         :meth:`shakelab.signals.spectrum.Spectrum.deconvolve_response`).
         The units become the input units of the response, if declared.
         The record should be detrended and tapered beforehand.
-
-        Raises
-        ------
-        ValueError
-            If no response is available, or if the units of the data
-            and the output units of the response are both declared and
-            differ (e.g. data already corrected).
         """
         spectrum = self.to_spectrum()
         spectrum.deconvolve_response(
@@ -2392,19 +2384,19 @@ class Record:
             :func:`shakelab.signals.metadata.select_sensitivity`).
             Default: the response of the channel metadata.
 
-        Notes
-        -----
-        A quick correction for instruments with a flat response in the
-        band of interest; no frequency-domain processing is involved.
-        The units become the input units of the sensitivity, if
-        declared.
-
         Raises
         ------
         ValueError
             If no sensitivity is available, or if the units of the data
             and the output units of the sensitivity are both declared
             and differ (e.g. data already corrected).
+
+        Notes
+        -----
+        A quick correction for instruments with a flat response in the
+        band of interest; no frequency-domain processing is involved.
+        The units become the input units of the sensitivity, if
+        declared.
         """
         sens = metadata.select_sensitivity(
             self.head.meta if resp is None else resp,
@@ -2540,23 +2532,18 @@ class Stream:
 
     def __str__(self) -> str:
         if not self.record:
-            return "empty stream: source identifier {0}".format(
-                self.sid
-            )
+            return f"empty stream: source identifier {self.sid}"
 
         lines = [
-            "source identifier: {0}".format(self.sid),
-            "number of records: {0}".format(len(self)),
+            f"source identifier: {self.sid}",
+            f"number of records: {len(self)}",
         ]
 
         for index, record in enumerate(self.record):
             description = str(record).rstrip()
 
             lines.append(
-                "Record {0}: {1}".format(
-                    index,
-                    description,
-                )
+                f"Record {index}: {description}"
             )
 
         return "\n".join(lines)
@@ -2704,12 +2691,12 @@ class Stream:
 
         if not indices:
             raise KeyError(
-                "event identifier not found: {0}".format(eid)
+                f"event identifier not found: {eid}"
             )
 
         if len(indices) > 1:
             raise KeyError(
-                "event identifier is not unique: {0}".format(eid)
+                f"event identifier is not unique: {eid}"
             )
 
         return self.record[indices[0]]
@@ -2870,12 +2857,12 @@ class Stream:
 
             if not indices:
                 raise KeyError(
-                    "event identifier not found: {0}".format(key)
+                    f"event identifier not found: {key}"
                 )
 
             if len(indices) > 1:
                 raise KeyError(
-                    "event identifier is not unique: {0}".format(key)
+                    f"event identifier is not unique: {key}"
                 )
 
             key = indices[0]
@@ -3111,9 +3098,7 @@ class Stream:
             "seconds"
         )
 
-    # ------------------------------------------------------------------------
-    # Processing applied to every record
-    # ------------------------------------------------------------------------
+    # -- processing applied to every record -----------------------------
 
     def remove_mean(self) -> None:
         """
@@ -3195,7 +3180,7 @@ class Stream:
         resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Response object or response container. Default: the
             response of the channel metadata of each record.
-        stages
+        stages : str or sequence of str, optional
             See :meth:`Record.convolve_response`.
 
         Notes
@@ -3221,7 +3206,11 @@ class Stream:
         resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Response object or response container. Default: the
             response of the channel metadata of each record.
-        waterlevel, method, stages
+        waterlevel : float, optional
+            See :meth:`Record.deconvolve_response`.
+        method : {"water", "sharp", "smooth"}, optional
+            See :meth:`Record.deconvolve_response`.
+        stages : str or sequence of str, optional
             See :meth:`Record.deconvolve_response`.
 
         Notes
@@ -3371,17 +3360,14 @@ class StreamCollection:
             return "empty stream collection"
 
         lines = [
-            "number of streams: {0}".format(len(self)),
+            f"number of streams: {len(self)}",
         ]
 
         for index, stream in enumerate(self.stream):
             description = str(stream).rstrip()
 
             lines.append(
-                "Stream {0}: {1}".format(
-                    index,
-                    description,
-                )
+                f"Stream {index}: {description}"
             )
 
         return "\n".join(lines)
@@ -3466,12 +3452,12 @@ class StreamCollection:
 
         if not indices:
             raise KeyError(
-                "source identifier not found: {0}".format(sid)
+                f"source identifier not found: {sid}"
             )
 
         if len(indices) > 1:
             raise KeyError(
-                "source identifier is not unique: {0}".format(sid)
+                f"source identifier is not unique: {sid}"
             )
 
         return self.stream[indices[0]]
@@ -3521,7 +3507,7 @@ class StreamCollection:
 
         if len(indices) > 1:
             raise KeyError(
-                "source identifier is not unique: {0}".format(sid)
+                f"source identifier is not unique: {sid}"
             )
 
         if indices:
@@ -3684,12 +3670,12 @@ class StreamCollection:
 
             if not indices:
                 raise KeyError(
-                    "source identifier not found: {0}".format(key)
+                    f"source identifier not found: {key}"
                 )
 
             if len(indices) > 1:
                 raise KeyError(
-                    "source identifier is not unique: {0}".format(key)
+                    f"source identifier is not unique: {key}"
                 )
 
             key = indices[0]
@@ -3879,9 +3865,7 @@ class StreamCollection:
                 merge_tolerance=merge_tolerance,
             )
 
-    # ------------------------------------------------------------------------
-    # Processing applied to every stream
-    # ------------------------------------------------------------------------
+    # -- processing applied to every stream -----------------------------
 
     def remove_mean(self) -> None:
         """
@@ -3963,7 +3947,7 @@ class StreamCollection:
         resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Response container passed to each stream. Default: the
             response of the channel metadata of each record.
-        stages
+        stages : str or sequence of str, optional
             See :meth:`Record.convolve_response`.
 
         Notes
@@ -3988,7 +3972,11 @@ class StreamCollection:
         resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Response container passed to each stream. Default: the
             response of the channel metadata of each record.
-        waterlevel, method, stages
+        waterlevel : float, optional
+            See :meth:`Record.deconvolve_response`.
+        method : {"water", "sharp", "smooth"}, optional
+            See :meth:`Record.deconvolve_response`.
+        stages : str or sequence of str, optional
             See :meth:`Record.deconvolve_response`.
 
         Notes
@@ -4040,9 +4028,7 @@ class StreamCollection:
         if not isinstance(value, _response_types()):
             raise TypeError(
                 "unsupported operand type for StreamCollection "
-                "multiplication: {0}".format(
-                    type(value).__name__
-                )
+                f"multiplication: {type(value).__name__}"
             )
 
         collection = self.copy()
@@ -4060,9 +4046,7 @@ class StreamCollection:
         if not isinstance(value, _response_types()):
             raise TypeError(
                 "unsupported operand type for StreamCollection "
-                "division: {0}".format(
-                    type(value).__name__
-                )
+                f"division: {type(value).__name__}"
             )
 
         collection = self.copy()

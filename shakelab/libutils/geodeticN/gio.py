@@ -45,7 +45,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
+from typing import Any, Iterable, Optional, Sequence, Union
 
 from shakelab.libutils.geodeticN.primitives import (
     PolygonKind,
@@ -71,11 +71,11 @@ _LATITUDE_NAMES = ("latitude", "lat")
 _ELEVATION_NAMES = ("elevation", "elev")
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # GeoJSON
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
-def read_geojson(path: PathLike) -> List[GeoObject]:
+def read_geojson(path: PathLike) -> list[GeoObject]:
     """
     Read geometries from a GeoJSON file.
 
@@ -92,7 +92,7 @@ def read_geojson(path: PathLike) -> List[GeoObject]:
 
     Parameters
     ----------
-    path
+    path : str or path-like
         GeoJSON file path.
 
     Returns
@@ -103,7 +103,7 @@ def read_geojson(path: PathLike) -> List[GeoObject]:
     with Path(path).open("r", encoding="utf-8") as fobj:
         data = json.load(fobj)
 
-    geometries: List[Dict[str, Any]] = []
+    geometries: list[dict[str, Any]] = []
     gtype = data.get("type")
 
     if gtype == "FeatureCollection":
@@ -116,7 +116,7 @@ def read_geojson(path: PathLike) -> List[GeoObject]:
     else:
         geometries.append(data)
 
-    result: List[GeoObject] = []
+    result: list[GeoObject] = []
 
     for geometry in geometries:
         result.extend(_parse_geometry(geometry))
@@ -139,9 +139,9 @@ def write_geojson(path: PathLike, geometries: Iterable[GeoObject]) -> None:
 
     Parameters
     ----------
-    path
+    path : str or path-like
         Output file path.
-    geometries
+    geometries : iterable of WgsPoint, WgsPolygon or WgsMesh
         Objects to write.
     """
     features = []
@@ -162,9 +162,9 @@ def write_geojson(path: PathLike, geometries: Iterable[GeoObject]) -> None:
         json.dump(collection, fobj, indent=2)
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # CSV
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def read_csv(path: PathLike, delimiter: str = ",") -> WgsMesh:
     """
@@ -172,9 +172,9 @@ def read_csv(path: PathLike, delimiter: str = ",") -> WgsMesh:
 
     Parameters
     ----------
-    path
+    path : str or path-like
         CSV file path.
-    delimiter
+    delimiter : str, optional
         Field delimiter.
 
     Returns
@@ -227,11 +227,11 @@ def write_csv(
 
     Parameters
     ----------
-    path
+    path : str or path-like
         Output file path.
-    mesh
+    mesh : WgsMesh or sequence of WgsPoint
         Mesh or sequence of points.
-    delimiter
+    delimiter : str, optional
         Field delimiter.
     """
     with Path(path).open("w", encoding="utf-8", newline="") as fobj:
@@ -246,11 +246,11 @@ def write_csv(
             ])
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Private helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
-def _parse_geometry(geometry: Dict[str, Any]) -> List[GeoObject]:
+def _parse_geometry(geometry: dict[str, Any]) -> list[GeoObject]:
     """
     Convert one GeoJSON geometry to geodetic objects.
     """
@@ -306,7 +306,7 @@ def _point(coord: Sequence[float]) -> WgsPoint:
     )
 
 
-def _geometry_to_geojson(obj: GeoObject) -> Optional[Dict[str, Any]]:
+def _geometry_to_geojson(obj: GeoObject) -> Optional[dict[str, Any]]:
     """
     Convert a geodetic object to a GeoJSON geometry, or None.
     """
@@ -345,7 +345,7 @@ def _geometry_to_geojson(obj: GeoObject) -> Optional[Dict[str, Any]]:
 def _positions(
     points: Sequence[WgsPoint],
     with_z: Optional[bool] = None,
-) -> List[List[float]]:
+) -> list[list[float]]:
     """
     Return GeoJSON positions, 3-D if any elevation is non-zero.
     """
@@ -358,7 +358,7 @@ def _positions(
     return [[p.longitude, p.latitude] for p in points]
 
 
-def _ring(points: Sequence[WgsPoint], with_z: bool) -> List[List[float]]:
+def _ring(points: Sequence[WgsPoint], with_z: bool) -> list[list[float]]:
     """
     Return a closed GeoJSON linear ring.
     """

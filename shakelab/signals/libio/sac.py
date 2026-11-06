@@ -341,6 +341,11 @@ class Sac:
         byte_order : {"be", "le"}, optional
             Byte order; detected from the header if None.
 
+        Returns
+        -------
+        Sac
+            Content of the file.
+
         Raises
         ------
         ValueError
@@ -359,6 +364,11 @@ class Sac:
             Content of the file.
         byte_order : {"be", "le"}, optional
             Byte order; detected from the header version if None.
+
+        Returns
+        -------
+        Sac
+            Decoded file.
 
         Raises
         ------
@@ -435,6 +445,11 @@ class Sac:
         ----------
         byte_order : {"be", "le"}, optional
             Byte order. Default is ``"be"``.
+
+        Returns
+        -------
+        bytes
+            Encoded file.
         """
         prefix = _prefix(byte_order)
         head = dict(self.head)

@@ -52,11 +52,11 @@ Conventions
 from __future__ import annotations
 
 import math
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 
-from shakelab.libutils.geodeticN.primitives import WgsMesh, WgsPoint
+from shakelab.libutils.geodeticN.primitives import WgsMesh
 from shakelab.libutils.geodeticN.utilities import (
     DEG2RAD,
     MEAN_EARTH_RADIUS_M,
@@ -81,9 +81,9 @@ GOLDEN_ANGLE = math.pi * (3.0 - math.sqrt(5.0))
 _INDEX_TOLERANCE = 1e-9
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Fibonacci meshes
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def mesh_fibonacci_global(
     spacing_km: float,
@@ -97,10 +97,10 @@ def mesh_fibonacci_global(
 
     Parameters
     ----------
-    spacing_km
+    spacing_km : float
         Target spacing in kilometers; the mean area per node is about
         ``spacing_km ** 2``.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
 
     Returns
@@ -138,13 +138,13 @@ def mesh_fibonacci_spherical_cap(
 
     Parameters
     ----------
-    center_lon_deg, center_lat_deg
+    center_lon_deg, center_lat_deg : float
         Cap center in degrees.
-    max_distance_km
+    max_distance_km : float
         Cap radius (great-circle distance) in kilometers.
-    spacing_km
+    spacing_km : float
         Target spacing in kilometers.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
 
     Returns
@@ -206,19 +206,19 @@ def mesh_fibonacci_bbox(
 
     Parameters
     ----------
-    lon_min, lon_max
+    lon_min, lon_max : float
         Longitude range in degrees (see the module conventions for
         ranges crossing the antimeridian).
-    lat_min, lat_max
+    lat_min, lat_max : float
         Latitude range in degrees.
-    spacing_km
+    spacing_km : float
         Target spacing in kilometers.
-    center_lon_deg, center_lat_deg
+    center_lon_deg, center_lat_deg : float, optional
         Cap center; the box center if omitted.
-    max_distance_km
+    max_distance_km : float, optional
         Cap radius; if omitted, the largest distance from the center to
         the box corners and edge midpoints.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
 
     Returns
@@ -269,9 +269,9 @@ def mesh_fibonacci_bbox(
     return WgsMesh.from_arrays(lon_min + offset[keep], lat[keep])
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Regular grids
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def mesh_cartesian(
     lon_min: float,
@@ -290,11 +290,11 @@ def mesh_cartesian(
 
     Parameters
     ----------
-    lon_min, lon_max
+    lon_min, lon_max : float
         Longitude range in degrees (see the module conventions).
-    lat_min, lat_max
+    lat_min, lat_max : float
         Latitude range in degrees.
-    lon_step_deg, lat_step_deg
+    lon_step_deg, lat_step_deg : float
         Grid steps in degrees.
 
     Returns
@@ -342,15 +342,15 @@ def mesh_sinusoidal(
 
     Parameters
     ----------
-    spacing_km
+    spacing_km : float
         Grid spacing in kilometers; the area per node is about
         ``spacing_km ** 2``.
-    lon_min, lon_max
+    lon_min, lon_max : float, optional
         Longitude range in degrees; the whole globe if omitted (see the
         module conventions).
-    lat_min, lat_max
+    lat_min, lat_max : float, optional
         Latitude range in degrees; ``[-90, 90]`` if omitted.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
 
     Returns
@@ -383,8 +383,8 @@ def mesh_sinusoidal(
     row_last = math.floor(radius_m * lat_max * DEG2RAD / step
                           + _INDEX_TOLERANCE)
 
-    lons: List[np.ndarray] = []
-    lats: List[np.ndarray] = []
+    lons: list[np.ndarray] = []
+    lats: list[np.ndarray] = []
 
     for row in range(row_first, row_last + 1):
         lat_rad = row * step / radius_m
@@ -410,9 +410,9 @@ def mesh_sinusoidal(
     return WgsMesh.from_arrays(np.concatenate(lons), np.concatenate(lats))
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Private helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def _require_positive(value: float, name: str) -> None:
     """
@@ -457,7 +457,7 @@ def _lon_offset(lon: np.ndarray, lon_min: float) -> np.ndarray:
     return np.where(offset > 360.0 - 1e-9, 0.0, offset)
 
 
-def _lon_windows(lon_min: float, span: float) -> List[Tuple[float, float]]:
+def _lon_windows(lon_min: float, span: float) -> list[tuple[float, float]]:
     """
     Split ``[lon_min, lon_min + span]`` into intervals within [-180, 180].
 

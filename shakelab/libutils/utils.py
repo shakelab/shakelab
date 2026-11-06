@@ -67,7 +67,7 @@ def is_empty(value: Any) -> bool:
 
     Parameters
     ----------
-    value
+    value : object
         Value to check.
 
     Returns
@@ -100,7 +100,7 @@ def none_check(value: Any) -> Any:
 
     Parameters
     ----------
-    value
+    value : object
         Value to check.
 
     Returns
@@ -117,12 +117,12 @@ def cast_value(value: Any, dtype: Callable, default: Any = None) -> Any:
 
     Parameters
     ----------
-    value
+    value : scalar, list, tuple or numpy.ndarray
         Scalar, list, tuple or NumPy array to cast.
-    dtype
+    dtype : callable
         Target type (e.g. ``int``, ``float``, ``complex``, ``str``),
         applied to scalars or element-wise to sequences.
-    default
+    default : object, optional
         Value returned when ``value`` is empty (see :func:`is_empty`).
 
     Returns
@@ -170,10 +170,10 @@ def a_round(number: Any, decimals: int = 3) -> Any:
 
     Parameters
     ----------
-    number
+    number : scalar, list, tuple or numpy.ndarray
         Scalar, list, tuple or NumPy array. Nested lists and tuples are
         rounded recursively.
-    decimals
+    decimals : int, optional
         Number of decimal places.
 
     Returns
@@ -196,7 +196,7 @@ def lin_stat(data: Any) -> tuple[Any, Any]:
 
     Parameters
     ----------
-    data
+    data : array-like
         Input samples; statistics are computed along the first axis.
 
     Returns
@@ -214,7 +214,7 @@ def log_stat(data: Any) -> tuple[Any, Any]:
 
     Parameters
     ----------
-    data
+    data : array-like
         Strictly positive input samples; statistics are computed along
         the first axis.
 
@@ -240,9 +240,9 @@ def pick(data: Sequence[Any], index: Any = None) -> list[Any]:
 
     Parameters
     ----------
-    data
+    data : sequence
         Input sequence.
-    index
+    index : int or iterable of int, optional
         Integer index or iterable of indices. If empty or ``None``,
         all items are returned.
 
@@ -289,7 +289,7 @@ def serialize_ndarray(obj: Any) -> Any:
 
     Parameters
     ----------
-    obj
+    obj : object
         Object to convert (dicts, lists and tuples are traversed).
 
     Returns
@@ -321,7 +321,7 @@ def deserialize_complex(obj: Any) -> Any:
 
     Parameters
     ----------
-    obj
+    obj : object
         Object to convert (dicts and lists are traversed).
 
     Returns

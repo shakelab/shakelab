@@ -221,7 +221,7 @@ class Connection:
             f"version={self.version})"
         )
 
-    # -- handshake -------------------------------------------------------
+    # -- handshake ------------------------------------------------------
 
     def open(self, protocol: str = "auto") -> None:
         """
@@ -377,7 +377,7 @@ class Connection:
         """
         self.send("INFO ID")
 
-    # -- data transfer ---------------------------------------------------
+    # -- data transfer --------------------------------------------------
 
     def set_poll(self, timeout: Optional[float]) -> None:
         """
@@ -493,7 +493,7 @@ class Connection:
             payload=payload,
         )
 
-    # -- low-level reading -----------------------------------------------
+    # -- low-level reading ----------------------------------------------
 
     def _require_socket(self) -> socket.socket:
         if self._socket is None:
@@ -760,6 +760,11 @@ def data_command(
     fetch : bool, optional
         Dial-up mode (version 3 ``FETCH``; in version 4 the mode is set
         by ``ENDFETCH``).
+
+    Returns
+    -------
+    str
+        Command line.
 
     Notes
     -----

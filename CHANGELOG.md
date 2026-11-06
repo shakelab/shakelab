@@ -252,9 +252,10 @@ corrections. The format follows
   int32, when the differences between samples exceed its words), 4 for
   float32, 5 for float64. Start times keep the microseconds in
   blockette 1001 when needed.
-- `signals.libio.mseed.MSRecord`: built with `MSRecord.from_bytes` and
-  encoded with `to_bytes`; `code` renamed `sid`; new `rate`,
-  `start_ns`, `encoding` and `is_waveform`; `delta` is None for records
+- `signals.libio.mseed.MSRecord`: built with `MSRecord.from_bytes` or
+  `MSRecord.from_shakelab` and encoded with `to_bytes`; `code` renamed
+  `sid`; new `rate`, `start_ns`, `encoding`, `is_timeseries` and
+  `info()`, as in the other format classes; `delta` is None for records
   without sampling.
 - `signals.libio.cymseed` no longer depends on `signals.fdsnws`;
   integer samples are int32. Until `cymseed3` packs non-integer

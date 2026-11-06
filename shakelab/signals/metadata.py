@@ -122,9 +122,9 @@ class Orientation:
 
     Parameters
     ----------
-    azimuth
+    azimuth : float
         Degrees clockwise from north; reduced to ``[0, 360)``.
-    dip
+    dip : float
         Degrees below the horizontal, in ``[-90, 90]``: 0 for a
         horizontal component, -90 for a vertical component positive
         upward.
@@ -227,8 +227,13 @@ class _Epoch:
 
         Parameters
         ----------
-        time
+        time : Date, str or other Date input
             Any value accepted by :class:`Date`.
+
+        Returns
+        -------
+        bool
+            True if the time falls within the epoch.
         """
         time = time if isinstance(time, Date) else Date(time)
         return (
@@ -260,15 +265,15 @@ class StationEpoch(_Epoch):
 
     Parameters
     ----------
-    code
+    code : str
         Station code ``NET.STA``.
-    starttime, endtime
+    starttime, endtime : Date, str or other Date input, optional
         Validity interval (any value accepted by :class:`Date`).
-    location
+    location : WgsPoint or sequence of float, optional
         :class:`WgsPoint` or ``(longitude, latitude[, elevation])``.
-    site
+    site : str, optional
         Name of the site.
-    description
+    description : str, optional
         Free description.
     """
 
@@ -344,25 +349,25 @@ class ChannelEpoch(_Epoch):
 
     Parameters
     ----------
-    sid
+    sid : str, optional
         Source identifier ``NET.STA.LOC.CHA``; None only for the empty
         epoch of a record without identifier (see :attr:`empty`).
-    starttime, endtime
+    starttime, endtime : Date, str or other Date input, optional
         Validity interval (any value accepted by :class:`Date`).
-    location
+    location : WgsPoint or sequence of float, optional
         Coordinates of the sensor: :class:`WgsPoint` or
         ``(longitude, latitude[, elevation])``.
-    depth
+    depth : float, optional
         Burial depth in km, positive downward.
-    orientation
+    orientation : Orientation or sequence of float, optional
         :class:`Orientation` or ``(azimuth, dip)`` in degrees.
-    sample_rate
+    sample_rate : float, optional
         Declared sampling rate in Hz.
-    sensor, datalogger
+    sensor, datalogger : Equipment, optional
         :class:`Equipment` descriptions.
-    response
+    response : StageSet, optional
         Instrument response (:class:`StageSet`).
-    station
+    station : StationEpoch, optional
         Station epoch the channel belongs to.
 
     Attributes
@@ -748,9 +753,9 @@ class MetadataCollection:
 
     Parameters
     ----------
-    source
+    source : str, path-like, bytes or file object, optional
         Optional file to read (see :meth:`read`).
-    format
+    format : str, optional
         File format; inferred from the file name if None.
 
     Notes
@@ -871,9 +876,9 @@ class MetadataCollection:
 
         Parameters
         ----------
-        sid
+        sid : str
             Source identifier.
-        time
+        time : Date, str or other Date input, optional
             Any value accepted by :class:`Date`. It may be omitted if
             the channel has only one epoch.
 
@@ -918,11 +923,11 @@ class MetadataCollection:
 
         Parameters
         ----------
-        sid
+        sid : str, optional
             Source identifier pattern, matched code by code (see
             :mod:`shakelab.signals.codes`), e.g. ``"IV.*..HN?"``,
             ``"IV.{MODE,CAE}"`` or ``"IV"`` (every channel of IV).
-        time
+        time : Date, str or other Date input, optional
             If given, keep only the epochs valid at that time.
 
         Returns
@@ -946,10 +951,10 @@ class MetadataCollection:
 
         Parameters
         ----------
-        code
+        code : str, optional
             Station code pattern ``NET.STA``, matched code by code (see
             :mod:`shakelab.signals.codes`), e.g. ``"IV.*"`` or ``"IV"``.
-        time
+        time : Date, str or other Date input, optional
             If given, keep only the epochs valid at that time.
 
         Returns
@@ -1052,17 +1057,17 @@ class MetadataCollection:
 
         Parameters
         ----------
-        source
+        source : str, path-like, bytes or file object
             File path; for StationXML and RESP also text, bytes or an
             open file (see
             :func:`shakelab.signals.stationxml.read_stationxml` and
             :func:`shakelab.signals.respfile.read_resp`).
-        format
+        format : str, optional
             ``"xml"`` (also ``"sxml"``), ``"resp"`` or ``"json"``. If
             None, it is inferred from the file name: ``"resp"`` for
             names starting with ``RESP.`` (as written by rdseed) or
             ending with ``.resp``, otherwise the extension.
-        append
+        append : bool, optional
             If True, add to the current content; otherwise replace it.
 
         Raises
@@ -1170,11 +1175,11 @@ def select_response(
 
     Parameters
     ----------
-    resp
+    resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
         Stage, stage set, channel epoch or metadata collection.
-    sid
+    sid : str, optional
         Source identifier of the data.
-    time
+    time : Date, str or other Date input, optional
         Start time of the data.
 
     Returns
@@ -1233,11 +1238,17 @@ def select_sensitivity(
 
     Parameters
     ----------
-    resp
+    resp : StageGain, StageSet, ChannelEpoch or MetadataCollection
         Gain stage, stage set, channel epoch or metadata collection.
-    sid, time
-        Source identifier and start time of the data (see
-        :func:`select_response`).
+    sid : str, optional
+        Source identifier of the data (see :func:`select_response`).
+    time : Date, str or other Date input, optional
+        Start time of the data.
+
+    Returns
+    -------
+    Sensitivity
+        Overall sensitivity.
 
     Raises
     ------

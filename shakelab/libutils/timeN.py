@@ -70,7 +70,7 @@ import math
 from numbers import Integral, Real
 import re
 import time as systime
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Sequence, Union
 
 
 __all__ = [
@@ -133,13 +133,13 @@ ISO8601_PATTERN = re.compile(
 
 
 TimeShift = Union[int, float, Decimal]
-DateComponents = List[Union[int, float]]
-DateFields = Tuple[int, int, int, int, int, int, int]
+DateComponents = list[Union[int, float]]
+DateFields = tuple[int, int, int, int, int, int, int]
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Date class
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 class Date:
     """
@@ -147,7 +147,7 @@ class Date:
 
     Parameters
     ----------
-    date
+    date : str, float, sequence, dict or Date, optional
         Input date. Supported formats are:
 
         - an ISO 8601 string, or ``"now"`` for the current UTC time;
@@ -161,11 +161,11 @@ class Date:
         - another :class:`Date`.
 
         If omitted, the date is left unset.
-    error
+    error : float, optional
         Timing error in seconds (finite, non-negative). If omitted, it
         is inherited when ``date`` is a :class:`Date`, and is zero
         otherwise.
-    timezone
+    timezone : str, optional
         Only ``"UTC"`` is supported.
 
     Raises
@@ -312,9 +312,7 @@ class Date:
 
         return NotImplemented
 
-    # -----------------------------------------------------------------------
-    # Alternative constructors
-    # -----------------------------------------------------------------------
+    # -- alternative constructors ---------------------------------------
 
     @classmethod
     def now(cls) -> Date:
@@ -336,7 +334,7 @@ class Date:
 
         Parameters
         ----------
-        date_string
+        date_string : str
             ISO 8601 date string.
 
         Returns
@@ -347,13 +345,13 @@ class Date:
         return cls(date_string)
 
     @classmethod
-    def from_dict(cls, date_dict: Dict[str, Any]) -> Date:
+    def from_dict(cls, date_dict: dict[str, Any]) -> Date:
         """
         Create a Date from a dictionary.
 
         Parameters
         ----------
-        date_dict
+        date_dict : dict
             Dictionary with calendar fields or ordinal day.
 
         Returns
@@ -377,15 +375,15 @@ class Date:
 
         Parameters
         ----------
-        year
+        year : int
             Year.
-        ordinal_day
+        ordinal_day : int
             Day of year.
-        hour
+        hour : int, optional
             Hour.
-        minute
+        minute : int, optional
             Minute.
-        second
+        second : float, optional
             Second.
 
         Returns
@@ -402,7 +400,7 @@ class Date:
 
         Parameters
         ----------
-        seconds
+        seconds : int, float or Decimal
             Seconds from 1970-01-01T00:00:00Z. Negative values describe
             instants before 1970.
 
@@ -420,7 +418,7 @@ class Date:
 
         Parameters
         ----------
-        nanoseconds
+        nanoseconds : int
             Nanoseconds from 1970-01-01T00:00:00Z, as returned by
             :func:`time.time_ns`.
 
@@ -452,9 +450,7 @@ class Date:
 
         return date
 
-    # -----------------------------------------------------------------------
-    # Calendar fields
-    # -----------------------------------------------------------------------
+    # -- calendar fields ------------------------------------------------
 
     @property
     def is_set(self) -> bool:
@@ -558,10 +554,10 @@ class Date:
 
         Parameters
         ----------
-        year, month, day, hour, minute, second
+        year, month, day, hour, minute, second : int or float, optional
             New values of the calendar fields. Omitted fields are kept;
             when ``second`` is omitted its fractional part is kept too.
-        error
+        error : float, optional
             New timing error. By default the current one is kept.
 
         Returns
@@ -661,9 +657,7 @@ class Date:
     def seconds(self, value: TimeShift) -> None:
         self.from_seconds(value)
 
-    # -----------------------------------------------------------------------
-    # Setting and representing the date
-    # -----------------------------------------------------------------------
+    # -- setting and representing the date ------------------------------
 
     def set_date(self, date: Any) -> None:
         """
@@ -671,7 +665,7 @@ class Date:
 
         Parameters
         ----------
-        date
+        date : Date, str or other Date input
             Input date, in any format accepted by :class:`Date` except
             ``"now"``. The timing error is not changed.
 
@@ -707,17 +701,17 @@ class Date:
         self,
         dtype: str = "list",
         format: str = "calendar",
-    ) -> Union[List[Any], Dict[str, Any], str]:
+    ) -> Union[list[Any], dict[str, Any], str]:
         """
         Return the date in the requested representation.
 
         Parameters
         ----------
-        dtype
+        dtype : str, optional
             Output type: ``"list"``, ``"dict"``, ``"string"`` or
             ``"iso8601"`` (short forms ``"l"``, ``"d"``, ``"s"``,
             ``"str"`` are also accepted).
-        format
+        format : str, optional
             Date format: ``"calendar"`` or ``"ordinal"``.
 
         Returns
@@ -762,13 +756,13 @@ class Date:
 
         raise ValueError("Unsupported output type.")
 
-    def to_dict(self, format: str = "calendar") -> Dict[str, Any]:
+    def to_dict(self, format: str = "calendar") -> dict[str, Any]:
         """
         Return the date as a dictionary.
 
         Parameters
         ----------
-        format
+        format : str, optional
             Either ``"calendar"`` or ``"ordinal"``.
 
         Returns
@@ -799,7 +793,7 @@ class Date:
 
         raise ValueError("Unsupported date format.")
 
-    def to_ordinal(self) -> List[Any]:
+    def to_ordinal(self) -> list[Any]:
         """
         Return the date as ``[year, ordinal_day, hour, minute, second]``.
         """
@@ -816,13 +810,13 @@ class Date:
 
         Parameters
         ----------
-        precision
+        precision : int, optional
             Number of decimal digits for seconds. With ``0`` the
             fractional part is omitted; digits beyond the nanosecond
             are zeros.
-        format
+        format : str, optional
             Either ``"calendar"`` or ``"ordinal"``.
-        timezone
+        timezone : str, optional
             ``"Z"`` for UTC, or a numeric offset such as ``"+01:00"``,
             ``"-0430"`` or ``"+02"``. With an offset, the written time
             is the local time at that offset.
@@ -850,10 +844,10 @@ class Date:
 
         Parameters
         ----------
-        fmt
+        fmt : str
             Format string. Supported placeholders are ``%Y``, ``%j``,
             ``%m``, ``%d``, ``%H``, ``%M`` and ``%S``.
-        precision
+        precision : int, optional
             Number of decimal digits for ``%S``. With ``0`` the
             fractional part is omitted.
 
@@ -896,9 +890,9 @@ class Date:
 
         Parameters
         ----------
-        date_string
+        date_string : str
             String to parse.
-        fmt
+        fmt : str
             Format string with fixed-width fields. Supported
             placeholders are ``%Y``, ``%j``, ``%m``, ``%d``, ``%H``,
             ``%M`` and ``%S`` (seconds may include a fractional part).
@@ -932,9 +926,7 @@ class Date:
 
         self._set_ns(_fields_to_ns(year, month, day, hour, minute, second))
 
-    # -----------------------------------------------------------------------
-    # Conversions to and from seconds
-    # -----------------------------------------------------------------------
+    # -- conversions to and from seconds --------------------------------
 
     def to_seconds(self, decimal: bool = False) -> Union[float, Decimal]:
         """
@@ -942,7 +934,7 @@ class Date:
 
         Parameters
         ----------
-        decimal
+        decimal : bool, optional
             If True, return an exact :class:`decimal.Decimal`; otherwise
             return a float.
 
@@ -971,7 +963,7 @@ class Date:
 
         Parameters
         ----------
-        decimal
+        decimal : bool, optional
             If True, return an exact :class:`decimal.Decimal`; otherwise
             return a float.
 
@@ -1008,7 +1000,7 @@ class Date:
 
         Parameters
         ----------
-        second
+        second : int, float or Decimal
             Seconds from ``0001-01-01T00:00:00Z``; negative values
             describe earlier instants.
         """
@@ -1020,9 +1012,9 @@ class Date:
 
         Parameters
         ----------
-        time
+        time : int, float or Decimal
             Time shift, in the selected units.
-        units
+        units : str, optional
             Time units: seconds (``"s"``, ``"second"``, ``"seconds"``),
             minutes (``"m"``, ``"minute"``, ``"minutes"``), hours
             (``"h"``, ``"hour"``, ``"hours"``) or days (``"d"``,
@@ -1052,9 +1044,7 @@ class Date:
 
         self._set_ns(ns + _seconds_to_ns(seconds))
 
-    # -----------------------------------------------------------------------
-    # Internal state
-    # -----------------------------------------------------------------------
+    # -- internal state -------------------------------------------------
 
     def _require_set(self) -> None:
         """
@@ -1162,9 +1152,9 @@ class Date:
         return (mine > other) - (mine < other)
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Calendar helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def leap_check(year: int) -> bool:
     """
@@ -1198,7 +1188,7 @@ def leap_num(year: int) -> int:
     return previous // 4 - previous // 100 + previous // 400
 
 
-def days_in_month(year: int) -> List[int]:
+def days_in_month(year: int) -> list[int]:
     """
     Return the cumulative number of days at the end of each month.
     """
@@ -1220,7 +1210,7 @@ def year_days(year: int) -> int:
     return 365
 
 
-def from_ordinal_day(year: int, day: int) -> Tuple[int, int]:
+def from_ordinal_day(year: int, day: int) -> tuple[int, int]:
     """
     Convert an ordinal day of year to ``(month, day)``.
 
@@ -1262,9 +1252,9 @@ def to_ordinal_day(year: int, month: int, day: int) -> int:
     return days_in_month(year)[month - 2] + day
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Conversions to and from seconds
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def date_to_second(
     year: int = 1,
@@ -1280,9 +1270,9 @@ def date_to_second(
 
     Parameters
     ----------
-    year, month, day, hour, minute, second
+    year, month, day, hour, minute, second : int or float, optional
         Calendar components.
-    decimal
+    decimal : bool, optional
         If True, return a :class:`decimal.Decimal`; otherwise a float.
 
     Returns
@@ -1315,7 +1305,7 @@ def second_to_date(second: TimeShift) -> DateComponents:
 
     Parameters
     ----------
-    second
+    second : int, float or Decimal
         Seconds from ``0001-01-01T00:00:00Z``; negative values describe
         earlier instants.
 
@@ -1353,7 +1343,7 @@ def to_decimal(value: Union[Date, TimeShift]) -> Decimal:
 
     Parameters
     ----------
-    value
+    value : Date, int, float or Decimal
         A :class:`Date` (converted to seconds from the internal epoch)
         or a real number in seconds.
 
@@ -1391,11 +1381,11 @@ def to_decimal(value: Union[Date, TimeShift]) -> Decimal:
     return result
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # ISO 8601 and current time
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
-def read_iso8601_date(date_string: str) -> Tuple[Any, ...]:
+def read_iso8601_date(date_string: str) -> tuple[Any, ...]:
     """
     Parse an ISO 8601 date string and return UTC components.
 
@@ -1444,17 +1434,17 @@ def write_iso8601_date(
 
     Parameters
     ----------
-    year, month, day, hour, minute, second
+    year, month, day, hour, minute, second : int or float
         Calendar components, in UTC.
-    precision
+    precision : int, optional
         Number of decimal digits for seconds. With ``0`` the fractional
         part is omitted; digits beyond the nanosecond are zeros.
-    timezone
+    timezone : str, optional
         ``"Z"`` for UTC, or a numeric offset such as ``"+01:00"``,
         ``"-0430"`` or ``"+02"``. With an offset the components are
         converted to the local time at that offset, and the offset is
         written as ``±HH:MM`` (``±HH:MM:SS`` if it has seconds).
-    format
+    format : str, optional
         Either ``"calendar"`` or ``"ordinal"``.
 
     Returns
@@ -1497,9 +1487,9 @@ def utc_now() -> str:
     return Date.now().to_iso8601(precision=6)
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Private helpers: nanosecond core
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def _seconds_to_ns(value: Any) -> int:
     """
@@ -1543,7 +1533,7 @@ def _days_from_date(year: int, month: int, day: int) -> int:
     return _days_before_year(year) + month_days[month - 1] + day - 1
 
 
-def _date_from_days(day_count: int) -> Tuple[int, int, int]:
+def _date_from_days(day_count: int) -> tuple[int, int, int]:
     """
     Return ``(year, month, day)`` for a day counted from the epoch.
     """
@@ -1619,7 +1609,7 @@ def _sequence_to_ns(values: Sequence[Any]) -> int:
     raise ValueError("Sequence must have 5 or 6 elements.")
 
 
-def _dict_to_ns(date: Dict[str, Any]) -> int:
+def _dict_to_ns(date: dict[str, Any]) -> int:
     """
     Convert a calendar or ordinal dictionary to nanoseconds.
     """
@@ -1643,7 +1633,7 @@ def _dict_to_ns(date: Dict[str, Any]) -> int:
     return _fields_to_ns(year, month, day, hour, minute, second)
 
 
-def _parse_iso8601(date_string: str) -> Tuple[int, Decimal]:
+def _parse_iso8601(date_string: str) -> tuple[int, Decimal]:
     """
     Parse an ISO 8601 string into UTC nanoseconds and the input offset.
     """
@@ -1753,9 +1743,9 @@ def _format_seconds(second: int, fraction: int, precision: int) -> str:
     return f"{second:02d}.{fraction:09d}{'0' * (precision - 9)}"
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Private helpers: validation and parsing
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def _is_time_shift(value: Any) -> bool:
     """
@@ -1860,7 +1850,7 @@ def _validate_components(
     hour: Any,
     minute: Any,
     second: Any,
-) -> Tuple[int, int, int, int, int, float]:
+) -> tuple[int, int, int, int, int, float]:
     """
     Validate date components and return them as ints and a float.
     """

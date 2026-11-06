@@ -114,7 +114,7 @@ class _Parser:
         self.pos = 0
         self.allow_comments = allow_comments
 
-    def error(self, msg: str, pos: int | None = None) -> JsonParseError:
+    def error(self, msg: str, pos: Optional[int] = None) -> JsonParseError:
         return JsonParseError(
             msg, self.text, self.pos if pos is None else pos
         )
@@ -282,9 +282,9 @@ def read_str(text: str, allow_comments: bool = False) -> Any:
 
     Parameters
     ----------
-    text
+    text : str
         JSON document.
-    allow_comments
+    allow_comments : bool, optional
         Ignore line comments starting with ``//`` or ``#`` outside
         strings.
 
@@ -307,9 +307,9 @@ def read(file: FileLike, allow_comments: bool = False) -> Any:
 
     Parameters
     ----------
-    file
+    file : str, path-like or file object
         Path to a UTF-8 file, or an open readable text stream.
-    allow_comments
+    allow_comments : bool, optional
         Ignore line comments starting with ``//`` or ``#`` outside
         strings.
 
@@ -494,22 +494,22 @@ def write_str(
 
     Parameters
     ----------
-    data
+    data : object
         Object to serialize (dicts, lists, tuples, strings, numbers,
         booleans, None, NumPy arrays and scalars).
-    indent
+    indent : int, optional
         Spaces per indentation level; None or 0 writes a single line.
-    float_precision
+    float_precision : int, optional
         If set, floats are written with this number of decimals.
-    inline_numbers
+    inline_numbers : bool, optional
         Write arrays of numbers on a single line.
-    allow_nan
+    allow_nan : bool, optional
         Write NaN and infinities as ``NaN``, ``Infinity`` and
         ``-Infinity``; if False they raise ValueError.
-    float_format
+    float_format : str, optional
         Format specification for floats (e.g. ``".6g"`` for six
         significant digits); exclusive with ``float_precision``.
-    sort_keys
+    sort_keys : bool, optional
         Write object keys in sorted order.
 
     Returns
@@ -550,22 +550,22 @@ def write(
 
     Parameters
     ----------
-    data
+    data : object
         Object to serialize (see :func:`write_str`).
-    file
+    file : str, path-like or file object
         Output path, or an open writable text stream.
-    indent
+    indent : int, optional
         Spaces per indentation level; None or 0 writes a single line.
-    float_precision
+    float_precision : int, optional
         If set, floats are written with this number of decimals.
-    inline_numbers
+    inline_numbers : bool, optional
         Write arrays of numbers on a single line.
-    allow_nan
+    allow_nan : bool, optional
         Write NaN and infinities instead of raising ValueError.
-    float_format
+    float_format : str, optional
         Format specification for floats; exclusive with
         ``float_precision``.
-    sort_keys
+    sort_keys : bool, optional
         Write object keys in sorted order.
     """
     text = write_str(

@@ -355,7 +355,7 @@ def test_non_waveform_records_skipped(name):
     raw = msrawread(path)
 
     assert len(collection) == 0
-    assert raw and not any(record.is_waveform for record in raw)
+    assert raw and not any(record.is_timeseries for record in raw)
 
 
 def test_text_record_content():

@@ -60,11 +60,20 @@ if TYPE_CHECKING:
 
 __all__ = ["MSEED_VERSION", "msread", "mswrite"]
 
+# ----------------------------------------------------------------------------
+# Constants
+# ----------------------------------------------------------------------------
+
 # Default MiniSEED version for writing.
 MSEED_VERSION = 2
 
 # Encodings that cymseed3 packs correctly (samples held as int32).
 _CYMSEED3_ENCODINGS = (3, 10, 11)
+
+
+# ----------------------------------------------------------------------------
+# High-level functions
+# ----------------------------------------------------------------------------
 
 
 def msread(

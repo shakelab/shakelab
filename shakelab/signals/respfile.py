@@ -147,7 +147,7 @@ def read_resp(source: Any) -> mdm.MetadataCollection:
 
     Parameters
     ----------
-    source
+    source : str, path-like, bytes or file object
         File path (``str`` or path-like), RESP text (``str`` with more
         than one line), ``bytes`` or an open text or binary file.
 
@@ -200,7 +200,7 @@ def parse_resp_time(text: Optional[str]) -> Optional[Date]:
 
     Parameters
     ----------
-    text
+    text : str or None
         Time field; empty, None or ``"No Ending Time"`` mean an open
         interval.
 

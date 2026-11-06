@@ -74,7 +74,7 @@ def format_offset(hours: float) -> str:
 
     Parameters
     ----------
-    hours
+    hours : float
         Offset from UTC in hours (e.g. ``5.75`` or ``-3.5``); it is
         rounded to the minute.
 
@@ -231,10 +231,10 @@ def utc_offset(zone: str, date: Optional[Any] = None) -> float:
 
     Parameters
     ----------
-    zone
+    zone : str
         Code of :data:`TIMEZONE` (e.g. ``"WET"``) or IANA name (e.g.
         ``"Europe/Rome"``).
-    date
+    date : Date or datetime.datetime, optional
         Instant at which the offset is evaluated, as a
         :class:`~shakelab.libutils.timeN.Date` or a
         :class:`datetime.datetime` (naive values are taken as UTC).
@@ -296,9 +296,9 @@ def offset_string(zone: str, date: Optional[Any] = None) -> str:
 
     Parameters
     ----------
-    zone
+    zone : str
         Code of :data:`TIMEZONE` or IANA name.
-    date
+    date : Date or datetime.datetime, optional
         Instant at which the offset is evaluated (see
         :func:`utc_offset`).
 
@@ -345,7 +345,7 @@ def find_timezone(text: str) -> list[str]:
 
     Parameters
     ----------
-    text
+    text : str
         Case-insensitive text to search for (e.g. ``"rome"``).
 
     Returns

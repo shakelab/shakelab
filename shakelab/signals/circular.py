@@ -82,9 +82,9 @@ class CircularStream(Stream):
 
     Parameters
     ----------
-    sid
+    sid : str, optional
         Source identifier associated with the stream.
-    max_duration
+    max_duration : float, optional
         Maximum temporal span retained by the buffer, in seconds.
         Default is 3600 seconds.
 
@@ -204,20 +204,20 @@ class CircularStream(Stream):
 
         Parameters
         ----------
-        record
+        record : Record
             Record to append. The buffer stores a copy.
-        enforce
+        enforce : bool, optional
             If ``False``, overlapping records are rejected. If ``True``,
             existing samples at or after the new record start time are
             discarded before the new record is appended. Default is
             ``False``.
-        fillvalue
+        fillvalue : scalar, optional
             Accepted for API compatibility with :meth:`Stream.append`.
             Gaps are preserved and are never filled by CircularStream.
-        merge_tolerance
+        merge_tolerance : float, optional
             Accepted for API compatibility with :meth:`Stream.append`:
             blocks are never joined in the buffer.
-        snap_tolerance
+        snap_tolerance : float, optional
             Times closer than this to a sample, as a fraction of one
             sampling interval, coincide with it when the buffer is
             trimmed. Default is
@@ -383,7 +383,7 @@ class CircularStream(Stream):
 
         Parameters
         ----------
-        reverse
+        reverse : bool, optional
             Reverse ordering is not supported for a circular stream.
 
         Raises
@@ -406,9 +406,7 @@ class CircularStream(Stream):
 
         super().sort(reverse=False)
 
-    # ------------------------------------------------------------------------
-    # Processing is not applied block by block
-    # ------------------------------------------------------------------------
+    # -- processing is not applied block by block -----------------------
 
     def _processing_not_supported(self, *args: Any, **kwargs: Any) -> None:
         """

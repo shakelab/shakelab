@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from numbers import Real
 import re
-from typing import Any, Tuple, Union
+from typing import Any, Union
 
 import numpy as np
 
@@ -83,9 +83,9 @@ Number = Union[float, int]
 ArrayLike = Union[Number, np.ndarray]
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Geodetic constants
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 #: Mean Earth radius in meters (IUGG value, close to the WGS84 mean).
 MEAN_EARTH_RADIUS_M: float = 6_371_008.8
@@ -118,9 +118,9 @@ DEG2RAD: float = np.pi / 180.0
 RAD2DEG: float = 180.0 / np.pi
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Angle helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def deg_to_rad(angle_deg: ArrayLike) -> ArrayLike:
     """
@@ -128,7 +128,7 @@ def deg_to_rad(angle_deg: ArrayLike) -> ArrayLike:
 
     Parameters
     ----------
-    angle_deg
+    angle_deg : number or numpy.ndarray
         Angle in degrees, scalar or array-like.
 
     Returns
@@ -145,7 +145,7 @@ def rad_to_deg(angle_rad: ArrayLike) -> ArrayLike:
 
     Parameters
     ----------
-    angle_rad
+    angle_rad : number or numpy.ndarray
         Angle in radians, scalar or array-like.
 
     Returns
@@ -162,7 +162,7 @@ def normalize_longitude(lon_deg: ArrayLike) -> ArrayLike:
 
     Parameters
     ----------
-    lon_deg
+    lon_deg : number or numpy.ndarray
         Longitude in degrees, in any convention.
 
     Returns
@@ -188,9 +188,9 @@ def relative_longitude(
 
     Parameters
     ----------
-    lon_deg
+    lon_deg : number or numpy.ndarray
         Longitude in degrees.
-    ref_lon_deg
+    ref_lon_deg : number or numpy.ndarray
         Reference longitude in degrees.
 
     Returns
@@ -223,7 +223,7 @@ def dms2dec(value: Any) -> Union[float, np.ndarray]:
 
     Parameters
     ----------
-    value
+    value : float, str or sequence
         Angle as a number, a string, or a sequence of those.
 
     Returns
@@ -250,9 +250,9 @@ def dms2dec(value: Any) -> Union[float, np.ndarray]:
     return float(value)
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Distances and azimuth on the sphere
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def great_circle_distance(
     lon1_deg: ArrayLike,
@@ -269,11 +269,11 @@ def great_circle_distance(
 
     Parameters
     ----------
-    lon1_deg, lat1_deg
+    lon1_deg, lat1_deg : number or numpy.ndarray
         Longitude and latitude of the first point(s) in degrees.
-    lon2_deg, lat2_deg
+    lon2_deg, lat2_deg : number or numpy.ndarray
         Longitude and latitude of the second point(s) in degrees.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
 
     Returns
@@ -303,11 +303,11 @@ def chord_distance(
 
     Parameters
     ----------
-    lon1_deg, lat1_deg
+    lon1_deg, lat1_deg : number or numpy.ndarray
         Longitude and latitude of the first point(s) in degrees.
-    lon2_deg, lat2_deg
+    lon2_deg, lat2_deg : number or numpy.ndarray
         Longitude and latitude of the second point(s) in degrees.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
 
     Returns
@@ -339,13 +339,13 @@ def tunnel_distance_sphere(
 
     Parameters
     ----------
-    lon1_deg, lat1_deg
+    lon1_deg, lat1_deg : number or numpy.ndarray
         Longitude and latitude of the first point(s) in degrees.
-    lon2_deg, lat2_deg
+    lon2_deg, lat2_deg : number or numpy.ndarray
         Longitude and latitude of the second point(s) in degrees.
-    elev1_m, elev2_m
+    elev1_m, elev2_m : number or numpy.ndarray, optional
         Elevations above the reference sphere in meters.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
 
     Returns
@@ -375,9 +375,9 @@ def forward_azimuth(
 
     Parameters
     ----------
-    lon1_deg, lat1_deg
+    lon1_deg, lat1_deg : number or numpy.ndarray
         Longitude and latitude of the start point(s) in degrees.
-    lon2_deg, lat2_deg
+    lon2_deg, lat2_deg : number or numpy.ndarray
         Longitude and latitude of the end point(s) in degrees.
 
     Returns
@@ -403,9 +403,9 @@ def forward_azimuth(
     return _to_output((azimuth + 360.0) % 360.0)
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Ellipsoid helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def geocentric_radius(lat_deg: ArrayLike) -> ArrayLike:
     """
@@ -413,7 +413,7 @@ def geocentric_radius(lat_deg: ArrayLike) -> ArrayLike:
 
     Parameters
     ----------
-    lat_deg
+    lat_deg : number or numpy.ndarray
         Geodetic latitude in degrees (positive north).
 
     Returns
@@ -435,26 +435,26 @@ def geocentric_radius(lat_deg: ArrayLike) -> ArrayLike:
     return _to_output(np.sqrt(num / den))
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Coordinate transforms (spherical Earth and sinusoidal projection)
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def wgs84_to_cartesian_sphere(
     lon_deg: ArrayLike,
     lat_deg: ArrayLike,
     elevation_m: ArrayLike = 0.0,
     radius_m: float = MEAN_EARTH_RADIUS_M,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Convert geographic coordinates to Cartesian (spherical Earth).
 
     Parameters
     ----------
-    lon_deg, lat_deg
+    lon_deg, lat_deg : number or numpy.ndarray
         Longitude and latitude in degrees.
-    elevation_m
+    elevation_m : number or numpy.ndarray, optional
         Elevation above the reference sphere in meters.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
 
     Returns
@@ -480,16 +480,16 @@ def cartesian_sphere_to_wgs84(
     y: ArrayLike,
     z: ArrayLike,
     radius_m: float = MEAN_EARTH_RADIUS_M,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Convert Cartesian coordinates (spherical Earth) to geographic.
 
     Parameters
     ----------
-    x, y, z
+    x, y, z : number or numpy.ndarray
         Cartesian coordinates in meters, as returned by
         :func:`wgs84_to_cartesian_sphere`.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters, used as reference for the elevation.
 
     Returns
@@ -514,7 +514,7 @@ def wgs84_to_sinusoidal(
     lat_deg: ArrayLike,
     radius_m: float = MEAN_EARTH_RADIUS_M,
     lon0_deg: float = 0.0,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Project geographic coordinates with the sinusoidal projection.
 
@@ -525,11 +525,11 @@ def wgs84_to_sinusoidal(
 
     Parameters
     ----------
-    lon_deg, lat_deg
+    lon_deg, lat_deg : number or numpy.ndarray
         Longitude and latitude in degrees.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
-    lon0_deg
+    lon0_deg : float, optional
         Central meridian in degrees.
 
     Returns
@@ -551,17 +551,17 @@ def sinusoidal_to_wgs84(
     y: ArrayLike,
     radius_m: float = MEAN_EARTH_RADIUS_M,
     lon0_deg: float = 0.0,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Invert the sinusoidal projection.
 
     Parameters
     ----------
-    x, y
+    x, y : number or numpy.ndarray
         Projected coordinates in meters.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters used in the projection.
-    lon0_deg
+    lon0_deg : float, optional
         Central meridian in degrees used in the projection.
 
     Returns
@@ -588,9 +588,9 @@ def sinusoidal_to_wgs84(
     return lon0_deg + dlon * RAD2DEG, lat * RAD2DEG
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Private helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def _to_output(value: Any) -> ArrayLike:
     """

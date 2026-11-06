@@ -59,7 +59,7 @@ def read_xml(source: Any) -> ET.Element:
 
     Parameters
     ----------
-    source
+    source : str, path-like, bytes, file object or Element
         File path (``str`` or path-like), XML text (``str`` starting
         with ``<``, with or without XML declaration), ``bytes``, an
         open file object, or an existing element (returned unchanged).
@@ -105,7 +105,7 @@ def strip_namespaces(element: ET.Element) -> ET.Element:
 
     Parameters
     ----------
-    element
+    element : xml.etree.ElementTree.Element
         Root of the tree to process.
 
     Returns
@@ -135,7 +135,7 @@ def to_dict(element: ET.Element) -> dict:
 
     Parameters
     ----------
-    element
+    element : xml.etree.ElementTree.Element
         Element to convert.
 
     Returns
@@ -165,12 +165,17 @@ def find_text(
 
     Parameters
     ----------
-    element
+    element : xml.etree.ElementTree.Element or None
         Element to search (None gives ``default``).
-    path
+    path : str
         ElementTree path of the sub-element.
-    default
+    default : str, optional
         Value returned if the sub-element or its text are missing.
+
+    Returns
+    -------
+    str or None
+        Stripped text, or ``default``.
     """
     if element is None:
         return default
@@ -190,12 +195,17 @@ def find_float(
 
     Parameters
     ----------
-    element
+    element : xml.etree.ElementTree.Element or None
         Element to search (None gives ``default``).
-    path
+    path : str
         ElementTree path of the sub-element.
-    default
+    default : float, optional
         Value returned if the sub-element or its text are missing.
+
+    Returns
+    -------
+    float or None
+        Value of the text, or ``default``.
 
     Raises
     ------

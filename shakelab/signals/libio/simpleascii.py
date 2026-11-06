@@ -349,6 +349,11 @@ class SimpleAscii:
         columns : int, optional
             Values per line of a sample list.
 
+        Returns
+        -------
+        str
+            Text of the segment.
+
         Raises
         ------
         ValueError

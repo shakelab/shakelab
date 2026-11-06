@@ -1,5 +1,4 @@
 # ****************************************************************************
-#
 # Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
@@ -8,11 +7,22 @@
 # published by the Free Software Foundation, either version 3 of the
 # License, or (at your option) any later version.
 #
+# ShakeLab is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# with this download. If not, see <http://www.gnu.org/licenses/>
 # ****************************************************************************
 """
 Regression tests for the pure-Python MiniSEED reader and writer.
 """
 
+from __future__ import annotations
+
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -677,6 +687,84 @@ class TestMiniSeed(unittest.TestCase):
             expected_limit,
             len(original),
         )
+
+
+    def test_from_shakelab(self):
+        """Test MSRecord.from_shakelab and the encoding of its samples."""
+        original = self._integer_signal()
+        record = self._make_shakelab_record(original)
+        record.head.time = Date("2026-200T12:00:00.123456")
+
+        msrecord = MSRecord.from_shakelab(record)
+
+        self.assertEqual(msrecord.sid, "XX.TEST.00.BHZ")
+        self.assertEqual(msrecord.start_ns, record.head.time.to_unix_ns())
+        self.assertEqual(msrecord.rate, 100.0)
+        self.assertEqual(msrecord.encoding, ENCODING_STEIM2)
+        self.assertEqual(msrecord.record_length, 512)
+        self.assertEqual(msrecord.nsamp, len(original))
+        self.assertTrue(msrecord.is_timeseries)
+        self.assertIn(1001, msrecord.blockette)
+
+        content, count = msrecord.to_bytes(allow_partial=True)
+        decoded = MSRecord.from_bytes(content)
+        self.assertEqual(len(content), 512)
+        self.assertEqual(decoded.seqn, 1)
+        self.assertEqual(decoded.start_ns, msrecord.start_ns)
+        np.testing.assert_array_equal(decoded.data, original[:count])
+
+        converted = decoded.to_shakelab()
+        self.assertEqual(converted.head.sid, record.head.sid)
+        self.assertEqual(converted.head.delta, record.head.delta)
+
+    def test_from_shakelab_options(self):
+        """Test the encoding and record length of from_shakelab."""
+        record = self._make_shakelab_record(
+            np.linspace(-1.0, 1.0, 50, dtype=np.float32)
+        )
+        msrecord = MSRecord.from_shakelab(record)
+        self.assertEqual(msrecord.encoding, ENCODING_FLOAT32)
+        self.assertNotIn(1001, msrecord.blockette)
+
+        msrecord = MSRecord.from_shakelab(
+            self._make_shakelab_record(np.arange(10, dtype=np.int32)),
+            encoding=ENCODING_INT32,
+            record_length=256,
+        )
+        self.assertEqual(msrecord.encoding, ENCODING_INT32)
+        self.assertEqual(msrecord.record_length, 256)
+
+    def test_from_shakelab_invalid(self):
+        """Test the errors of from_shakelab."""
+        record = self._make_shakelab_record(np.arange(10, dtype=np.int32))
+        with self.assertRaises(ValueError):
+            MSRecord.from_shakelab(record, record_length=100)
+        with self.assertRaises(ValueError):
+            MSRecord.from_shakelab(record, encoding=99)
+
+        record.head.delta = None
+        with self.assertRaises(ValueError):
+            MSRecord.from_shakelab(record)
+
+        record = self._make_shakelab_record(np.arange(10, dtype=np.int32))
+        record.head.sid = "XX.TOOLONG.00.BHZ"
+        with self.assertRaises(ValueError):
+            MSRecord.from_shakelab(record)
+
+    def test_info(self):
+        """Test the summary printed by MSRecord.info."""
+        record = self._make_shakelab_record(np.arange(10, dtype=np.int32))
+        msrecord = MSRecord.from_shakelab(record)
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            msrecord.info()
+        text = output.getvalue()
+
+        self.assertIn("MSRecord(XX.TEST.00.BHZ", text)
+        self.assertIn("STATION_CODE = TEST", text)
+        self.assertIn("BLOCKETTE 1000 : ENCODING_FORMAT=11", text)
+        self.assertNotIn("UNUSED", text)
 
 
 if __name__ == "__main__":

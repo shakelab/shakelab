@@ -237,6 +237,11 @@ class TdmsFile:
         scaled : bool, optional
             If True (default), apply the NI scales of the channels.
 
+        Returns
+        -------
+        TdmsFile
+            Content of the file.
+
         Raises
         ------
         ValueError
@@ -289,6 +294,11 @@ class TdmsFile:
             If True (default), apply the NI scales of the channels.
         path : str, optional
             File path, kept in :attr:`path`.
+
+        Returns
+        -------
+        TdmsFile
+            Decoded file.
 
         Raises
         ------

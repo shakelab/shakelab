@@ -48,7 +48,7 @@ Conventions
 from __future__ import annotations
 
 from numbers import Integral
-from typing import Any, List, Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 from scipy.spatial import Delaunay
@@ -76,9 +76,9 @@ __all__ = [
 RandomSource = Optional[Union[np.random.Generator, int]]
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Planar polygons
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def sample_uniform_in_polygon_xy(
     vertices_xy: np.ndarray,
@@ -90,12 +90,12 @@ def sample_uniform_in_polygon_xy(
 
     Parameters
     ----------
-    vertices_xy
+    vertices_xy : numpy.ndarray
         Polygon vertices, shape ``(n_vertices, 2)``. The polygon must be
         simple (non self-intersecting); a closing vertex is allowed.
-    n_samples
+    n_samples : int
         Number of points to draw.
-    rng
+    rng : numpy.random.Generator or int, optional
         Random source (see the module design choices).
 
     Returns
@@ -132,7 +132,7 @@ def sample_uniform_in_polygon_xy(
 
     cumulative = np.cumsum(areas)
     batch = max(64, 2 * n_samples)
-    accepted: List[np.ndarray] = []
+    accepted: list[np.ndarray] = []
     count = 0
 
     while count < n_samples:
@@ -155,9 +155,9 @@ def sample_uniform_in_polygon_xy(
     return np.vstack(accepted)[:n_samples]
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Geographic polygons
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def sample_uniform_in_polygon_wgs84(
     polygon: WgsPolygon,
@@ -169,11 +169,11 @@ def sample_uniform_in_polygon_wgs84(
 
     Parameters
     ----------
-    polygon
+    polygon : WgsPolygon
         Polygon or multipolygon.
-    n_samples
+    n_samples : int
         Number of points to draw.
-    rng
+    rng : numpy.random.Generator or int, optional
         Random source (see the module design choices).
 
     Returns
@@ -214,8 +214,8 @@ def sample_uniform_in_polygon_wgs84(
 
     counts = generator.multinomial(n_samples, np.array(areas) / total)
 
-    lons: List[np.ndarray] = []
-    lats: List[np.ndarray] = []
+    lons: list[np.ndarray] = []
+    lats: list[np.ndarray] = []
 
     for (vertices, lon0), count in zip(parts, counts):
         if count <= 0:
@@ -233,9 +233,9 @@ def sample_uniform_in_polygon_wgs84(
     return WgsMesh.from_arrays(np.concatenate(lons), np.concatenate(lats))
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Private helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def _random_source(rng: RandomSource) -> Any:
     """

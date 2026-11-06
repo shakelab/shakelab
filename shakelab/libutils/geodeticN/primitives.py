@@ -54,7 +54,7 @@ from decimal import Decimal
 from enum import IntEnum
 import math
 from numbers import Real
-from typing import Any, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Iterator, Optional, Sequence
 
 import numpy as np
 
@@ -73,9 +73,9 @@ __all__ = [
 ]
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Point
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class WgsPoint:
@@ -84,11 +84,11 @@ class WgsPoint:
 
     Parameters
     ----------
-    longitude
+    longitude : float
         Longitude in degrees, in any convention.
-    latitude
+    latitude : float
         Latitude in degrees, in ``[-90, 90]``.
-    elevation
+    elevation : float, optional
         Elevation above the ellipsoid in meters, positive upward.
 
     Raises
@@ -115,7 +115,7 @@ class WgsPoint:
         object.__setattr__(self, "latitude", latitude)
         object.__setattr__(self, "elevation", elevation)
 
-    def to_tuple(self) -> Tuple[float, float]:
+    def to_tuple(self) -> tuple[float, float]:
         """
         Return the point as a ``(lon, lat)`` tuple.
         """
@@ -127,7 +127,7 @@ class WgsPoint:
 
         Parameters
         ----------
-        frame
+        frame : MetricFrame, optional
             :class:`~shakelab.libutils.geodeticN.transform.MetricFrame`
             of the output, or ``None`` for absolute ECEF.
 
@@ -160,14 +160,19 @@ class WgsPoint:
         """
         Return the 3-D (hypocentral) distance in meters.
 
+        See :func:`~shakelab.libutils.geodeticN.distance.hypocentral_distance`.
+
         Parameters
         ----------
-        other
+        other : WgsPoint
             Target point.
-        approx
+        approx : str, optional
             Earth model: ``"ellipsoid"`` (default) or ``"sphere"``.
 
-        See :func:`~shakelab.libutils.geodeticN.distance.hypocentral_distance`.
+        Returns
+        -------
+        float
+            Distance in meters.
         """
         from shakelab.libutils.geodeticN.distance import (
             hypocentral_distance,
@@ -185,9 +190,9 @@ class WgsPoint:
         return self.hypocentral_distance_to(other)
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Polygon
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 class PolygonKind(IntEnum):
     """
@@ -208,9 +213,9 @@ class WgsPolygon:
 
     Parameters
     ----------
-    parts
+    parts : list of list of WgsPoint, optional
         List of parts, each a list of :class:`WgsPoint`.
-    kind
+    kind : PolygonKind, optional
         :attr:`PolygonKind.SIMPLE` or :attr:`PolygonKind.MULTIPOLYGON`.
         If omitted, it is inferred from the number of parts.
 
@@ -222,7 +227,7 @@ class WgsPolygon:
         If ``kind`` is SIMPLE but there is more than one part.
     """
 
-    parts: List[List[WgsPoint]] = field(default_factory=list)
+    parts: list[list[WgsPoint]] = field(default_factory=list)
     kind: Optional[PolygonKind] = None
 
     def __post_init__(self) -> None:
@@ -245,9 +250,7 @@ class WgsPolygon:
         if self.kind == PolygonKind.SIMPLE and len(self.parts) > 1:
             raise ValueError("A SIMPLE polygon cannot have several parts.")
 
-    # -----------------------------------------------------------------------
-    # Constructors
-    # -----------------------------------------------------------------------
+    # -- constructors ---------------------------------------------------
 
     @classmethod
     def from_lonlat(cls, coords: Sequence[Sequence[float]]) -> WgsPolygon:
@@ -267,20 +270,23 @@ class WgsPolygon:
 
         Parameters
         ----------
-        parts
+        parts : sequence of sequence of sequence of float
             Each element is a sequence of ``(lon, lat[, elevation])``
             vertices.
-        kind
+        kind : PolygonKind, optional
             Polygon kind; inferred from the number of parts if omitted.
+
+        Returns
+        -------
+        WgsPolygon
+            Polygon or multipolygon.
         """
         return cls(
             parts=[_points_from_coords(part) for part in parts],
             kind=kind,
         )
 
-    # -----------------------------------------------------------------------
-    # Basic properties
-    # -----------------------------------------------------------------------
+    # -- basic properties -----------------------------------------------
 
     def is_empty(self) -> bool:
         """
@@ -301,17 +307,15 @@ class WgsPolygon:
         for part in self.parts:
             yield from part
 
-    def to_arrays(self) -> List[Tuple[np.ndarray, np.ndarray]]:
+    def to_arrays(self) -> list[tuple[np.ndarray, np.ndarray]]:
         """
         Return the ``(lon, lat)`` arrays of each part.
         """
         return [_lonlat_arrays(part) for part in self.parts]
 
-    # -----------------------------------------------------------------------
-    # Geometry
-    # -----------------------------------------------------------------------
+    # -- geometry -------------------------------------------------------
 
-    def bounding_box(self) -> Tuple[float, float, float, float]:
+    def bounding_box(self) -> tuple[float, float, float, float]:
         """
         Return ``(lon_min, lon_max, lat_min, lat_max)`` in degrees.
 
@@ -426,7 +430,7 @@ class WgsPolygon:
 
         Parameters
         ----------
-        longitudes, latitudes
+        longitudes, latitudes : sequence of float
             Coordinates of the points in degrees.
 
         Returns
@@ -454,9 +458,9 @@ class WgsPolygon:
         return inside
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Mesh
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 @dataclass
 class WgsMesh:
@@ -465,11 +469,11 @@ class WgsMesh:
 
     Parameters
     ----------
-    points
+    points : list of WgsPoint, optional
         List of :class:`WgsPoint` nodes.
     """
 
-    points: List[WgsPoint] = field(default_factory=list)
+    points: list[WgsPoint] = field(default_factory=list)
 
     @classmethod
     def from_lonlat(cls, coords: Sequence[Sequence[float]]) -> WgsMesh:
@@ -490,10 +494,15 @@ class WgsMesh:
 
         Parameters
         ----------
-        longitudes, latitudes
+        longitudes, latitudes : sequence of float
             Coordinates in degrees.
-        elevations
+        elevations : sequence of float, optional
             Elevations in meters; zero if omitted.
+
+        Returns
+        -------
+        WgsMesh
+            Mesh of the points.
 
         Raises
         ------
@@ -534,7 +543,7 @@ class WgsMesh:
         """
         return self.points[index]
 
-    def to_arrays(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def to_arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Return ``(longitudes, latitudes, elevations)`` as arrays.
         """
@@ -543,7 +552,7 @@ class WgsMesh:
 
         return lon, lat, elev
 
-    def bounding_box(self) -> Tuple[float, float, float, float]:
+    def bounding_box(self) -> tuple[float, float, float, float]:
         """
         Return ``(lon_min, lon_max, lat_min, lat_max)`` in degrees.
 
@@ -563,7 +572,7 @@ class WgsMesh:
 
         Parameters
         ----------
-        polygon
+        polygon : WgsPolygon
             Clipping polygon or multipolygon.
 
         Returns
@@ -582,9 +591,9 @@ class WgsMesh:
         ])
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Private helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def _finite_float(value: Any, name: str) -> float:
     """
@@ -601,7 +610,7 @@ def _finite_float(value: Any, name: str) -> float:
     return result
 
 
-def _points_from_coords(coords: Sequence[Sequence[float]]) -> List[WgsPoint]:
+def _points_from_coords(coords: Sequence[Sequence[float]]) -> list[WgsPoint]:
     """
     Convert ``(lon, lat[, elevation])`` sequences to points.
     """
@@ -618,7 +627,7 @@ def _points_from_coords(coords: Sequence[Sequence[float]]) -> List[WgsPoint]:
     return points
 
 
-def _lonlat_arrays(points: Sequence[WgsPoint]) -> Tuple[np.ndarray, ...]:
+def _lonlat_arrays(points: Sequence[WgsPoint]) -> tuple[np.ndarray, ...]:
     """
     Return the longitude and latitude arrays of a list of points.
     """
@@ -630,7 +639,7 @@ def _lonlat_arrays(points: Sequence[WgsPoint]) -> Tuple[np.ndarray, ...]:
 
 def _bounding_box(
     points: Sequence[WgsPoint],
-) -> Tuple[float, float, float, float]:
+) -> tuple[float, float, float, float]:
     """
     Return the plain bounding box of a list of points.
     """
@@ -644,7 +653,7 @@ def _bounding_box(
     )
 
 
-def _open_ring(part: Sequence[WgsPoint]) -> List[WgsPoint]:
+def _open_ring(part: Sequence[WgsPoint]) -> list[WgsPoint]:
     """
     Drop the closing vertex of a ring, if it repeats the first one.
     """
@@ -680,7 +689,7 @@ def _signed_area(x: np.ndarray, y: np.ndarray) -> float:
 def _planar_centroid(
     x: np.ndarray,
     y: np.ndarray,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Return ``(area, cx, cy)`` of a planar ring, area non-negative.
     """
@@ -709,9 +718,9 @@ def _points_in_ring(
 
     Parameters
     ----------
-    x, y
+    x, y : numpy.ndarray
         Ring vertices (open or closed).
-    px, py
+    px, py : numpy.ndarray
         Test points.
 
     Returns

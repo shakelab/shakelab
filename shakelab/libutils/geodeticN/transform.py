@@ -52,7 +52,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Optional, Sequence, Tuple, Union
+from typing import Optional, Sequence, Union
 
 from shakelab.libutils.geodeticN.primitives import WgsPoint
 from shakelab.libutils.geodeticN.utilities import (
@@ -84,9 +84,9 @@ __all__ = [
 GeoLike = Union[WgsPoint, Sequence[float]]
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Metric containers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class MetricFrame:
@@ -95,12 +95,12 @@ class MetricFrame:
 
     Attributes
     ----------
-    ref_geo
+    ref_geo : tuple of float
         Reference geodetic point defining the origin of the frame: a
         :class:`WgsPoint` or a ``(lon, lat[, h])`` sequence. It is
         normalized at initialization to a ``(lon, lat, h)`` tuple of
         floats.
-    orientation
+    orientation : str
         Orientation of the axes: ``"ecef"`` (translated ECEF, axes
         aligned with global ECEF) or ``"enu"`` (local East-North-Up).
 
@@ -138,9 +138,9 @@ class MetricPoint:
 
     Attributes
     ----------
-    x, y, z
+    x, y, z : float
         Cartesian coordinates in meters.
-    frame
+    frame : MetricFrame or None
         Frame in which the coordinates are expressed. ``None`` means
         absolute ECEF.
     """
@@ -156,7 +156,7 @@ class MetricPoint:
 
         Parameters
         ----------
-        frame
+        frame : MetricFrame, optional
             Frame of the coordinates. If omitted, :attr:`frame` is used.
 
         Returns
@@ -170,22 +170,22 @@ class MetricPoint:
 MetricLike = Union[MetricPoint, Sequence[float]]
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Absolute and translated ECEF
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def geo_to_ecef(
     geo: GeoLike,
     frame: Optional[MetricFrame] = None,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Convert geodetic coordinates to ECEF, optionally translated.
 
     Parameters
     ----------
-    geo
+    geo : WgsPoint or sequence of float
         Geodetic point: :class:`WgsPoint` or ``(lon, lat[, h])``.
-    frame
+    frame : MetricFrame, optional
         If given, it must have ``orientation="ecef"`` and the result is
         translated so that ``frame.ref_geo`` is the origin.
 
@@ -216,15 +216,15 @@ def geo_to_ecef(
 def ecef_to_geo(
     ecef: MetricLike,
     frame: Optional[MetricFrame] = None,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Convert ECEF coordinates to geodetic coordinates.
 
     Parameters
     ----------
-    ecef
+    ecef : MetricPoint or sequence of float
         ECEF coordinates: :class:`MetricPoint` or ``(x, y, z)``.
-    frame
+    frame : MetricFrame, optional
         If given, it must have ``orientation="ecef"`` and the input is
         interpreted relative to ``frame.ref_geo``.
 
@@ -276,22 +276,22 @@ def ecef_to_geo(
     return math.degrees(lon), math.degrees(lat), h
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Local East-North-Up
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def geo_to_enu(
     geo: GeoLike,
     frame: MetricFrame,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Convert geodetic coordinates to local ENU coordinates.
 
     Parameters
     ----------
-    geo
+    geo : WgsPoint or sequence of float
         Geodetic point: :class:`WgsPoint` or ``(lon, lat[, h])``.
-    frame
+    frame : MetricFrame
         Local frame with ``orientation="enu"``.
 
     Returns
@@ -335,15 +335,15 @@ def geo_to_enu(
 def enu_to_geo(
     enu: MetricLike,
     frame: MetricFrame,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Convert local ENU coordinates to geodetic coordinates.
 
     Parameters
     ----------
-    enu
+    enu : MetricPoint or sequence of float
         ENU coordinates: :class:`MetricPoint` or ``(e, n, u)``.
-    frame
+    frame : MetricFrame
         Local frame with ``orientation="enu"``.
 
     Returns
@@ -380,9 +380,9 @@ def enu_to_geo(
     return ecef_to_geo((x0 + dx, y0 + dy, z0 + dz), frame=None)
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # High-level helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def wgs_to_metric(
     point: GeoLike,
@@ -393,9 +393,9 @@ def wgs_to_metric(
 
     Parameters
     ----------
-    point
+    point : WgsPoint or sequence of float
         Geodetic point: :class:`WgsPoint` or ``(lon, lat[, h])``.
-    frame
+    frame : MetricFrame, optional
         Output frame. ``None`` returns absolute ECEF coordinates.
 
     Returns
@@ -422,9 +422,9 @@ def metric_to_wgs(
 
     Parameters
     ----------
-    point
+    point : MetricPoint
         Cartesian point.
-    frame
+    frame : MetricFrame, optional
         Frame of the coordinates. If omitted, ``point.frame`` is used;
         if that is also ``None``, absolute ECEF is assumed.
 
@@ -461,11 +461,11 @@ def metric_to_wgs(
     return WgsPoint(longitude=lon, latitude=lat, elevation=h)
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Private helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
-def _coerce_geo(geo: GeoLike) -> Tuple[float, float, float]:
+def _coerce_geo(geo: GeoLike) -> tuple[float, float, float]:
     """
     Normalize a geodetic input to a ``(lon, lat, h)`` tuple of floats.
     """
@@ -487,7 +487,7 @@ def _coerce_geo(geo: GeoLike) -> Tuple[float, float, float]:
     raise ValueError("Geodetic tuples must be (lon, lat) or (lon, lat, h).")
 
 
-def _coerce_metric(metric: MetricLike) -> Tuple[float, float, float]:
+def _coerce_metric(metric: MetricLike) -> tuple[float, float, float]:
     """
     Normalize a metric input to an ``(x, y, z)`` tuple of floats.
     """
@@ -522,7 +522,7 @@ def _require_enu_frame(frame: MetricFrame, name: str) -> MetricFrame:
     return frame
 
 
-def _frame_trig(frame: MetricFrame) -> Tuple[float, float, float, float]:
+def _frame_trig(frame: MetricFrame) -> tuple[float, float, float, float]:
     """
     Return sin/cos of the latitude and longitude of the frame origin.
     """
@@ -537,7 +537,7 @@ def _geo_to_ecef_raw(
     lon: float,
     lat: float,
     h: float,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Convert geodetic coordinates to absolute ECEF (WGS84).
     """

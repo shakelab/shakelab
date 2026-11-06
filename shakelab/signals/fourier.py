@@ -72,7 +72,7 @@ def rfft_length(nsamp: int) -> int:
 
     Parameters
     ----------
-    nsamp
+    nsamp : int
         Number of samples of the time series.
 
     Returns
@@ -94,9 +94,9 @@ def irfft_length(delta: float, dfreq: float) -> int:
 
     Parameters
     ----------
-    delta
+    delta : float
         Sampling interval in seconds.
-    dfreq
+    dfreq : float
         Frequency step in Hz.
 
     Returns
@@ -118,9 +118,9 @@ def frequency_axis(delta: float, nsamp: int) -> np.ndarray:
 
     Parameters
     ----------
-    delta
+    delta : float
         Sampling interval in seconds.
-    nsamp
+    nsamp : int
         Number of samples of the time series.
 
     Returns
@@ -143,12 +143,12 @@ def frequency_range(
 
     Parameters
     ----------
-    fmin, fmax
+    fmin, fmax : float
         First and last frequency in Hz (both strictly positive for a
         logarithmic range).
-    fnum
+    fnum : int
         Number of frequencies.
-    log
+    log : bool, optional
         Logarithmic spacing (default) or linear spacing.
 
     Returns
@@ -177,11 +177,11 @@ def fft(
 
     Parameters
     ----------
-    data
+    data : numpy.ndarray
         Real samples.
-    delta
+    delta : float
         Sampling interval in seconds.
-    nsamp
+    nsamp : int, optional
         Transform length; the signal is zero-padded or truncated to it.
         Default is the number of samples.
 
@@ -199,11 +199,11 @@ def ifft(spectrum: np.ndarray, delta: float, nsamp: int) -> np.ndarray:
 
     Parameters
     ----------
-    spectrum
+    spectrum : numpy.ndarray
         One-sided spectrum, as returned by :func:`fft`.
-    delta
+    delta : float
         Sampling interval in seconds.
-    nsamp
+    nsamp : int
         Number of samples of the signal (needed to distinguish even and
         odd lengths).
 
@@ -221,11 +221,11 @@ def shift_time(data: np.ndarray, delta: float, shift: float) -> np.ndarray:
 
     Parameters
     ----------
-    data
+    data : numpy.ndarray
         Real samples.
-    delta
+    delta : float
         Sampling interval in seconds.
-    shift
+    shift : float
         Time shift in seconds (positive delays the signal); fractional
         samples are allowed.
 
@@ -259,16 +259,16 @@ def butterworth(
 
     Parameters
     ----------
-    freq
+    freq : numpy.ndarray
         Frequencies in Hz (non-negative).
-    corner
+    corner : float
         Corner frequency in Hz, where the amplitude is ``1 / sqrt(2)``
         (-3 dB).
-    order
+    order : int, optional
         Filter order (strictly positive).
-    btype
+    btype : str, optional
         ``"lowpass"`` or ``"highpass"``.
-    minphase
+    minphase : bool, optional
         If False (default), return the zero-phase response, i.e. the
         real amplitude ``1 / sqrt(1 + (f / corner) ** (2 * order))``
         (low-pass) or ``1 / sqrt(1 + (corner / f) ** (2 * order))``
@@ -333,13 +333,13 @@ def inverse_spectrum(
 
     Parameters
     ----------
-    spectrum
+    spectrum : numpy.ndarray
         Complex spectrum ``S``.
-    waterlevel
+    waterlevel : float, optional
         Level in dB below the maximum of ``|S|``. It defines the
         threshold ``eps = max(|S|) * 10 ** (-waterlevel / 20)``, so it
         does not depend on the units of the spectrum.
-    method
+    method : str, optional
         ``"water"``: ``1 / S`` with ``|S|`` raised to ``eps`` where it is
         smaller (phase preserved), zero where ``S == 0``;
         ``"sharp"``: ``1 / S`` where ``|S| >= eps``, zero elsewhere;
@@ -415,11 +415,11 @@ def smooth(
 
     Parameters
     ----------
-    freq
+    freq : numpy.ndarray
         Frequencies in Hz.
-    values
+    values : numpy.ndarray
         Real values at ``freq``.
-    method
+    method : str, optional
         Smoothing kernel:
 
         - ``"gaussian"``: Gaussian in natural-log frequency,
@@ -428,15 +428,15 @@ def smooth(
         - ``"konno-ohmachi"``: the window of Konno and Ohmachi (1998),
           ``(sin(b * log10(f / fc)) / (b * log10(f / fc))) ** 4`` with
           ``b = bandwidth``.
-    center
+    center : numpy.ndarray, optional
         Frequencies at which the smoothed values are computed. Default
         is ``freq``.
-    sigma
+    sigma : float, optional
         Standard deviation of the Gaussian kernel, in natural-log
         frequency units.
-    truncation
+    truncation : float, optional
         Truncation of the Gaussian kernel, in units of ``sigma``.
-    bandwidth
+    bandwidth : float, optional
         Bandwidth coefficient ``b`` of the Konno-Ohmachi window (larger
         values give a narrower window).
 
@@ -523,13 +523,13 @@ def smooth_amplitude(
 
     Parameters
     ----------
-    freq
+    freq : numpy.ndarray
         Frequencies in Hz.
-    spectrum
+    spectrum : numpy.ndarray
         Complex spectrum at ``freq``.
-    method
+    method : str, optional
         Smoothing kernel (see :func:`smooth`).
-    log
+    log : bool, optional
         If True (default), average the logarithm of the amplitude
         (geometric mean); otherwise average the amplitude itself.
     **options
@@ -567,11 +567,11 @@ def smooth_amplitude_phase(
 
     Parameters
     ----------
-    freq
+    freq : numpy.ndarray
         Frequencies in Hz.
-    spectrum
+    spectrum : numpy.ndarray
         Complex spectrum at ``freq``.
-    method
+    method : str, optional
         Smoothing kernel (see :func:`smooth`).
     **options
         Kernel parameters passed to :func:`smooth`.

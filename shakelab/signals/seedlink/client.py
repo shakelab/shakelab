@@ -416,7 +416,7 @@ class Client:
         if self.running:
             self.stop()
 
-    # -- configuration ---------------------------------------------------
+    # -- configuration --------------------------------------------------
 
     def select(self, patterns: Any = None, file: Any = None) -> None:
         """
@@ -685,7 +685,7 @@ class Client:
         self._event_callbacks.append(func)
         return func
 
-    # -- running ---------------------------------------------------------
+    # -- running --------------------------------------------------------
 
     @property
     def running(self) -> bool:
@@ -989,7 +989,7 @@ class Client:
             return _parse_info_json(text)
         return _parse_info_xml(text)
 
-    # -- run internals ---------------------------------------------------
+    # -- run internals --------------------------------------------------
 
     def _require_idle(self) -> None:
         if self.running:
@@ -1290,7 +1290,7 @@ class Client:
             reached = list(self._run_end.values())
         return bool(reached) and min(reached) >= end_ns
 
-    # -- packets and records ---------------------------------------------
+    # -- packets and records --------------------------------------------
 
     def _handle_packet(self, packet: Packet, version: str) -> None:
         """Decode a packet and deliver its records."""
@@ -1421,7 +1421,7 @@ class Client:
         )
         return kind
 
-    # -- state file ------------------------------------------------------
+    # -- state file -----------------------------------------------------
 
     def _load_state(self) -> Optional[tuple]:
         """
@@ -1486,7 +1486,7 @@ class Client:
         temporary.write_text(json.dumps(content, indent=1), "utf-8")
         os.replace(temporary, self.state_file)
 
-    # -- callbacks -------------------------------------------------------
+    # -- callbacks ------------------------------------------------------
 
     def _emit(self, kind: str, **fields: Any) -> None:
         """Report an event to the logger and to the callbacks."""
@@ -1551,8 +1551,14 @@ def read(
         ``start``).
     start, end : Date or str, optional
         Time window. The server must still hold the past data.
-    port, protocol, metadata, timeout
-        See :class:`Client`.
+    port : int, optional
+        Server port (see :class:`Client`).
+    protocol : {"auto", "3.1", "4.0"}, optional
+        Protocol version (see :class:`Client`).
+    metadata : MetadataCollection, path or sequence of paths, optional
+        Channel metadata (see :class:`Client`).
+    timeout : float, optional
+        Network timeout (see :class:`Client`).
 
     Returns
     -------
@@ -1611,11 +1617,22 @@ def archive(
         Server host name or address.
     select : str or sequence of str
         Channel patterns (see :meth:`Client.select`).
-    path, rotate, layout
-        Archive (see :meth:`Client.set_archive`).
-    port, protocol, state_file, timeout
-        See :class:`Client`. A state file lets a new run resume where
-        the previous one stopped.
+    path : str or path-like
+        Archive path or file name template (see
+        :meth:`Client.set_archive`).
+    rotate : float or str, optional
+        File rotation (see :meth:`Client.set_archive`).
+    layout : {"sds"}, optional
+        Archive layout (see :meth:`Client.set_archive`).
+    port : int, optional
+        Server port (see :class:`Client`).
+    protocol : {"auto", "3.1", "4.0"}, optional
+        Protocol version (see :class:`Client`).
+    state_file : str or path-like, optional
+        State file (see :class:`Client`); it lets a new run resume
+        where the previous one stopped.
+    timeout : float, optional
+        Network timeout (see :class:`Client`).
     duration : float, optional
         Wall-clock seconds after which the function returns.
 
@@ -1660,11 +1677,24 @@ def records(
         Server host name or address.
     select : str or sequence of str
         Channel patterns (see :meth:`Client.select`).
-    port, protocol, metadata, timeout, state_file
-        See :class:`Client`.
-    start, end, fetch
-        See :meth:`Client.run`. Without ``end`` or ``fetch`` the
-        iteration lasts until the loop is left.
+    port : int, optional
+        Server port (see :class:`Client`).
+    protocol : {"auto", "3.1", "4.0"}, optional
+        Protocol version (see :class:`Client`).
+    metadata : MetadataCollection, path or sequence of paths, optional
+        Channel metadata (see :class:`Client`).
+    timeout : float, optional
+        Network timeout (see :class:`Client`).
+    state_file : str or path-like, optional
+        State file (see :class:`Client`).
+    start : Date or str, optional
+        Start of the time window (see :meth:`Client.run`).
+    end : Date or str, optional
+        End of the time window (see :meth:`Client.run`). Without
+        ``end`` or ``fetch`` the iteration lasts until the loop is
+        left.
+    fetch : bool, optional
+        Dial-up mode (see :meth:`Client.run`).
     max_queue : int, optional
         Records waiting in the queue at most. Default is 1000.
 
@@ -1873,7 +1903,7 @@ def _decode(packet: Packet) -> tuple:
             msrecord.header["NETWORK_CODE"].strip(),
             msrecord.header["STATION_CODE"].strip(),
         ))
-        if not msrecord.is_waveform:
+        if not msrecord.is_timeseries:
             return [], station
         return [msrecord.to_shakelab()], station
 

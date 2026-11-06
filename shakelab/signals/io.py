@@ -1,5 +1,4 @@
 # ****************************************************************************
-#
 # Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
@@ -15,7 +14,6 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
 """
 Reading and writing of waveforms and channel metadata.

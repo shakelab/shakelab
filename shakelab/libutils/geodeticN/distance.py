@@ -51,9 +51,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from shakelab.libutils.geodeticN import utilities
 from shakelab.libutils.geodeticN.primitives import WgsPoint
 from shakelab.libutils.geodeticN.transform import geo_to_ecef
-from shakelab.libutils.geodeticN import utilities
 
 
 __all__ = [
@@ -64,9 +64,9 @@ __all__ = [
 ]
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Public distances
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def epicentral_distance(
     hypocenter: Any,
@@ -80,11 +80,11 @@ def epicentral_distance(
 
     Parameters
     ----------
-    hypocenter
+    hypocenter : object
         Event location: an object with ``longitude`` and ``latitude``.
-    station
+    station : object
         Site location: an object with ``longitude`` and ``latitude``.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
 
     Returns
@@ -120,14 +120,14 @@ def hypocentral_distance(
 
     Parameters
     ----------
-    hypocenter
+    hypocenter : object
         Event location: an object with ``longitude``, ``latitude`` and
         optionally ``elevation`` (default 0).
-    station
+    station : object
         Site location, as ``hypocenter``.
-    approx
+    approx : str, optional
         Earth model: ``"ellipsoid"`` (WGS84, default) or ``"sphere"``.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters, used when ``approx="sphere"``.
 
     Returns
@@ -171,10 +171,10 @@ def tunnel_distance_sphere(
 
     Parameters
     ----------
-    point1, point2
+    point1, point2 : object
         Objects with ``longitude``, ``latitude`` and optionally
         ``elevation``.
-    radius_m
+    radius_m : float, optional
         Sphere radius in meters.
 
     Returns
@@ -202,7 +202,7 @@ def tunnel_distance_ellipsoid(point1: Any, point2: Any) -> float:
 
     Parameters
     ----------
-    point1, point2
+    point1, point2 : object
         Objects with ``longitude``, ``latitude`` and optionally
         ``elevation``.
 
@@ -217,9 +217,9 @@ def tunnel_distance_ellipsoid(point1: Any, point2: Any) -> float:
     return ((x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2) ** 0.5
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Private helpers
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 def _as_wgs_point(obj: Any) -> WgsPoint:
     """

@@ -84,6 +84,11 @@ class SidPattern(NamedTuple):
         sid : str or None
             ``NET.STA.LOC.CHA``; None and malformed identifiers never
             match.
+
+        Returns
+        -------
+        bool
+            True if the identifier matches.
         """
         if not isinstance(sid, str):
             return False
@@ -229,6 +234,11 @@ def match_sid(sid: Optional[str], pattern: Any) -> bool:
     pattern : str or SidPattern
         Pattern (see the module notes).
 
+    Returns
+    -------
+    bool
+        True if the identifier matches.
+
     Examples
     --------
     >>> match_sid("OX.CAE..HHZ", "OX.{CAE,BAD}")
@@ -252,6 +262,11 @@ def match_code(code: Optional[str], pattern: str) -> bool:
     pattern : str
         Pattern of at most two codes (``"IV"``, ``"IV.MO*"``,
         ``"{IV,OX}.*"``).
+
+    Returns
+    -------
+    bool
+        True if the code matches.
     """
     if not isinstance(code, str):
         return False

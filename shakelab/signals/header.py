@@ -82,22 +82,22 @@ class Header:
 
     Parameters
     ----------
-    delta
+    delta : float, optional
         Sampling interval in seconds. It must be finite and strictly
         positive.
-    time
+    time : Date, str or other Date input, optional
         Start time of the associated record, in any format accepted by
         :class:`~shakelab.libutils.timeN.Date` (e.g. an ISO 8601
         string). The header stores its own copy.
-    sid
+    sid : str, optional
         Source identifier ``NET.STA.LOC.CHA`` (FDSN source code).
-    eid
+    eid : str, optional
         Event identifier.
-    units
+    units : str, optional
         Physical units of the waveform samples.
-    parent
+    parent : object, optional
         Object owning the header, normally a :class:`Record`.
-    meta
+    meta : ChannelEpoch, optional
         Channel epoch (:class:`~shakelab.signals.metadata.ChannelEpoch`)
         of the record, stored by reference. Default: an empty epoch
         with identifier ``sid``.
@@ -180,6 +180,8 @@ class Header:
 
         return "\n".join(lines)
 
+    # -- properties -----------------------------------------------------
+
     @property
     def meta(self) -> ChannelEpoch:
         """
@@ -220,9 +222,9 @@ class Header:
 
         Parameters
         ----------
-        value
+        value : object
             Value to validate.
-        name
+        name : str
             Parameter name used in error messages.
 
         Returns
@@ -323,6 +325,8 @@ class Header:
 
         return getattr(self._parent, "nsamp", None)
 
+    # -- summary and copies ---------------------------------------------
+
     def info(self) -> None:
         """Print a human-readable description of the header."""
         print(self)
@@ -336,7 +340,7 @@ class Header:
 
         Parameters
         ----------
-        parent
+        parent : object, optional
             Parent to associate with the copied header. By default, the
             copied header has no parent.
 

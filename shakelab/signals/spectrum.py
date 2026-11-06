@@ -69,15 +69,15 @@ class Spectrum:
 
     Parameters
     ----------
-    data
+    data : array-like, optional
         Complex spectral values at the frequencies
         ``k / (nsamp * delta)``, ``k = 0, ..., nsamp // 2``.
-    delta
+    delta : float, optional
         Sampling interval of the time series, in seconds.
-    nsamp
+    nsamp : int, optional
         Number of samples of the time series. Default is
         ``2 * (len(data) - 1)`` (even length).
-    head
+    head : Header, optional
         Header with the metadata of the time series; a copy is stored.
         If given, ``delta`` defaults to ``head.delta``.
 
@@ -112,9 +112,7 @@ class Spectrum:
         if data is not None:
             self.set(data, nsamp)
 
-    # ------------------------------------------------------------------------
-    # Construction and conversion
-    # ------------------------------------------------------------------------
+    # -- construction and conversion ------------------------------------
 
     def set(self, data: Any, nsamp: Optional[int] = None) -> None:
         """
@@ -122,9 +120,9 @@ class Spectrum:
 
         Parameters
         ----------
-        data
+        data : array-like
             Complex spectral values.
-        nsamp
+        nsamp : int, optional
             Number of samples of the time series; default
             ``2 * (len(data) - 1)``.
 
@@ -168,11 +166,11 @@ class Spectrum:
 
         Parameters
         ----------
-        data
+        data : array-like
             Real samples.
-        delta
+        delta : float
             Sampling interval in seconds.
-        nsamp
+        nsamp : int, optional
             Transform length (zero padding or truncation). Default is
             the number of samples.
 
@@ -198,7 +196,7 @@ class Spectrum:
 
         Parameters
         ----------
-        record
+        record : Record
             Record with a sampling interval.
 
         Returns
@@ -261,9 +259,7 @@ class Spectrum:
 
         return spectrum
 
-    # ------------------------------------------------------------------------
-    # Properties
-    # ------------------------------------------------------------------------
+    # -- properties -----------------------------------------------------
 
     def __len__(self) -> int:
         return self.nfreq
@@ -331,9 +327,7 @@ class Spectrum:
         """Phase of the spectrum unwrapped along frequency, in radians."""
         return np.unwrap(self.phase)
 
-    # ------------------------------------------------------------------------
-    # Arithmetic
-    # ------------------------------------------------------------------------
+    # -- arithmetic -----------------------------------------------------
 
     def _operand(self, value: Any, name: str) -> Any:
         """Return the array or scalar to combine with the data."""
@@ -371,9 +365,7 @@ class Spectrum:
         result.data = self.data / operand
         return result
 
-    # ------------------------------------------------------------------------
-    # Processing
-    # ------------------------------------------------------------------------
+    # -- processing -----------------------------------------------------
 
     def filter(
         self,
@@ -388,15 +380,15 @@ class Spectrum:
 
         Parameters
         ----------
-        highpass, lowpass
+        highpass, lowpass : float, optional
             Corner frequencies in Hz; at least one is required.
-        order
+        order : int, optional
             Butterworth order.
-        minphase
+        minphase : bool, optional
             Use the causal (minimum-phase) Butterworth response instead
             of the zero-phase one (see
             :func:`shakelab.signals.fourier.butterworth`).
-        method
+        method : str, optional
             ``"butterworth"`` (default) or ``"sharp"``, which sets to
             zero the values outside the pass band.
 
@@ -438,7 +430,7 @@ class Spectrum:
 
         Parameters
         ----------
-        frequency
+        frequency : float or array-like
             Frequencies in Hz, within the frequency axis.
 
         Returns
@@ -482,20 +474,16 @@ class Spectrum:
 
         Parameters
         ----------
-        resp
+        resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Stage, stage set, channel epoch or metadata collection.
             The applicable response is selected by source identifier
             and start time of the header (see
             :func:`shakelab.signals.metadata.select_response`).
             Default: the response of the channel metadata
             (``head.meta``).
-        stages
+        stages : str or sequence of str, optional
             Stage types to include, e.g. ``("gain", "paz")``; None for
             the complete response.
-
-        Notes
-        -----
-        The units become the output units of the response, if declared.
 
         Raises
         ------
@@ -503,6 +491,10 @@ class Spectrum:
             If no response is available, or if the units of the data
             and the input units of the response are both declared and
             differ.
+
+        Notes
+        -----
+        The units become the output units of the response, if declared.
         """
         selected = metadata.select_response(
             self.head.meta if resp is None else resp,
@@ -530,24 +522,20 @@ class Spectrum:
 
         Parameters
         ----------
-        resp
+        resp : StageResponse, StageSet, ChannelEpoch or MetadataCollection
             Stage, stage set, channel epoch or metadata collection
             (see :meth:`convolve_response`). Default: the response of
             the channel metadata.
-        waterlevel
+        waterlevel : float, optional
             Water level in dB below the maximum of the response
             amplitude.
-        method
+        method : str, optional
             Regularization of the inverse: ``"water"``, ``"sharp"`` or
             ``"smooth"`` (see
             :func:`shakelab.signals.fourier.inverse_spectrum`).
-        stages
+        stages : str or sequence of str, optional
             Stage types to include, e.g. ``("gain", "paz")``; None for
             the complete response.
-
-        Notes
-        -----
-        The units become the input units of the response, if declared.
 
         Raises
         ------
@@ -555,6 +543,10 @@ class Spectrum:
             If no response is available, or if the units of the data
             and the output units of the response are both declared and
             differ (e.g. data already corrected).
+
+        Notes
+        -----
+        The units become the input units of the response, if declared.
         """
         selected = metadata.select_response(
             self.head.meta if resp is None else resp,
@@ -579,17 +571,11 @@ class Spectrum:
 
         Parameters
         ----------
-        resp
+        resp : StageGain, StageSet, ChannelEpoch or MetadataCollection
             Gain stage, stage set, channel epoch or metadata
             collection (see
             :func:`shakelab.signals.metadata.select_sensitivity`).
             Default: the response of the channel metadata.
-
-        Notes
-        -----
-        A quick correction for instruments with a flat response in the
-        band of interest. The units become the input units of the
-        sensitivity, if declared.
 
         Raises
         ------
@@ -597,6 +583,12 @@ class Spectrum:
             If no sensitivity is available, or if the units of the data
             and the output units of the sensitivity are both declared
             and differ (e.g. data already corrected).
+
+        Notes
+        -----
+        A quick correction for instruments with a flat response in the
+        band of interest. The units become the input units of the
+        sensitivity, if declared.
         """
         sens = metadata.select_sensitivity(
             self.head.meta if resp is None else resp,
@@ -621,14 +613,14 @@ class Spectrum:
 
         Parameters
         ----------
-        sigma, truncation
+        sigma, truncation : float, optional
             Width and truncation of the Gaussian kernel (natural-log
             frequency units).
-        method
+        method : str, optional
             ``"gaussian"`` (default) or ``"konno-ohmachi"``.
-        bandwidth
+        bandwidth : float, optional
             Bandwidth coefficient of the Konno-Ohmachi window.
-        phase
+        phase : bool, optional
             If True (default), smooth log-amplitude and unwrapped phase
             (:func:`~shakelab.signals.fourier.smooth_amplitude_phase`);
             otherwise smooth only the log-amplitude and keep the phase

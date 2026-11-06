@@ -245,7 +245,7 @@ def msread(
     skipped: dict = {}
 
     for raw in msrawiter(source, byte_order=byte_order):
-        if raw.is_waveform:
+        if raw.is_timeseries:
             pieces.setdefault(raw.sid, []).append(
                 (raw.start_ns, raw.rate, raw.data)
             )
@@ -686,7 +686,7 @@ class MSRecord:
         return 2 ** exponent
 
     @property
-    def is_waveform(self) -> bool:
+    def is_timeseries(self) -> bool:
         """True for records with decoded numeric samples and a rate."""
         return (
             self.nsamp > 0
@@ -883,6 +883,99 @@ class MSRecord:
         content[data_offset:data_offset + len(payload)] = payload
         return bytes(content), count
 
+    @classmethod
+    def from_shakelab(
+        cls,
+        record: Record,
+        encoding: Optional[int] = None,
+        record_length: int = 512,
+    ) -> MSRecord:
+        """
+        Build a MiniSEED record from a ShakeLab Record.
+
+        The record holds all the samples: :meth:`to_bytes` with
+        ``allow_partial=True`` encodes as many as fit in one record
+        (:func:`mswrite` splits a waveform into as many records as
+        needed).
+
+        Parameters
+        ----------
+        record : Record
+            Waveform with sampling interval, start time and source
+            identifier.
+        encoding : int, optional
+            MiniSEED encoding. If None (default), it follows the type
+            of the data: STEIM2 for integers, 4 for float32 and 5 for
+            other floating-point types.
+        record_length : int, optional
+            Record length in bytes, a power of two from 128 to 65536.
+            Default is 512.
+
+        Returns
+        -------
+        MSRecord
+            MiniSEED record with sequence number 1.
+
+        Raises
+        ------
+        ValueError
+            If the data are not one-dimensional, the sampling interval
+            or the start time is missing, or a code is too long.
+        """
+        data = np.asarray(record.data)
+        if data.ndim != 1:
+            raise ValueError(
+                "MiniSEED waveform data must be one-dimensional"
+            )
+        if record.head.delta is None:
+            raise ValueError("Waveform sampling interval is not defined")
+        delta = float(record.head.delta)
+        if not np.isfinite(delta) or delta <= 0:
+            raise ValueError(
+                "Waveform sampling interval must be positive and finite"
+            )
+        if record.head.time is None:
+            raise ValueError("Waveform start time is not defined")
+        if encoding is None:
+            encoding = _default_encoding(data)
+        _validate_encoding(encoding)
+        _validate_record_length(record_length)
+
+        network, station, location, channel = _split_fdsn_code(
+            record.head.sid
+        )
+        factor, multiplier = _sampling_rate_factors(delta)
+        msrecord = cls(
+            SEQUENCE_NUMBER="000001",
+            DATA_HEADER_QUALITY_INDICATOR="D",
+            RESERVED_BYTE=" ",
+            STATION_CODE=_format_ascii_field(station, 5, "station code"),
+            LOCATION_IDENTIFIER=_format_ascii_field(
+                location, 2, "location identifier"
+            ),
+            CHANNEL_IDENTIFIER=_format_ascii_field(
+                channel, 3, "channel identifier"
+            ),
+            NETWORK_CODE=_format_ascii_field(network, 2, "network code"),
+            UNUSED=0,
+            SAMPLE_RATE_FACTOR=factor,
+            SAMPLE_RATE_MULTIPLIER=multiplier,
+            ACTIVITY_FLAGS=0,
+            IO_FLAGS=0,
+            DATA_QUALITY_FLAGS=0,
+            NUMBER_OF_SAMPLES=data.size,
+            TIME_CORRECTION=0,
+        )
+        msrecord.blockette[1000].update(
+            ENCODING_FORMAT=int(encoding),
+            WORD_ORDER=1,
+            DATA_RECORD_LENGTH=record_length.bit_length() - 1,
+            RESERVED=0,
+        )
+        msrecord._set_start_ns(record.head.time.to_unix_ns())
+        msrecord.data = data
+        return msrecord
+
     def to_shakelab(self) -> Record:
         """
         Convert the record to a ShakeLab Record.
@@ -890,11 +983,12 @@ class MSRecord:
         Raises
         ------
         ValueError
-            If the record holds no waveform (see :attr:`is_waveform`).
+            If the record holds no time series (see
+            :attr:`is_timeseries`).
         """
         from shakelab.signals.base import Record
 
-        if not self.is_waveform:
+        if not self.is_timeseries:
             raise ValueError("the MiniSEED record holds no waveform")
         return Record(
             data=self.data.copy(),
@@ -902,6 +996,37 @@ class MSRecord:
             time=self.time,
             sid=self.sid,
         )
+
+    def info(self) -> None:
+        """Print the fixed-header fields and the blockettes."""
+        print(repr(self))
+        for name in HEADER_FIELDS:
+            value = self.header[name]
+            if value is not None and name != "UNUSED":
+                print(f"{name:>32} = {value}")
+        for block_type in sorted(self.blockette):
+            fields = ", ".join(
+                f"{name}={value}"
+                for name, value in self.blockette[block_type].items()
+                if name != "RESERVED"
+            )
+            print(f"{'BLOCKETTE ' + str(block_type):>32} : {fields}")
+
+    # -- helpers --------------------------------------------------------
+
+    def _set_start_ns(self, start_ns: int) -> None:
+        """Set the start time fields (and blockette 1001 if needed)."""
+        time_fields, micro = _mseed_time_fields(start_ns)
+        self.header.update(time_fields)
+        if micro:
+            self.blockette[1001] = {
+                "TIMING_QUALITY": 0,
+                "MICRO_SEC": micro,
+                "RESERVED": 0,
+                "FRAME_COUNT": 0,
+            }
+        else:
+            self.blockette.pop(1001, None)
 
     # -- decoding -------------------------------------------------------
 
@@ -1274,72 +1399,17 @@ def _write_shakelab_record(
     Write one ShakeLab record as MiniSEED records; return the next
     sequence number.
     """
-    data = np.asarray(record.data)
-    if data.ndim != 1:
-        raise ValueError("MiniSEED waveform data must be one-dimensional")
-    if record.head.delta is None:
-        raise ValueError("Waveform sampling interval is not defined")
+    raw = MSRecord.from_shakelab(record, encoding, reclen)
+    data = raw.data
     delta = float(record.head.delta)
-    if not np.isfinite(delta) or delta <= 0:
-        raise ValueError(
-            "Waveform sampling interval must be positive and finite"
-        )
-
-    if encoding is None:
-        encoding = _default_encoding(data)
-
-    network, station, location, channel = _split_fdsn_code(record.head.sid)
-    factor, multiplier = _sampling_rate_factors(delta)
     start_ns = record.head.time.to_unix_ns()
-
-    raw = MSRecord(
-        DATA_HEADER_QUALITY_INDICATOR="D",
-        RESERVED_BYTE=" ",
-        STATION_CODE=_format_ascii_field(station, 5, "station code"),
-        LOCATION_IDENTIFIER=_format_ascii_field(
-            location, 2, "location identifier"
-        ),
-        CHANNEL_IDENTIFIER=_format_ascii_field(
-            channel, 3, "channel identifier"
-        ),
-        NETWORK_CODE=_format_ascii_field(network, 2, "network code"),
-        UNUSED=0,
-        SAMPLE_RATE_FACTOR=factor,
-        SAMPLE_RATE_MULTIPLIER=multiplier,
-        ACTIVITY_FLAGS=0,
-        IO_FLAGS=0,
-        DATA_QUALITY_FLAGS=0,
-        TIME_CORRECTION=0,
-    )
-    raw.blockette[1000].update(
-        ENCODING_FORMAT=int(encoding),
-        WORD_ORDER=1,
-        DATA_RECORD_LENGTH=reclen.bit_length() - 1,
-        RESERVED=0,
-    )
+    steim = raw.encoding in STEIM_ENCODINGS
 
     index = 0
     while index < data.size:
-        time_fields, micro = _mseed_time_fields(
-            start_ns + round(index * delta * 1e9)
-        )
-        raw.header.update(time_fields)
-        if micro:
-            raw.blockette[1001] = {
-                "TIMING_QUALITY": 0,
-                "MICRO_SEC": micro,
-                "RESERVED": 0,
-                "FRAME_COUNT": 0,
-            }
-        else:
-            raw.blockette.pop(1001, None)
-
+        raw._set_start_ns(start_ns + round(index * delta * 1e9))
         raw.data = data[index:]
-        previous = (
-            int(data[index - 1])
-            if index > 0 and encoding in STEIM_ENCODINGS
-            else None
-        )
+        previous = int(data[index - 1]) if index > 0 and steim else None
         content, count = raw.to_bytes(
             sequence_number=sequence_number,
             allow_partial=True,

@@ -124,7 +124,7 @@ def read_stationxml(source: Any) -> mdm.MetadataCollection:
 
     Parameters
     ----------
-    source
+    source : str, path-like, bytes or file object
         File path, XML text, bytes or open file (see
         :func:`shakelab.libutils.xml.read_xml`).
 
@@ -234,7 +234,7 @@ def iter_channels(root: Element) -> Iterator[tuple]:
 
     Parameters
     ----------
-    root
+    root : xml.etree.ElementTree.Element
         Root element (``FDSNStationXML``), without namespaces.
 
     Yields
@@ -277,9 +277,9 @@ def parse_response(
 
     Parameters
     ----------
-    element
+    element : xml.etree.ElementTree.Element
         ``<Response>`` element.
-    sample_rate
+    sample_rate : float, optional
         Sampling rate of the channel in Hz.
 
     Returns

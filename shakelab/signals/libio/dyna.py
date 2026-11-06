@@ -355,6 +355,11 @@ class Dyna:
             DYNA file, its content (a string with line breaks, or
             bytes), or an open file.
 
+        Returns
+        -------
+        Dyna
+            Content of the file.
+
         Raises
         ------
         ValueError
@@ -424,6 +429,11 @@ class Dyna:
         ----------
         fmt : str, optional
             ``%`` format of the data values.
+
+        Returns
+        -------
+        str
+            Text of the file.
         """
         lines = [
             f"{name}: {_format_value(value)}"
