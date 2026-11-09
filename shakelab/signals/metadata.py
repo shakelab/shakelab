@@ -95,6 +95,7 @@ from shakelab.signals import response as rspm
 from shakelab.signals.codes import match_code, parse_sid_pattern
 
 __all__ = [
+    "METADATA_FORMATS",
     "MetadataWarning",
     "Orientation",
     "Equipment",
@@ -104,6 +105,11 @@ __all__ = [
     "select_response",
     "select_sensitivity",
 ]
+
+
+# Formats of MetadataCollection.read: StationXML, RESP, text of the FDSN
+# station service, JSON of MetadataCollection.write.
+METADATA_FORMATS = ("xml", "sxml", "resp", "fdsntext", "json")
 
 
 class MetadataWarning(UserWarning):
@@ -1053,20 +1059,24 @@ class MetadataCollection:
         append: bool = False,
     ) -> None:
         """
-        Read metadata from a StationXML, RESP or JSON file.
+        Read metadata from a StationXML, RESP, FDSN text or JSON file.
 
         Parameters
         ----------
         source : str, path-like, bytes or file object
-            File path; for StationXML and RESP also text, bytes or an
-            open file (see
-            :func:`shakelab.signals.stationxml.read_stationxml` and
-            :func:`shakelab.signals.respfile.read_resp`).
+            File path; for StationXML, RESP and FDSN text also text,
+            bytes or an open file (see
+            :func:`shakelab.signals.stationxml.read_stationxml`,
+            :func:`shakelab.signals.respfile.read_resp` and
+            :func:`shakelab.signals.stationtext.read_station_text`).
         format : str, optional
-            ``"xml"`` (also ``"sxml"``), ``"resp"`` or ``"json"``. If
+            ``"xml"`` (also ``"sxml"``), ``"resp"``, ``"fdsntext"``
+            (text format of the FDSN station service) or ``"json"``. If
             None, it is inferred from the file name: ``"resp"`` for
             names starting with ``RESP.`` (as written by rdseed) or
-            ending with ``.resp``, otherwise the extension.
+            ending with ``.resp``, otherwise the extension; files and
+            contents with another extension are recognized as
+            ``"fdsntext"`` from their header line.
         append : bool, optional
             If True, add to the current content; otherwise replace it.
 
@@ -1077,6 +1087,11 @@ class MetadataCollection:
         """
         if format is None:
             format = _file_type(source)
+            if format not in METADATA_FORMATS:
+                from shakelab.signals.stationtext import is_station_text
+
+                if is_station_text(source):
+                    format = "fdsntext"
         format = format.lower()
 
         if format in ("xml", "sxml"):
@@ -1090,6 +1105,11 @@ class MetadataCollection:
             from shakelab.signals.respfile import read_resp
 
             new = read_resp(source)
+
+        elif format == "fdsntext":
+            from shakelab.signals.stationtext import read_station_text
+
+            new = read_station_text(source)
 
         elif format == "json":
             with open(source, "r") as fobj:
@@ -1153,6 +1173,10 @@ def _collection_from_json(content: dict) -> MetadataCollection:
 
 def _file_type(path: Any) -> str:
     """Return the metadata file type inferred from a file name."""
+    if not isinstance(path, (str, _os.PathLike)) or (
+        isinstance(path, str) and ("\n" in path or "\r" in path)
+    ):
+        return ""
     name = _os.path.basename(str(path))
     if name.upper().startswith("RESP."):
         return "resp"

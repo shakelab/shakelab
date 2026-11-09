@@ -18,7 +18,7 @@
 """
 Client of the FDSN web services.
 
-The package has four layers:
+The package has these modules:
 
 - :mod:`~shakelab.signals.fdsnws.transport`: HTTP requests (standard
   library only), retries, errors and parameter formatting;
@@ -27,9 +27,10 @@ The package has four layers:
 - :mod:`~shakelab.signals.fdsnws.selection`: channel patterns
   translated into requests;
 - :mod:`~shakelab.signals.fdsnws.client`: the :class:`Client`, with
-  waveforms, metadata, events and data availability; the text format
+  waveforms, metadata, events and data availability (the text format
   of the station service is read by
-  :mod:`~shakelab.signals.fdsnws.stationtext`.
+  :mod:`shakelab.signals.stationtext`);
+- :mod:`~shakelab.signals.fdsnws.cli`: the command ``slab-fdsn``.
 
 Examples
 --------
@@ -44,7 +45,6 @@ from __future__ import annotations
 
 from shakelab.signals.fdsnws.client import Client, TimeSpan
 from shakelab.signals.fdsnws.registry import DataCenter, datacenters
-from shakelab.signals.fdsnws.stationtext import read_station_text
 from shakelab.signals.fdsnws.transport import FdsnError, FdsnWarning
 
 __all__ = [
@@ -54,5 +54,4 @@ __all__ = [
     "FdsnWarning",
     "TimeSpan",
     "datacenters",
-    "read_station_text",
 ]

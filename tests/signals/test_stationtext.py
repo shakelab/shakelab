@@ -16,22 +16,27 @@
 # with this download. If not, see <http://www.gnu.org/licenses/>
 # ****************************************************************************
 """
-Tests of :mod:`shakelab.signals.fdsnws.stationtext`.
+Tests of :mod:`shakelab.signals.stationtext`.
 
-The text format of the station service, at channel and station level,
-read from the files of ``tests/signals/fdsnws/data``.
+The text format of the FDSN station service, at channel and station
+level, read from the files of ``tests/signals/data/stationtext``
+directly, through :class:`MetadataCollection` and through
+:func:`metadata_reader`.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 
 import pytest
 
 from shakelab.libutils.timeN import Date
-from shakelab.signals.fdsnws.stationtext import read_station_text
+from shakelab.signals.io import metadata_reader
+from shakelab.signals.metadata import MetadataCollection
+from shakelab.signals.stationtext import is_station_text, read_station_text
 
-from fdsn_server import DATA
+DATA = os.path.join(os.path.dirname(__file__), "data", "stationtext")
 
 
 def test_channels():
@@ -92,3 +97,56 @@ def test_wrong_lines():
     """Lines with other numbers of fields are rejected."""
     with pytest.raises(ValueError, match="line 2"):
         read_station_text("#header\nIV|MODE|x\n")
+
+
+# ----------------------------------------------------------------------------
+# Recognition and metadata readers
+# ----------------------------------------------------------------------------
+
+
+def test_is_station_text(tmp_path):
+    """Header lines of the station and channel levels."""
+    assert is_station_text(os.path.join(DATA, "channels.txt"))
+    assert is_station_text(os.path.join(DATA, "stations.txt"))
+    assert is_station_text(
+        b"#Network|Station|Latitude|Longitude|Elevation|SiteName|"
+        b"StartTime|EndTime\n"
+    )
+    assert not is_station_text(b"#Network|Station|Other\n")
+    assert not is_station_text(b"Network|Station|Latitude|Longitude|"
+                               b"Elevation|SiteName|StartTime|EndTime\n")
+    assert not is_station_text(str(tmp_path / "missing.txt"))
+    assert not is_station_text(3)
+
+
+def test_metadata_collection_reads_text(tmp_path):
+    """Recognized from the content; explicit format for any name."""
+    collection = MetadataCollection(os.path.join(DATA, "channels.txt"))
+    assert len(collection) == 4
+
+    renamed = tmp_path / "channels.dat"
+    shutil.copy(os.path.join(DATA, "channels.txt"), renamed)
+    collection = MetadataCollection(str(renamed))
+    assert "IV.MODE..HNZ" in collection
+
+    collection = MetadataCollection()
+    with open(os.path.join(DATA, "stations.txt"), "rb") as fobj:
+        collection.read(fobj.read())
+    assert len(collection.stations()) == 2
+
+    collection = MetadataCollection(str(renamed), format="fdsntext")
+    assert len(collection) == 4
+
+
+def test_metadata_reader_reads_text(tmp_path):
+    """Text files found in a directory are read, others skipped."""
+    folder = tmp_path / "meta"
+    folder.mkdir()
+    for name in ("channels.txt", "stations.txt"):
+        shutil.copy(os.path.join(DATA, name), folder / name)
+    (folder / "notes.txt").write_text("not metadata\n")
+
+    with pytest.warns(UserWarning, match="notes.txt"):
+        collection = metadata_reader(str(folder))
+    assert len(collection) == 4
+    assert [s.code for s in collection.stations()] == ["IV.MODE", "IV.MOXX"]

@@ -28,7 +28,7 @@ corrections. The format follows
   `stream_collection=` adds to an existing collection.
   `get_metadata` returns a `MetadataCollection` (levels station,
   channel, response; `text=True` for the light text format, read by
-  `read_station_text`); `get_events` returns an `EqDatabase`;
+  `signals.stationtext`); `get_events` returns an `EqDatabase`;
   `get_availability` (new) returns `TimeSpan`s; `version()` (new).
   Channels are selected with the patterns of `signals.codes`, filtered
   again by the client: an empty location is requested as `--` (it
@@ -46,6 +46,10 @@ corrections. The format follows
   (`2026-10-30`, midnight) or without the seconds (`2026-10-30T15:25`),
   and with a space instead of `T` between date and time (as RFC 3339
   allows).
+- The SeedLink client decodes MiniSEED 2 packets with libmseed
+  (cymseed3), as the other MiniSEED readers, unless
+  `signals.io.USE_LIBMSEED` is False: the pure-Python decoder took
+  about 6 ms per 512-byte record.
 - New command `slab-fdsn` (also `python -m shakelab.signals.fdsnws`)
   with the subcommands `waveforms`, `metadata`, `events`,
   `availability` and `datacenters`.
@@ -353,6 +357,15 @@ corrections. The format follows
 
 ### Added
 
+- `signals.io.read_mseed_bytes`: MiniSEED records held in memory (web
+  service replies, SeedLink packets) read with the backend chosen as
+  in `reader` (`mseed_backend`, `USE_LIBMSEED`).
+- `signals.stationtext`: the text format of the FDSN station service
+  (`read_station_text`, `is_station_text`) as a metadata format,
+  `format="fdsntext"` in `MetadataCollection.read` and
+  `signals.io.metadata_reader`, recognized from its header line when
+  the file name does not tell the format.
+  `signals.metadata.METADATA_FORMATS` lists the metadata formats.
 - `detrend(kind="linear")` of `Record`, `Stream` and
   `StreamCollection`: removes the least-squares straight line
   (`"linear"`) or the mean (`"constant"`, as `remove_mean`).

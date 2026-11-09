@@ -183,7 +183,7 @@ class FakeFdsnServer:
                     "stations.txt" if params.get("level") == "station"
                     else "channels.txt"
                 )
-                return (200, read_file(DATA, name),
+                return (200, read_file(SIGNALS_DATA, "stationtext", name),
                         {"Content-Type": "text/plain"})
             return (200, read_file(SIGNALS_DATA, "MODE.xml"),
                     {"Content-Type": "application/xml"})

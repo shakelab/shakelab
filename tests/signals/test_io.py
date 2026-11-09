@@ -45,6 +45,7 @@ from shakelab.signals.io import (
     IoWarning,
     formats,
     metadata_reader,
+    read_mseed_bytes,
     reader,
     writer,
 )
@@ -759,3 +760,44 @@ def test_sds_errors(archive, tmp_path):
                             starttime="2026-05-03T00:00:00",
                             endtime="2026-05-03T01:00:00")
     assert len(collection) == 0
+
+
+# ----------------------------------------------------------------------------
+# read_mseed_bytes
+# ----------------------------------------------------------------------------
+
+
+def test_read_mseed_bytes():
+    """Records in memory give the same collection as the file."""
+    content = Path(MSEED).read_bytes()
+    collection = read_mseed_bytes(content, mseed_backend="python")
+    expected = reader(MSEED, mseed_backend="python")
+
+    assert collection.sid == expected.sid
+    for sid in expected.sid:
+        np.testing.assert_array_equal(
+            collection[sid][0].data, expected[sid][0].data
+        )
+        assert collection[sid][0].time == expected[sid][0].time
+
+
+def test_read_mseed_bytes_into_collection():
+    """Bytes-like objects; records added to a given collection."""
+    content = Path(MSEED).read_bytes()
+    collection = StreamCollection()
+    result = read_mseed_bytes(
+        memoryview(content)[:512], mseed_backend="python",
+        stream_collection=collection, byte_order="be",
+    )
+    assert result is collection
+    assert collection.sid == ["IV.MODE..HNE"]
+
+
+def test_read_mseed_bytes_errors():
+    """Wrong contents, backends and options are rejected."""
+    with pytest.raises(TypeError, match="bytes"):
+        read_mseed_bytes(MSEED)
+    with pytest.raises(ValueError, match="mseed_backend"):
+        read_mseed_bytes(b"", mseed_backend="fast")
+    with pytest.raises(TypeError, match="unknown option"):
+        read_mseed_bytes(b"", mseed_backend="python", encoding=11)

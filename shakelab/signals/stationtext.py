@@ -34,20 +34,30 @@ orientation, sampling rate, sensor description and the overall
 sensitivity (``Scale`` per ``ScaleUnits`` at ``ScaleFreq``), without
 response stages and without station epochs; the station lines become
 station epochs.
+
+The format is named ``"fdsntext"`` in
+:meth:`~shakelab.signals.metadata.MetadataCollection.read` and
+:func:`~shakelab.signals.io.metadata_reader`, which recognize it from
+its header line (:func:`is_station_text`) when the file name does not
+tell the format (e.g. ``.txt``).
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
 from shakelab.libutils.ascii import read_text
 from shakelab.signals import metadata as mdm
 from shakelab.signals import response as rspm
 
-__all__ = ["read_station_text"]
+__all__ = ["is_station_text", "read_station_text"]
 
 _STATION_FIELDS = 8
 _CHANNEL_FIELDS = 17
+
+# Bytes read to recognize the format from the content.
+_HEAD_SIZE = 1024
 
 
 def read_station_text(source: Any) -> mdm.MetadataCollection:
@@ -99,6 +109,45 @@ def read_station_text(source: Any) -> mdm.MetadataCollection:
             )
 
     return collection
+
+
+def is_station_text(source: Any) -> bool:
+    """
+    Return whether a file or a content is in the station text format.
+
+    Parameters
+    ----------
+    source : str, path-like or bytes
+        File path, or content (text with line breaks, or bytes).
+
+    Returns
+    -------
+    bool
+        True if the first line is a header ``#Network | Station | ...``
+        of the station or channel level; False otherwise, also for
+        files that cannot be read.
+    """
+    if isinstance(source, (bytes, bytearray, memoryview)):
+        head = bytes(source[:_HEAD_SIZE])
+    elif isinstance(source, str) and ("\n" in source or "\r" in source):
+        head = source[:_HEAD_SIZE].encode("utf-8", errors="replace")
+    elif isinstance(source, (str, os.PathLike)):
+        try:
+            with open(source, "rb") as fobj:
+                head = fobj.read(_HEAD_SIZE)
+        except OSError:
+            return False
+    else:
+        return False
+
+    line = head.lstrip(b"\xef\xbb\xbf").splitlines()[:1]
+    if not line or not line[0].startswith(b"#"):
+        return False
+    fields = [field.strip().lower() for field in line[0][1:].split(b"|")]
+    return (
+        len(fields) in (_STATION_FIELDS, _CHANNEL_FIELDS)
+        and fields[:2] == [b"network", b"station"]
+    )
 
 
 # ----------------------------------------------------------------------------

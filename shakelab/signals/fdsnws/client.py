@@ -54,7 +54,6 @@ Examples
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import warnings
@@ -399,16 +398,20 @@ class Client:
         elif not isinstance(stream_collection, StreamCollection):
             raise TypeError("stream_collection must be a StreamCollection")
 
+        from shakelab.signals.io import read_mseed_bytes
+
         received = StreamCollection()
-        reader = _mseed_reader(mseed_backend)
         for group in groups:
             content = self._query("dataselect", "query", group, params)
             if not content:
                 continue
             if len(groups) == 1:
-                reader(content, stream_collection=received)
+                read_mseed_bytes(content, mseed_backend=mseed_backend,
+                                 stream_collection=received)
             else:
-                _add_piece(reader(content), group, requests, received)
+                piece = read_mseed_bytes(content,
+                                         mseed_backend=mseed_backend)
+                _add_piece(piece, group, requests, received)
 
         pairs = _select_records(received, requests)
         if not pairs:
@@ -492,7 +495,7 @@ class Client:
             If True, request the text format: lighter, with
             coordinates, orientation, sampling rate and overall
             sensitivity only (see
-            :mod:`~shakelab.signals.fdsnws.stationtext`); not at
+            :mod:`~shakelab.signals.stationtext`); not at
             response level.
         region : tuple of float, optional
             ``(lonmin, lonmax, latmin, latmax)`` in degrees.
@@ -569,9 +572,7 @@ class Client:
             return collection
 
         if text:
-            from shakelab.signals.fdsnws.stationtext import (
-                read_station_text,
-            )
+            from shakelab.signals.stationtext import read_station_text
 
             received = read_station_text(content)
         else:
@@ -906,13 +907,6 @@ class Client:
 # ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
-
-
-def _mseed_reader(backend: str) -> Any:
-    """``msread`` of the MiniSEED backend chosen as in signals.io."""
-    from shakelab.signals import io
-
-    return importlib.import_module(io._mseed_module(backend)).msread
 
 
 def _pad(pad: Optional[Real], requests: list) -> float:

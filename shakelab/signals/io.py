@@ -38,7 +38,9 @@ from their content.
 MiniSEED is read and written by the libmseed-based ``cymseed`` module
 or by the pure-Python ``mseed`` module: :data:`USE_LIBMSEED` sets the
 default, and the ``mseed_backend`` option (``"auto"``, ``"libmseed"``
-or ``"python"``) selects one for a single call.
+or ``"python"``) selects one for a single call. :func:`read_mseed_bytes`
+reads MiniSEED held in memory (web service replies, SeedLink packets)
+with the same rule.
 
 The ``pickle`` format (``.pkl``, ``.pickle``) saves records, streams
 or collections as Python objects, with all their metadata. It is meant
@@ -82,6 +84,7 @@ __all__ = [
     "USE_LIBMSEED",
     "formats",
     "metadata_reader",
+    "read_mseed_bytes",
     "reader",
     "writer",
 ]
@@ -180,10 +183,6 @@ _NAME_FIELDS = ("net", "sta", "loc", "cha", "sid", "start", "time", "year",
 
 # Archive layouts read by reader().
 _LAYOUTS = ("sds",)
-
-# Metadata types recognized from file names (see MetadataCollection.read).
-_METADATA_TYPES = ("xml", "sxml", "resp", "json")
-
 
 def formats() -> dict[str, dict]:
     """
@@ -398,6 +397,62 @@ def reader(
     return collection
 
 
+def read_mseed_bytes(
+    content: Any,
+    *,
+    mseed_backend: Optional[str] = None,
+    stream_collection: Optional[StreamCollection] = None,
+    **options: Any,
+) -> StreamCollection:
+    """
+    Read MiniSEED records held in memory.
+
+    Parameters
+    ----------
+    content : bytes, bytearray or memoryview
+        MiniSEED records, e.g. the reply of a web service or a SeedLink
+        packet.
+    mseed_backend : {"auto", "libmseed", "python"}, optional
+        Backend, as in :func:`reader`; ``"auto"`` (default) follows
+        :data:`USE_LIBMSEED`. MiniSEED 3 needs libmseed.
+    stream_collection : StreamCollection, optional
+        Collection to which the records are added; a new one if
+        omitted.
+    **options
+        Options of the backend reader (e.g. ``byte_order`` for the
+        Python backend).
+
+    Returns
+    -------
+    StreamCollection
+        Collection with the records, contiguous records of a channel
+        joined.
+
+    Raises
+    ------
+    TypeError
+        If ``content`` is not a bytes-like object, or an option is not
+        accepted by the backend.
+    ValueError
+        If the backend is unknown.
+
+    Examples
+    --------
+    >>> sc = read_mseed_bytes(reply, mseed_backend="python")
+    """
+    if not isinstance(content, (bytes, bytearray, memoryview)):
+        raise TypeError("content must be bytes, bytearray or memoryview")
+
+    from shakelab.signals.base import StreamCollection
+
+    if stream_collection is None:
+        stream_collection = StreamCollection()
+    options = {"mseed_backend": mseed_backend, **options}
+    read = _function("mseed", "read", options)
+    read(bytes(content), stream_collection=stream_collection, **options)
+    return stream_collection
+
+
 def metadata_reader(
     source: Any = None,
     *,
@@ -415,9 +470,11 @@ def metadata_reader(
     list_file : str or path-like, optional
         Text file listing the files to read, as in :func:`reader`.
     format : str, optional
-        Format of all files: ``"xml"`` (StationXML), ``"resp"`` or
-        ``"json"``. If omitted, it is inferred from each file name
-        (see :meth:`~shakelab.signals.metadata.MetadataCollection.read`).
+        Format of all files: ``"xml"`` (StationXML), ``"resp"``,
+        ``"fdsntext"`` (text format of the FDSN station service) or
+        ``"json"``. If omitted, it is inferred from each file name or,
+        for the FDSN text format, from its header line (see
+        :meth:`~shakelab.signals.metadata.MetadataCollection.read`).
 
     Returns
     -------
@@ -454,7 +511,12 @@ def metadata_reader(
     >>> meta = metadata_reader(["station.xml", "RESP.IU.ANMO.00.BHZ"])
     >>> meta = metadata_reader("metadata/*.xml")
     """
-    from shakelab.signals.metadata import MetadataCollection, _file_type
+    from shakelab.signals.metadata import (
+        METADATA_FORMATS,
+        MetadataCollection,
+        _file_type,
+    )
+    from shakelab.signals.stationtext import is_station_text
 
     collection = MetadataCollection()
     skipped = []
@@ -462,7 +524,8 @@ def metadata_reader(
         if (
             format is None
             and not explicit
-            and _file_type(path) not in _METADATA_TYPES
+            and _file_type(path) not in METADATA_FORMATS
+            and not is_station_text(path)
         ):
             skipped.append(path)
             continue

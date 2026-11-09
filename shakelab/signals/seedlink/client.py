@@ -1889,37 +1889,50 @@ def _decode(packet: Packet) -> tuple:
     """
     Records of a data packet, and the station ``NET_STA``.
 
-    Invalid packets are logged and skipped.
+    MiniSEED 2 packets are decoded with the default backend of
+    :mod:`shakelab.signals.io` (libmseed unless ``USE_LIBMSEED`` is
+    False), MiniSEED 3 packets with libmseed. Invalid packets are
+    logged and skipped; packets without samples (log, detection and
+    timing records) give no records.
     """
-    if packet.format == "2":
-        from shakelab.signals.libio.mseed import MSRecord
+    if packet.format not in ("2", "3"):
+        logger.debug("packet of format %s skipped", packet.format)
+        return [], packet.station
 
-        try:
-            msrecord = MSRecord.from_bytes(packet.payload)
-        except ValueError as error:
-            logger.warning("invalid MiniSEED packet skipped: %s", error)
-            return [], packet.station
-        station = packet.station or "_".join((
-            msrecord.header["NETWORK_CODE"].strip(),
-            msrecord.header["STATION_CODE"].strip(),
-        ))
-        if not msrecord.is_timeseries:
-            return [], station
-        return [msrecord.to_shakelab()], station
+    from shakelab.signals.io import read_mseed_bytes
 
-    if packet.format == "3":
-        try:
-            from shakelab.signals.libio import cymseed
-        except ImportError:
-            raise NotImplementedError(
-                "MiniSEED 3 packets need the cymseed3 package"
-            ) from None
-        collection = cymseed.msread(packet.payload)
-        records = [record for stream in collection for record in stream]
-        return records, packet.station
+    station = packet.station
+    if station is None and packet.format == "2":
+        station = _ms2_station(packet.payload)
 
-    logger.debug("packet of format %s skipped", packet.format)
-    return [], packet.station
+    backend = "libmseed" if packet.format == "3" else None
+    try:
+        collection = read_mseed_bytes(packet.payload, mseed_backend=backend)
+    except ImportError:
+        raise NotImplementedError(
+            f"MiniSEED {packet.format} packets need the cymseed3 package"
+            + (
+                " (or shakelab.signals.io.USE_LIBMSEED = False)"
+                if packet.format == "2" else ""
+            )
+        ) from None
+    except ValueError as error:
+        logger.warning("invalid MiniSEED packet skipped: %s", error)
+        return [], station
+
+    records = collection.records()
+    if station is None and records:
+        station = "_".join(records[0].sid.split(".")[:2])
+    return records, station
+
+
+def _ms2_station(payload: bytes) -> Optional[str]:
+    """``NET_STA`` of the fixed header of a MiniSEED 2 record."""
+    if len(payload) < 20:
+        return None
+    station = payload[8:13].decode("ascii", errors="replace").strip()
+    network = payload[18:20].decode("ascii", errors="replace").strip()
+    return f"{network}_{station}"
 
 
 def _join_contiguous(records: list) -> Iterator[Record]:
