@@ -20,36 +20,40 @@ MiniSEED reader and writer based on libmseed.
 
 This backend wraps the EarthScope libmseed library (version 3) through
 the ``cymseed3`` package. It reads MiniSEED 2 and 3 and writes either
-version. Its interface and results match those of the pure-Python
-backend (:mod:`shakelab.signals.libio.mseed`), which documents the
-behavior in detail.
+version in every encoding. Its interface and results match those of
+the pure-Python backend (:mod:`shakelab.signals.libio.mseed`), which
+documents the behavior in detail.
 
 Notes
 -----
-``cymseed3`` returns samples as Python lists without their original
-type: integers are converted to int32 and floating-point values to
-float64 (float32 data read by the pure-Python backend stay float32).
+Samples keep the type decoded by libmseed: int32 for integer encodings
+(also for int16 records, which the pure-Python backend returns as
+int16), float32 and float64. Records without samples and text records
+are skipped, as by the pure-Python backend.
 
-``cymseed3`` (up to 0.1.x) packs samples only as int32: floating-point
-and int16 data are corrupted, and one encoding is used for the whole
-file. Until it is fixed, MiniSEED 2 files that need other encodings
-(1, 4, 5) are written by the pure-Python backend, and MiniSEED 3 is
-limited to integer encodings (3, 10, 11).
+When writing with ``encoding=None``, libmseed chooses the encoding of
+each segment with the same rule as the pure-Python backend: STEIM2 for
+integers whose differences fit in 30 bits, STEIM1 if they fit in 32
+bits, otherwise int32; 4 for float32, 5 for other floating-point data.
+Contiguous records of the same channel are written as one segment.
+MiniSEED 2 stores times to the microsecond.
 """
 
 from __future__ import annotations
 
-import os
+import warnings
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
-from cymseed3 import MiniSeed
+from cymseed3 import MiniSeed, MiniSeedWarning
 
 from shakelab.libutils.timeN import Date
-from shakelab.signals.libio import mseed as _pymseed
+from shakelab.libutils.utils import warn_external
 from shakelab.signals.libio.mseed import (
-    _default_encoding,
-    _read_source,
+    INT32_MAX,
+    INT32_MIN,
+    MSeedWarning,
+    _BinaryOutput,
     _split_fdsn_code,
     _validate_encoding,
     _validate_record_length,
@@ -67,8 +71,15 @@ __all__ = ["MSEED_VERSION", "msread", "mswrite"]
 # Default MiniSEED version for writing.
 MSEED_VERSION = 2
 
-# Encodings that cymseed3 packs correctly (samples held as int32).
-_CYMSEED3_ENCODINGS = (3, 10, 11)
+# Sample types of the encodings, as written by cymseed3.
+_ENCODING_TYPES = {
+    1: np.int16,
+    3: np.int32,
+    4: np.float32,
+    5: np.float64,
+    10: np.int32,
+    11: np.int32,
+}
 
 
 # ----------------------------------------------------------------------------
@@ -86,7 +97,8 @@ def msread(
     Parameters
     ----------
     source : str, path-like, bytes or binary file object
-        MiniSEED file, its content, or a file opened in binary mode.
+        MiniSEED file (read through ``mmap``), its content (e.g. a
+        SeedLink packet), or a file opened in binary mode.
     stream_collection : StreamCollection, optional
         Collection to which the records are appended; a new one if
         omitted.
@@ -96,33 +108,38 @@ def msread(
     StreamCollection
         Collection with one record per contiguous segment of each
         channel, as joined by libmseed.
+
+    Warns
+    -----
+    MSeedWarning
+        For invalid or truncated records skipped by libmseed.
     """
     from shakelab.signals.base import Record, StreamCollection
 
     if stream_collection is None:
         stream_collection = StreamCollection()
 
-    content = bytes(_read_source(source))
-    if not content:
-        return stream_collection
-
     ms = MiniSeed()
-    ms.read(content)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", MiniSeedWarning)
+        ms.read(source)
+    for warning in caught:
+        if issubclass(warning.category, MiniSeedWarning):
+            warn_external(str(warning.message), MSeedWarning)
+        else:
+            warnings.warn_explicit(warning.message, warning.category,
+                                   warning.filename, warning.lineno)
 
-    for segment in ms.export_records() or []:
-        data = segment["data"]
-        if not data or isinstance(data[0], str):
+    for segment in ms.segments():
+        if segment.sampletype == "t" or segment.rate <= 0.0:
             continue
-        dtype = np.int32 if isinstance(data[0], int) else np.float64
         stream_collection.append(
             Record(
-                data=np.asarray(data, dtype=dtype),
-                delta=1.0 / segment["rate"],
-                time=Date(segment["starttime"]),
-                sid=".".join(
-                    segment[code].strip()
-                    for code in ("network", "station", "location", "channel")
-                ),
+                data=np.frombuffer(segment.data,
+                                   dtype=segment.data.typecode),
+                delta=1.0 / segment.rate,
+                time=Date.from_unix_ns(segment.start_ns),
+                sid=".".join(segment.codes),
             )
         )
 
@@ -138,18 +155,19 @@ def mswrite(
     owrite: bool = False,
 ) -> None:
     """
-    Write waveforms to a MiniSEED file.
+    Write waveforms to a MiniSEED 2 or 3 file.
 
     Parameters
     ----------
-    target : str or path-like
-        Output file.
+    target : str, path-like or binary file object
+        Output file, or a file opened in binary mode.
     stream_collection : StreamCollection, Stream or Record
         Waveforms to write.
     encoding : int, optional
-        MiniSEED encoding. If None (default), it follows the type of
-        each record's data: STEIM2 for integers, 4 for float32 and 5
-        for other floating-point types.
+        MiniSEED encoding of all the records: 1 (int16), 3 (int32), 4
+        (float32), 5 (float64), 10 (STEIM1) or 11 (STEIM2). If None
+        (default), it follows the type of the data of each segment
+        (see the module notes).
     reclen : int, optional
         Record length in bytes. Default is 512.
     msformat : {2, 3}, optional
@@ -165,10 +183,8 @@ def mswrite(
         If the file exists and ``owrite`` is False.
     ValueError
         If the version, encoding, record length or a source identifier
-        is invalid.
-    NotImplementedError
-        For MiniSEED 3 with encodings other than 3, 10 and 11, or with
-        records needing different encodings (see the module notes).
+        is invalid, or if the data cannot be represented with the
+        encoding (e.g. floating-point data with STEIM).
     """
     from shakelab.signals.base import Record, Stream, StreamCollection
 
@@ -177,56 +193,77 @@ def mswrite(
             "expected a StreamCollection, a Stream or a Record, got "
             f"{type(stream_collection).__name__}"
         )
-    if os.path.exists(target) and not owrite:
-        raise FileExistsError(f"File exists: {target}")
     if msformat is None:
         msformat = MSEED_VERSION
     if msformat not in (2, 3):
         raise ValueError(f"Unsupported MiniSEED version: {msformat}")
     if encoding is not None:
         _validate_encoding(encoding)
+        if encoding not in _ENCODING_TYPES:
+            raise ValueError(
+                f"encoding {encoding} is not supported for waveforms"
+            )
     _validate_record_length(reclen)
 
-    records = stream_collection.records()
-    if not records:
-        return
-
-    encodings = {
-        _default_encoding(np.asarray(record.data))
-        if encoding is None else encoding
-        for record in records
-    }
-
-    if len(encodings) > 1 or not encodings <= set(_CYMSEED3_ENCODINGS):
-        if msformat == 2:
-            _pymseed.mswrite(target, stream_collection, encoding, reclen,
-                             owrite=True)
-            return
-        raise NotImplementedError(
-            "MiniSEED 3 is written by cymseed3 with one integer encoding "
-            "(3, 10 or 11) only"
-        )
-
-    (record_encoding,) = encodings
     ms = MiniSeed()
-
-    for record in records:
-        network, station, location, channel = _split_fdsn_code(record.sid)
-        ms.import_record(
-            {
-                "network": network,
-                "station": station,
-                "location": location,
-                "channel": channel,
-                "starttime": record.time.get_date("iso8601"),
-                "rate": record.rate,
-                "nsamp": record.nsamp,
-                "data": np.asarray(record.data),
-            },
-            encoding=record_encoding,
-            reclen=reclen,
+    for record in stream_collection.records():
+        ms.add(
+            _split_fdsn_code(record.sid),
+            record.head.time.to_unix_ns(),
+            float(record.rate),
+            _samples(np.asarray(record.data), encoding),
+            encoding=encoding,
         )
 
-    content = ms.write(msformat, reclen, record_encoding)
-    with open(target, "wb") as fid:
-        fid.write(content)
+    with _BinaryOutput(target, owrite) as fid:
+        fid.write(ms.write(version=msformat, reclen=reclen))
+
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+
+
+def _samples(data: np.ndarray, encoding: Optional[int]) -> np.ndarray:
+    """
+    Convert samples to the type that cymseed3 writes with an encoding
+    (integers to int32 if ``encoding`` is None).
+
+    Raises
+    ------
+    ValueError
+        If integer encodings get non-integer data, or the samples
+        exceed the range of the encoding.
+    """
+    if data.ndim != 1:
+        raise ValueError("MiniSEED samples must be one-dimensional")
+    if encoding is None:
+        if np.issubdtype(data.dtype, np.integer):
+            dtype = np.int32
+        elif data.dtype == np.float32:
+            dtype = np.float32
+        elif np.issubdtype(data.dtype, np.floating):
+            dtype = np.float64
+        else:
+            raise ValueError(
+                f"data of type {data.dtype} cannot be written as MiniSEED"
+            )
+    else:
+        dtype = _ENCODING_TYPES[encoding]
+
+    if np.issubdtype(dtype, np.integer):
+        if not np.issubdtype(data.dtype, np.integer):
+            raise ValueError(
+                f"encoding {encoding} requires integer samples (use "
+                "encoding 4 or 5, or None, for floating-point data)"
+            )
+        info = np.iinfo(dtype)
+        low, high = (info.min, info.max) if dtype == np.int16 else (
+            INT32_MIN, INT32_MAX)
+        if data.size and (data.min() < low or data.max() > high):
+            raise ValueError(
+                f"samples exceed the range of encoding {encoding}"
+                if encoding is not None else
+                "integer samples exceed the 32-bit range"
+            )
+    return np.ascontiguousarray(data, dtype=dtype)

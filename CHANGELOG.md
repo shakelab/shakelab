@@ -9,6 +9,21 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.libio.cymseed` rewritten for cymseed3 0.2.0 (now required:
+  `cymseed3>=0.2.0`). It writes MiniSEED 2 and 3 in every encoding (1,
+  3, 4, 5, 10, 11) itself, without falling back to the pure-Python
+  backend and without the MiniSEED 3 limit to integer encodings;
+  `mswrite` also writes to binary file objects. `msread` reads paths
+  through `mmap` without copies and keeps the sample types decoded by
+  libmseed (float32 is no longer converted to float64; integers are
+  int32, also for int16 records), with the times in nanoseconds (MiniSEED 3 keeps them); the
+  invalid records skipped by libmseed are reported as `MSeedWarning`.
+  With `encoding=None` libmseed chooses the encoding of each segment
+  with the rule of the pure-Python backend. New tests in
+  `tests/signals/libio/test_cymseed.py` (round trips, exchange with
+  the pure-Python backend, MiniSEED 3 SeedLink packets).
+- `COPYING` and `COPYING.LESSER` updated to the current FSF texts
+  (`https` links; the license terms are unchanged).
 - `signals.io` revised. `reader(source, *, list_file, format,
   metadata, stream_collection, **options)` takes `source` in place of
   `file_path`; `source` and `list_file` can be given together, and the
@@ -257,11 +272,7 @@ corrections. The format follows
   `sid`; new `rate`, `start_ns`, `encoding`, `is_timeseries` and
   `info()`, as in the other format classes; `delta` is None for records
   without sampling.
-- `signals.libio.cymseed` no longer depends on `signals.fdsnws`;
-  integer samples are int32. Until `cymseed3` packs non-integer
-  samples correctly, MiniSEED 2 files needing encodings 1, 4 or 5 are
-  written by the pure-Python backend, and MiniSEED 3 output is limited
-  to encodings 3, 10 and 11 (`NotImplementedError` otherwise).
+- `signals.libio.cymseed` no longer depends on `signals.fdsnws`.
 - `signals.libio.sac` rewritten: the coordinates, burial depth and
   orientation of the header (`STLA`, `STLO`, `STEL`, `STDP`, `CMPAZ`,
   `CMPINC`) become the channel metadata of the record and are written

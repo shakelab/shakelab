@@ -25,7 +25,7 @@ dependencies = [
     "numpy>=1.24.0",
     "scipy>=1.10.0",
     "requests>=2.32.0",
-    "cymseed3>=0.1.4"
+    "cymseed3>=0.2.0"
 ]
 requires-python = ">=3.10"
 

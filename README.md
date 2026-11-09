@@ -83,7 +83,7 @@ Required packages, installed automatically:
 - [NumPy](https://numpy.org/) >= 1.24
 - [SciPy](https://scipy.org/) >= 1.10
 - [Requests](https://pypi.org/project/requests/) >= 2.32
-- [cymseed3](https://pypi.org/project/cymseed3/) >= 0.1.4 (MiniSEED
+- [cymseed3](https://pypi.org/project/cymseed3/) >= 0.2.0 (MiniSEED
   I/O based on libmseed, part of the ShakeLab ecosystem)
 
 Optional extras:
