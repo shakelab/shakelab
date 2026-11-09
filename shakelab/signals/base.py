@@ -79,8 +79,9 @@ from shakelab.signals import response
 from shakelab.signals.header import Header
 
 if TYPE_CHECKING:
-    # Annotations only: spectrum sits above this module.
+    # Annotations only: spectrogram and spectrum sit above this module.
     from shakelab.libutils.geodeticN import WgsPoint
+    from shakelab.signals.spectrogram import Spectrogram
     from shakelab.signals.spectrum import Spectrum
 
 __all__ = [
@@ -2076,6 +2077,30 @@ class Record:
         from shakelab.signals.spectrum import Spectrum
 
         return Spectrum.from_record(self)
+
+    def spectrogram(self, method: str = "wft", **options: Any) -> Spectrogram:
+        """
+        Return the time-frequency representation of the record.
+
+        Parameters
+        ----------
+        method : {"wft", "cwt", "st"}, optional
+            Windowed Fourier transform (default), Morlet wavelet
+            transform or Stockwell transform.
+        **options
+            Options of the method (see
+            :meth:`shakelab.signals.spectrogram.Spectrogram.from_record`).
+
+        Returns
+        -------
+        Spectrogram
+            Spectrogram with a copy of the record header.
+        """
+        # Spectrogram sits above Record in the import hierarchy: the
+        # computation is delegated with a local import.
+        from shakelab.signals.spectrogram import Spectrogram
+
+        return Spectrogram.from_record(self, method, **options)
 
     def from_spectrum(self, spectrum: Spectrum) -> None:
         """

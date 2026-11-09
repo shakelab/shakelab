@@ -554,6 +554,7 @@ def time_cwt(data, dt, freq, omega0=6.0):
         omega0=omega0,
         axis=1,
         power=False,
+        scaling="energy",
     )
 
     return output
@@ -583,6 +584,7 @@ def spatial_cwt(data, widths, omega0=6.0):
         omega0=omega0,
         axis=0,
         power=False,
+        scaling="energy",
     )
 
     return output
@@ -618,6 +620,7 @@ def spatial_cwt_matrix(data, widths, omega0=6.0):
         omega0=omega0,
         axis=0,
         power=False,
+        scaling="energy",
     )
 
     return output

@@ -9,6 +9,29 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.spectrogram`: the transforms (`wft_transform`,
+  `cwt_transform`, `st_transform`) are calibrated by default
+  (`scaling="amplitude"`): a sinusoid of amplitude A gives coefficients
+  of modulus A with every method (the wavelet transform used wavelets
+  of unit energy, whose modulus grows as 1/sqrt(f); the windowed
+  Fourier transform was not scaled; the Stockwell transform gave A/2).
+  `scaling="energy"` (`cwt_transform`) and `scaling=None` keep the
+  former values; `wft_transform` also offers `scaling="psd"` (one-sided
+  power spectral density). All transforms return the frequency first
+  and keep the time axis in the position of the transformed axis (the
+  windowed Fourier transform returned the windows second, the
+  Stockwell transform moved time last). `wft_transform` centres the
+  windows on the samples by default and covers the whole series
+  (`centred=False` for windows inside the data only; the last part of
+  the series was dropped), refers the phase to the window centre
+  (as the other transforms and SciPy's `ShortTimeFFT`, with which it
+  agrees) and takes `nfft`. `st_transform` takes `freq=` to compute
+  only some frequencies (memory grew as n² with all of them: about
+  6 GB for 18000 samples, 30 MB with 100 frequencies). `power_to_db`
+  takes `reference` and `floor` (dynamic range in dB below the
+  maximum) instead of the absolute `eps`. `morlet_wavelet` takes
+  `norm=`.
+
 - `signals.fdsnws` rewritten as a subpackage, on the standard library
   only (`urllib`; `requests` is no longer used by it). `Client(datacenter,
   *, station, dataselect, event, availability, timeout, retries)`
@@ -357,6 +380,16 @@ corrections. The format follows
 
 ### Added
 
+- `signals.spectrogram.Spectrogram`: time-frequency representation of a
+  Record (`Record.spectrogram(method, **options)` or
+  `Spectrogram.from_record`), with methods `"wft"`, `"cwt"` and
+  `"st"`, a copy of the record header (identifier, start time, units),
+  frequency and time axes, options in physical units (window in
+  seconds, overlap, `fmin`, `fmax`, `nfreq`, `spacing`), `amplitude`,
+  `power`, `phase`, `db()`, `cut()` by time and frequency, and the
+  edges affected by the transform (`coi`, `coi_mask`).
+  `spectrogram.cwt_coi`: cone of influence of the Morlet transform.
+
 - `signals.io.read_mseed_bytes`: MiniSEED records held in memory (web
   service replies, SeedLink packets) read with the backend chosen as
   in `reader` (`mseed_backend`, `USE_LIBMSEED`).
@@ -535,6 +568,12 @@ corrections. The format follows
   GitHub Actions on Linux and macOS, Python 3.10 to 3.14.
 
 ### Fixed
+
+- `signals.spectrogram.wft_transform` rejected the windows given as a
+  tuple (e.g. `("tukey", 0.25)`), as documented.
+- `signals.spectrogram.cwt_transform` used `numpy.core` (deprecated in
+  NumPy 2) and shifted the coefficients by half a sample for series of
+  even length.
 
 - `seismicity.quakeml.parse_quakeml` treated QuakeML text without an
   XML declaration as a file name, and failed on `Path` objects.
