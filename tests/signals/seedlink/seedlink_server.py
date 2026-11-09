@@ -34,6 +34,7 @@ import json
 import socket
 import struct
 import threading
+import time
 
 import numpy as np
 from shakelab.libutils.timeN import Date
@@ -159,6 +160,24 @@ class FakeServer:
         self._closing = threading.Event()
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
+
+    def received(self, prefix, timeout=5.0):
+        """
+        Wait until the last command received starts with ``prefix``.
+
+        The client may return before the server thread reads its last
+        command (e.g. BYE): checks of the final command wait for it.
+        Return True if it arrives within ``timeout`` seconds.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            if self.commands and self.commands[-1].upper().startswith(
+                prefix.upper()
+            ):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.01)
 
     def close(self):
         self._closing.set()

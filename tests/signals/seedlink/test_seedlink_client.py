@@ -169,7 +169,7 @@ def test_run_unlimited_buffer(make_server, mode, other, version):
     assert client.organization == "Test Seismic Network"
     _assert_same(collection, records)
     assert client._sequence["IV_MODE"] == station.packets[-1][0]
-    assert "BYE" in server.commands[-1]
+    assert server.received("BYE"), server.commands[-1:]
 
 
 @pytest.mark.parametrize("version", VERSIONS)
