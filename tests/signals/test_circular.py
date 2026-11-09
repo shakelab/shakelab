@@ -162,6 +162,7 @@ def test_circular_selections_are_standard_streams(vertical):
         ("taper", ()),
         ("resample", (0.02,)),
         ("remove_mean", ()),
+        ("detrend", ()),
         ("integrate", ()),
         ("differentiate", ()),
         ("shift", (0.5,)),

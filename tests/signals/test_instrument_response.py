@@ -33,6 +33,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from shakelab.signals import fourier
 from shakelab.signals.base import Record
 from shakelab.signals.metadata import (
     ChannelEpoch,
@@ -494,6 +495,127 @@ def test_waterlevel_limits_amplification():
 
         assert np.abs(corrected.data).max() == pytest.approx(limit)
         assert corrected.data[0] == 0.0
+
+
+def test_response_padding_matches_explicit_zeros():
+    """
+    Padding corrects the record followed by zeros, then truncates it.
+
+    The result must equal the correction without padding of a record
+    explicitly extended with zeros to the efficient length of twice its
+    samples, cut back to the original length.
+    """
+    record = _record()
+    nsamp = record.nsamp
+
+    padded = record.copy()
+    padded.deconvolve_response(_velocimeter(), padding=True)
+
+    length = fourier.fast_length(2 * nsamp)
+    extended = Record(
+        data=np.r_[record.data, np.zeros(length - nsamp)],
+        delta=record.delta,
+        time=record.time,
+        sid=record.sid,
+    )
+    extended.deconvolve_response(_velocimeter(), padding=False)
+
+    assert padded.nsamp == nsamp
+    assert padded.data.dtype.kind == "f"
+    assert padded.head.units == "m/s"
+    np.testing.assert_allclose(padded.data, extended.data[:nsamp])
+
+
+def test_response_padding_only_changes_the_ends(mode_metadata):
+    """
+    With detrended and tapered data, padding changes only the ends.
+
+    The inverse response of the MODE accelerometer is short: away from
+    the ends the padded and unpadded corrections agree within 0.03 % of
+    the peak (the finer frequency grid of the padded transform changes
+    the inverse slightly), while in the first and last seconds the
+    unpadded correction receives what wraps around from the other end
+    (up to about 0.15 % of the peak).
+    """
+    rng = np.random.default_rng(5)
+    data = 1.0e4 + np.convolve(
+        rng.standard_normal(3000), np.hanning(15), "same"
+    )
+    record = Record(data=data, delta=0.01, time=TIME, sid=SID)
+    record.detrend()
+    record.taper(2.0)
+
+    padded = record.copy()
+    padded.deconvolve_response(mode_metadata, padding=True)
+    plain = record.copy()
+    plain.deconvolve_response(mode_metadata, padding=False)
+
+    peak = np.abs(plain.data).max()
+    inner = slice(500, -500)
+    np.testing.assert_allclose(
+        padded.data[inner], plain.data[inner], rtol=0.0, atol=3e-4 * peak
+    )
+    np.testing.assert_allclose(
+        padded.data, plain.data, rtol=0.0, atol=5e-3 * peak
+    )
+
+
+def test_response_prefilter_limits_the_band(mode_metadata):
+    """The prefilter removes the frequencies outside its corners."""
+    rng = np.random.default_rng(7)
+    record = Record(
+        data=rng.standard_normal(2000), delta=0.01, time=TIME, sid=SID
+    )
+    corners = (0.5, 1.0, 10.0, 12.0)
+
+    filtered = record.copy()
+    filtered.deconvolve_response(
+        mode_metadata, prefilter=corners, padding=False
+    )
+    plain = record.copy()
+    plain.deconvolve_response(mode_metadata, padding=False)
+
+    spectrum = filtered.to_spectrum()
+    reference = plain.to_spectrum()
+    window = fourier.cosine_taper(spectrum.frequency, corners)
+
+    np.testing.assert_allclose(
+        spectrum.data, reference.data * window,
+        atol=1e-12 * np.abs(reference.data).max(),
+    )
+    outside = (spectrum.frequency < 0.5) | (spectrum.frequency > 12.0)
+    assert np.abs(spectrum.data[outside]).max() < (
+        1e-12 * np.abs(reference.data).max()
+    )
+
+
+def test_spectrum_response_prefilter():
+    """The spectrum correction applies the window to the inverse."""
+    spectrum = _record().to_spectrum()
+    corners = (1.0, 2.0, 20.0, 30.0)
+
+    filtered = spectrum.copy()
+    filtered.deconvolve_response(_velocimeter(), prefilter=corners)
+    plain = spectrum.copy()
+    plain.deconvolve_response(_velocimeter())
+
+    window = fourier.cosine_taper(spectrum.frequency, corners)
+    np.testing.assert_allclose(filtered.data, plain.data * window)
+
+
+@pytest.mark.parametrize(
+    "options, error",
+    [
+        ({"padding": 1}, TypeError),
+        ({"padding": "yes"}, TypeError),
+        ({"prefilter": (1.0, 2.0, 3.0)}, TypeError),
+        ({"prefilter": (2.0, 1.0, 3.0, 4.0)}, ValueError),
+    ],
+)
+def test_response_correction_option_errors(options, error):
+    """Invalid padding and prefilter options are rejected."""
+    with pytest.raises(error):
+        _record().deconvolve_response(_velocimeter(), **options)
 
 
 def test_response_of_another_channel_is_rejected():

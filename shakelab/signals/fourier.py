@@ -19,9 +19,10 @@
 Fourier-domain primitives.
 
 This module collects the functions on which the spectral objects of
-:mod:`shakelab.signals` are built: frequency axes, the scaled discrete
-Fourier transform, time shifts, Butterworth transfer functions,
-regularized inversion and spectral smoothing. All functions work on
+:mod:`shakelab.signals` are built: frequency axes and efficient
+transform lengths, the scaled discrete Fourier transform, time shifts,
+Butterworth transfer functions, a cosine band-pass window, regularized
+inversion and spectral smoothing. All functions work on
 NumPy arrays and do not depend on other ShakeLab classes.
 
 Conventions
@@ -40,20 +41,24 @@ Conventions
 
 from __future__ import annotations
 
-from typing import Optional
+from numbers import Real
+from typing import Any, Optional
 
 import numpy as np
+from scipy import fft as _fft
 from scipy import signal as _signal
 
 __all__ = [
     "rfft_length",
     "irfft_length",
+    "fast_length",
     "frequency_axis",
     "frequency_range",
     "fft",
     "ifft",
     "shift_time",
     "butterworth",
+    "cosine_taper",
     "inverse_spectrum",
     "smooth",
     "smooth_amplitude",
@@ -110,6 +115,39 @@ def irfft_length(delta: float, dfreq: float) -> int:
     100
     """
     return int(round(1.0 / (dfreq * delta)))
+
+
+def fast_length(nsamp: int) -> int:
+    """
+    Return the smallest efficient transform length of at least ``nsamp``.
+
+    Parameters
+    ----------
+    nsamp : int
+        Minimum number of samples (non-negative).
+
+    Returns
+    -------
+    int
+        Smallest length ``>= nsamp`` whose only prime factors are 2, 3
+        and 5 (see :func:`scipy.fft.next_fast_len`); 0 for 0.
+
+    Raises
+    ------
+    ValueError
+        If ``nsamp`` is negative.
+
+    Examples
+    --------
+    >>> fast_length(1001)
+    1024
+    """
+    nsamp = int(nsamp)
+    if nsamp < 0:
+        raise ValueError("nsamp must be non-negative")
+    if nsamp == 0:
+        return 0
+    return int(_fft.next_fast_len(nsamp, real=True))
 
 
 def frequency_axis(delta: float, nsamp: int) -> np.ndarray:
@@ -321,6 +359,60 @@ def butterworth(
         amplitude[positive] = 1.0 / np.sqrt(1.0 + ratio ** (2 * order))
 
     return amplitude.astype(complex)
+
+
+def cosine_taper(freq: np.ndarray, corners: tuple) -> np.ndarray:
+    """
+    Return a band-pass window with cosine transitions.
+
+    Parameters
+    ----------
+    freq : numpy.ndarray
+        Frequencies in Hz.
+    corners : tuple of float
+        Four frequencies ``(f1, f2, f3, f4)`` in Hz, with
+        ``0 <= f1 <= f2 < f3 <= f4``: the window is 0 below ``f1`` and
+        above ``f4``, 1 between ``f2`` and ``f3``, and rises and falls
+        as half a cosine period in between.
+
+    Returns
+    -------
+    numpy.ndarray
+        Real window values, between 0 and 1, at ``freq``.
+
+    Raises
+    ------
+    TypeError
+        If ``corners`` is not a sequence of four real numbers.
+    ValueError
+        If the corners are not finite, negative or not ordered.
+
+    Notes
+    -----
+    It is the frequency-domain pre-filter of SAC ``transfer``
+    (``freqlimits``), applied with the inverse of an instrument
+    response to limit the bandwidth of the correction.
+    """
+    corners = _check_corners(corners)
+    f1, f2, f3, f4 = corners
+    freq = np.asarray(freq, dtype=float)
+
+    window = np.zeros(freq.shape)
+    window[(freq >= f2) & (freq <= f3)] = 1.0
+
+    if f2 > f1:
+        rise = (freq > f1) & (freq < f2)
+        window[rise] = 0.5 * (
+            1.0 - np.cos(np.pi * (freq[rise] - f1) / (f2 - f1))
+        )
+
+    if f4 > f3:
+        fall = (freq > f3) & (freq < f4)
+        window[fall] = 0.5 * (
+            1.0 + np.cos(np.pi * (freq[fall] - f3) / (f4 - f3))
+        )
+
+    return window
 
 
 def inverse_spectrum(
@@ -596,3 +688,31 @@ def smooth_amplitude_phase(
     )
 
     return np.exp(smoothed)
+
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+
+
+def _check_corners(corners: Any) -> tuple:
+    """Return four validated corner frequencies as floats."""
+    if isinstance(corners, (str, bytes)) or not hasattr(corners, "__len__"):
+        raise TypeError("corners must be a sequence of four frequencies")
+    if len(corners) != 4:
+        raise TypeError("corners must be a sequence of four frequencies")
+    for value in corners:
+        if isinstance(value, (bool, np.bool_)) or not isinstance(
+            value, Real
+        ):
+            raise TypeError("corner frequencies must be real numbers")
+
+    values = tuple(float(value) for value in corners)
+    if not all(np.isfinite(values)):
+        raise ValueError("corner frequencies must be finite")
+    f1, f2, f3, f4 = values
+    if f1 < 0.0 or not (f1 <= f2 < f3 <= f4):
+        raise ValueError(
+            "corner frequencies must satisfy 0 <= f1 <= f2 < f3 <= f4"
+        )
+    return values

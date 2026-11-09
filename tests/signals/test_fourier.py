@@ -18,10 +18,11 @@
 """
 Unit tests for :mod:`shakelab.signals.fourier`.
 
-The tests check the frequency axes, the scaling of the transforms
-against analytical amplitudes, the Butterworth responses against their
-defining formula and the causality of the minimum-phase version, the
-regularized inversion and the smoothing kernels.
+The tests check the frequency axes and efficient lengths, the scaling
+of the transforms against analytical amplitudes, the Butterworth
+responses against their defining formula and the causality of the
+minimum-phase version, the cosine band-pass window, the regularized
+inversion and the smoothing kernels.
 """
 
 from __future__ import annotations
@@ -89,6 +90,20 @@ def test_shift_time():
     np.testing.assert_allclose(
         fourier.shift_time(x, 1.0, -5.0), np.roll(x, -5), atol=1e-12
     )
+
+
+@pytest.mark.parametrize(
+    "nsamp, expected", [(0, 0), (1, 1), (1000, 1000), (1001, 1024)]
+)
+def test_fast_length(nsamp, expected):
+    """Smallest length >= nsamp with prime factors 2, 3 and 5."""
+    assert fourier.fast_length(nsamp) == expected
+
+
+def test_fast_length_errors():
+    """Negative lengths are rejected."""
+    with pytest.raises(ValueError):
+        fourier.fast_length(-1)
 
 
 # ----------------------------------------------------------------------------
@@ -167,6 +182,48 @@ def test_butterworth_errors():
         fourier.butterworth([1.0], 1.0, order=2.5)
     with pytest.raises(ValueError):
         fourier.butterworth([1.0], 1.0, btype="bandpass")
+
+
+def test_cosine_taper_values():
+    """Zero outside f1-f4, one in f2-f3, half-cosine transitions."""
+    freq = np.array([0.0, 1.0, 1.5, 2.0, 5.0, 8.0, 8.5, 9.0, 10.0])
+    window = fourier.cosine_taper(freq, (1.0, 2.0, 8.0, 9.0))
+    np.testing.assert_allclose(
+        window, [0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 0.5, 0.0, 0.0], atol=1e-15
+    )
+
+    freq = np.linspace(1.0, 2.0, 11)
+    expected = 0.5 * (1.0 - np.cos(np.pi * (freq - 1.0)))
+    np.testing.assert_allclose(
+        fourier.cosine_taper(freq, (1.0, 2.0, 8.0, 9.0)), expected,
+        atol=1e-15,
+    )
+
+
+def test_cosine_taper_sharp_edges():
+    """Coinciding corners give a rectangular window (zero allowed)."""
+    freq = np.array([0.0, 1.0, 5.0, 9.0, 9.5])
+    window = fourier.cosine_taper(freq, (0.0, 0.0, 9.0, 9.0))
+    np.testing.assert_allclose(window, [1.0, 1.0, 1.0, 1.0, 0.0])
+
+
+@pytest.mark.parametrize(
+    "corners, error",
+    [
+        ((1.0, 2.0, 3.0), TypeError),
+        ("1234", TypeError),
+        ((1.0, 2.0, "3", 4.0), TypeError),
+        ((1.0, True, 3.0, 4.0), TypeError),
+        ((1.0, 2.0, 2.0, 4.0), ValueError),
+        ((2.0, 1.0, 3.0, 4.0), ValueError),
+        ((-1.0, 2.0, 3.0, 4.0), ValueError),
+        ((1.0, 2.0, 3.0, np.inf), ValueError),
+    ],
+)
+def test_cosine_taper_errors(corners, error):
+    """Corners must be four ordered, finite, non-negative frequencies."""
+    with pytest.raises(error):
+        fourier.cosine_taper(np.arange(5.0), corners)
 
 
 # ----------------------------------------------------------------------------

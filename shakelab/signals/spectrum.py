@@ -516,6 +516,7 @@ class Spectrum:
         waterlevel: float = 60.0,
         method: str = "water",
         stages: Any = None,
+        prefilter: Optional[tuple] = None,
     ) -> None:
         """
         Divide the spectrum by an instrument response, in place.
@@ -536,18 +537,31 @@ class Spectrum:
         stages : str or sequence of str, optional
             Stage types to include, e.g. ``("gain", "paz")``; None for
             the complete response.
+        prefilter : tuple of float, optional
+            Corner frequencies ``(f1, f2, f3, f4)`` in Hz of a band-pass
+            window applied with the inverse response (see
+            :func:`shakelab.signals.fourier.cosine_taper`): it limits
+            the correction to the band where the response is reliable.
+            Default: no window.
 
         Raises
         ------
+        TypeError
+            If ``prefilter`` is not a sequence of four real numbers.
         ValueError
-            If no response is available, or if the units of the data
-            and the output units of the response are both declared and
-            differ (e.g. data already corrected).
+            If no response is available, if the units of the data and
+            the output units of the response are both declared and
+            differ (e.g. data already corrected), or if the prefilter
+            corners are invalid.
 
         Notes
         -----
         The units become the input units of the response, if declared.
         """
+        window = None
+        if prefilter is not None:
+            window = fourier.cosine_taper(self.frequency, prefilter)
+
         selected = metadata.select_response(
             self.head.meta if resp is None else resp,
             sid=self.head.sid,
@@ -560,6 +574,8 @@ class Spectrum:
         inverse = fourier.inverse_spectrum(
             transfer, waterlevel=waterlevel, method=method
         )
+        if window is not None:
+            inverse = inverse * window
         self.data = self.data.astype(complex) * inverse
 
         if units:

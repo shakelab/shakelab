@@ -426,6 +426,7 @@ class CircularStream(Stream):
         )
 
     remove_mean = _processing_not_supported
+    detrend = _processing_not_supported
     filter = _processing_not_supported
     resample = _processing_not_supported
     taper = _processing_not_supported

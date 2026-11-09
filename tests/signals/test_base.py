@@ -861,6 +861,48 @@ def test_record_cut_errors():
 # ----------------------------------------------------------------------------
 
 
+def test_record_detrend():
+    """A linear trend is removed exactly; constant equals remove_mean."""
+    n = np.arange(200)
+    trend = 3.0 + 0.25 * n
+    wave = np.sin(2.0 * np.pi * n / 50.0)
+
+    record = Record(data=trend, delta=0.01)
+    record.detrend()
+    np.testing.assert_allclose(record.data, 0.0, atol=1e-10)
+
+    record = Record(data=trend + wave, delta=0.01)
+    record.detrend("linear")
+    fitted = np.polyval(np.polyfit(n, wave, 1), n)
+    np.testing.assert_allclose(record.data, wave - fitted, atol=1e-10)
+
+    constant = Record(data=trend + wave, delta=0.01)
+    mean = Record(data=trend + wave, delta=0.01)
+    constant.detrend("constant")
+    mean.remove_mean()
+    np.testing.assert_allclose(constant.data, mean.data, atol=1e-12)
+
+
+def test_record_detrend_integers_and_empty():
+    """Integer counts become floats; empty records are left unchanged."""
+    record = Record(data=np.array([1, 3, 5, 7], dtype=np.int32), delta=1.0)
+    record.detrend()
+    assert record.data.dtype.kind == "f"
+    np.testing.assert_allclose(record.data, 0.0, atol=1e-12)
+
+    empty = Record(delta=1.0)
+    empty.detrend()
+    assert empty.nsamp == 0
+
+
+def test_record_detrend_errors():
+    """Unknown kinds and wrong types are rejected."""
+    with pytest.raises(ValueError):
+        _sine().detrend("quadratic")
+    with pytest.raises(TypeError):
+        _sine().detrend(1)
+
+
 def test_record_filter():
     """A low-pass filter removes a high frequency and keeps a low one."""
     t = np.arange(2000) * 0.01
@@ -1234,9 +1276,11 @@ def test_stream_processing_applies_to_every_record(mode):
     record = stream[0].copy()
 
     stream.remove_mean()
+    stream.detrend()
     stream.filter(0.1, 20.0)
     stream.taper(1.0)
     record.remove_mean()
+    record.detrend()
     record.filter(0.1, 20.0)
     record.taper(1.0)
     np.testing.assert_array_equal(stream[0].data, record.data)
@@ -1257,6 +1301,23 @@ def test_stream_response_correction(mode, mode_response):
     stream.deconvolve_response(mode_response)
 
     np.testing.assert_allclose(stream[0].data, expected.data)
+
+
+def test_stream_and_collection_pass_correction_options(mode, mode_response):
+    """Prefilter and padding reach every record."""
+    options = {"prefilter": (0.05, 0.1, 30.0, 40.0), "padding": False}
+    expected = mode["IV.MODE..HNZ"][0].copy()
+    expected.deconvolve_response(mode_response, **options)
+
+    stream = mode["IV.MODE..HNZ"].copy()
+    stream.deconvolve_response(mode_response, **options)
+    collection = mode.copy()
+    collection.deconvolve_response(mode_response, **options)
+
+    np.testing.assert_allclose(stream[0].data, expected.data)
+    np.testing.assert_allclose(
+        collection["IV.MODE..HNZ"][0].data, expected.data
+    )
 
 
 def test_record_stream_response_of_another_channel_is_rejected(
@@ -1416,8 +1477,10 @@ def test_collection_processing_applies_to_every_stream(mode):
     collection = mode.copy()
     record = mode["IV.MODE..HNE"][0].copy()
 
+    collection.detrend()
     collection.filter(0.1, 20.0)
     collection.taper(1.0)
+    record.detrend()
     record.filter(0.1, 20.0)
     record.taper(1.0)
 

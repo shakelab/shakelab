@@ -1270,6 +1270,42 @@ class Record:
 
         self.data = self.data - np.mean(self.data)
 
+    def detrend(self, kind: str = "linear") -> None:
+        """
+        Remove a trend from the waveform data.
+
+        Parameters
+        ----------
+        kind : {"linear", "constant"}, optional
+            ``"linear"`` (default) removes the least-squares straight
+            line, ``"constant"`` the mean (as :meth:`remove_mean`).
+
+        Raises
+        ------
+        TypeError
+            If ``kind`` is not a string.
+        ValueError
+            If ``kind`` is unknown.
+
+        Notes
+        -----
+        The operation is performed in place. Empty records are left
+        unchanged. A linear trend (drift, offset of a tilted sensor) is
+        removed before tapering and correcting the instrument response.
+        """
+        if not isinstance(kind, str):
+            raise TypeError("kind must be a string")
+
+        if kind not in ("linear", "constant"):
+            raise ValueError("kind must be 'linear' or 'constant'")
+
+        if self.nsamp == 0:
+            return
+
+        self.data = signal.detrend(
+            np.asarray(self.data, dtype=float), type=kind
+        )
+
     def filter(
         self,
         highpass: Optional[float] = None,
@@ -2330,6 +2366,8 @@ class Record:
         waterlevel: float = 60.0,
         method: str = "water",
         stages: Any = None,
+        prefilter: Optional[tuple] = None,
+        padding: bool = False,
     ) -> None:
         """
         Remove an instrument response from the waveform.
@@ -2351,13 +2389,31 @@ class Record:
         stages : str or sequence of str, optional
             Stage types to include, e.g. ``("gain", "paz")``; None
             (default) for the complete response.
+        prefilter : tuple of float, optional
+            Corner frequencies ``(f1, f2, f3, f4)`` in Hz of a band-pass
+            window applied with the inverse response (see
+            :func:`shakelab.signals.fourier.cosine_taper`). Default: no
+            window.
+        padding : bool, optional
+            If True, the transform is computed on the record followed
+            by at least as many zeros (to an efficient length, see
+            :func:`shakelab.signals.fourier.fast_length`), so that the
+            correction of one end does not wrap around onto the other;
+            the record keeps its length. Use it only on detrended and
+            tapered records: an offset or a trend ending against the
+            zeros becomes a step, which the correction turns into large
+            transients. Default is False.
 
         Raises
         ------
+        TypeError
+            If ``padding`` is not a boolean or ``prefilter`` is not a
+            sequence of four real numbers.
         ValueError
-            If no response is available, or if the units of the data
-            and the output units of the response are both declared and
-            differ (e.g. data already corrected).
+            If no response is available, if the units of the data and
+            the output units of the response are both declared and
+            differ (e.g. data already corrected), or if the prefilter
+            corners are invalid.
 
         Notes
         -----
@@ -2365,13 +2421,36 @@ class Record:
         (see
         :meth:`shakelab.signals.spectrum.Spectrum.deconvolve_response`).
         The units become the input units of the response, if declared.
-        The record should be detrended and tapered beforehand.
+        The record should be detrended and tapered beforehand (see
+        :meth:`detrend` and :meth:`taper`).
         """
-        spectrum = self.to_spectrum()
+        if not isinstance(padding, (bool, np.bool_)):
+            raise TypeError("padding must be a boolean")
+
+        # Spectrum sits above Record in the import hierarchy.
+        from shakelab.signals.spectrum import Spectrum
+
+        if self.delta is None:
+            raise ValueError(
+                "sampling interval is required to correct the response"
+            )
+
+        nsamp = self.nsamp
+        length = fourier.fast_length(2 * nsamp) if padding else nsamp
+
+        spectrum = Spectrum.from_samples(self.data, self.delta, length)
+        spectrum.head = self.head.copy()
         spectrum.deconvolve_response(
-            resp, waterlevel=waterlevel, method=method, stages=stages
+            resp,
+            waterlevel=waterlevel,
+            method=method,
+            stages=stages,
+            prefilter=prefilter,
         )
-        self._replace_from_record(spectrum.to_record())
+
+        record = spectrum.to_record()
+        record.data = record.data[:nsamp]
+        self._replace_from_record(record)
 
     def remove_sensitivity(self, resp: Any = None) -> None:
         """
@@ -3107,6 +3186,13 @@ class Stream:
         for record in self.record:
             record.remove_mean()
 
+    def detrend(self, kind: str = "linear") -> None:
+        """
+        Remove a trend from every record (see :meth:`Record.detrend`).
+        """
+        for record in self.record:
+            record.detrend(kind=kind)
+
     def filter(
         self,
         highpass: Optional[float] = None,
@@ -3197,6 +3283,8 @@ class Stream:
         waterlevel: float = 60.0,
         method: str = "water",
         stages: Any = None,
+        prefilter: Optional[tuple] = None,
+        padding: bool = False,
     ) -> None:
         """
         Remove an instrumental response from all records.
@@ -3212,6 +3300,10 @@ class Stream:
             See :meth:`Record.deconvolve_response`.
         stages : str or sequence of str, optional
             See :meth:`Record.deconvolve_response`.
+        prefilter : tuple of float, optional
+            See :meth:`Record.deconvolve_response`.
+        padding : bool, optional
+            See :meth:`Record.deconvolve_response`.
 
         Notes
         -----
@@ -3220,7 +3312,12 @@ class Stream:
         """
         for record in self.record:
             record.deconvolve_response(
-                resp, waterlevel=waterlevel, method=method, stages=stages
+                resp,
+                waterlevel=waterlevel,
+                method=method,
+                stages=stages,
+                prefilter=prefilter,
+                padding=padding,
             )
 
     def remove_sensitivity(self, resp: Any = None) -> None:
@@ -3874,6 +3971,13 @@ class StreamCollection:
         for stream in self.stream:
             stream.remove_mean()
 
+    def detrend(self, kind: str = "linear") -> None:
+        """
+        Remove a trend from every record (see :meth:`Record.detrend`).
+        """
+        for stream in self.stream:
+            stream.detrend(kind=kind)
+
     def filter(
         self,
         highpass: Optional[float] = None,
@@ -3963,6 +4067,8 @@ class StreamCollection:
         waterlevel: float = 60.0,
         method: str = "water",
         stages: Any = None,
+        prefilter: Optional[tuple] = None,
+        padding: bool = False,
     ) -> None:
         """
         Remove an instrumental response from all streams.
@@ -3978,6 +4084,10 @@ class StreamCollection:
             See :meth:`Record.deconvolve_response`.
         stages : str or sequence of str, optional
             See :meth:`Record.deconvolve_response`.
+        prefilter : tuple of float, optional
+            See :meth:`Record.deconvolve_response`.
+        padding : bool, optional
+            See :meth:`Record.deconvolve_response`.
 
         Notes
         -----
@@ -3985,7 +4095,12 @@ class StreamCollection:
         """
         for stream in self.stream:
             stream.deconvolve_response(
-                resp, waterlevel=waterlevel, method=method, stages=stages
+                resp,
+                waterlevel=waterlevel,
+                method=method,
+                stages=stages,
+                prefilter=prefilter,
+                padding=padding,
             )
 
     def remove_sensitivity(self, resp: Any = None) -> None:

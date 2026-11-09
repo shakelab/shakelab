@@ -312,6 +312,19 @@ corrections. The format follows
 
 ### Added
 
+- `detrend(kind="linear")` of `Record`, `Stream` and
+  `StreamCollection`: removes the least-squares straight line
+  (`"linear"`) or the mean (`"constant"`, as `remove_mean`).
+- `deconvolve_response` of `Record`, `Stream` and `StreamCollection`:
+  `prefilter=(f1, f2, f3, f4)`, a band-pass window with cosine
+  transitions applied with the inverse response (as SAC `transfer`
+  with `freqlimits`), and `padding=False`, which corrects the record
+  followed by zeros (to at least twice its length) and cuts it back,
+  so that the correction does not wrap around from one end to the
+  other; meant for detrended and tapered records.
+  `Spectrum.deconvolve_response` also takes `prefilter`.
+- `signals.fourier.fast_length` (efficient transform length) and
+  `signals.fourier.cosine_taper` (the prefilter window).
 - `signals.io.reader`: `select` (channel patterns of
   `signals.codes`), `starttime` and `endtime` (records cut to the
   window, as `Record.cut`; metadata assigned after the selection), and
