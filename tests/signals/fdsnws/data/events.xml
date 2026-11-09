@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<q:quakeml xmlns="http://quakeml.org/xmlns/bed/1.2" xmlns:q="http://quakeml.org/xmlns/quakeml/1.2">
+  <eventParameters publicID="smi:local/test/events">
+    <event publicID="smi:local/test/event/1">
+      <preferredOriginID>smi:local/test/origin/1</preferredOriginID>
+      <preferredMagnitudeID>smi:local/test/magnitude/1</preferredMagnitudeID>
+      <origin publicID="smi:local/test/origin/1">
+        <time><value>2012-05-20T02:03:52.000000Z</value></time>
+        <latitude><value>44.896</value></latitude>
+        <longitude><value>11.264</value></longitude>
+        <depth><value>9500.0</value></depth>
+      </origin>
+      <magnitude publicID="smi:local/test/magnitude/1">
+        <mag><value>5.9</value></mag>
+        <type>Mw</type>
+      </magnitude>
+    </event>
+    <event publicID="smi:local/test/event/2">
+      <preferredOriginID>smi:local/test/origin/2</preferredOriginID>
+      <preferredMagnitudeID>smi:local/test/magnitude/2</preferredMagnitudeID>
+      <origin publicID="smi:local/test/origin/2">
+        <time><value>2012-05-29T07:00:03.000000Z</value></time>
+        <latitude><value>44.851</value></latitude>
+        <longitude><value>11.086</value></longitude>
+        <depth><value>10200.0</value></depth>
+      </origin>
+      <magnitude publicID="smi:local/test/magnitude/2">
+        <mag><value>5.6</value></mag>
+        <type>Mw</type>
+      </magnitude>
+    </event>
+  </eventParameters>
+</q:quakeml>

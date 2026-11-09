@@ -1,0 +1,12 @@
+{
+  "created": "2026-11-09T19:00:00Z",
+  "version": 1.0,
+  "datasources": [
+    {"network": "IV", "station": "MODE", "location": "", "channel": "HNZ",
+     "quality": "D", "samplerate": 100.0,
+     "earliest": "2012-05-20T02:03:23.000000Z",
+     "latest": "2012-05-20T02:12:00.000000Z",
+     "timespanCount": 2, "updated": "2012-05-21T00:00:00Z",
+     "restriction": "OPEN"}
+  ]
+}

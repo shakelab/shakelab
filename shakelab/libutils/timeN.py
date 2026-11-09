@@ -33,6 +33,9 @@ Design choices
   with a private context, independent of the global decimal context.
 - ISO 8601 strings with an explicit offset are accepted, but they are
   converted to UTC; the offset itself is not retained.
+- ISO 8601 strings may omit the time (``2026-10-30`` is midnight) or
+  the seconds (``2026-10-30T15:25``), and may separate date and time
+  with a space instead of ``T`` (as RFC 3339 allows).
 
 Conventions
 -----------
@@ -122,12 +125,13 @@ ISO8601_PATTERN = re.compile(
     r"(?P<year>[+-][0-9]{4,}|[0-9]{4})"
     r"(?:-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})"
     r"|-?(?P<ordinal>[0-9]{3}))"
-    r"T"
+    r"(?:[T ]"
     r"(?P<hour>[0-9]{2}):"
-    r"(?P<minute>[0-9]{2}):"
-    r"(?P<second>[0-9]{2}(?:\.[0-9]+)?)"
+    r"(?P<minute>[0-9]{2})"
+    r"(?::(?P<second>[0-9]{2}(?:\.[0-9]+)?))?"
     r"(?P<timezone>Z|[+-][0-9]{2}(?::?[0-9]{2})?"
     r"(?::?[0-9]{2})?)?"
+    r")?"
     r"$"
 )
 
@@ -1655,9 +1659,9 @@ def _parse_iso8601(date_string: str) -> tuple[int, Decimal]:
         year,
         month,
         day,
-        int(values["hour"]),
-        int(values["minute"]),
-        values["second"],
+        int(values["hour"] or 0),
+        int(values["minute"] or 0),
+        values["second"] or "0",
     )
 
     offset = _parse_timezone_offset(values["timezone"] or "Z")

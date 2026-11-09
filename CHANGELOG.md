@@ -9,6 +9,47 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.fdsnws` rewritten as a subpackage, on the standard library
+  only (`urllib`; `requests` is no longer used by it). `Client(datacenter,
+  *, station, dataselect, event, availability, timeout, retries)`
+  replaces `FDSNClient`: data centers by name (the FDSN registry of
+  November 2026, with the address of each service; names without
+  regard to case, former names such as `IRIS`, `ORFEUS`, `RESIF`
+  accepted) or by host address, and services with non-standard
+  paths. `get_waveforms(select, starttime, endtime, ...)` returns a
+  `StreamCollection` (empty without data) or writes the MiniSEED
+  records as received (`target=`); `metadata=True` assigns the channel
+  metadata; `correct=True` corrects the response on a padded window
+  (detrend, taper, zero padding, `prefilter`, `waterlevel`), applies
+  the optional `highpass`/`lowpass` filter and cuts the window, so
+  that the edge effects fall outside it (the old `get_waveform` cut
+  the window first, filtered and deconvolved it). `chunk=` splits long
+  windows; several patterns or windows are sent with POST;
+  `stream_collection=` adds to an existing collection.
+  `get_metadata` returns a `MetadataCollection` (levels station,
+  channel, response; `text=True` for the light text format, read by
+  `read_station_text`); `get_events` returns an `EqDatabase`;
+  `get_availability` (new) returns `TimeSpan`s; `version()` (new).
+  Channels are selected with the patterns of `signals.codes`, filtered
+  again by the client: an empty location is requested as `--` (it
+  selected every location), sets `[...]` become lists. Geographic
+  constraints follow ShakeLab: `region=(lonmin, lonmax, latmin,
+  latmax)`, `center=(lon, lat)`, `radius`, `depth` in km,
+  `magnitude=(min, max)`. Times are sent with microseconds and real
+  numbers in decimal notation. Errors raise `FdsnError` with the
+  message of the server (they were logged and returned as None);
+  timeouts and busy servers are retried with growing waits, other
+  errors not; replies are compressed; POST requests follow 307/308
+  redirects; certificates are verified with `SSL_CERT_FILE`, certifi
+  or the system certificates.
+- `libutils.timeN.Date` accepts ISO 8601 strings without the time
+  (`2026-10-30`, midnight) or without the seconds (`2026-10-30T15:25`),
+  and with a space instead of `T` between date and time (as RFC 3339
+  allows).
+- New command `slab-fdsn` (also `python -m shakelab.signals.fdsnws`)
+  with the subcommands `waveforms`, `metadata`, `events`,
+  `availability` and `datacenters`.
+
 - `signals.libio.cymseed` rewritten for cymseed3 0.2.0 (now required:
   `cymseed3>=0.2.0`). It writes MiniSEED 2 and 3 in every encoding (1,
   3, 4, 5, 10, 11) itself, without falling back to the pure-Python
@@ -482,6 +523,8 @@ corrections. The format follows
 
 ### Fixed
 
+- `seismicity.quakeml.parse_quakeml` treated QuakeML text without an
+  XML declaration as a file name, and failed on `Path` objects.
 - `signals.libio.mseed`: a negative sampling-rate multiplier gave a
   negative rate (it multiplied by 1/m instead of dividing by |m|); the
   time correction of the fixed header was ignored when not yet applied;
@@ -580,6 +623,14 @@ corrections. The format follows
 
 ### Removed
 
+- `signals.fdsnws.FDSNClient`, `FDSNCode`, `get_mseed_module` and
+  `get_fdsn_data_center_registry` (replaced by `Client`, the patterns
+  of `signals.codes` and `datacenters(refresh=True)`, which verifies
+  the certificate of the registry).
+- The `shakelab.cli` package (the `fdsnws` subcommand always failed,
+  and `convert` only wrote a placeholder file) and the `scripts`
+  folder (`shakelab`, `fdsnclient.py` and a leftover
+  `waveform.mseed`): replaced by `slab-fdsn`.
 - `signals.libio.pickutils` (`write_to_pickle`, `read_from_pickle`),
   replaced by `format="pickle"` in `signals.io`; the module configured
   the logging of the whole application when imported.

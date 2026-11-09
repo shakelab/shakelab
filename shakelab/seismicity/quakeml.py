@@ -50,7 +50,7 @@ def parse_quakeml(xml):
         location and magnitude solutions.
     """
     if isinstance(xml, (str, Path)):
-        if not xml.lstrip().startswith("<?xml"):
+        if isinstance(xml, Path) or not xml.lstrip().startswith("<"):
             path = Path(xml)
             if path.is_file():
                 with open(path, "r", encoding="utf-8") as f:

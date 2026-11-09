@@ -1,0 +1,3 @@
+#Network | Station | Latitude | Longitude | Elevation | SiteName | StartTime | EndTime
+IV|MODE|44.629722|10.949167|41.0|Modena|2007-10-18T12:00:00|
+IV|MOXX|44.5|11.0|50.0|Fictitious station|2010-01-01T00:00:00|2015-01-01T00:00:00

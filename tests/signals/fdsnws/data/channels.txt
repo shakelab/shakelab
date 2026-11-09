@@ -1,0 +1,5 @@
+#Network | Station | Location | Channel | Latitude | Longitude | Elevation | Depth | Azimuth | Dip | SensorDescription | Scale | ScaleFreq | ScaleUnits | SampleRate | StartTime | EndTime
+IV|MODE||HNE|44.629722|10.949167|41.0|0.0|90.0|0.0|Kinemetrics Episensor-ES-T|321707.0|10.625|m/s**2|100.0|2008-04-07T08:00:00|
+IV|MODE||HNN|44.629722|10.949167|41.0|0.0|0.0|0.0|Kinemetrics Episensor-ES-T|321707.0|10.625|m/s**2|100.0|2008-04-07T08:00:00|
+IV|MODE||HNZ|44.629722|10.949167|41.0|0.0|0.0|-90.0|Kinemetrics Episensor-ES-T|321707.0|10.625|m/s**2|100.0|2008-04-07T08:00:00|
+IV|MODE|00|HHZ|44.629722|10.949167|41.0|2.5|0.0|-90.0|Fictitious broadband|6.29e8|1.0|m/s|100.0|2008-04-07T08:00:00|2020-01-01T00:00:00

@@ -417,12 +417,11 @@ def _number(value: Any, name: str) -> float:
 
 
 def _date(value: Any) -> Date:
-    """Date of a parameter (Date, ISO string with T or blank)."""
+    """Date of a parameter (Date or ISO 8601 string)."""
     if isinstance(value, Date):
         return value
-    text = str(value).strip().replace(" ", "T", 1)
     try:
-        return Date(text)
+        return Date(str(value).strip())
     except Exception:
         raise ValueError(f"invalid start time: {value!r}") from None
 

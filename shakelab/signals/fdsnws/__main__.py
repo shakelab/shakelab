@@ -1,7 +1,5 @@
-#!/usr/bin/env python3
 # ****************************************************************************
-#
-# Copyright (C) 2019-2024, ShakeLab Developers.
+# Copyright (C) 2019-2026, ShakeLab Developers.
 # This file is part of ShakeLab.
 #
 # ShakeLab is free software: you can redistribute it and/or modify
@@ -16,17 +14,19 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # with this download. If not, see <http://www.gnu.org/licenses/>
-#
 # ****************************************************************************
+"""
+Run the command-line FDSN client: ``python -m shakelab.signals.fdsnws``
+(see :mod:`shakelab.signals.fdsnws.cli`).
+"""
 
-def setup_parser(parser):
-    parser.add_argument('input_file', type=str, help='Name of the input file to convert (e.g., input.mseed)')
-    parser.add_argument('output_file', type=str, help='Name of the output file (e.g., output.mseed)')
+from __future__ import annotations
 
-def run(args):
-    # Execute logic to convert the file with provided arguments
-    print(f"Converting from {args.input_file} to {args.output_file}")
-    # Actual implementation should handle file format conversion
-    with open(args.output_file, 'w') as f:
-        f.write(f'File converted from {args.input_file} to {args.output_file}.')
-    print(f"File converted to {args.output_file}")
+import sys
+
+from shakelab.signals.fdsnws.cli import main
+
+__all__: list = []
+
+if __name__ == "__main__":
+    sys.exit(main(prog="python -m shakelab.signals.fdsnws"))

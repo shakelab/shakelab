@@ -60,10 +60,7 @@ shakeserver = "shakelab.engineering.shakescenario.shakeserver:main"
 shakeclient = "shakelab.engineering.shakescenario.shakeclient:main"
 shakewebui = "shakelab.engineering.shakescenario.webui.app:main"
 slab-seedlink = "shakelab.signals.seedlink.cli:main"
-
-[tool.setuptools]
-# Legacy script, installed as is until the FDSN client is revised.
-script-files = ["scripts/fdsnclient.py"]
+slab-fdsn = "shakelab.signals.fdsnws.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["shakelab", "shakelab.*"]
