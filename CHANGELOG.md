@@ -9,6 +9,10 @@ corrections. The format follows
 
 ### Changed
 
+- Requires `cymseed3>=0.2.1`, published with binary wheels for Linux,
+  macOS and Windows: ShakeLab installs on Windows without a C compiler
+  (cymseed3 0.2.0 was a source distribution only and did not build
+  there).
 - `signals.spectrogram`: the transforms (`wft_transform`,
   `cwt_transform`, `st_transform`) are calibrated by default
   (`scaling="amplitude"`): a sinusoid of amplitude A gives coefficients

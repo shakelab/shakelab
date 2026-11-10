@@ -85,8 +85,9 @@ Required packages, installed automatically:
 - [Requests](https://pypi.org/project/requests/) >= 2.32 (used by the
   ISC tools of `seismicity`; the FDSN and SeedLink clients use the
   standard library only)
-- [cymseed3](https://pypi.org/project/cymseed3/) >= 0.2.0 (MiniSEED
-  I/O based on libmseed, part of the ShakeLab ecosystem)
+- [cymseed3](https://pypi.org/project/cymseed3/) >= 0.2.1 (MiniSEED
+  I/O based on libmseed, part of the ShakeLab ecosystem; binary wheels
+  for Linux, macOS and Windows, so no C compiler is needed there)
 
 Optional extras:
 
