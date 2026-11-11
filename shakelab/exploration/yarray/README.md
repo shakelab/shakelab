@@ -17,8 +17,8 @@ conventions and the state of the work.
 | Block | Content | State |
 |---|---|---|
 | 1 | `signals.windowing`, `data` | done (commit `4574d38`) |
-| 2 | `fourier.dft`, `signals.crossspectral`, `config`, `estimators`, `beamforming` | done |
-| 3 | JSON array input, results I/O, command line `slab-yarray`, `ArrayMonitor` (SeedLink), graphics in `shakelab/graphics` | planned |
+| 2 | `fourier.dft`, `signals.crossspectral`, `config`, `estimators`, `beamforming` | done (commit `e7a8246`) |
+| 3 | `io` (array files, results), `monitor` (`ArrayMonitor`), `cli` (`slab-yarray`), `shakelab.graphics.yarray`, example | done |
 | 4 | `statistics` (density of maxima) | planned |
 | 5 | `response`, `performance`, `operational` (array design and survey planning) | planned |
 
@@ -30,6 +30,14 @@ conventions and the state of the work.
 | `config` | `BeamformingConfig` and its sections (`FrequencyConfig`, `WindowConfig`, `SearchGrid`, `EllipticityGrid`), with `read`/`write` (JSON), `to_dict`/`from_dict`, `replace` |
 | `estimators` | Bartlett, Capon, MUSIC and their statistics, on matrices and steering vectors (shared with the future performance analysis) |
 | `beamforming` | `Beamformer` (`process`), `beamform`, results `BeamformingResult`, `FrequencySpectrum`, `SpectralMaximum` |
+| `io` | `read_array` (array file: local coordinates, a waveform file per component, reader options), `write_result` (also `append`), `read_results`, `read_result` (pickle) |
+| `monitor` | `ArrayMonitor`: periodic processing of the data of the SeedLink client (`client.every(interval, monitor)`) in a worker thread, queryable while running |
+| `cli` | command line `slab-yarray` (`python -m shakelab.exploration.yarray`) |
+
+Figures: `shakelab.graphics.yarray` (`plot_dispersion`,
+`plot_ellipticity`, `plot_spectrum` of power, standard error or
+ellipticity, in the wavenumber plane or in azimuth and grid
+coordinates); matplotlib is imported when a function is called.
 
 Generic tools live in `shakelab.signals`, for reuse by FDD, SPAC and
 other methods: `windowing` (windows, blocks, tapers, effective number
@@ -59,11 +67,52 @@ for maximum in result.maxima_at(rank=1):
 total = BeamformingResult.concatenate([result_1, result_2])
 ```
 
-Real time (block 3): `client.every(600, ArrayMonitor(Beamformer(config,
-cache=True), window=600, ...))`; the callback only copies the data from
-the buffer (`client.get_data`), the processing runs in a worker thread
-of the monitor, which can be queried from any thread (`status()`,
-`latest()`, `result(start, end)`, `array()`).
+Real time:
+
+```python
+from shakelab.signals import seedlink
+from shakelab.exploration.yarray import ArrayMonitor
+
+client = seedlink.Client("server", metadata=metadata_reader("array.xml"))
+client.select("XX.A*..HH?")
+client.set_buffer(max_duration=900)
+monitor = ArrayMonitor(Beamformer(config, cache=True), window=600,
+                       output="monitor.pkl")
+monitor.on_result(lambda monitor, result: print(result.summary()))
+client.every(600, monitor)          # clock="data" to replay an archive
+client.start()
+...                                 # from any thread, while it runs:
+monitor.status(); monitor.latest(); monitor.result(start, end)
+monitor.array(); client.get_data(...)
+client.stop(); monitor.close()
+```
+
+The callback, run in the receiving thread of the client, only copies
+the data of the buffer (`client.get_data`); the processing runs in the
+worker thread of the monitor. The queue is short: when the processing
+is slower than the calls the oldest pending window is dropped and
+reported (`on_skip`), so the monitor never accumulates delay. Windows
+that cannot be processed (no data, too few stations, too short) are
+skipped and reported; unexpected errors stop the worker and are raised
+by `close()`. `background=False` processes in the call;
+`monitor.process(collection, start, end)` processes given data.
+
+Command line:
+
+```sh
+slab-yarray --input array.json --config capon.json -o result.pkl \
+    --plot-dispersion --save-figures figures
+slab-yarray --input array.json --config capon.json --fmin 2 --fmax 8 \
+    --nfreq 20 --method music -o music.pkl      # options replace the JSON
+slab-yarray --data "data/*.mseed" --metadata array.xml \
+    --select "XX.*..HH?" --config rtbf.json -o rtbf.pkl --append
+slab-yarray --result rtbf.pkl --plot-spectrum --frequency 4.5 --show
+```
+
+The figures can also be requested in the section `graphics` of the
+configuration file (`dispersion`, `ellipticity`, `component`, `ranks`,
+`spectrum` {`enabled`, `frequency`, `block`, `view`, `quantity`},
+`show`, `save` {`directory`, `format`, `dpi`}), as in August.
 
 ## Conventions
 
@@ -147,12 +196,15 @@ of the monitor, which can be queried from any thread (`status()`,
   extension.
 - Empirical uncertainty: Bartlett and Capon on single components (not
   MUSIC, not RTBF); coordinate uncertainty: Bartlett only.
-- Recovered functionality to implement in block 3: processing options
-  of the command line as overrides of the JSON (runner of 10 August),
-  reader options per component in the array JSON, appended results
-  and `--result` (plot without processing), `plot_density` and maps of
-  the power uncertainty (only in scripts in August), profiling suite
-  as an example.
+- Recovered in block 3: processing options of the command line as
+  overrides of the JSON (runner of 10 August), reader options per
+  component in the array file, appended results and `--result`, maps
+  of the power uncertainty (`plot_spectrum(quantity=
+  "standard_error")`). Still to do: `plot_density` (block 4, with
+  `statistics`), profiling suite as an example.
+- The local SeedLink test server sends the stations one after the
+  other: the integration test checks the call in the receiving thread
+  and then the analysis of the complete buffer.
 - Documentation: the four documents of August (theory, architecture,
   user manual, array response) will become `docs/yarray.md`, updated.
 

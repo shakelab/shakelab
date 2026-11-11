@@ -417,6 +417,25 @@ corrections. The format follows
   Hz, also for uncorrected data). Ported from the YArray development
   code of August 2026: same maxima on the SESAME simulation; see
   `shakelab/exploration/yarray/README.md`.
+- `exploration.yarray.io`: `read_array` (array file in JSON with
+  local coordinates, a waveform file per component and reader options,
+  as the YArray files of August 2026), `write_result` (pickle, also
+  appending), `read_results`, `read_result`.
+- `exploration.yarray.monitor.ArrayMonitor`: periodic array processing
+  of the data of the SeedLink client (`client.every(interval,
+  monitor)`), in a worker thread with a short queue (late windows
+  dropped and reported), callbacks `on_result` and `on_skip`, and
+  queries from any thread (`status`, `latest`, `results`, `result`,
+  `array`).
+- Command `slab-yarray` (`python -m shakelab.exploration.yarray`):
+  processing of array files or of waveform files with metadata, JSON
+  configuration with command-line options replacing its values,
+  results appended to a file, figures from options or from the
+  section `graphics` of the configuration, plots of saved results.
+- `graphics.yarray`: `plot_dispersion`, `plot_ellipticity`,
+  `plot_spectrum` (power, standard error or ellipticity; wavenumber
+  plane or azimuth and grid coordinates); matplotlib imported on use.
+- Example `examples/exploration/yarray_sesame.py`.
 - `exploration.yarray` (new subpackage, under development): seismic
   array processing. `exploration.yarray.data`: `StationData` and
   `ArrayData`, immutable snapshots of the waveforms of a set of

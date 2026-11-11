@@ -61,6 +61,7 @@ shakeclient = "shakelab.engineering.shakescenario.shakeclient:main"
 shakewebui = "shakelab.engineering.shakescenario.webui.app:main"
 slab-seedlink = "shakelab.signals.seedlink.cli:main"
 slab-fdsn = "shakelab.signals.fdsnws.cli:main"
+slab-yarray = "shakelab.exploration.yarray.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["shakelab", "shakelab.*"]
