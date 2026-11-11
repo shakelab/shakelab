@@ -41,7 +41,7 @@ DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
 
 warnings.filterwarnings("ignore", message="STLO")
 
-array = ya.read_array(DATA / "sesame_array_9.json")
+array = ya.read_array(DATA / "sesame_array.json")
 
 config = ya.BeamformingConfig(
     frequencies=ya.FrequencyConfig(minimum=3.0, maximum=10.0, size=12),

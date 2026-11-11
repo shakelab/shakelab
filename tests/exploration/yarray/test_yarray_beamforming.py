@@ -478,62 +478,36 @@ def test_result_access_and_summary(capsys):
 
 
 def _sesame_array():
-    """First three SESAME stations, coordinates of USER7 and USER8."""
+    """The nine SESAME stations (array file)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        collection = reader([
-            str(DATA / "sesame" / f"M02.1_3001_{code}_0000.*.sac")
-            for code in ("0491_0512", "0500_0507", "0502_0515")
-        ])
-
-    coordinates = {
-        stream.sid.rsplit(".", 1)[0]: (
-            stream.records()[0].head.extra["sac"]["USER7"],
-            stream.records()[0].head.extra["sac"]["USER8"],
-        )
-        for stream in collection
-    }
-
-    return ArrayData.from_collection(collection, coordinates=coordinates)
-
-
-def _sesame_array_9():
-    """Nine SESAME stations, three components (array file)."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        return read_array(DATA / "sesame_array_9.json")
+        return read_array(DATA / "sesame_array.json")
 
 
 @pytest.mark.parametrize(
-    "stations, case",
-    [(3, "vertical_capon"), (3, "radial_bartlett"),
-     (3, "transverse_music"), (3, "rayleigh_joint"),
-     (9, "vertical_capon"), (9, "radial_bartlett"),
-     (9, "transverse_music"), (9, "three_component_capon"),
-     (9, "rayleigh_joint")],
+    "case",
+    ["vertical_capon", "radial_bartlett", "transverse_music",
+     "three_component_capon", "rayleigh_joint"],
 )
-def test_reference_august_2026(stations, case):
+def test_reference_august_2026(case):
     """
     Maxima equal those of the YArray implementation of August 2026.
 
-    The references (``data/reference_20260812.json`` for the first
-    three stations, ``data/reference_20260812_9.json`` for the nine
-    stations with three components) were computed by the original code
-    on the same data. Wavevectors, ranks, blocks and
-    ellipticities are identical; the power differs by the change of
-    normalization: the old coefficients were ``2 / N * sum w x e``
-    with the taper normalized to unit mean square, so that the new
-    spectral density is ``N * delta / 2`` times the old power (squared
-    for the RTBF objective; MUSIC is unchanged up to the same factor,
-    inverse, being a reciprocal of a projection without the matrix
-    scale).
+    The reference (``data/reference.json``) was computed by the
+    original code of 12 August 2026 on the same data. Wavevectors,
+    ranks, blocks, components and ellipticities are identical; the
+    power differs by the change of normalization: the old coefficients
+    were ``2 / N * sum w x e`` with the taper normalized to unit mean
+    square, so that the new spectral density is ``N * delta / 2`` times
+    the old power (squared for the RTBF objective; MUSIC is unchanged
+    up to the same factor, inverse, being a reciprocal of a projection
+    without the matrix scale).
     """
-    name = "reference_20260812" + ("_9" if stations == 9 else "")
     reference = json.loads(
-        (DATA / f"{name}.json").read_text()
+        (DATA / "reference.json").read_text()
     )["cases"][case]
     config = BeamformingConfig.from_dict(reference["config"])
-    array = _sesame_array() if stations == 3 else _sesame_array_9()
+    array = _sesame_array()
     result = beamform(array, config)
 
     assert len(result.maxima) == len(reference["maxima"])
@@ -541,7 +515,7 @@ def test_reference_august_2026(stations, case):
     for new, old in zip(result.maxima, reference["maxima"]):
         assert new.frequency == old["frequency"]
         assert (new.block, new.rank) == (old["block"], old["rank"])
-        assert new.component == old.get("component", new.component)
+        assert new.component == old["component"]
         assert new.wavenumber == pytest.approx(old["wavenumber"], rel=1e-12)
         assert new.azimuth == old["azimuth"]
 

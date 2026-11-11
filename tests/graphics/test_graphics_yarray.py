@@ -93,7 +93,7 @@ def results():
 
     config = BeamformingConfig(
         [3.0, 5.0], SearchGrid(100.0, 2000.0, 30, azimuth_size=36),
-        window=WindowConfig(length=10, windows_per_block=12),
+        window=WindowConfig(length=10, windows_per_block=20),
         output="both", maxima=2, statistical_uncertainty="empirical",
     )
     vertical = beamform(array, config)
@@ -252,7 +252,7 @@ def test_plot_array_geometry(analysis):
         array = read_array(ARRAY)
 
     _, axis = plot_array_geometry(array, labels=True)
-    assert len(axis.collections[0].get_offsets()) == 3
+    assert len(axis.collections[0].get_offsets()) == 9
     assert [text.get_text() for text in axis.texts] == list(array.sids)
     _, axis = plot_array_geometry(analysis.response, principal_axes=False,
                                   centered=True)

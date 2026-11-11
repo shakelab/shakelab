@@ -72,7 +72,8 @@ def test_read_array():
     """Stations, coordinates, components Z, N, E and data."""
     array = read_array(ARRAY)
 
-    assert array.sids == ("S1001", "S1002", "S1003")
+    assert array.sids == ("S1001", "S1002", "S1003", "S1006", "S1017",
+                          "S1019", "S1021", "S1023", "S1028")
     assert array.frame is None
     assert array.nsamp == 6858
     np.testing.assert_array_equal(array["S1002"].coordinates,

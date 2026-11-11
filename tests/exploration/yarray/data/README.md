@@ -3,10 +3,8 @@
 | File | Content |
 |---|---|
 | `sesame/M02.1_3001_*_0000.{1,2,3}.sac` | Nine stations of a synthetic ambient-noise array simulation of the SESAME project (model `M2.1`), components Z, N, E (files `.1`, `.2`, `.3`), 114.29 Hz (`DELTA` 0.00875 s); excerpt of 60 s (samples 11429 to 18286 of the original 405 s records, `B` 100 s) |
-| `sesame_array.json` | Array file of the first three stations (`S1001`, `S1002`, `S1003`) |
-| `sesame_array_9.json` | Array file of the nine stations |
-| `reference_20260812.json` | Maxima of the YArray code of 12 August 2026 on the three stations |
-| `reference_20260812_9.json` | Maxima of the same code on the nine stations (vertical, radial, transverse, three components, Rayleigh joint) |
+| `sesame_array.json` | Array file of the nine stations (local coordinates, one file per component) |
+| `reference.json` | Maxima of the YArray code of 12 August 2026 on the nine stations, for every component mode (vertical, radial, transverse, three components, Rayleigh joint), with their configurations |
 
 The nine stations are a subset of the 38 of the simulation, chosen
 with `yarray.response` among random subsets containing the central
@@ -16,7 +14,7 @@ station and the first three: `S1001` (2048, 1964), `S1002` (2028,
 (2116, 2048), `S1028` (2032, 2056), in metres. At level 0.5 the
 resolved and alias-free wavenumbers span 0.030 to 0.240 rad/m, while
 no wavenumber is both resolved and alias-free with the first three
-stations only.
+stations alone (the excerpt of the first version of these data).
 
 The files keep the header of the original simulation (binary SAC,
 `KSTNM` = station, `KCMPNM` = component, no network code), apart from

@@ -60,7 +60,7 @@ config = ya.BeamformingConfig(
 )
 
 # 1. Empirical standard error of the power.
-array = ya.read_array(DATA / "sesame_array_9.json")
+array = ya.read_array(DATA / "sesame_array.json")
 result = ya.beamform(array,
                      config.replace(statistical_uncertainty="empirical"))
 best = result.maxima_at(rank=1)[0]

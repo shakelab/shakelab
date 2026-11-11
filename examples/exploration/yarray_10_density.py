@@ -44,7 +44,7 @@ DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
 
 warnings.filterwarnings("ignore", message="STLO")
 
-array = ya.read_array(DATA / "sesame_array_9.json")
+array = ya.read_array(DATA / "sesame_array.json")
 
 # Short blocks with large overlap: many blocks, many maxima.
 config = ya.BeamformingConfig(

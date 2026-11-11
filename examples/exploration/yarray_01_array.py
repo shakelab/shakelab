@@ -44,7 +44,7 @@ warnings.filterwarnings("ignore", message="STLO")
 
 # 1. From an array file: a JSON file listing, for each station, its
 #    local coordinates and one waveform file per component.
-array = ya.read_array(DATA / "sesame_array_9.json")
+array = ya.read_array(DATA / "sesame_array.json")
 array.info()
 
 # 2. From waveforms read by ShakeLab and a table of coordinates.

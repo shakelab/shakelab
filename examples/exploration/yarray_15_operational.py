@@ -43,7 +43,7 @@ DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
 
 warnings.filterwarnings("ignore", message="STLO")
 
-array = ya.read_array(DATA / "sesame_array_9.json")
+array = ya.read_array(DATA / "sesame_array.json")
 response = ya.array_response(array)
 
 # 1. The processing to assess (as in yarray_14_performance.py).

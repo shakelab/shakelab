@@ -89,7 +89,7 @@ uncertain = ya.array_response(coordinates,
 ya.analyze_response(uncertain, expected=True).info()
 
 # 7. The array of the SESAME test data.
-array = ya.read_array(DATA / "sesame_array_9.json")
+array = ya.read_array(DATA / "sesame_array.json")
 ya.analyze_response(ya.array_response(array)).info()
 
 figure, axes = plt.subplots(2, 3, figsize=(17, 10))

@@ -27,7 +27,7 @@
 
 set -e
 
-ARRAY=tests/exploration/yarray/data/sesame_array_9.json
+ARRAY=tests/exploration/yarray/data/sesame_array.json
 mkdir -p output
 
 # 1. A configuration file (written here with the shell; the section

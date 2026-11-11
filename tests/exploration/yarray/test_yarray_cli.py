@@ -40,7 +40,7 @@ OPTIONS = [
     "--input", ARRAY, "--fmin", "3", "--fmax", "8", "--nfreq", "3",
     "--grid-min", "100", "--grid-max", "2000", "--grid-size", "30",
     "--azimuth-size", "36", "--window-length", "10",
-    "--windows-per-block", "12",
+    "--windows-per-block", "20",
 ]
 
 
@@ -50,7 +50,7 @@ def _config_file(tmp_path, **extra):
         "frequencies": {"values": [3.0, 5.0]},
         "grid": {"minimum": 100, "maximum": 2000, "size": 30,
                  "azimuth_size": 36},
-        "window": {"length": 10, "windows_per_block": 12},
+        "window": {"length": 10, "windows_per_block": 20},
         "method": {"name": "capon"},
         "output": {"mode": "both"},
         **extra,
@@ -69,7 +69,7 @@ def test_process_from_options(tmp_path, capsys):
                            str(written)]) == 0
 
     out = capsys.readouterr().out
-    assert "ArrayData: 3 stations" in out
+    assert "ArrayData: 9 stations" in out
     assert "BeamformingResult: capon, vertical" in out
     assert len(read_results(output)) == 1
     assert BeamformingConfig.read(written).frequencies.size == 3
@@ -182,7 +182,7 @@ def test_response_command_from_array(capsys):
     """Response of an array file; errors of the options."""
     assert main(["response", "--input", ARRAY, "--grid-max", "0.3",
                  "--grid-size", "61"]) == 0
-    assert "3 stations" in capsys.readouterr().out
+    assert "9 stations" in capsys.readouterr().out
     assert main(["response", "--input", ARRAY, "--plot-search-domain"]) == 1
     assert "--search-max" in capsys.readouterr().err
     assert main(["response", "--input", ARRAY, "--grid-max", "0.3"]) == 1

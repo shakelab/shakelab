@@ -215,7 +215,7 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
 - Same algorithms: on the SESAME simulation (3 and 38 stations) the
   maxima (wavenumber, azimuth, rank, block, ellipticity) are identical
   for every method and component mode (test against
-  `tests/exploration/yarray/data/reference_20260812.json`); processing
+  `tests/exploration/yarray/data/reference.json`); processing
   times are equivalent (38 stations, Capon, 50 frequencies: 10 s
   direct, 7 s RFFT).
 - Power in physical units (see Conventions): the old coefficients were
@@ -280,12 +280,12 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
   "standard_error")`). The profiling suite of August (shell script and
   configurations) became `examples/exploration/yarray_16_profiling.py`
   (block 6).
-- Block 6: the test data hold nine three-component SESAME stations;
-  the maxima of the August code on them (vertical, radial,
-  transverse, three components, Rayleigh joint) are identical
-  (`reference_20260812_9.json`). `ArrayMonitor` skips, without
-  warnings about stations, a buffer shorter than the window (the
-  start of an acquisition).
+- Block 6: the test data hold nine three-component SESAME stations
+  (`sesame_array.json`); the maxima of the August code on them
+  (vertical, radial, transverse, three components, Rayleigh joint) are
+  identical (`reference.json`, which replaces the three-station
+  reference). `ArrayMonitor` skips, without warnings about stations, a
+  buffer shorter than the window (the start of an acquisition).
 - `statistics` (block 4) gives the same densities, summaries and peak
   positions as August (1e-14); two fixes: `numpy.trapz` (removed in
   NumPy 2.4) replaced by `trapezoid`, and the peak prominence, which
@@ -317,9 +317,8 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
 ## Test data
 
 `tests/exploration/yarray/data/`: excerpt of the SESAME array
-simulation (9 three-component stations, 60 s; array files of the
-first three and of all nine; see its README) and the maxima of the
-August implementation on both.
+simulation (9 three-component stations, 60 s, with their array file;
+see its README) and the maxima of the August implementation on it.
 
 ## References
 

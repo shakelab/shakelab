@@ -188,7 +188,7 @@ def test_expected_response():
 def test_response_of_array_data():
     array = _sesame()
     response = array_response(array)
-    assert response.geometry.n_stations == 3
+    assert response.geometry.n_stations == 9
     assert response.expected_power is None
 
 
