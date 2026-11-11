@@ -395,6 +395,28 @@ corrections. The format follows
   independent windows equivalent to overlapping tapered windows,
   Percival and Walden, 1993) and `split_record` (windows of a Record
   as new records).
+- `signals.fourier.dft`: scaled Fourier transform at arbitrary
+  frequencies (same scaling and kernel as `fft`).
+- `signals.crossspectral` (new): Fourier coefficients of the windows of
+  a set of channels (`coefficients`, direct at any frequency or from
+  one RFFT per window, nearest bins or cubic interpolation), scaled by
+  default so that their squared modulus is the one-sided PSD, and
+  cross-spectral matrices averaged over windows with the variance of
+  each element (`cross_spectral_matrix`); shared by array processing
+  and future FDD and SPAC.
+- `exploration.yarray.config`, `estimators`, `beamforming`:
+  frequency-wavenumber processing of arrays (Bartlett, Capon, MUSIC;
+  vertical, radial, transverse, separate three-component and Rayleigh
+  three-component RTBF with signed ellipticity; empirical power
+  uncertainty and coordinate uncertainty). `BeamformingConfig` with
+  `read`/`write` (JSON) and `replace`, enumerations accepted as
+  strings; `Beamformer(config, cache=False).process(array)` and
+  `beamform`; `BeamformingResult` with `maxima_at`, `spectrum`,
+  `concatenate`, `info`, block times, stations and units. The beam
+  power is a power spectral density (units of the data squared per
+  Hz, also for uncorrected data). Ported from the YArray development
+  code of August 2026: same maxima on the SESAME simulation; see
+  `shakelab/exploration/yarray/README.md`.
 - `exploration.yarray` (new subpackage, under development): seismic
   array processing. `exploration.yarray.data`: `StationData` and
   `ArrayData`, immutable snapshots of the waveforms of a set of

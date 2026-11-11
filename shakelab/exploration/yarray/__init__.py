@@ -23,11 +23,28 @@ Seismic-array processing (YArray).
 Frequency-wavenumber analysis of synchronized seismic arrays, usable
 from Python, from the command line and within the callbacks of the
 SeedLink client. The package is under development: so far it contains
-the array data model (:mod:`.data`).
+the array data model (:mod:`.data`), the configuration
+(:mod:`.config`), the estimators (:mod:`.estimators`) and the
+beamforming (:mod:`.beamforming`). See ``README.md`` in this folder.
 """
 
 from __future__ import annotations
 
+from shakelab.exploration.yarray.beamforming import (
+    Beamformer,
+    BeamformingResult,
+    BeamformingWarning,
+    FrequencySpectrum,
+    SpectralMaximum,
+    beamform,
+)
+from shakelab.exploration.yarray.config import (
+    BeamformingConfig,
+    EllipticityGrid,
+    FrequencyConfig,
+    SearchGrid,
+    WindowConfig,
+)
 from shakelab.exploration.yarray.data import (
     ArrayData,
     ArrayDataWarning,
@@ -37,5 +54,16 @@ from shakelab.exploration.yarray.data import (
 __all__ = [
     "ArrayData",
     "ArrayDataWarning",
+    "Beamformer",
+    "BeamformingConfig",
+    "BeamformingResult",
+    "BeamformingWarning",
+    "EllipticityGrid",
+    "FrequencyConfig",
+    "FrequencySpectrum",
+    "SearchGrid",
+    "SpectralMaximum",
     "StationData",
+    "WindowConfig",
+    "beamform",
 ]

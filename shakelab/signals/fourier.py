@@ -54,6 +54,7 @@ __all__ = [
     "fast_length",
     "frequency_axis",
     "frequency_range",
+    "dft",
     "fft",
     "ifft",
     "shift_time",
@@ -229,6 +230,84 @@ def fft(
         ``delta * numpy.fft.rfft(data, nsamp)``.
     """
     return np.fft.rfft(data, nsamp) * delta
+
+
+def dft(
+    data: Any,
+    delta: float,
+    freq: Any,
+    axis: int = -1,
+) -> np.ndarray:
+    """
+    Return the scaled Fourier transform at arbitrary frequencies.
+
+    The transform has the scaling and the kernel of :func:`fft`,
+    ``X(f) = delta * sum_n x[n] * exp(-2j * pi * f * n * delta)``, with
+    the time of the first sample as origin, but is evaluated at the
+    given frequencies instead of the DFT bins: at a bin frequency it
+    equals the corresponding value of :func:`fft`.
+
+    Parameters
+    ----------
+    data : array-like
+        Real or complex samples.
+    delta : float
+        Sampling interval in seconds.
+    freq : float or array-like
+        Frequencies in Hz.
+    axis : int, optional
+        Axis along which the transform is computed. Default is the last.
+
+    Returns
+    -------
+    numpy.ndarray
+        Complex values with the transformed axis replaced by the
+        frequencies (``len(freq)`` values; for a scalar ``freq`` the
+        axis is removed).
+
+    Raises
+    ------
+    ValueError
+        If ``delta`` is not positive, the frequencies are not finite or
+        ``axis`` is out of bounds.
+
+    Notes
+    -----
+    The cost is proportional to the number of samples times the number
+    of frequencies (a matrix product): for many frequencies on the DFT
+    grid :func:`fft` is faster.
+    """
+    data = np.asarray(data)
+    delta = float(delta)
+
+    if not np.isfinite(delta) or delta <= 0.0:
+        raise ValueError("delta must be positive")
+
+    if data.ndim == 0:
+        raise ValueError("data must have at least one dimension")
+
+    if not -data.ndim <= axis < data.ndim:
+        raise ValueError(
+            f"axis {axis} is out of bounds for an array of dimension "
+            f"{data.ndim}"
+        )
+
+    values = np.asarray(freq, dtype=float)
+    scalar = values.ndim == 0
+    values = np.atleast_1d(values)
+
+    if values.ndim != 1 or not np.all(np.isfinite(values)):
+        raise ValueError("freq must be a finite scalar or 1-D array")
+
+    time = np.arange(data.shape[axis]) * delta
+    kernel = np.exp(-2j * np.pi * values[:, None] * time[None, :])
+    result = np.moveaxis(data, axis, -1) @ kernel.T * delta
+    result = np.moveaxis(result, -1, axis)
+
+    if scalar:
+        result = np.take(result, 0, axis=axis)
+
+    return result
 
 
 def ifft(spectrum: np.ndarray, delta: float, nsamp: int) -> np.ndarray:

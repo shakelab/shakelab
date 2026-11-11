@@ -79,6 +79,46 @@ def test_transform_scaling_and_round_trip():
     )
 
 
+def test_dft_equals_fft_at_bin_frequencies():
+    """At the DFT bins dft gives the values of fft, along any axis."""
+    rng = np.random.default_rng(3)
+    data = rng.standard_normal((4, 300))
+    spectrum = fourier.fft(data, 0.01)
+    freq = fourier.frequency_axis(0.01, 300)[[0, 7, 31, 150]]
+
+    np.testing.assert_allclose(
+        fourier.dft(data, 0.01, freq), spectrum[:, [0, 7, 31, 150]],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        fourier.dft(data.T, 0.01, freq, axis=0),
+        spectrum[:, [0, 7, 31, 150]].T, atol=1e-12,
+    )
+
+
+def test_dft_between_bins():
+    """
+    A sine of amplitude A lasting T seconds has |X| = A T / 2 also when
+    its frequency is not a DFT bin (whole number of cycles in T).
+    """
+    delta = 0.01
+    time = np.arange(1000) * delta
+    signal = 2.0 * np.sin(2.0 * np.pi * 5.5 * time)
+
+    assert abs(fourier.dft(signal, delta, 5.5)) == pytest.approx(10.0)
+    assert fourier.dft(signal, delta, [5.5, 6.0]).shape == (2,)
+
+
+def test_dft_errors():
+    """Invalid sampling, frequencies and axes are rejected."""
+    with pytest.raises(ValueError):
+        fourier.dft(np.zeros(10), 0.0, 1.0)
+    with pytest.raises(ValueError):
+        fourier.dft(np.zeros(10), 0.1, [np.nan])
+    with pytest.raises(ValueError):
+        fourier.dft(np.zeros(10), 0.1, 1.0, axis=1)
+
+
 def test_shift_time():
     """An integer shift moves a pulse; the shift is circular."""
     x = np.zeros(16)
