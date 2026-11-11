@@ -30,55 +30,31 @@ Run (from any folder)::
 
 import warnings
 from pathlib import Path
-from collections import Counter
 
 import matplotlib.pyplot as plt
 
-from shakelab.exploration import yarray as ya
+from shakelab.exploration.yarray import (
+    ArrayData,
+    ArrayResponse,
+    PerformanceConfig,
+)
 from shakelab.graphics.yarray import plot_operational
 
-# Test data of the repository (the example runs from any folder).
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
+DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
+warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
 
-warnings.filterwarnings("ignore", message="STLO")
+response = ArrayResponse(ArrayData(DATA / "sesame_array.json"))
+config = PerformanceConfig(snr_db=-3.0, method="capon",
+                           grid_min=0.0, grid_max=0.24, grid_size=41,
+                           azimuth_size=72, trials=50, realizations=20,
+                           seed=1)
 
-array = ya.ArrayData(DATA / "sesame_array.json")
-response = ya.array_response(array)
-
-# 1. The processing to assess (as in yarray_14_performance.py).
-config = ya.PerformanceConfig(
-    snr_db=-3.0,
-    grid=ya.SearchGrid(0.0, 0.24, 41, quantity="wavenumber",
-                       azimuth_size=72),
-    estimator=ya.EstimatorConfig("capon"),
-    monte_carlo=ya.MonteCarloConfig(trials=50, realizations=20, seed=1),
-)
-
-# 2. The domain of interest and the criteria of a usable point.
-domain = ya.OperationalConfig(
-    frequencies=[3.0, 5.0, 8.0, 12.0],
-    velocities=[150.0, 250.0, 400.0, 600.0, 1000.0],
-    azimuths=[0.0, 60.0, 120.0],        # default: 12 azimuths
-    criteria=ya.OperationalCriteria(
-        minimum_local_probability=0.8,
-        maximum_alias_probability=0.05,
-        maximum_relative_velocity_rmse=0.15,
-    ),
-)
-
-assessment = ya.assess_array(response, config, domain)
-assessment.info()
-
-# 3. Usable velocities at each frequency (worst azimuth).
-for index, frequency in enumerate(assessment.frequencies):
-    print(frequency, assessment.usable_velocity_range(index))
-
-# 4. Why the other points are not usable.
-print(Counter(factor.value for factor in assessment.limiting_factor.flat))
-
-for recommendation in assessment.recommendations:
-    print(recommendation.severity.value, recommendation.message)
+assessment = response.assess(config,
+                             frequencies=[3, 5, 8, 12],
+                             velocities=[150, 250, 400, 600, 1000],
+                             azimuths=[0, 60, 120],  # default: 12
+                             min_local=0.8, max_velocity_rmse=0.15)
+assessment.info()                        # usable velocities, advice
 
 plot_operational(assessment)
 plt.show()

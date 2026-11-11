@@ -34,11 +34,17 @@ assessment for survey planning (:mod:`.operational`), file formats
 
 .. code-block:: python
 
-    from shakelab.exploration.yarray import ArrayData, Beamformer
+    from shakelab.exploration.yarray import (
+        ArrayData,
+        ArrayResponse,
+        Beamformer,
+    )
 
     array = ArrayData("array.json")
     result = Beamformer(array, "capon.json").process()
     result.dispersion().info()
+
+    ArrayResponse(array).analyze().info()
 """
 
 from __future__ import annotations
@@ -55,6 +61,7 @@ from shakelab.exploration.yarray.config import (
     BeamformingConfig,
     EllipticityGrid,
     FrequencyConfig,
+    PerformanceConfig,
     SearchGrid,
     WindowConfig,
 )
@@ -64,32 +71,17 @@ from shakelab.exploration.yarray.data import (
     StationData,
 )
 from shakelab.exploration.yarray.monitor import ArrayMonitor
-from shakelab.exploration.yarray.operational import (
-    OperationalAssessment,
-    OperationalConfig,
-    OperationalCriteria,
-    assess_array,
-)
+from shakelab.exploration.yarray.operational import OperationalAssessment
 from shakelab.exploration.yarray.performance import (
-    ClassificationConfig,
-    EstimatorConfig,
-    MonteCarloConfig,
-    PerformanceConfig,
     PerformanceResult,
     PerformanceSweepResult,
     PlaneWaveSource,
-    evaluate_performance,
-    performance_sweep,
 )
 from shakelab.exploration.yarray.response import (
     ArrayGeometry,
     ArrayResponse,
     ResponseAnalysis,
     ResponseGrid,
-    analyze_response,
-    analyze_search_domain,
-    array_response,
-    velocity_limits,
 )
 
 __all__ = [
@@ -102,16 +94,11 @@ __all__ = [
     "BeamformingConfig",
     "BeamformingResult",
     "BeamformingWarning",
-    "ClassificationConfig",
     "DispersionCurve",
     "EllipticityGrid",
-    "EstimatorConfig",
     "FrequencyConfig",
     "FrequencySpectrum",
-    "MonteCarloConfig",
     "OperationalAssessment",
-    "OperationalConfig",
-    "OperationalCriteria",
     "PerformanceConfig",
     "PerformanceResult",
     "PerformanceSweepResult",
@@ -122,11 +109,4 @@ __all__ = [
     "SpectralMaximum",
     "StationData",
     "WindowConfig",
-    "analyze_response",
-    "analyze_search_domain",
-    "array_response",
-    "assess_array",
-    "evaluate_performance",
-    "performance_sweep",
-    "velocity_limits",
 ]

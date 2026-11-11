@@ -49,19 +49,22 @@ ambiguity family. The SNR is per station, ``P_s / P_n``; the
 realizations are independent, so their effective number equals their
 number.
 
-:func:`evaluate_performance` runs one experiment,
-:func:`performance_sweep` a grid of SNR and realizations. The
-experiments are reproducible through ``MonteCarloConfig.seed``. The
-search grid must be of wavenumbers (``quantity="wavenumber"``): the
-experiment does not depend on the frequency, which enters only the
-conversion to velocity (:meth:`PerformanceResult.velocity_statistics`).
+:meth:`ArrayResponse.performance
+<shakelab.exploration.yarray.response.ArrayResponse.performance>` runs
+one experiment, :meth:`ArrayResponse.performance_sweep
+<shakelab.exploration.yarray.response.ArrayResponse.performance_sweep>`
+a grid of SNR and realizations, both configured by
+:class:`~shakelab.exploration.yarray.config.PerformanceConfig`. The
+experiments are reproducible through its ``seed``. The search grid is
+of wavenumbers: the experiment does not depend on the frequency, which
+enters only the conversion to velocity
+(:meth:`PerformanceResult.velocity_statistics`).
 Correlated windows, coloured noise, several sources, sampled
 coordinate errors and RTBF are not modelled.
 """
 
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import dataclass
 from enum import IntEnum
 from statistics import NormalDist
@@ -70,7 +73,7 @@ from typing import Any, Optional
 import numpy as np
 from scipy.ndimage import label
 
-from shakelab.exploration.yarray.config import GridQuantity, SearchGrid
+from shakelab.exploration.yarray.config import PerformanceConfig, SearchGrid
 from shakelab.exploration.yarray.estimators import (
     BeamformingMethod,
     beam_power,
@@ -79,48 +82,25 @@ from shakelab.exploration.yarray.estimators import (
 from shakelab.exploration.yarray.response import (
     ArrayResponse,
     ResponseAnalysis,
-    analyze_response,
+    _readonly,
 )
 from shakelab.signals.crossspectral import cross_spectral_matrix
 
 __all__ = [
     "AliasFamily",
-    "ClassificationConfig",
-    "EstimatorConfig",
     "LocalStatistics",
-    "MonteCarloConfig",
     "OutcomeClass",
     "OutcomeSummary",
-    "PerformanceConfig",
     "PerformanceResult",
     "PerformanceSamples",
     "PerformanceSweepResult",
     "PlaneWaveSource",
     "VelocityStatistics",
-    "evaluate_performance",
-    "performance_sweep",
-    "theoretical_cross_spectrum",
 ]
 
 _NO_ALIAS = -1
-
-
-def _readonly(value: Any, dtype: Any = float) -> np.ndarray:
-    """Return a read-only copy of an array."""
-    array = np.array(value, dtype=dtype, copy=True)
-    array.setflags(write=False)
-    return array
-
-
-def _integer(value: Any, name: str, minimum: int) -> int:
-    """Return an integer not smaller than ``minimum``."""
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise ValueError(f"{name} must be an integer")
-
-    if value < minimum:
-        raise ValueError(f"{name} must be at least {minimum}")
-
-    return int(value)
+# Seed increment between the points of a sweep.
+_SEED_STRIDE = 1000003
 
 
 def _finite(value: Any, name: str) -> float:
@@ -133,42 +113,8 @@ def _finite(value: Any, name: str) -> float:
     return value
 
 
-def _method(value: Any) -> BeamformingMethod:
-    """Return a scalar estimator from a member or its value."""
-    if not isinstance(value, BeamformingMethod):
-        for member in BeamformingMethod:
-            if member.value == value:
-                value = member
-                break
-        else:
-            raise ValueError(f"unknown method {value!r}; the experiments "
-                             "support bartlett, capon and music")
-
-    return value
-
-
-class _Replace:
-    """Mixin returning modified copies of a frozen dataclass."""
-
-    def replace(self, **changes: Any) -> Any:
-        """
-        Return a copy with some fields changed.
-
-        Parameters
-        ----------
-        **changes
-            New field values.
-
-        Returns
-        -------
-        object
-            Validated copy.
-        """
-        return dataclasses.replace(self, **changes)
-
-
 # ----------------------------------------------------------------------------
-# Configuration
+# Sources and outcomes
 # ----------------------------------------------------------------------------
 
 
@@ -194,6 +140,8 @@ class PlaneWaveSource:
         Propagation azimuth in degrees clockwise from north.
     signal_power : float, optional
         Expected Fourier power ``E[|s|**2]`` at each station. Default 1.
+    frequency : float, optional
+        Frequency in Hz, if known (for the velocities).
 
     Raises
     ------
@@ -204,6 +152,7 @@ class PlaneWaveSource:
     wavenumber: float
     azimuth: float
     signal_power: float = 1.0
+    frequency: Optional[float] = None
 
     def __post_init__(self) -> None:
         wavenumber = _finite(self.wavenumber, "wavenumber")
@@ -215,6 +164,14 @@ class PlaneWaveSource:
         if power <= 0.0:
             raise ValueError("signal_power must be positive")
 
+        if self.frequency is not None:
+            frequency = _finite(self.frequency, "frequency")
+
+            if frequency <= 0.0:
+                raise ValueError("frequency must be positive")
+
+            object.__setattr__(self, "frequency", frequency)
+
         object.__setattr__(self, "wavenumber", wavenumber)
         object.__setattr__(self, "signal_power", power)
         object.__setattr__(
@@ -222,40 +179,13 @@ class PlaneWaveSource:
                                           360.0))
         )
 
-    @classmethod
-    def from_velocity(
-        cls,
-        velocity: float,
-        frequency: float,
-        azimuth: float,
-        signal_power: float = 1.0,
-    ) -> PlaneWaveSource:
-        """
-        Return the plane wave of a phase velocity at a frequency.
+    @property
+    def velocity(self) -> Optional[float]:
+        """Phase velocity (None without frequency or wavenumber)."""
+        if self.frequency is None or self.wavenumber <= 0.0:
+            return None
 
-        Parameters
-        ----------
-        velocity : float
-            Phase velocity.
-        frequency : float
-            Frequency in Hz.
-        azimuth : float
-            Propagation azimuth in degrees clockwise from north.
-        signal_power : float, optional
-            Fourier power at each station. Default is 1.
-
-        Returns
-        -------
-        PlaneWaveSource
-            Source with wavenumber ``2 pi f / c``.
-        """
-        velocity = _finite(velocity, "velocity")
-        frequency = _finite(frequency, "frequency")
-
-        if velocity <= 0.0 or frequency <= 0.0:
-            raise ValueError("velocity and frequency must be positive")
-
-        return cls(2.0 * np.pi * frequency / velocity, azimuth, signal_power)
+        return float(2.0 * np.pi * self.frequency / self.wavenumber)
 
     @property
     def kx(self) -> float:
@@ -273,183 +203,27 @@ class PlaneWaveSource:
         return np.array([self.kx, self.ky])
 
 
-@dataclass(frozen=True)
-class EstimatorConfig(_Replace):
-    """
-    Estimator of the experiments.
+def _plane_wave(wavenumber: Optional[float], velocity: Optional[float],
+                frequency: Optional[float], azimuth: float,
+                signal_power: float) -> PlaneWaveSource:
+    """Return the source of a wavenumber or of a velocity and frequency."""
+    if (wavenumber is None) == (velocity is None):
+        raise TypeError("give either wavenumber or velocity (with "
+                        "frequency)")
 
-    Parameters
-    ----------
-    method : BeamformingMethod or str, optional
-        ``"bartlett"`` (default), ``"capon"`` or ``"music"``.
-    diagonal_loading : float, optional
-        Relative diagonal loading of Capon. Default is 0.001.
-    music_sources : int, optional
-        Signal eigenvectors excluded by MUSIC. Default is 1.
-    strict : bool, optional
-        Require more realizations than stations for Capon and MUSIC.
-        Default is True.
+    if velocity is not None:
+        if frequency is None:
+            raise TypeError("velocity needs frequency")
 
-    Raises
-    ------
-    ValueError
-        If a value is out of range.
-    """
+        velocity = _finite(velocity, "velocity")
+        frequency = _finite(frequency, "frequency")
 
-    method: Any = BeamformingMethod.BARTLETT
-    diagonal_loading: float = 0.001
-    music_sources: int = 1
-    strict: bool = True
+        if velocity <= 0.0 or frequency <= 0.0:
+            raise ValueError("velocity and frequency must be positive")
 
-    def __post_init__(self) -> None:
-        loading = _finite(self.diagonal_loading, "diagonal_loading")
+        wavenumber = 2.0 * np.pi * frequency / velocity
 
-        if loading < 0.0:
-            raise ValueError("diagonal_loading cannot be negative")
-
-        if not isinstance(self.strict, bool):
-            raise TypeError("strict must be a bool")
-
-        object.__setattr__(self, "method", _method(self.method))
-        object.__setattr__(self, "diagonal_loading", loading)
-        object.__setattr__(self, "music_sources",
-                           _integer(self.music_sources, "music_sources", 1))
-
-
-@dataclass(frozen=True)
-class MonteCarloConfig(_Replace):
-    """
-    Monte Carlo sampling.
-
-    Parameters
-    ----------
-    trials : int, optional
-        Number of trials (at least two). Default is 1000.
-    realizations : int, optional
-        Independent Fourier realizations of each sample matrix.
-        Default is 40.
-    seed : int, optional
-        Seed of the random generator; None for a non-reproducible run.
-
-    Raises
-    ------
-    ValueError
-        If a value is out of range.
-    """
-
-    trials: int = 1000
-    realizations: int = 40
-    seed: Optional[int] = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "trials",
-                           _integer(self.trials, "trials", 2))
-        object.__setattr__(self, "realizations",
-                           _integer(self.realizations, "realizations", 1))
-
-        if self.seed is not None:
-            object.__setattr__(self, "seed", _integer(self.seed, "seed", 0))
-
-
-@dataclass(frozen=True)
-class ClassificationConfig(_Replace):
-    """
-    Geometric classification of the trials.
-
-    Parameters
-    ----------
-    resolution_level : float, optional
-        Response level of the LOCAL region. Default is 0.5.
-    ambiguity_level : float, optional
-        Response level of the ALIAS regions. Default is 0.5.
-    boundary_margin : int, optional
-        Radial samples next to each radial boundary of the search grid
-        classified as BOUNDARY (the azimuth is periodic). Default 0.
-
-    Raises
-    ------
-    ValueError
-        If a value is out of range.
-    """
-
-    resolution_level: float = 0.5
-    ambiguity_level: float = 0.5
-    boundary_margin: int = 0
-
-    def __post_init__(self) -> None:
-        for name in ("resolution_level", "ambiguity_level"):
-            value = _finite(getattr(self, name), name)
-
-            if not 0.0 < value < 1.0:
-                raise ValueError(f"{name} must be between 0 and 1 "
-                                 "(excluded)")
-
-            object.__setattr__(self, name, value)
-
-        object.__setattr__(
-            self, "boundary_margin",
-            _integer(self.boundary_margin, "boundary_margin", 0),
-        )
-
-
-@dataclass(frozen=True)
-class PerformanceConfig(_Replace):
-    """
-    Configuration of a performance experiment.
-
-    Parameters
-    ----------
-    snr_db : float
-        SNR per station in decibels: the noise power is
-        ``signal_power / 10**(snr_db / 10)``.
-    grid : SearchGrid
-        Search grid of wavenumbers (``quantity="wavenumber"``).
-    estimator : EstimatorConfig, optional
-        Estimator. Default: Bartlett.
-    monte_carlo : MonteCarloConfig, optional
-        Trials, realizations and seed.
-    classification : ClassificationConfig, optional
-        Levels of the classification.
-
-    Raises
-    ------
-    ValueError
-        If the grid is not of wavenumbers or the boundary margin
-        leaves no interior samples.
-    """
-
-    snr_db: float
-    grid: SearchGrid
-    estimator: EstimatorConfig = EstimatorConfig()
-    monte_carlo: MonteCarloConfig = MonteCarloConfig()
-    classification: ClassificationConfig = ClassificationConfig()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "snr_db", _finite(self.snr_db, "snr_db"))
-
-        if not isinstance(self.grid, SearchGrid):
-            raise TypeError("grid must be a SearchGrid")
-
-        if self.grid.quantity is not GridQuantity.WAVENUMBER:
-            raise ValueError("the performance experiments need a grid of "
-                             "wavenumbers")
-
-        for name, kind in (
-            ("estimator", EstimatorConfig),
-            ("monte_carlo", MonteCarloConfig),
-            ("classification", ClassificationConfig),
-        ):
-            if not isinstance(getattr(self, name), kind):
-                raise TypeError(f"{name} must be a {kind.__name__}")
-
-        if 2 * self.classification.boundary_margin >= self.grid.size:
-            raise ValueError("boundary_margin leaves no interior radial "
-                             "samples")
-
-    @property
-    def snr(self) -> float:
-        """Linear SNR per station."""
-        return float(10.0 ** (self.snr_db / 10.0))
+    return PlaneWaveSource(wavenumber, azimuth, signal_power, frequency)
 
 
 # ----------------------------------------------------------------------------
@@ -834,7 +608,7 @@ class PerformanceResult:
     @property
     def alias_probabilities(self) -> np.ndarray:
         """Probability of each alias family."""
-        return self.alias_counts / self.config.monte_carlo.trials
+        return self.alias_counts / self.config.trials
 
     @property
     def local_wavenumbers(self) -> np.ndarray:
@@ -844,11 +618,11 @@ class PerformanceResult:
     @property
     def effective_realizations(self) -> float:
         """Effective realizations (independent: their number)."""
-        return float(self.config.monte_carlo.realizations)
+        return float(self.config.realizations)
 
     def velocity_statistics(
         self,
-        frequency: float,
+        frequency: Optional[float] = None,
         central_probability: float = 0.95,
     ) -> Optional[VelocityStatistics]:
         """
@@ -856,8 +630,9 @@ class PerformanceResult:
 
         Parameters
         ----------
-        frequency : float
-            Frequency in Hz of ``c = 2 pi f / k``.
+        frequency : float, optional
+            Frequency in Hz of ``c = 2 pi f / k``. Default: that of the
+            source.
         central_probability : float, optional
             Probability of the quantile interval. Default is 0.95.
 
@@ -869,9 +644,15 @@ class PerformanceResult:
         Raises
         ------
         ValueError
-            If a value is out of range or the source wavenumber is
-            zero.
+            If a value is out of range, the frequency is not known or
+            the source wavenumber is zero.
         """
+        if frequency is None:
+            frequency = self.source.frequency
+
+            if frequency is None:
+                raise ValueError("the source has no frequency: give it")
+
         frequency = _finite(frequency, "frequency")
         central_probability = _finite(central_probability,
                                       "central_probability")
@@ -921,9 +702,9 @@ class PerformanceResult:
         outcome = self.outcome
         low, high = outcome.wilson_interval(OutcomeClass.LOCAL)
         print(
-            f"PerformanceResult: {config.estimator.method.value}, "
-            f"SNR {config.snr_db:g} dB, {config.monte_carlo.trials} "
-            f"trials of {config.monte_carlo.realizations} realizations, "
+            f"PerformanceResult: {config.method.value}, "
+            f"SNR {config.snr_db:g} dB, {config.trials} "
+            f"trials of {config.realizations} realizations, "
             f"source k={self.source.wavenumber:.6g} azimuth "
             f"{self.source.azimuth:g}"
         )
@@ -1041,7 +822,7 @@ class PerformanceSweepResult:
         local = self.local_probability
         first = self.results[0]
         print(
-            f"PerformanceSweepResult: {first.config.estimator.method.value}"
+            f"PerformanceSweepResult: {first.config.method.value}"
             f", {self.shape[0]} SNR ({self.snr_db.min():g} to "
             f"{self.snr_db.max():g} dB) x {self.shape[1]} realizations "
             f"({self.realizations.min()} to {self.realizations.max()}), "
@@ -1106,23 +887,18 @@ def _remote_regions(response: ArrayResponse,
 
 
 def _context(response: ArrayResponse,
-             classification: ClassificationConfig) -> _Context:
+             config: PerformanceConfig) -> _Context:
     """Return the classification quantities of a response."""
-    analysis = analyze_response(
-        response,
-        resolution_level=classification.resolution_level,
-        ambiguity_level=classification.ambiguity_level,
-    )
-    labels, families = _remote_regions(response,
-                                       classification.ambiguity_level)
+    levels = (config.resolution_level, config.ambiguity_level)
+    analysis = response.analyze(*levels)
+    labels, families = _remote_regions(response, config.ambiguity_level)
 
     return _Context(
         analysis=analysis,
         lobe=np.asarray(analysis.main_lobe.mask, dtype=bool),
         labels=labels,
         families=families,
-        levels=(classification.resolution_level,
-                classification.ambiguity_level),
+        levels=levels,
     )
 
 
@@ -1138,6 +914,8 @@ def _check(response: ArrayResponse, source: PlaneWaveSource,
     if not isinstance(config, PerformanceConfig):
         raise TypeError("config must be a PerformanceConfig")
 
+    config.check_complete()
+
     if not response.geometry.is_two_dimensional:
         raise ValueError("the performance experiments need a "
                          "two-dimensional array")
@@ -1150,8 +928,8 @@ def _check(response: ArrayResponse, source: PlaneWaveSource,
         raise ValueError("the source wavenumber is outside the search grid")
 
     if (
-        config.estimator.method is BeamformingMethod.MUSIC
-        and config.estimator.music_sources >= response.geometry.n_stations
+        config.method is BeamformingMethod.MUSIC
+        and config.music_sources >= response.geometry.n_stations
     ):
         raise ValueError("music_sources must be smaller than the number of "
                          "stations")
@@ -1174,30 +952,13 @@ def _source_steering(response: ArrayResponse,
     ), dtype=complex).reshape(-1)
 
 
-def theoretical_cross_spectrum(
-    response: ArrayResponse,
-    source: PlaneWaveSource,
-    config: PerformanceConfig,
-) -> np.ndarray:
+def _cross_spectrum(response: ArrayResponse, source: PlaneWaveSource,
+                    config: PerformanceConfig) -> np.ndarray:
     """
     Return the expected cross-spectral matrix of an experiment.
 
     ``R = P_s a(k0) a(k0)^H + P_n I`` (same convention as
     :func:`shakelab.signals.crossspectral.cross_spectral_matrix`).
-
-    Parameters
-    ----------
-    response : ArrayResponse
-        Geometric response (its centered coordinates are used).
-    source : PlaneWaveSource
-        Plane wave.
-    config : PerformanceConfig
-        Configuration (SNR).
-
-    Returns
-    -------
-    numpy.ndarray
-        Matrix ``(n, n)``.
     """
     _check(response, source, config)
     steering = _source_steering(response, source)
@@ -1265,15 +1026,13 @@ def _evaluate(response: ArrayResponse, source: PlaneWaveSource,
               search: tuple) -> PerformanceResult:
     """Run one experiment with precomputed quantities."""
     search_kx, search_ky, search_steering = search
-    estimator = config.estimator
-    monte_carlo = config.monte_carlo
     grid = config.grid
-    margin = config.classification.boundary_margin
+    margin = config.boundary_margin
     steering = _source_steering(response, source)
     noise = source.signal_power / config.snr
-    rng = np.random.default_rng(monte_carlo.seed)
-    trials = monte_carlo.trials
-    count = monte_carlo.realizations
+    rng = np.random.default_rng(config.seed)
+    trials = config.trials
+    count = config.realizations
     estimates = np.empty((trials, 3))
     outcomes = np.empty(trials, dtype=np.int64)
     regions = np.full(trials, _NO_ALIAS, dtype=np.int64)
@@ -1286,9 +1045,9 @@ def _evaluate(response: ArrayResponse, source: PlaneWaveSource,
         )
         power = beam_power(
             cross_spectral_matrix(values), search_steering, count,
-            estimator.method, strict=estimator.strict,
-            diagonal_loading=estimator.diagonal_loading,
-            music_sources=estimator.music_sources,
+            config.method, strict=config.strict,
+            diagonal_loading=config.diagonal_loading,
+            music_sources=config.music_sources,
         )
         safe = np.where(np.isfinite(power), power, -np.inf)
         row, column = np.unravel_index(int(np.argmax(safe)), power.shape)
@@ -1363,83 +1122,21 @@ def _search(response: ArrayResponse, grid: SearchGrid) -> tuple:
     return kx, ky, steering
 
 
-def evaluate_performance(
-    response: ArrayResponse,
-    source: PlaneWaveSource,
-    config: PerformanceConfig,
-) -> PerformanceResult:
-    """
-    Evaluate an estimator by Monte Carlo simulation.
-
-    Parameters
-    ----------
-    response : ArrayResponse
-        Geometric response of a two-dimensional array; its nominal
-        coordinates generate the wave and steer the estimator.
-    source : PlaneWaveSource
-        True plane wave (inside the radial range of the search grid).
-    config : PerformanceConfig
-        SNR, estimator, search grid, sampling and classification.
-
-    Returns
-    -------
-    PerformanceResult
-        Estimates, outcome probabilities and error statistics.
-
-    Raises
-    ------
-    ValueError
-        If the array is linear, the source is outside the grid or the
-        estimator needs more realizations (Capon and MUSIC with
-        ``strict``).
-
-    Notes
-    -----
-    The coordinate covariances of ``response`` are not sampled.
-    """
+def _evaluate_performance(response: ArrayResponse,
+                          source: PlaneWaveSource,
+                          config: PerformanceConfig) -> PerformanceResult:
+    """Run one experiment (see :meth:`ArrayResponse.performance`)."""
     _check(response, source, config)
+    config = config.copy()
 
-    return _evaluate(response, source, config,
-                     _context(response, config.classification),
+    return _evaluate(response, source, config, _context(response, config),
                      _search(response, config.grid))
 
 
-def performance_sweep(
-    response: ArrayResponse,
-    source: PlaneWaveSource,
-    config: PerformanceConfig,
-    snr_db: Any,
-    realizations: Any,
-    seed_stride: int = 1000003,
-) -> PerformanceSweepResult:
-    """
-    Evaluate an estimator on a grid of SNR and realizations.
-
-    ``config`` is a template: SNR, realizations and seed change at
-    each point, everything else is kept.
-
-    Parameters
-    ----------
-    response : ArrayResponse
-        Geometric response.
-    source : PlaneWaveSource
-        True plane wave.
-    config : PerformanceConfig
-        Template configuration.
-    snr_db : array-like
-        SNR values in decibels.
-    realizations : array-like
-        Realization counts (positive integers).
-    seed_stride : int, optional
-        Seed increment between points (seed of point ``i`` is
-        ``seed + i * seed_stride``, with seed 0 if None). Default is
-        1000003.
-
-    Returns
-    -------
-    PerformanceSweepResult
-        Results of every point.
-    """
+def _performance_sweep(response: ArrayResponse, source: PlaneWaveSource,
+                       config: PerformanceConfig, snr_db: Any,
+                       realizations: Any) -> PerformanceSweepResult:
+    """Run a sweep (see :meth:`ArrayResponse.performance_sweep`)."""
     snr = np.asarray(snr_db, dtype=float)
     raw = np.asarray(realizations)
 
@@ -1453,27 +1150,27 @@ def performance_sweep(
         raise ValueError("realizations must be a sequence of positive "
                          "integers")
 
+    if not isinstance(config, PerformanceConfig):
+        raise TypeError("config must be a PerformanceConfig")
+
     counts = raw.astype(np.int64)
-    seed_stride = _integer(seed_stride, "seed_stride", 1)
-    base = config.monte_carlo.seed or 0
-    _check(response, source, config)
-    context = _context(response, config.classification)
-    search = _search(response, config.grid)
-    results = []
+    base = config.seed or 0
+    points = []
 
     for value in snr:
         for count in counts:
-            point = config.replace(
-                snr_db=float(value),
-                monte_carlo=config.monte_carlo.replace(
-                    realizations=int(count),
-                    seed=base + len(results) * seed_stride,
-                ),
+            point = config.copy(
+                snr_db=float(value), realizations=int(count),
+                seed=base + len(points) * _SEED_STRIDE,
             )
             _check(response, source, point)
-            results.append(_evaluate(response, source, point, context,
-                                     search))
+            points.append(point)
+
+    context = _context(response, config)
+    search = _search(response, config.grid)
+    results = tuple(_evaluate(response, source, point, context, search)
+                    for point in points)
 
     return PerformanceSweepResult(snr_db=_readonly(snr),
                                   realizations=_readonly(counts, np.int64),
-                                  results=tuple(results))
+                                  results=results)

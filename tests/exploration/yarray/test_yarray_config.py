@@ -21,7 +21,7 @@ Unit tests for :mod:`shakelab.exploration.yarray.config`.
 The configuration classes are checked for validation, conversion of
 strings to enumerations, incompatible options, JSON round trips and
 the reading of the configuration files of the YArray examples of
-August 2026.
+August 2026; the performance configuration shares the same mechanics.
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ from shakelab.exploration.yarray.config import (
     FrequencyConfig,
     GridQuantity,
     GridScale,
+    PerformanceConfig,
     SearchGrid,
     TransformMethod,
     WindowConfig,
@@ -302,6 +303,13 @@ def test_copy_and_equality():
     copy.method = "capon"
     assert copy == config
 
+    music = config.copy(method="music", grid_max=3000.0)
+    assert music.method is BeamformingMethod.MUSIC
+    assert music.grid.maximum == 3000.0 and config.grid.maximum == 2000.0
+
+    with pytest.raises(TypeError):
+        config.copy(unknown=1)
+
 
 @pytest.mark.parametrize(
     "kwargs, match",
@@ -427,3 +435,110 @@ def test_read_and_write(tmp_path, capsys):
 
     config.info()
     assert '"rayleigh_joint"' in capsys.readouterr().out
+
+
+# ----------------------------------------------------------------------------
+# Performance configuration
+# ----------------------------------------------------------------------------
+
+
+def _performance(**options):
+    """Complete performance configuration."""
+    return PerformanceConfig(snr_db=-3.0, grid_min=0.0, grid_max=0.2,
+                             grid_size=41, **options)
+
+
+def test_performance_defaults():
+    """Defaults; snr_db and grid are required at use."""
+    config = PerformanceConfig()
+    assert not config.complete
+    assert config.method is BeamformingMethod.CAPON
+    assert (config.trials, config.realizations, config.seed) == \
+        (1000, 40, None)
+    assert (config.resolution_level, config.ambiguity_level,
+            config.boundary_margin) == (0.5, 0.5, 0)
+    assert config.snr_db is None and config.grid is None
+
+    with pytest.raises(ValueError, match="snr_db and grid"):
+        config.check_complete()
+
+    with pytest.raises(ValueError, match="snr_db"):
+        config.snr
+
+
+def test_performance_parameters():
+    """Single parameters, grid of wavenumbers, update and copy."""
+    config = _performance(method="music", trials=50, seed=3)
+    assert config.complete
+    assert config.grid.quantity is GridQuantity.WAVENUMBER
+    assert config.grid.scale is GridScale.LINEAR
+    assert config.grid_max == 0.2 and config.azimuth_size == 180
+    assert config.snr == pytest.approx(10 ** -0.3)
+
+    config.update(azimuths=[0.0, 90.0], realizations=10)
+    assert config.azimuth_size == 2 and config.realizations == 10
+    config.azimuth_size = 36
+    assert config.azimuths is None
+
+    same = PerformanceConfig(snr_db=-3.0, method="music", trials=50,
+                             seed=3, realizations=10, azimuth_size=36,
+                             grid={"minimum": 0.0, "maximum": 0.2,
+                                   "size": 41})
+    assert same == config
+    copy = config.copy(snr_db=0.0)
+    assert copy.snr_db == 0.0 and config.snr_db == -3.0
+    assert copy != config
+
+
+@pytest.mark.parametrize(
+    "kwargs, error",
+    [
+        ({"grid": SearchGrid(100.0, 1000.0, 10)}, ValueError),
+        ({"method": "rtbf"}, ValueError),
+        ({"trials": 1}, ValueError),
+        ({"realizations": 2.5}, TypeError),
+        ({"seed": -1}, ValueError),
+        ({"resolution_level": 1.0}, ValueError),
+        ({"boundary_margin": 21}, ValueError),
+        ({"diagonal_loading": -1.0}, ValueError),
+        ({"strict": 1}, TypeError),
+        ({"snr_db": "high"}, TypeError),
+        ({"grid_quantity": "velocity"}, TypeError),
+        ({"window_length": 4.0}, TypeError),
+    ],
+)
+def test_performance_errors(kwargs, error):
+    """Invalid values are rejected; the configuration is unchanged."""
+    config = _performance()
+
+    with pytest.raises(error):
+        config.update(**kwargs)
+
+    assert config == _performance()
+
+
+def test_performance_read_and_write(tmp_path, capsys):
+    """JSON sections, round trip and reading into an object."""
+    path = tmp_path / "planning.json"
+    config = _performance(method="bartlett", trials=200, seed=1,
+                          boundary_margin=1)
+    config.write(path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["snr_db"] == -3.0
+    assert data["method"]["name"] == "bartlett"
+    assert data["monte_carlo"] == {"trials": 200, "realizations": 40,
+                                   "seed": 1}
+    assert data["classification"]["boundary_margin"] == 1
+    assert data["grid"]["quantity"] == "wavenumber"
+
+    assert PerformanceConfig(path) == config
+    assert PerformanceConfig(path, trials=10).trials == 10
+    other = PerformanceConfig()
+    other.read(data)
+    assert other == config
+    assert "snr_db" not in PerformanceConfig().to_dict()
+    assert config != BeamformingConfig()
+
+    config.info()
+    assert "PerformanceConfig" in capsys.readouterr().out
+    assert "bartlett" in repr(config)

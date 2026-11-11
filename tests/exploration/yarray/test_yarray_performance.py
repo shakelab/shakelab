@@ -18,10 +18,11 @@
 """
 Unit tests for :mod:`shakelab.exploration.yarray.performance`.
 
-Configuration checks, reproducibility, outcome statistics (Wilson
+Sources and input checks, reproducibility, outcome statistics (Wilson
 intervals), behaviour with SNR, classification at the grid boundary,
 velocity statistics, sweeps and a regression against the outcomes of
-the August 2026 code (same seeds, same random draws).
+the August 2026 code (same seeds, same random draws). The
+configuration is tested in ``test_yarray_config.py``.
 """
 
 from __future__ import annotations
@@ -29,44 +30,38 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from shakelab.exploration.yarray.config import SearchGrid
+from shakelab.exploration.yarray.config import PerformanceConfig
 from shakelab.exploration.yarray.performance import (
-    ClassificationConfig,
-    EstimatorConfig,
-    MonteCarloConfig,
     OutcomeClass,
     OutcomeSummary,
-    PerformanceConfig,
     PlaneWaveSource,
-    evaluate_performance,
-    performance_sweep,
-    theoretical_cross_spectrum,
+    _cross_spectrum,
 )
-from shakelab.exploration.yarray.response import array_response
+from shakelab.exploration.yarray.response import ArrayResponse
 
 SEVEN = np.array([[0, 0], [30, 0], [0, 40], [25, 35], [-20, 10],
                   [10, -30], [-35, -20]], dtype=float)
-GRID = SearchGrid(0.0, 0.2, 41, quantity="wavenumber", azimuth_size=72)
-SOURCE = PlaneWaveSource(0.15, 60.0)
+GRID = {"grid_min": 0.0, "grid_max": 0.2, "grid_size": 41,
+        "azimuth_size": 72}
+SOURCE = {"wavenumber": 0.15, "azimuth": 60.0}
 
 
 @pytest.fixture(scope="module")
 def response():
     """Response of the seven-station array."""
-    return array_response(SEVEN)
+    return ArrayResponse(SEVEN)
 
 
 def _config(method="bartlett", snr=-6.0, trials=100, realizations=20,
             seed=11, **options):
     """Performance configuration."""
-    return PerformanceConfig(
-        snr_db=snr, grid=GRID, estimator=EstimatorConfig(method),
-        monte_carlo=MonteCarloConfig(trials, realizations, seed), **options,
-    )
+    return PerformanceConfig(snr_db=snr, method=method, trials=trials,
+                             realizations=realizations, seed=seed,
+                             **GRID, **options)
 
 
 # ----------------------------------------------------------------------------
-# Configuration
+# Sources and checks
 # ----------------------------------------------------------------------------
 
 
@@ -74,8 +69,9 @@ def test_source():
     source = PlaneWaveSource(0.1, 450.0)
     assert source.azimuth == 90.0
     assert source.kx == pytest.approx(0.1) and abs(source.ky) < 1e-15
-    wave = PlaneWaveSource.from_velocity(400.0, 8.0, 30.0)
-    assert wave.wavenumber == pytest.approx(2 * np.pi * 8.0 / 400.0)
+    assert source.frequency is None and source.velocity is None
+    assert PlaneWaveSource(0.1, 0.0, frequency=2.0).velocity == \
+        pytest.approx(4 * np.pi / 0.1)
 
     with pytest.raises(ValueError):
         PlaneWaveSource(-0.1, 0.0)
@@ -83,48 +79,64 @@ def test_source():
     with pytest.raises(ValueError):
         PlaneWaveSource(0.1, 0.0, signal_power=0.0)
 
+    with pytest.raises(ValueError):
+        PlaneWaveSource(0.1, 0.0, frequency=-1.0)
 
-def test_configuration_checks():
-    assert EstimatorConfig("capon").method.value == "capon"
 
-    with pytest.raises(ValueError, match="unknown method"):
-        EstimatorConfig("rtbf")
+def test_source_parameters(response):
+    config = _config(trials=5)
+    wave = response.performance(config, velocity=400.0, frequency=8.0,
+                                azimuth=30.0).source
+    assert wave.wavenumber == pytest.approx(2 * np.pi * 8.0 / 400.0)
+    assert wave.frequency == 8.0 and wave.azimuth == 30.0
+    assert response.performance(config, wavenumber=0.1).source.azimuth == 0
+
+    with pytest.raises(TypeError, match="either"):
+        response.performance(config)
+
+    with pytest.raises(TypeError, match="either"):
+        response.performance(config, wavenumber=0.1, velocity=400.0,
+                             frequency=8.0)
+
+    with pytest.raises(TypeError, match="frequency"):
+        response.performance(config, velocity=400.0)
 
     with pytest.raises(ValueError):
-        MonteCarloConfig(trials=1)
-
-    with pytest.raises(ValueError):
-        ClassificationConfig(resolution_level=1.0)
-
-    with pytest.raises(ValueError, match="wavenumbers"):
-        PerformanceConfig(0.0, SearchGrid(100.0, 1000.0, 10))
-
-    with pytest.raises(ValueError, match="interior"):
-        PerformanceConfig(0.0, GRID, classification=ClassificationConfig(
-            boundary_margin=21))
-
-    config = _config()
-    assert config.snr == pytest.approx(10 ** -0.6)
-    changed = config.replace(snr_db=3.0)
-    assert changed.snr_db == 3.0 and config.snr_db == -6.0
+        response.performance(config, velocity=-400.0, frequency=8.0)
 
 
 def test_input_checks(response):
     with pytest.raises(ValueError, match="outside"):
-        evaluate_performance(response, PlaneWaveSource(0.5, 0.0), _config())
+        response.performance(_config(), wavenumber=0.5)
 
     with pytest.raises(ValueError, match="realizations"):
-        evaluate_performance(response, SOURCE,
-                             _config("capon", realizations=5))
+        response.performance(_config("capon", realizations=5), **SOURCE)
 
-    line = array_response([[0, 0], [10, 0], [30, 0]])
+    with pytest.raises(ValueError, match="needs snr_db"):
+        response.performance(PerformanceConfig(**GRID), **SOURCE)
+
+    with pytest.raises(ValueError, match="needs grid"):
+        response.performance(PerformanceConfig(snr_db=0.0), **SOURCE)
+
+    with pytest.raises(TypeError):
+        response.performance({"snr_db": 0.0}, **SOURCE)
+
+    line = ArrayResponse([[0, 0], [10, 0], [30, 0]])
 
     with pytest.raises(ValueError, match="two-dimensional"):
-        evaluate_performance(line, SOURCE, _config())
+        line.performance(_config(), **SOURCE)
 
 
-def test_theoretical_cross_spectrum(response):
-    matrix = theoretical_cross_spectrum(response, SOURCE, _config(snr=0.0))
+def test_config_is_copied(response):
+    config = _config(trials=5)
+    result = response.performance(config, **SOURCE)
+    config.update(trials=7)
+    assert result.config.trials == 5 and result.config is not config
+
+
+def test_cross_spectrum(response):
+    matrix = _cross_spectrum(response, PlaneWaveSource(0.15, 60.0),
+                             _config(snr=0.0))
     assert np.allclose(matrix, matrix.conj().T)
     assert np.allclose(np.diag(matrix).real, 2.0)
     assert np.allclose(np.abs(matrix[0, 1]), 1.0)
@@ -143,7 +155,7 @@ def test_regression_against_august_code(response):
     }
 
     for method, (counts, rmse) in reference.items():
-        result = evaluate_performance(response, SOURCE, _config(method))
+        result = response.performance(_config(method), **SOURCE)
         outcome = result.outcome
         assert (outcome.local_count, outcome.alias_count,
                 outcome.other_count, outcome.boundary_count) == counts
@@ -153,17 +165,15 @@ def test_regression_against_august_code(response):
 
 
 def test_reproducibility(response):
-    first = evaluate_performance(response, SOURCE, _config(trials=20))
-    second = evaluate_performance(response, SOURCE, _config(trials=20))
-    other = evaluate_performance(response, SOURCE,
-                                 _config(trials=20, seed=12))
+    first = response.performance(_config(trials=20), **SOURCE)
+    second = response.performance(_config(trials=20), **SOURCE)
+    other = response.performance(_config(trials=20, seed=12), **SOURCE)
     assert np.array_equal(first.samples.power, second.samples.power)
     assert not np.array_equal(first.samples.power, other.samples.power)
 
 
 def test_high_snr_is_local(response):
-    result = evaluate_performance(response, SOURCE,
-                                  _config(snr=20.0, trials=30))
+    result = response.performance(_config(snr=20.0, trials=30), **SOURCE)
     assert result.outcome.local_probability == 1.0
     assert result.local_statistics.rmse < 0.5 * \
         result.analysis.limits.resolution_radius
@@ -172,19 +182,16 @@ def test_high_snr_is_local(response):
 
 
 def test_low_snr_degrades(response):
-    good = evaluate_performance(response, SOURCE, _config(snr=0.0))
-    bad = evaluate_performance(response, SOURCE, _config(snr=-15.0))
+    good = response.performance(_config(snr=0.0), **SOURCE)
+    bad = response.performance(_config(snr=-15.0), **SOURCE)
     assert bad.outcome.local_probability < good.outcome.local_probability
     assert bad.outcome.alias_probability + bad.outcome.other_probability \
         > good.outcome.alias_probability + good.outcome.other_probability
 
 
 def test_boundary_outcome(response):
-    edge = PlaneWaveSource(0.2, 0.0)
-    result = evaluate_performance(
-        response, edge, _config(snr=20.0, trials=10,
-                                classification=ClassificationConfig(
-                                    boundary_margin=1)),
+    result = response.performance(
+        _config(snr=20.0, trials=10, boundary_margin=1), wavenumber=0.2
     )
     assert result.outcome.boundary_probability == 1.0
     assert result.local_statistics is None
@@ -192,12 +199,12 @@ def test_boundary_outcome(response):
 
 
 def test_samples_and_grid_quantization(response):
-    result = evaluate_performance(response, PlaneWaveSource(0.1012, 37.0),
-                                  _config(snr=10.0, trials=10))
+    result = response.performance(_config(snr=10.0, trials=10),
+                                  wavenumber=0.1012, azimuth=37.0)
     samples = result.samples
     assert samples.size == 10
     assert np.allclose(samples.wavenumber, np.hypot(samples.kx, samples.ky))
-    assert 0.0 < result.grid_quantization_error < GRID.values[1]
+    assert 0.0 < result.grid_quantization_error < 0.2 / 40
     assert np.allclose(np.linalg.norm(result.nearest_search_wavevector),
                        0.1)
     assert result.effective_realizations == 20.0
@@ -224,7 +231,7 @@ def test_outcome_summary():
 
 
 def test_velocity_statistics(response):
-    result = evaluate_performance(response, SOURCE, _config(snr=0.0))
+    result = response.performance(_config(snr=0.0), **SOURCE)
     slow = result.velocity_statistics(2.0)
     fast = result.velocity_statistics(8.0)
     assert slow.true_velocity == pytest.approx(2 * np.pi * 2.0 / 0.15)
@@ -236,31 +243,41 @@ def test_velocity_statistics(response):
     with pytest.raises(ValueError):
         result.velocity_statistics(0.0)
 
+    with pytest.raises(ValueError, match="frequency"):
+        result.velocity_statistics()
+
+    known = response.performance(_config(snr=0.0), velocity=250.0,
+                                 frequency=6.0, azimuth=60.0)
+    assert known.velocity_statistics().true_velocity == pytest.approx(250.0)
+
 
 def test_sweep(response):
     config = _config(trials=20, seed=4)
-    sweep = performance_sweep(response, SOURCE, config,
-                              snr_db=[-10.0, 0.0, 10.0],
-                              realizations=[10, 20], seed_stride=7)
+    sweep = response.performance_sweep(config, snr_db=[-10.0, 0.0, 10.0],
+                                       realizations=[10, 20], **SOURCE)
     assert sweep.shape == (3, 2)
     assert sweep.local_probability.shape == (3, 2)
     point = sweep.result(2, 1)
     assert point.config.snr_db == 10.0
-    assert point.config.monte_carlo.realizations == 20
-    assert point.config.monte_carlo.seed == 4 + 5 * 7
+    assert point.config.realizations == 20
+    assert point.config.seed == 4 + 5 * 1000003
+    assert config.realizations == 20 and config.seed == 4
     assert sweep.local_probability[2, 1] >= sweep.local_probability[0, 0]
-    single = evaluate_performance(response, SOURCE, point.config)
+    single = response.performance(point.config, **SOURCE)
     assert np.array_equal(single.samples.power, point.samples.power)
 
     with pytest.raises(ValueError):
-        performance_sweep(response, SOURCE, config, snr_db=[0.0],
-                          realizations=[1.5])
+        response.performance_sweep(config, [0.0], [1.5], **SOURCE)
+
+    template = PerformanceConfig(trials=5, **GRID)
+    assert response.performance_sweep(template, [0.0], [20],
+                                      **SOURCE).shape == (1, 1)
 
 
 def test_info(response, capsys):
-    result = evaluate_performance(response, SOURCE, _config(trials=10))
+    result = response.performance(_config(trials=10), **SOURCE)
     result.info()
-    performance_sweep(response, SOURCE, _config(trials=10), [0.0],
-                      [20]).info()
+    response.performance_sweep(_config(trials=10), [0.0], [20],
+                               **SOURCE).info()
     text = capsys.readouterr().out
     assert "PerformanceResult" in text and "PerformanceSweepResult" in text

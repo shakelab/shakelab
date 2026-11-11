@@ -41,26 +41,13 @@ from shakelab.exploration.yarray.beamforming import (  # noqa: E402
 )
 from shakelab.exploration.yarray.config import (  # noqa: E402
     BeamformingConfig,
+    PerformanceConfig,
     SearchGrid,
     WindowConfig,
 )
 from shakelab.exploration.yarray.data import ArrayData  # noqa: E402
-from shakelab.exploration.yarray.operational import (  # noqa: E402
-    OperationalConfig,
-    assess_array,
-)
-from shakelab.exploration.yarray.performance import (  # noqa: E402
-    EstimatorConfig,
-    MonteCarloConfig,
-    PerformanceConfig,
-    PlaneWaveSource,
-    evaluate_performance,
-    performance_sweep,
-)
 from shakelab.exploration.yarray.response import (  # noqa: E402
-    analyze_response,
-    analyze_search_domain,
-    array_response,
+    ArrayResponse,
 )
 from shakelab.exploration.yarray.statistics import (  # noqa: E402
     maximum_density,
@@ -224,28 +211,23 @@ def _close_figures():
 @pytest.fixture(scope="module")
 def analysis():
     """Response analysis of a seven-station array."""
-    yield analyze_response(array_response(SEVEN))
+    yield ArrayResponse(SEVEN).analyze()
     plt.close("all")
 
 
 @pytest.fixture(scope="module")
 def performance(analysis):
     """Experiment, sweep and assessment on the seven-station array."""
-    config = PerformanceConfig(
-        snr_db=-3.0,
-        grid=SearchGrid(0.0, 0.2, 21, quantity="wavenumber",
-                        azimuth_size=36),
-        estimator=EstimatorConfig("capon"),
-        monte_carlo=MonteCarloConfig(20, 20, seed=1),
-    )
+    config = PerformanceConfig(snr_db=-3.0, grid_min=0.0, grid_max=0.2,
+                               grid_size=21, azimuth_size=36, trials=20,
+                               realizations=20, seed=1)
     response = analysis.response
-    source = PlaneWaveSource(0.15, 60.0)
-    result = evaluate_performance(response, source, config)
-    sweep = performance_sweep(response, source, config, [-5.0, 5.0],
-                              [10, 20])
-    assessment = assess_array(response, config, OperationalConfig(
-        [3.0, 10.0], [200.0, 800.0], azimuths=[0.0, 90.0]
-    ))
+    source = {"wavenumber": 0.15, "azimuth": 60.0}
+    result = response.performance(config, **source)
+    sweep = response.performance_sweep(config, [-5.0, 5.0], [10, 20],
+                                       **source)
+    assessment = response.assess(config, [3.0, 10.0], [200.0, 800.0],
+                                 azimuths=[0.0, 90.0])
     yield result, sweep, assessment
     plt.close("all")
 
@@ -298,7 +280,7 @@ def test_plot_resolution_and_limits(analysis):
     limits = analysis.velocity_limits([1.0, 2.0, 5.0])
     _, axis = plot_velocity_limits(limits)
     np.testing.assert_allclose(axis.lines[0].get_ydata(), limits.minimum)
-    domain = analyze_search_domain(analysis.response, 0.03)
+    domain = analysis.response.search_domain(0.03)
     _, axis = plot_search_domain(analysis, domain)
     assert "safe" in axis.get_title()
 

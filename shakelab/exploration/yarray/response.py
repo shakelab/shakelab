@@ -35,12 +35,16 @@ normalized steering vectors ``a``. The central lobe of ``A`` therefore
 describes the local resolution, its remote maxima the geometric
 ambiguities (aliases, grating lobes, strong sidelobes).
 
-:func:`array_response` evaluates ``A`` on a Cartesian grid
-(:class:`ResponseGrid`); :func:`analyze_response` extracts the main
-lobe, the ambiguity structure and the derived limits
-(:class:`ResponseAnalysis`); :func:`analyze_search_domain` checks a
-circular search domain; :func:`velocity_limits` converts the
-wavenumber limits to phase velocities. The full two-dimensional
+:class:`ArrayResponse` evaluates ``A`` on a Cartesian grid
+(:class:`ResponseGrid`) and is the entry point of survey planning:
+:meth:`~ArrayResponse.analyze` extracts the main lobe, the ambiguity
+structure and the derived limits (:class:`ResponseAnalysis`, which
+converts them to phase velocities);
+:meth:`~ArrayResponse.search_domain` checks a circular search domain;
+:meth:`~ArrayResponse.performance`,
+:meth:`~ArrayResponse.performance_sweep` (:mod:`.performance`) and
+:meth:`~ArrayResponse.assess` (:mod:`.operational`) evaluate the
+estimators by Monte Carlo simulation. The full two-dimensional
 response is the primary quantity: scalar limits are summaries and keep
 the thresholds they were obtained with.
 
@@ -57,13 +61,24 @@ factors of each auto term.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 from scipy.ndimage import label, maximum_filter
 from scipy.spatial.distance import pdist
 
+from shakelab.exploration.yarray.config import _integer
 from shakelab.exploration.yarray.data import ArrayData
+
+if TYPE_CHECKING:
+    from shakelab.exploration.yarray.config import PerformanceConfig
+    from shakelab.exploration.yarray.operational import (
+        OperationalAssessment,
+    )
+    from shakelab.exploration.yarray.performance import (
+        PerformanceResult,
+        PerformanceSweepResult,
+    )
 
 __all__ = [
     "AmbiguityAnalysis",
@@ -76,10 +91,6 @@ __all__ = [
     "ResponseGrid",
     "SearchDomainAnalysis",
     "VelocityLimits",
-    "analyze_response",
-    "analyze_search_domain",
-    "array_response",
-    "velocity_limits",
 ]
 
 _RESPONSE_LEVEL = 0.5
@@ -89,6 +100,7 @@ _PEAK_NEIGHBORHOOD = 3
 _SAMPLES_PER_RESOLUTION = 12
 _EXTENT_FACTOR = 1.25
 _MAX_GRID_SIZE = 1201
+_CHUNK_SIZE = 65536
 _LEVEL_TOLERANCE = 1e-12
 _NEIGHBORS = (
     (-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)
@@ -100,17 +112,6 @@ def _readonly(value: Any, dtype: Any = float) -> np.ndarray:
     array = np.array(value, dtype=dtype, copy=True)
     array.setflags(write=False)
     return array
-
-
-def _integer(value: Any, name: str, minimum: int) -> int:
-    """Return an integer not smaller than ``minimum``."""
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise ValueError(f"{name} must be an integer")
-
-    if value < minimum:
-        raise ValueError(f"{name} must be at least {minimum}")
-
-    return int(value)
 
 
 def _level(value: Any, name: str) -> float:
@@ -179,6 +180,12 @@ def _covariances(value: Any, count: int) -> Optional[np.ndarray]:
     return covariance
 
 
+def _set(instance: Any, **values: Any) -> None:
+    """Set attributes of a frozen dataclass."""
+    for name, value in values.items():
+        object.__setattr__(instance, name, value)
+
+
 def _format(value: Optional[float]) -> str:
     """Return a compact representation of an optional number."""
     return "not found" if value is None else f"{value:.6g}"
@@ -189,12 +196,16 @@ def _format(value: Optional[float]) -> str:
 # ----------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(frozen=True, eq=False, init=False)
 class ArrayGeometry:
     """
     Summary of the horizontal station geometry.
 
-    Build it with :meth:`from_coordinates` or :meth:`from_array`.
+    Parameters
+    ----------
+    source : ArrayData or array-like
+        Array, or station coordinates ``(n, 2)`` or ``(n, 3)`` (east,
+        north[, up]; only the horizontal ones are used).
 
     Attributes
     ----------
@@ -215,11 +226,17 @@ class ArrayGeometry:
     rank : int
         Rank of the centered coordinates (1 for a linear array).
 
+    Raises
+    ------
+    ValueError
+        If there are fewer than two stations, or repeated or
+        non-finite coordinates.
+
     Notes
     -----
     ``rayleigh_proxy``, ``alias_period_proxy`` and ``nyquist_proxy``
     are the classical rules of thumb, for diagnostics only: the limits
-    of :func:`analyze_response` come from the actual response.
+    of :meth:`ArrayResponse.analyze` come from the actual response.
     """
 
     coordinates: np.ndarray
@@ -232,37 +249,19 @@ class ArrayGeometry:
     maximum_aperture: float
     rank: int
 
-    @classmethod
-    def from_coordinates(cls, coordinates: Any) -> ArrayGeometry:
-        """
-        Return the geometry of station coordinates.
+    def __init__(self, source: Any) -> None:
+        if isinstance(source, ArrayData):
+            source = source.coordinates
 
-        Parameters
-        ----------
-        coordinates : array-like
-            Coordinates ``(n, 2)`` or ``(n, 3)``; only east and north
-            are used.
-
-        Returns
-        -------
-        ArrayGeometry
-            Geometry summary.
-
-        Raises
-        ------
-        ValueError
-            If there are fewer than two stations, or repeated or
-            non-finite coordinates.
-        """
-        coordinates = _coordinates(coordinates)
+        coordinates = _coordinates(source)
         centroid = np.mean(coordinates, axis=0)
         centered = coordinates - centroid
         covariance = centered.T @ centered / coordinates.shape[0]
         values, vectors = np.linalg.eigh(covariance)
         order = np.argsort(values)[::-1]
         distances = pdist(coordinates)
-
-        return cls(
+        _set(
+            self,
             coordinates=_readonly(coordinates),
             centered_coordinates=_readonly(centered),
             centroid=_readonly(centroid),
@@ -273,26 +272,6 @@ class ArrayGeometry:
             maximum_aperture=float(np.max(distances)),
             rank=int(np.linalg.matrix_rank(centered)),
         )
-
-    @classmethod
-    def from_array(cls, array: ArrayData) -> ArrayGeometry:
-        """
-        Return the geometry of the stations of an array.
-
-        Parameters
-        ----------
-        array : ArrayData
-            Array data.
-
-        Returns
-        -------
-        ArrayGeometry
-            Geometry summary.
-        """
-        if not isinstance(array, ArrayData):
-            raise TypeError("array must be an ArrayData")
-
-        return cls.from_coordinates(array.coordinates)
 
     @property
     def n_stations(self) -> int:
@@ -349,10 +328,7 @@ def _geometry(source: Any) -> ArrayGeometry:
     if isinstance(source, ArrayGeometry):
         return source
 
-    if isinstance(source, ArrayData):
-        return ArrayGeometry.from_array(source)
-
-    return ArrayGeometry.from_coordinates(source)
+    return ArrayGeometry(source)
 
 
 @dataclass(frozen=True)
@@ -392,71 +368,6 @@ class ResponseGrid:
         object.__setattr__(self, "maximum", maximum)
         object.__setattr__(self, "size", size)
 
-    @classmethod
-    def from_geometry(
-        cls,
-        geometry: Any,
-        extent_factor: float = _EXTENT_FACTOR,
-        samples_per_resolution: int = _SAMPLES_PER_RESOLUTION,
-        max_size: int = _MAX_GRID_SIZE,
-    ) -> ResponseGrid:
-        """
-        Return a practical grid for a geometry.
-
-        The extent is ``extent_factor * 2 pi / minimum_spacing`` and
-        the step ``(2 pi / maximum_aperture) / samples_per_resolution``:
-        numerical sampling choices only.
-
-        Parameters
-        ----------
-        geometry : ArrayGeometry, ArrayData or array-like
-            Geometry, array or station coordinates.
-        extent_factor : float, optional
-            Extent relative to the alias period proxy. Default is 1.25.
-        samples_per_resolution : int, optional
-            Samples per Rayleigh proxy (at least four). Default is 12.
-        max_size : int, optional
-            Largest size allowed. Default is 1201.
-
-        Returns
-        -------
-        ResponseGrid
-            Grid.
-
-        Raises
-        ------
-        ValueError
-            If the grid would exceed ``max_size`` (it is never
-            coarsened silently, so that numerical and physical
-            resolution are not confused): give an explicit grid or a
-            larger ``max_size``.
-        """
-        geometry = _geometry(geometry)
-        extent_factor = float(extent_factor)
-
-        if not np.isfinite(extent_factor) or extent_factor <= 0.0:
-            raise ValueError("extent_factor must be positive")
-
-        samples = _integer(samples_per_resolution, "samples_per_resolution",
-                           4)
-        max_size = _integer(max_size, "max_size", 5)
-
-        if max_size % 2 == 0:
-            max_size -= 1
-
-        maximum = extent_factor * geometry.alias_period_proxy
-        half = int(np.ceil(maximum / (geometry.rayleigh_proxy / samples)))
-        size = 2 * half + 1
-
-        if size > max_size:
-            raise ValueError(
-                f"the automatic response grid needs {size} x {size} "
-                f"samples, more than max_size={max_size}; give an "
-                "explicit ResponseGrid or a larger max_size"
-            )
-
-        return cls(maximum=float(maximum), size=size)
-
     @property
     def values(self) -> np.ndarray:
         """Wavenumbers of each axis."""
@@ -477,15 +388,70 @@ class ResponseGrid:
         return np.meshgrid(self.values, self.values, indexing="xy")
 
 
+def _automatic_grid(geometry: ArrayGeometry, maximum: Optional[float],
+                    size: Optional[int]) -> ResponseGrid:
+    """
+    Return the response grid of a geometry.
+
+    The default extent is ``1.25 * 2 pi / minimum_spacing`` and the
+    default step ``(2 pi / maximum_aperture) / 12``: numerical sampling
+    choices only. The automatic size is never coarsened silently, so
+    that numerical and physical resolution are not confused.
+    """
+    if maximum is None:
+        maximum = _EXTENT_FACTOR * geometry.alias_period_proxy
+    else:
+        maximum = float(maximum)
+
+        if not np.isfinite(maximum) or maximum <= 0.0:
+            raise ValueError("grid_max must be positive")
+
+    if size is not None:
+        return ResponseGrid(maximum, size)
+
+    step = geometry.rayleigh_proxy / _SAMPLES_PER_RESOLUTION
+    size = 2 * int(np.ceil(maximum / step)) + 1
+
+    if size > _MAX_GRID_SIZE:
+        raise ValueError(
+            f"the automatic response grid needs {size} x {size} samples, "
+            f"more than {_MAX_GRID_SIZE}: give grid_size (and grid_max)"
+        )
+
+    return ResponseGrid(maximum, size)
+
+
 # ----------------------------------------------------------------------------
 # Response
 # ----------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(frozen=True, eq=False, init=False)
 class ArrayResponse:
     """
     Geometric array response on a Cartesian grid.
+
+    The response is computed once, from the station coordinates at the
+    time of construction; its methods analyse it and evaluate the
+    estimators for survey planning.
+
+    Parameters
+    ----------
+    array : ArrayData, ArrayGeometry or array-like
+        Array, geometry or station coordinates ``(n, 2)`` or ``(n, 3)``
+        (east, north[, up]; only the horizontal ones are used).
+    coordinate_covariances : array-like, optional
+        Covariances ``(n, 2, 2)`` or ``(n, 3, 3)`` of the coordinates,
+        for the expected response. Default: those of an ArrayData, if
+        any.
+    grid_max : float, optional
+        Extent of the wavenumber grid: both axes span ``[-grid_max,
+        grid_max]``. Default: 1.25 times the alias period proxy
+        ``2 pi / minimum_spacing``.
+    grid_size : int, optional
+        Odd number of samples per axis (at least five). Default: 12
+        samples per Rayleigh proxy ``2 pi / maximum_aperture``, at most
+        1201.
 
     Attributes
     ----------
@@ -502,23 +468,95 @@ class ArrayResponse:
     coordinate_covariances : numpy.ndarray or None
         Horizontal covariances ``(n, 2, 2)`` used for
         ``expected_power``.
+
+    Raises
+    ------
+    ValueError
+        If the coordinates or the grid are invalid, or the automatic
+        grid would exceed 1201 samples per axis (give ``grid_size``).
+
+    Notes
+    -----
+    Coordinates are centered before evaluating the phases, so the
+    power does not depend on a translation of the array.
+
+    Examples
+    --------
+    >>> response = ArrayResponse(ArrayData("array.json"))
+    >>> response.analyze().info()
+    >>> response.search_domain(0.2).info()
     """
 
     geometry: ArrayGeometry
     grid: ResponseGrid
     factor: np.ndarray
     power: np.ndarray
-    expected_power: Optional[np.ndarray] = None
-    coordinate_covariances: Optional[np.ndarray] = None
+    expected_power: Optional[np.ndarray]
+    coordinate_covariances: Optional[np.ndarray]
 
-    def __post_init__(self) -> None:
-        shape = (self.grid.size, self.grid.size)
+    def __init__(
+        self,
+        array: Any,
+        *,
+        coordinate_covariances: Any = None,
+        grid_max: Optional[float] = None,
+        grid_size: Optional[int] = None,
+    ) -> None:
+        if coordinate_covariances is None and isinstance(array, ArrayData):
+            coordinate_covariances = array.coordinate_covariances
 
-        for name in ("factor", "power", "expected_power"):
-            value = getattr(self, name)
+        geometry = _geometry(array)
+        covariance = _covariances(coordinate_covariances,
+                                  geometry.n_stations)
+        grid = _automatic_grid(geometry, grid_max, grid_size)
+        kx, ky = grid.mesh()
+        points = np.column_stack((kx.ravel(), ky.ravel()))
+        count = geometry.n_stations
+        factor = np.empty(points.shape[0], dtype=complex)
+        expected = None if covariance is None else np.empty(points.shape[0])
+        centered = geometry.centered_coordinates
 
-            if value is not None and value.shape != shape:
-                raise ValueError(f"{name} does not match the grid")
+        for start in range(0, points.shape[0], _CHUNK_SIZE):
+            stop = min(start + _CHUNK_SIZE, points.shape[0])
+            vectors = points[start:stop]
+            steering = np.exp(-1j * (vectors @ centered.T))
+            factor[start:stop] = np.sum(steering, axis=1) / count
+
+            if expected is not None:
+                variance = np.einsum(
+                    "pi,nij,pj->pn", vectors, covariance, vectors,
+                    optimize=True,
+                )
+                attenuation = np.exp(-0.5 * np.maximum(variance, 0.0))
+                expected[start:stop] = (
+                    np.abs(np.sum(steering * attenuation, axis=1)) ** 2
+                    + np.sum(1.0 - attenuation ** 2, axis=1)
+                ) / count ** 2
+
+        factor = factor.reshape(grid.size, grid.size)
+        power = np.abs(factor) ** 2
+        center = grid.center_index
+        factor[center, center] = 1.0
+        power[center, center] = 1.0
+
+        if expected is not None:
+            expected = expected.reshape(grid.size, grid.size)
+            expected[center, center] = 1.0
+            expected = _readonly(np.clip(expected, 0.0, 1.0))
+
+        _set(
+            self,
+            geometry=geometry,
+            grid=grid,
+            factor=_readonly(factor, complex),
+            power=_readonly(power),
+            expected_power=expected,
+            coordinate_covariances=(
+                None if covariance is None else _readonly(covariance)
+            ),
+        )
+
+    # -- properties --------------------------------------------------------
 
     @property
     def kx(self) -> np.ndarray:
@@ -559,121 +597,291 @@ class ArrayResponse:
 
         return self.expected_power
 
+    # -- analysis ----------------------------------------------------------
+
+    def analyze(
+        self,
+        resolution_level: float = _RESPONSE_LEVEL,
+        ambiguity_level: float = _AMBIGUITY_LEVEL,
+        *,
+        expected: bool = False,
+        azimuth_size: int = _AZIMUTH_SIZE,
+        peak_neighborhood: int = _PEAK_NEIGHBORHOOD,
+        minimum_peak_power: float = 0.0,
+    ) -> ResponseAnalysis:
+        """
+        Return the main lobe, the ambiguities and the limits.
+
+        Parameters
+        ----------
+        resolution_level : float, optional
+            Relative power of the main lobe. Default is 0.5.
+        ambiguity_level : float, optional
+            Relative power of the remote regions. Default is 0.5.
+        expected : bool, optional
+            If True, analyse the response expected under the coordinate
+            uncertainties.
+        azimuth_size : int, optional
+            Axis azimuths of the directional radii (at least four).
+            Default is 180.
+        peak_neighborhood : int, optional
+            Odd size of the neighbourhood of the local maxima. Default
+            is 3.
+        minimum_peak_power : float, optional
+            Smallest power of the listed maxima. Default is 0.
+
+        Returns
+        -------
+        ResponseAnalysis
+            Main lobe, ambiguity structure and limits.
+
+        Raises
+        ------
+        ValueError
+            If the array is linear, a level is out of range or the main
+            lobe reaches the grid boundary.
+        """
+        return _analyze(self, resolution_level, ambiguity_level, expected,
+                        azimuth_size, peak_neighborhood, minimum_peak_power)
+
+    def search_domain(
+        self,
+        maximum_wavenumber: float,
+        ambiguity_level: float = _AMBIGUITY_LEVEL,
+        *,
+        expected: bool = False,
+        peak_neighborhood: int = _PEAK_NEIGHBORHOOD,
+        minimum_peak_power: float = 0.0,
+    ) -> SearchDomainAnalysis:
+        """
+        Check the ambiguity of a full-azimuth circular search domain.
+
+        Parameters
+        ----------
+        maximum_wavenumber : float
+            Radius ``K`` of the searched wavenumbers.
+        ambiguity_level : float, optional
+            Relative power of the remote regions. Default is 0.5.
+        expected : bool, optional
+            If True, use the expected response.
+        peak_neighborhood : int, optional
+            Odd size of the neighbourhood of the local maxima. Default
+            is 3.
+        minimum_peak_power : float, optional
+            Smallest power of the listed maxima. Default is 0.
+
+        Returns
+        -------
+        SearchDomainAnalysis
+            Reachable ambiguity.
+
+        Raises
+        ------
+        ValueError
+            If the grid does not contain the disk ``|dk| <= 2 K``.
+        """
+        return _search_domain(self, maximum_wavenumber, ambiguity_level,
+                              expected, peak_neighborhood,
+                              minimum_peak_power)
+
+    # -- performance -------------------------------------------------------
+
+    def performance(
+        self,
+        config: PerformanceConfig,
+        *,
+        wavenumber: Optional[float] = None,
+        velocity: Optional[float] = None,
+        frequency: Optional[float] = None,
+        azimuth: float = 0.0,
+        signal_power: float = 1.0,
+    ) -> PerformanceResult:
+        """
+        Evaluate an estimator by Monte Carlo simulation.
+
+        One plane wave in white noise is simulated ``trials`` times
+        (:mod:`.performance`); the nominal coordinates generate the
+        wave and steer the estimator (the coordinate covariances are
+        not sampled).
+
+        Parameters
+        ----------
+        config : PerformanceConfig
+            SNR, estimator, search grid, sampling and classification.
+        wavenumber : float, optional
+            Angular wavenumber of the plane wave (inside the radial
+            range of the search grid).
+        velocity, frequency : float, optional
+            Phase velocity and frequency in Hz, instead of
+            ``wavenumber`` (``k = 2 pi f / c``). A frequency given with
+            ``wavenumber`` is kept for the velocity statistics.
+        azimuth : float, optional
+            Propagation azimuth in degrees clockwise from north.
+            Default is 0.
+        signal_power : float, optional
+            Fourier power of the wave at each station. Default is 1.
+
+        Returns
+        -------
+        PerformanceResult
+            Estimates, outcome probabilities and error statistics.
+
+        Raises
+        ------
+        ValueError
+            If the array is linear, the source is outside the grid, the
+            configuration is incomplete or the estimator needs more
+            realizations (Capon and MUSIC with ``strict``).
+        """
+        from shakelab.exploration.yarray.performance import (
+            _evaluate_performance,
+            _plane_wave,
+        )
+
+        source = _plane_wave(wavenumber, velocity, frequency, azimuth,
+                             signal_power)
+        return _evaluate_performance(self, source, config)
+
+    def performance_sweep(
+        self,
+        config: PerformanceConfig,
+        snr_db: Any,
+        realizations: Any,
+        *,
+        wavenumber: Optional[float] = None,
+        velocity: Optional[float] = None,
+        frequency: Optional[float] = None,
+        azimuth: float = 0.0,
+        signal_power: float = 1.0,
+    ) -> PerformanceSweepResult:
+        """
+        Evaluate an estimator on a grid of SNR and realizations.
+
+        ``config`` is a template: SNR, realizations and seed change at
+        each point (the seed of point ``i``, in row-major order, is
+        ``seed + i * 1000003``, with seed 0 if None), everything else
+        is kept.
+
+        Parameters
+        ----------
+        config : PerformanceConfig
+            Template configuration (its ``snr_db`` is not needed).
+        snr_db : array-like
+            SNR values in decibels.
+        realizations : array-like
+            Realization counts (positive integers).
+        wavenumber, velocity, frequency, azimuth, signal_power : optional
+            Plane wave, as in :meth:`performance`.
+
+        Returns
+        -------
+        PerformanceSweepResult
+            Results of every point.
+        """
+        from shakelab.exploration.yarray.performance import (
+            _performance_sweep,
+            _plane_wave,
+        )
+
+        source = _plane_wave(wavenumber, velocity, frequency, azimuth,
+                             signal_power)
+        return _performance_sweep(self, source, config, snr_db,
+                                  realizations)
+
+    def assess(
+        self,
+        config: PerformanceConfig,
+        frequencies: Any,
+        velocities: Any,
+        azimuths: Any = None,
+        *,
+        min_local: float = 0.9,
+        max_alias: float = 0.05,
+        max_other: float = 0.05,
+        max_boundary: float = 0.01,
+        max_velocity_rmse: float = 0.1,
+        max_grid_error: float = 0.1,
+        conservative_azimuth: bool = True,
+    ) -> OperationalAssessment:
+        """
+        Return the operational envelope of the array.
+
+        The performance experiment is repeated on a grid of
+        frequencies, velocities and azimuths (:mod:`.operational`);
+        each point is usable when it meets all the criteria, otherwise
+        it gets the factor that limits it.
+
+        Parameters
+        ----------
+        config : PerformanceConfig
+            Template of the experiments: grid, estimator, SNR,
+            realizations and trials are the same at every point; the
+            seed of point ``i`` (in row-major order) is ``seed + i``
+            (seed 0 if None).
+        frequencies : array-like
+            Increasing frequencies in Hz.
+        velocities : array-like
+            Increasing phase velocities.
+        azimuths : array-like, optional
+            Propagation azimuths in degrees clockwise from north.
+            Default: 12 uniform azimuths.
+        min_local : float, optional
+            Smallest LOCAL probability. Default is 0.9.
+        max_alias : float, optional
+            Largest ALIAS probability. Default is 0.05.
+        max_other : float, optional
+            Largest OTHER probability. Default is 0.05.
+        max_boundary : float, optional
+            Largest BOUNDARY probability. Default is 0.01.
+        max_velocity_rmse : float, optional
+            Largest LOCAL velocity RMSE relative to the true velocity.
+            Default is 0.1.
+        max_grid_error : float, optional
+            Largest quantization error of the search grid relative to
+            the resolution radius of the response (a grid too coarse
+            for the array). Default is 0.1.
+        conservative_azimuth : bool, optional
+            If True (default), a frequency-velocity point is usable
+            when all the azimuths are; otherwise when at least half
+            are.
+
+        Returns
+        -------
+        OperationalAssessment
+            Envelope, usability, limiting factors and recommendations.
+
+        Notes
+        -----
+        Points with a wavenumber outside the radial range of the grid
+        are not simulated: they are BOUNDARY with probability one.
+        """
+        from shakelab.exploration.yarray.operational import _assess
+
+        return _assess(
+            self, config, frequencies, velocities, azimuths,
+            criteria=dict(
+                min_local=min_local, max_alias=max_alias,
+                max_other=max_other, max_boundary=max_boundary,
+                max_velocity_rmse=max_velocity_rmse,
+                max_grid_error=max_grid_error,
+            ),
+            conservative_azimuth=conservative_azimuth,
+        )
+
     def info(self) -> None:
         """Print a summary of the response."""
+        geometry = self.geometry
         uncertainty = (
             ", with coordinate uncertainty"
             if self.expected_power is not None else ""
         )
         print(
-            f"ArrayResponse: {self.geometry.n_stations} stations, grid "
-            f"{self.grid.size} x {self.grid.size}, step "
-            f"{self.grid.step:.6g}, extent +/-{self.grid.maximum:.6g}"
-            f"{uncertainty}"
+            f"ArrayResponse: {geometry.n_stations} stations, spacing "
+            f"{geometry.minimum_spacing:.6g} to "
+            f"{geometry.maximum_aperture:.6g}, grid {self.grid.size} x "
+            f"{self.grid.size}, step {self.grid.step:.6g}, extent "
+            f"+/-{self.grid.maximum:.6g}{uncertainty}"
         )
-
-
-def array_response(
-    array: Any,
-    grid: Optional[ResponseGrid] = None,
-    coordinate_covariances: Any = None,
-    extent_factor: float = _EXTENT_FACTOR,
-    samples_per_resolution: int = _SAMPLES_PER_RESOLUTION,
-    max_grid_size: int = _MAX_GRID_SIZE,
-    chunk_size: int = 65536,
-) -> ArrayResponse:
-    """
-    Return the geometric response of an array.
-
-    Parameters
-    ----------
-    array : ArrayData, ArrayGeometry or array-like
-        Array, geometry or station coordinates ``(n, 2)`` or ``(n, 3)``
-        (east, north[, up]; only the horizontal ones are used).
-    grid : ResponseGrid, optional
-        Wavenumber grid. Default: :meth:`ResponseGrid.from_geometry`
-        with the three following options.
-    coordinate_covariances : array-like, optional
-        Covariances ``(n, 2, 2)`` or ``(n, 3, 3)`` of the coordinates,
-        for the expected response. Default: those of an ArrayData, if
-        any.
-    extent_factor, samples_per_resolution, max_grid_size : optional
-        Options of the automatic grid.
-    chunk_size : int, optional
-        Grid points evaluated at once. Default is 65536.
-
-    Returns
-    -------
-    ArrayResponse
-        Array factor, power and, with covariances, expected power.
-
-    Notes
-    -----
-    Coordinates are centered before evaluating the phases, so the
-    power does not depend on a translation of the array.
-    """
-    if (
-        coordinate_covariances is None and isinstance(array, ArrayData)
-    ):
-        coordinate_covariances = array.coordinate_covariances
-
-    geometry = _geometry(array)
-    covariance = _covariances(coordinate_covariances, geometry.n_stations)
-
-    if grid is None:
-        grid = ResponseGrid.from_geometry(
-            geometry, extent_factor, samples_per_resolution, max_grid_size
-        )
-
-    elif not isinstance(grid, ResponseGrid):
-        raise TypeError("grid must be a ResponseGrid")
-
-    chunk_size = _integer(chunk_size, "chunk_size", 1)
-    kx, ky = grid.mesh()
-    points = np.column_stack((kx.ravel(), ky.ravel()))
-    count = geometry.n_stations
-    factor = np.empty(points.shape[0], dtype=complex)
-    expected = None if covariance is None else np.empty(points.shape[0])
-    centered = geometry.centered_coordinates
-
-    for start in range(0, points.shape[0], chunk_size):
-        stop = min(start + chunk_size, points.shape[0])
-        vectors = points[start:stop]
-        steering = np.exp(-1j * (vectors @ centered.T))
-        factor[start:stop] = np.sum(steering, axis=1) / count
-
-        if expected is not None:
-            variance = np.einsum(
-                "pi,nij,pj->pn", vectors, covariance, vectors,
-                optimize=True,
-            )
-            attenuation = np.exp(-0.5 * np.maximum(variance, 0.0))
-            expected[start:stop] = (
-                np.abs(np.sum(steering * attenuation, axis=1)) ** 2
-                + np.sum(1.0 - attenuation ** 2, axis=1)
-            ) / count ** 2
-
-    factor = factor.reshape(grid.size, grid.size)
-    power = np.abs(factor) ** 2
-    center = grid.center_index
-    factor[center, center] = 1.0
-    power[center, center] = 1.0
-
-    if expected is not None:
-        expected = expected.reshape(grid.size, grid.size)
-        expected[center, center] = 1.0
-        expected = _readonly(np.clip(expected, 0.0, 1.0))
-
-    return ArrayResponse(
-        geometry=geometry,
-        grid=grid,
-        factor=_readonly(factor, complex),
-        power=_readonly(power),
-        expected_power=expected,
-        coordinate_covariances=(
-            None if covariance is None else _readonly(covariance)
-        ),
-    )
 
 
 # ----------------------------------------------------------------------------
@@ -924,8 +1132,52 @@ class ResponseAnalysis:
     expected: bool = False
 
     def velocity_limits(self, frequencies: Any) -> VelocityLimits:
-        """Return the velocity limits (see :func:`velocity_limits`)."""
-        return velocity_limits(frequencies, self.limits)
+        """
+        Convert the wavenumber limits to phase velocities.
+
+        With ``c = 2 pi f / k``, the aliasing radius gives the minimum
+        and the resolution radius the maximum velocity.
+
+        Parameters
+        ----------
+        frequencies : array-like
+            Increasing positive frequencies in Hz.
+
+        Returns
+        -------
+        VelocityLimits
+            Velocity limits.
+
+        Raises
+        ------
+        ValueError
+            If no remote ambiguity was found in the grid (no upper
+            wavenumber limit): extend the grid or change the level.
+        """
+        limits = self.limits
+        frequency = np.asarray(frequencies, dtype=float)
+
+        if (
+            frequency.ndim != 1 or frequency.size == 0
+            or not np.all(np.isfinite(frequency))
+            or np.any(frequency <= 0.0) or np.any(np.diff(frequency) <= 0.0)
+        ):
+            raise ValueError("frequencies must be increasing positive "
+                             "values")
+
+        if limits.aliasing_radius is None:
+            raise ValueError("no upper wavenumber limit: no remote "
+                             "ambiguity was found in the response grid")
+
+        return VelocityLimits(
+            frequencies=_readonly(frequency),
+            minimum=_readonly(2.0 * np.pi * frequency
+                              / limits.aliasing_radius),
+            maximum=_readonly(2.0 * np.pi * frequency
+                              / limits.resolution_radius),
+            resolution_level=limits.resolution_level,
+            ambiguity_level=limits.ambiguity_level,
+        )
 
     def info(self) -> None:
         """Print a summary of the analysis."""
@@ -1233,48 +1485,11 @@ def _two_dimensional(response: ArrayResponse) -> None:
         )
 
 
-def analyze_response(
-    response: ArrayResponse,
-    resolution_level: float = _RESPONSE_LEVEL,
-    ambiguity_level: float = _AMBIGUITY_LEVEL,
-    azimuth_size: int = _AZIMUTH_SIZE,
-    peak_neighborhood: int = _PEAK_NEIGHBORHOOD,
-    minimum_peak_power: float = 0.0,
-    expected: bool = False,
-) -> ResponseAnalysis:
-    """
-    Return the main lobe, the ambiguities and the limits of a response.
-
-    Parameters
-    ----------
-    response : ArrayResponse
-        Response of a two-dimensional (rank-two) array.
-    resolution_level : float, optional
-        Relative power of the main lobe. Default is 0.5.
-    ambiguity_level : float, optional
-        Relative power of the remote regions. Default is 0.5.
-    azimuth_size : int, optional
-        Axis azimuths of the directional radii (at least four).
-        Default is 180.
-    peak_neighborhood : int, optional
-        Odd size of the neighbourhood of the local maxima. Default 3.
-    minimum_peak_power : float, optional
-        Smallest power of the listed maxima. Default is 0.
-    expected : bool, optional
-        If True, analyse the response expected under the coordinate
-        uncertainties.
-
-    Returns
-    -------
-    ResponseAnalysis
-        Main lobe, ambiguity structure and limits.
-
-    Raises
-    ------
-    ValueError
-        If the array is linear, a level is out of range or the main
-        lobe reaches the grid boundary.
-    """
+def _analyze(response: ArrayResponse, resolution_level: float,
+             ambiguity_level: float, expected: bool, azimuth_size: int,
+             peak_neighborhood: int,
+             minimum_peak_power: float) -> ResponseAnalysis:
+    """Analyse a response (see :meth:`ArrayResponse.analyze`)."""
     _two_dimensional(response)
     resolution_level = _level(resolution_level, "resolution_level")
     ambiguity_level = _level(ambiguity_level, "ambiguity_level")
@@ -1336,40 +1551,11 @@ def analyze_response(
                             expected=bool(expected))
 
 
-def analyze_search_domain(
-    response: ArrayResponse,
-    maximum_wavenumber: float,
-    ambiguity_level: float = _AMBIGUITY_LEVEL,
-    peak_neighborhood: int = _PEAK_NEIGHBORHOOD,
-    minimum_peak_power: float = 0.0,
-    expected: bool = False,
-) -> SearchDomainAnalysis:
-    """
-    Check the ambiguity of a full-azimuth circular search domain.
-
-    Parameters
-    ----------
-    response : ArrayResponse
-        Response of a two-dimensional array.
-    maximum_wavenumber : float
-        Radius ``K`` of the searched wavenumbers.
-    ambiguity_level : float, optional
-        Relative power of the remote regions. Default is 0.5.
-    peak_neighborhood, minimum_peak_power : optional
-        Options of the listed maxima (see :func:`analyze_response`).
-    expected : bool, optional
-        If True, use the expected response.
-
-    Returns
-    -------
-    SearchDomainAnalysis
-        Reachable ambiguity.
-
-    Raises
-    ------
-    ValueError
-        If the grid does not contain the disk ``|dk| <= 2 K``.
-    """
+def _search_domain(response: ArrayResponse, maximum_wavenumber: float,
+                   ambiguity_level: float, expected: bool,
+                   peak_neighborhood: int,
+                   minimum_peak_power: float) -> SearchDomainAnalysis:
+    """Check a search domain (see :meth:`ArrayResponse.search_domain`)."""
     _two_dimensional(response)
     maximum_wavenumber = float(maximum_wavenumber)
 
@@ -1382,8 +1568,7 @@ def analyze_search_domain(
 
     if radius > grid.maximum - grid.step:
         raise ValueError("the grid does not contain the differences of "
-                         "the search domain: increase "
-                         "ResponseGrid.maximum")
+                         "the search domain: increase grid_max")
 
     power = response.selected_power(expected)
     remote, _ = _remote_mask(power, grid, ambiguity_level)
@@ -1406,58 +1591,4 @@ def analyze_search_domain(
             peak for peak in peaks
             if peak.power >= ambiguity_level and peak.wavenumber <= radius
         ),
-    )
-
-
-def velocity_limits(frequencies: Any, limits: Any) -> VelocityLimits:
-    """
-    Convert the wavenumber limits to phase velocities.
-
-    With ``c = 2 pi f / k``, the aliasing radius gives the minimum
-    and the resolution radius the maximum velocity.
-
-    Parameters
-    ----------
-    frequencies : array-like
-        Increasing positive frequencies in Hz.
-    limits : ArrayLimits or ResponseAnalysis
-        Limits of :func:`analyze_response`.
-
-    Returns
-    -------
-    VelocityLimits
-        Velocity limits.
-
-    Raises
-    ------
-    ValueError
-        If no remote ambiguity was found in the grid (no upper
-        wavenumber limit): extend the grid or change the level.
-    """
-    if isinstance(limits, ResponseAnalysis):
-        limits = limits.limits
-
-    if not isinstance(limits, ArrayLimits):
-        raise TypeError("limits must be an ArrayLimits or a "
-                        "ResponseAnalysis")
-
-    frequency = np.asarray(frequencies, dtype=float)
-
-    if (
-        frequency.ndim != 1 or frequency.size == 0
-        or not np.all(np.isfinite(frequency)) or np.any(frequency <= 0.0)
-        or np.any(np.diff(frequency) <= 0.0)
-    ):
-        raise ValueError("frequencies must be increasing positive values")
-
-    if limits.aliasing_radius is None:
-        raise ValueError("no upper wavenumber limit: no remote ambiguity "
-                         "was found in the response grid")
-
-    return VelocityLimits(
-        frequencies=_readonly(frequency),
-        minimum=_readonly(2.0 * np.pi * frequency / limits.aliasing_radius),
-        maximum=_readonly(2.0 * np.pi * frequency / limits.resolution_radius),
-        resolution_level=limits.resolution_level,
-        ambiguity_level=limits.ambiguity_level,
     )

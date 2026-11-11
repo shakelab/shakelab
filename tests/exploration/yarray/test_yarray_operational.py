@@ -18,7 +18,7 @@
 """
 Unit tests for :mod:`shakelab.exploration.yarray.operational`.
 
-Configuration checks, envelope shape and consistency, points outside
+Input checks, criteria, envelope shape and consistency, points outside
 the search grid, recommendations, conservative products and a
 regression against the August 2026 code.
 """
@@ -28,58 +28,77 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from shakelab.exploration.yarray.config import SearchGrid
+from shakelab.exploration.yarray.config import PerformanceConfig
 from shakelab.exploration.yarray.operational import (
     LimitingFactor,
-    OperationalConfig,
-    OperationalCriteria,
     RecommendationSeverity,
     RecommendationType,
-    assess_array,
 )
-from shakelab.exploration.yarray.performance import (
-    EstimatorConfig,
-    MonteCarloConfig,
-    PerformanceConfig,
-)
-from shakelab.exploration.yarray.response import array_response
+from shakelab.exploration.yarray.response import ArrayResponse
 
 SEVEN = np.array([[0, 0], [30, 0], [0, 40], [25, 35], [-20, 10],
                   [10, -30], [-35, -20]], dtype=float)
-GRID = SearchGrid(0.0, 0.2, 41, quantity="wavenumber", azimuth_size=72)
-TEMPLATE = PerformanceConfig(
-    snr_db=-3.0, grid=GRID, estimator=EstimatorConfig("capon"),
-    monte_carlo=MonteCarloConfig(trials=30, realizations=20, seed=5),
-)
+TEMPLATE = PerformanceConfig(snr_db=-3.0, method="capon", grid_min=0.0,
+                             grid_max=0.2, grid_size=41, azimuth_size=72,
+                             trials=30, realizations=20, seed=5)
 AXES = {"frequencies": [3.0, 10.0], "velocities": [200.0, 400.0, 800.0],
         "azimuths": [0.0, 90.0]}
 
 
 @pytest.fixture(scope="module")
-def assessment():
+def response():
+    """Response of the seven-station array."""
+    return ArrayResponse(SEVEN)
+
+
+@pytest.fixture(scope="module")
+def assessment(response):
     """Assessment of the seven-station array."""
-    return assess_array(array_response(SEVEN), TEMPLATE,
-                        OperationalConfig(**AXES))
+    return response.assess(TEMPLATE, **AXES)
 
 
-def test_configuration_checks():
-    config = OperationalConfig([1.0, 2.0], [100.0, 200.0])
-    assert config.azimuths.size == 12
-
-    with pytest.raises(ValueError):
-        OperationalConfig([2.0, 1.0], [100.0])
+def test_input_checks(response):
+    small = TEMPLATE.copy(trials=2)
+    default = response.assess(small, [1.0, 2.0], [100.0, 200.0])
+    assert default.azimuths.size == 12
 
     with pytest.raises(ValueError):
-        OperationalConfig([1.0], [100.0], azimuths=[0.0, 360.0])
+        response.assess(small, [2.0, 1.0], [100.0])
 
     with pytest.raises(ValueError):
-        OperationalCriteria(minimum_local_probability=1.5)
+        response.assess(small, [1.0], [100.0], azimuths=[0.0, 360.0])
 
     with pytest.raises(ValueError):
-        OperationalCriteria(maximum_relative_velocity_rmse=-0.1)
+        response.assess(small, [1.0], [100.0], min_local=1.5)
+
+    with pytest.raises(ValueError):
+        response.assess(small, [1.0], [100.0], max_velocity_rmse=-0.1)
 
     with pytest.raises(TypeError):
-        assess_array(array_response(SEVEN), TEMPLATE, AXES)
+        response.assess(small, [1.0], [100.0], conservative_azimuth=1)
+
+    with pytest.raises(TypeError):
+        response.assess(AXES, [1.0], [100.0])
+
+    with pytest.raises(ValueError, match="needs snr_db"):
+        response.assess(small.copy(snr_db=None), [1.0], [100.0])
+
+
+def test_criteria(response, assessment):
+    assert assessment.criteria == {
+        "min_local": 0.9, "max_alias": 0.05, "max_other": 0.05,
+        "max_boundary": 0.01, "max_velocity_rmse": 0.1,
+        "max_grid_error": 0.1,
+    }
+    assert assessment.config == TEMPLATE
+    assert assessment.config is not TEMPLATE
+    lenient = response.assess(TEMPLATE, **AXES, max_alias=1.0,
+                              max_other=1.0, min_local=0.0,
+                              max_velocity_rmse=10.0)
+    assert np.count_nonzero(lenient.usable) >= \
+        np.count_nonzero(assessment.usable)
+    assert np.array_equal(lenient.local_probability,
+                          assessment.local_probability)
 
 
 def test_regression_against_august_code(assessment):
@@ -142,10 +161,8 @@ def test_conservative_products(assessment):
 def test_recommendations(assessment):
     kinds = {item.category for item in assessment.recommendations}
     assert RecommendationType.SEARCH_RANGE in kinds
-    severe = assess_array(
-        array_response(SEVEN), TEMPLATE,
-        OperationalConfig([30.0], [100.0], azimuths=[0.0]),
-    )
+    severe = ArrayResponse(SEVEN).assess(TEMPLATE, [30.0], [100.0],
+                                         azimuths=[0.0])
     assert severe.recommendations[0].severity is \
         RecommendationSeverity.CRITICAL
 

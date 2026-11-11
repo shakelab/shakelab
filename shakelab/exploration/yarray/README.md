@@ -24,21 +24,21 @@ the state of the work; the theory and the use are in the guide
 | 4 | `statistics` (density of maxima), `plot_density`, `--plot-density` | done (commit `d1c1f9c`) |
 | 5 | `response`, `performance`, `operational` (array design and survey planning), their figures, `slab-yarray response` | done (commit `21b3c8e`) |
 | 6 | Nine-station three-component test data and references; examples of every way of use (library, command line, real time, planning, profiling); `docs/yarray.md` | done (commit `f711fb0`) |
-| A | Interface: `ArrayData` filled progressively (time window taken at processing, fixed ENU origin), `BeamformingConfig` with single parameters, `Beamformer(array, config).process(start, end)`, results with `read`/`write`/`append`, stations of each block, `dispersion`, `density`; shorter examples | in progress |
-| B | Interface of the survey planning (`response`, `performance`, `operational`) | planned |
+| A | Interface: `ArrayData` filled progressively (time window taken at processing, fixed ENU origin), `BeamformingConfig` with single parameters, `Beamformer(array, config).process(start, end)`, results with `read`/`write`/`append`, stations of each block, `dispersion`, `density`; shorter examples | done (commit `02dee03`) |
+| B | Interface of the survey planning: `ArrayResponse` with methods (`analyze`, `search_domain`, `performance`, `performance_sweep`, `assess`), flat `PerformanceConfig`, criteria as parameters; examples 13-15 | in progress |
 
 ## Modules
 
 | Module | Content |
 |---|---|
 | `data` | `StationData` (immutable: records, ENU coordinates, component orientations, geographic position), `ArrayData` (filled from array files, ShakeLab waveforms of any source, also a SeedLink buffer, or stations: `read`, `add`, `remove`; common window with `window`; fixed ENU origin, `set_reference`) |
-| `config` | `BeamformingConfig` (single parameters named as the command-line options, or the objects `FrequencyConfig`, `WindowConfig`, `SearchGrid`, `EllipticityGrid`; JSON file in the constructor, `read`, `write`, `update`, `copy`) |
+| `config` | `BeamformingConfig` (single parameters named as the command-line options, or the objects `FrequencyConfig`, `WindowConfig`, `SearchGrid`, `EllipticityGrid`; JSON file in the constructor, `read`, `write`, `update`, `copy`), `PerformanceConfig` (same mechanics: SNR, estimator, wavenumber grid, trials, realizations, seed, classification levels) |
 | `estimators` | Bartlett, Capon, MUSIC and their statistics, on matrices and steering vectors (shared with the future performance analysis) |
 | `beamforming` | `Beamformer(array, config)` (`process(starttime, endtime)`), results `BeamformingResult` (`append`, `read`, `write`, `dispersion`, `density`, `stations_at`), `FrequencySpectrum`, `SpectralMaximum`, `DispersionCurve` |
 | `statistics` | `maximum_density` (density of the maxima versus frequency in wavenumber, log-slowness or log-velocity; kernels of the grid resolution, Silverman or fixed width; uniform or power weights), `MaximumDensity.summary` (mode, median, quantiles), `MaximumDensity.peaks` (candidate modes, prominences of `scipy.signal`) |
-| `response` | geometric response of the array (`array_response`, expected response under coordinate uncertainty), `analyze_response` (`ResponseAnalysis`: main lobe, ambiguities, limits), `analyze_search_domain`, `velocity_limits`; `ArrayGeometry`, `ResponseGrid` |
-| `performance` | Monte Carlo performance of Bartlett, Capon and MUSIC for one plane wave in white noise: LOCAL/ALIAS/OTHER/BOUNDARY outcomes, Wilson intervals, local errors, exact velocity statistics (`evaluate_performance`, `performance_sweep`) |
-| `operational` | frequency-velocity-azimuth envelope with explicit usability criteria, limiting factors and recommendations (`assess_array`) |
+| `response` | `ArrayResponse(array or coordinates)`: geometric response (also expected under coordinate uncertainty) and entry point of survey planning: `analyze` (`ResponseAnalysis`: main lobe, ambiguities, limits, `velocity_limits`), `search_domain`, `performance`, `performance_sweep`, `assess`; `ArrayGeometry`, `ResponseGrid` |
+| `performance` | Monte Carlo performance of Bartlett, Capon and MUSIC for one plane wave in white noise: LOCAL/ALIAS/OTHER/BOUNDARY outcomes, Wilson intervals, local errors, exact velocity statistics (`PerformanceResult`, `PerformanceSweepResult`, `PlaneWaveSource`) |
+| `operational` | frequency-velocity-azimuth envelope with explicit usability criteria, limiting factors and recommendations (`OperationalAssessment`) |
 | `io` | file formats: array files (local coordinates, a waveform file per component, reader options) and result files (pickle), used by `ArrayData.read` and `BeamformingResult.read`/`write` |
 | `monitor` | `ArrayMonitor`: periodic processing of the data of the SeedLink client (`client.every(interval, monitor)`) in a worker thread, queryable while running |
 | `cli` | command line `slab-yarray` (`python -m shakelab.exploration.yarray`) |
@@ -130,27 +130,26 @@ Array design and survey planning (geometry only, then estimator
 performance):
 
 ```python
-from shakelab.exploration import yarray as ya
+from shakelab.exploration.yarray import (
+    ArrayData, ArrayResponse, PerformanceConfig,
+)
 
-array = ya.ArrayData("array.json")           # or plain coordinates
-response = ya.array_response(array)          # automatic grid
-analysis = ya.analyze_response(response)     # levels 0.5 by default
+response = ArrayResponse(ArrayData("array.json"))   # or coordinates
+analysis = response.analyze()                # levels 0.5 by default
 analysis.info()                              # resolution, aliasing
 limits = analysis.velocity_limits([1, 2, 5, 10, 20])
-ya.analyze_search_domain(response, 0.05).info()
+response.search_domain(0.05).info()
 
-config = ya.PerformanceConfig(
-    snr_db=0.0,
-    grid=ya.SearchGrid(0.0, 0.2, 41, quantity="wavenumber"),
-    estimator=ya.EstimatorConfig("capon"),
-    monte_carlo=ya.MonteCarloConfig(trials=500, realizations=40, seed=1),
-)
-source = ya.PlaneWaveSource.from_velocity(400.0, 8.0, azimuth=30.0)
-ya.evaluate_performance(response, source, config).info()
-ya.performance_sweep(response, source, config, snr_db=[-10, 0, 10],
-                     realizations=[10, 20, 40]).info()
-assessment = ya.assess_array(response, config, ya.OperationalConfig(
-    frequencies=[2, 4, 8, 16], velocities=[150, 300, 600, 1200]))
+config = PerformanceConfig(snr_db=0.0, method="capon", grid_min=0.0,
+                           grid_max=0.2, grid_size=41, trials=500,
+                           realizations=40, seed=1)  # or a JSON file
+wave = {"velocity": 400.0, "frequency": 8.0, "azimuth": 30.0}
+response.performance(config, **wave).info()  # or wavenumber=...
+response.performance_sweep(config, snr_db=[-10, 0, 10],
+                           realizations=[10, 20, 40], **wave).info()
+assessment = response.assess(config, frequencies=[2, 4, 8, 16],
+                             velocities=[150, 300, 600, 1200],
+                             min_local=0.8)  # criteria: min_*, max_*
 assessment.info()                            # usable ranges, advice
 ```
 
@@ -229,6 +228,21 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
   repeated calls).
 - Options with fixed values are enumerations; their string values are
   accepted everywhere.
+- Survey planning starts from `ArrayResponse`, computed once from the
+  coordinates of the moment (an `ArrayData` changed later does not
+  change it); its methods replace free functions. `PerformanceConfig`
+  shares the mechanics of `BeamformingConfig` (a private base in
+  `config`), but not its search grid: the Monte Carlo grid is of
+  wavenumbers, independent of the frequency, while beamforming grids
+  are usually of velocities; and overlapping windows are fewer
+  independent realizations than `windows_per_block`. So a performance
+  configuration is not derived from a beamforming one. The plane wave
+  is given by parameters (`wavenumber`, or `velocity` and `frequency`;
+  `azimuth`); the frequency, if known, is kept in `result.source` and
+  used by `velocity_statistics()`. The criteria of `assess` are single
+  parameters (`min_local`, `max_alias`, `max_other`, `max_boundary`,
+  `max_velocity_rmse`, `max_grid_error`) recorded in
+  `assessment.criteria`. Results keep a copy of the configuration.
 
 ## Changes from the August 2026 version
 
@@ -276,6 +290,15 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
 - `SearchGrid` scale defaults to linear for wavenumbers (the only
   spacing allowed) and log otherwise; before, a wavenumber grid needed
   `scale="linear"` explicitly.
+- Interface of the planning (November 2026, block B): `ArrayResponse`
+  with methods instead of `array_response`, `analyze_response`,
+  `analyze_search_domain`, `velocity_limits`, `evaluate_performance`,
+  `performance_sweep` and `assess_array`; flat `PerformanceConfig`
+  instead of `EstimatorConfig`, `MonteCarloConfig` and
+  `ClassificationConfig`; criteria as parameters instead of
+  `OperationalConfig` and `OperationalCriteria`; default method Capon
+  (Bartlett before), as in `BeamformingConfig`. Same results, bit for
+  bit, with the same seeds.
 
 ## Notes and open points
 

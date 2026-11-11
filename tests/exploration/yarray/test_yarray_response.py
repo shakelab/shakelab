@@ -19,8 +19,8 @@
 Unit tests for :mod:`shakelab.exploration.yarray.response`.
 
 Analytic responses (two stations, regular grids), invariances,
-coordinate uncertainty, limits, search domains, velocity conversion,
-arrays read from file and errors.
+coordinate uncertainty, automatic grid, limits, search domains,
+velocity conversion, arrays read from file and errors.
 """
 
 from __future__ import annotations
@@ -34,12 +34,9 @@ import pytest
 from shakelab.exploration.yarray.data import ArrayData
 from shakelab.exploration.yarray.response import (
     ArrayGeometry,
+    ArrayResponse,
     ResponseAnalysis,
     ResponseGrid,
-    analyze_response,
-    analyze_search_domain,
-    array_response,
-    velocity_limits,
 )
 
 DATA = Path(__file__).parent / "data"
@@ -67,7 +64,7 @@ def _square(count=4, spacing=10.0):
 
 
 def test_geometry_summary():
-    geometry = ArrayGeometry.from_coordinates(_square(3, 10.0))
+    geometry = ArrayGeometry(_square(3, 10.0))
     assert geometry.n_stations == 9
     assert geometry.rank == 2 and geometry.is_two_dimensional
     assert geometry.minimum_spacing == pytest.approx(10.0)
@@ -81,25 +78,25 @@ def test_geometry_summary():
 
 
 def test_geometry_linear_and_errors():
-    line = ArrayGeometry.from_coordinates([[0, 0], [10, 0], [25, 0]])
+    line = ArrayGeometry([[0, 0], [10, 0], [25, 0]])
     assert line.is_linear and line.anisotropy_ratio == np.inf
 
     with pytest.raises(ValueError):
-        ArrayGeometry.from_coordinates([[0, 0]])
+        ArrayGeometry([[0, 0]])
 
     with pytest.raises(ValueError):
-        ArrayGeometry.from_coordinates([[0, 0], [0, 0], [1, 1]])
+        ArrayGeometry([[0, 0], [0, 0], [1, 1]])
 
     with pytest.raises(ValueError):
-        ArrayGeometry.from_coordinates([[0, 0], [np.nan, 1]])
+        ArrayGeometry([[0, 0], [np.nan, 1]])
 
-    with pytest.raises(TypeError):
-        ArrayGeometry.from_array(SEVEN)
+    with pytest.raises(ValueError):
+        ArrayGeometry("not coordinates")
 
 
 def test_geometry_from_array():
     array = _sesame()
-    geometry = ArrayGeometry.from_array(array)
+    geometry = ArrayGeometry(array)
     assert np.allclose(geometry.coordinates, array.coordinates[:, :2])
 
 
@@ -114,15 +111,30 @@ def test_response_grid():
     with pytest.raises(ValueError):
         ResponseGrid(-1.0, 11)
 
-    automatic = ResponseGrid.from_geometry(SEVEN)
+    with pytest.raises(TypeError):
+        ResponseGrid(1.0, 11.0)
+
+
+def test_automatic_grid():
+    geometry = ArrayGeometry(SEVEN)
+    automatic = ArrayResponse(SEVEN).grid
     assert automatic.size % 2 == 1
     assert automatic.maximum == pytest.approx(
-        1.25 * 2 * np.pi / ArrayGeometry.from_coordinates(SEVEN)
-        .minimum_spacing
+        1.25 * 2 * np.pi / geometry.minimum_spacing
     )
+    assert automatic.step <= geometry.rayleigh_proxy / 12
 
-    with pytest.raises(ValueError, match="max_size"):
-        ResponseGrid.from_geometry(SEVEN, max_size=21)
+    extent = ArrayResponse(SEVEN, grid_max=0.3).grid
+    assert extent.maximum == 0.3
+    assert extent.step == pytest.approx(automatic.step, rel=0.05)
+    assert ArrayResponse(SEVEN, grid_size=31).grid.maximum == \
+        automatic.maximum
+
+    with pytest.raises(ValueError, match="grid_size"):
+        ArrayResponse(SEVEN, grid_max=50.0)
+
+    with pytest.raises(ValueError):
+        ArrayResponse(SEVEN, grid_max=-1.0)
 
 
 # ----------------------------------------------------------------------------
@@ -132,42 +144,41 @@ def test_response_grid():
 
 def test_two_stations_analytic():
     spacing = 20.0
-    response = array_response([[0, 0], [spacing, 0]],
-                              grid=ResponseGrid(0.5, 101))
+    response = ArrayResponse([[0, 0], [spacing, 0]],
+                              grid_max=0.5, grid_size=101)
     kx, ky = response.grid.mesh()
     assert np.allclose(response.power, np.cos(kx * spacing / 2) ** 2)
     assert response.power[50, 50] == 1.0
 
 
 def test_translation_invariance():
-    first = array_response(SEVEN, grid=ResponseGrid(0.3, 61))
-    second = array_response(SEVEN + [1000.0, -500.0],
-                            grid=ResponseGrid(0.3, 61))
+    first = ArrayResponse(SEVEN, grid_max=0.3, grid_size=61)
+    second = ArrayResponse(SEVEN + [1000.0, -500.0],
+                            grid_max=0.3, grid_size=61)
     assert np.allclose(first.power, second.power, atol=1e-12)
 
 
 def test_rotation_by_ninety_degrees():
-    grid = ResponseGrid(0.3, 61)
-    first = array_response(SEVEN, grid=grid)
+    first = ArrayResponse(SEVEN, grid_max=0.3, grid_size=61)
     rotated = SEVEN @ np.array([[0.0, -1.0], [1.0, 0.0]])
-    second = array_response(rotated, grid=grid)
+    second = ArrayResponse(rotated, grid_max=0.3, grid_size=61)
     assert np.allclose(np.rot90(first.power), second.power, atol=1e-12) or \
         np.allclose(np.rot90(first.power, -1), second.power, atol=1e-12)
 
 
 def test_expected_response():
-    grid = ResponseGrid(0.3, 61)
-    zero = array_response(SEVEN, grid=grid,
-                          coordinate_covariances=np.zeros((7, 2, 2)))
+    grid = {"grid_max": 0.3, "grid_size": 61}
+    zero = ArrayResponse(SEVEN, coordinate_covariances=np.zeros((7, 2, 2)),
+                         **grid)
     assert np.allclose(zero.expected_power, zero.power, atol=1e-12)
 
-    noisy = array_response(
-        SEVEN, grid=grid,
+    noisy = ArrayResponse(
+        SEVEN, **grid,
         coordinate_covariances=np.repeat(np.eye(3)[None] * 25.0, 7, axis=0),
     )
-    center = grid.center_index
+    center = noisy.grid.center_index
     assert noisy.expected_power[center, center] == 1.0
-    remote = np.hypot(*grid.mesh()) > 0.15
+    remote = np.hypot(*noisy.grid.mesh()) > 0.15
     assert np.all(noisy.expected_power[remote]
                   <= noisy.power[remote] + 1.0 / 7 + 1e-12)
     assert noisy.expected_power[remote].mean() < noisy.power[remote].mean()
@@ -175,19 +186,19 @@ def test_expected_response():
     assert noisy.selected_power(expected=True) is noisy.expected_power
 
     with pytest.raises(ValueError, match="expected"):
-        array_response(SEVEN, grid=grid).selected_power(expected=True)
+        ArrayResponse(SEVEN, **grid).selected_power(expected=True)
 
     with pytest.raises(ValueError):
-        array_response(SEVEN, coordinate_covariances=np.ones((7, 2, 3)))
+        ArrayResponse(SEVEN, coordinate_covariances=np.ones((7, 2, 3)))
 
     with pytest.raises(ValueError):
         bad = np.repeat(np.array([[[1.0, 0.0], [0.0, -1.0]]]), 7, axis=0)
-        array_response(SEVEN, coordinate_covariances=bad)
+        ArrayResponse(SEVEN, coordinate_covariances=bad)
 
 
 def test_response_of_array_data():
     array = _sesame()
-    response = array_response(array)
+    response = ArrayResponse(array)
     assert response.geometry.n_stations == 9
     assert response.expected_power is None
 
@@ -199,9 +210,9 @@ def test_response_of_array_data():
 
 def test_regular_grid_aliases():
     spacing = 10.0
-    response = array_response(_square(4, spacing),
-                              grid=ResponseGrid(1.0, 201))
-    analysis = analyze_response(response)
+    response = ArrayResponse(_square(4, spacing),
+                              grid_max=1.0, grid_size=201)
+    analysis = response.analyze()
     assert isinstance(analysis, ResponseAnalysis)
     period = 2 * np.pi / spacing
     assert analysis.ambiguity.peak_sidelobe_level == pytest.approx(1.0,
@@ -220,9 +231,9 @@ def test_regular_grid_aliases():
 
 
 def test_main_lobe_and_level():
-    response = array_response(SEVEN)
-    narrow = analyze_response(response, resolution_level=0.9)
-    wide = analyze_response(response, resolution_level=0.3)
+    response = ArrayResponse(SEVEN)
+    narrow = response.analyze(resolution_level=0.9)
+    wide = response.analyze(0.3)
     assert narrow.main_lobe.worst_radius < wide.main_lobe.worst_radius
     lobe = wide.main_lobe
     assert lobe.mask[response.grid.center_index, response.grid.center_index]
@@ -233,77 +244,71 @@ def test_main_lobe_and_level():
 
 
 def test_analysis_errors():
-    line = array_response([[0, 0], [10, 0], [25, 0]],
-                          grid=ResponseGrid(1.0, 51))
+    line = ArrayResponse([[0, 0], [10, 0], [25, 0]],
+                          grid_max=1.0, grid_size=51)
 
     with pytest.raises(ValueError, match="linear"):
-        analyze_response(line)
+        line.analyze()
 
-    response = array_response(SEVEN)
+    response = ArrayResponse(SEVEN)
 
     with pytest.raises(ValueError):
-        analyze_response(response, resolution_level=1.0)
+        response.analyze(resolution_level=1.0)
 
     with pytest.raises(ValueError, match="boundary"):
-        analyze_response(array_response(SEVEN, grid=ResponseGrid(0.01, 11)))
+        ArrayResponse(SEVEN, grid_max=0.01, grid_size=11).analyze()
 
     with pytest.raises(TypeError):
-        analyze_response(SEVEN)
+        response.analyze(azimuth_size=4.5)
 
 
 def test_search_domain():
-    response = array_response(_square(4, 10.0),
-                              grid=ResponseGrid(1.6, 201))
-    analysis = analyze_response(response)
-    safe = analyze_search_domain(response,
-                                 0.9 * analysis.limits.aliasing_radius)
+    response = ArrayResponse(_square(4, 10.0),
+                              grid_max=1.6, grid_size=201)
+    analysis = response.analyze()
+    safe = response.search_domain(0.9 * analysis.limits.aliasing_radius)
     assert safe.is_safe and safe.maximum_ambiguity == 0.0
     assert safe.difference_radius == pytest.approx(2 * safe.maximum_wavenumber)
-    unsafe = analyze_search_domain(response, 0.4)
+    unsafe = response.search_domain(0.4)
     assert not unsafe.is_safe
     assert unsafe.maximum_ambiguity == pytest.approx(1.0, abs=5e-3)
     assert unsafe.ambiguity_peaks
 
-    with pytest.raises(ValueError, match="differences"):
-        analyze_search_domain(response, 1.0)
+    with pytest.raises(ValueError, match="grid_max"):
+        response.search_domain(1.0)
 
 
 def test_velocity_limits():
-    analysis = analyze_response(array_response(SEVEN))
-    limits = velocity_limits([2.0, 4.0], analysis)
+    analysis = ArrayResponse(SEVEN).analyze()
+    limits = analysis.velocity_limits([2.0, 4.0])
     assert np.allclose(limits.minimum, 2 * np.pi * np.array([2.0, 4.0])
                        / analysis.limits.aliasing_radius)
     assert np.allclose(limits.maximum, 2 * np.pi * np.array([2.0, 4.0])
                        / analysis.limits.resolution_radius)
-    assert np.allclose(analysis.velocity_limits([2.0, 4.0]).minimum,
-                       limits.minimum)
+    assert limits.resolution_level == 0.5
 
     with pytest.raises(ValueError):
-        velocity_limits([4.0, 2.0], analysis)
-
-    with pytest.raises(TypeError):
-        velocity_limits([1.0], None)
+        analysis.velocity_limits([4.0, 2.0])
 
 
 def test_velocity_limits_without_upper_limit():
     rng = np.random.default_rng(3)
     coordinates = rng.uniform(-50, 50, (10, 2))
-    analysis = analyze_response(
-        array_response(coordinates, grid=ResponseGrid(0.2, 81))
-    )
+    analysis = ArrayResponse(coordinates, grid_max=0.2,
+                             grid_size=81).analyze()
     assert analysis.limits.aliasing_radius is None
 
     with pytest.raises(ValueError, match="upper"):
-        velocity_limits([1.0], analysis)
+        analysis.velocity_limits([1.0])
 
 
 def test_info(capsys):
-    response = array_response(SEVEN)
-    analysis = analyze_response(response)
+    response = ArrayResponse(SEVEN)
+    analysis = response.analyze()
     response.info()
     response.geometry.info()
     analysis.info()
-    analyze_search_domain(response, 0.03).info()
+    response.search_domain(0.03).info()
     text = capsys.readouterr().out
     assert "ArrayResponse" in text and "usable wavenumbers" in text
     assert "SearchDomainAnalysis" in text

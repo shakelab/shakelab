@@ -509,7 +509,8 @@ def _response_parser(prog: Optional[str]) -> argparse.ArgumentParser:
     analysis.add_argument("--grid-max", type=float,
                           help="extent of the wavenumber grid (automatic)")
     analysis.add_argument("--grid-size", type=int,
-                          help="odd samples per axis of the grid")
+                          help="odd samples per axis of the grid "
+                          "(automatic)")
     analysis.add_argument("--frequencies", type=float, nargs="+",
                           help="frequencies of the velocity limits (Hz)")
     analysis.add_argument("--fmin", type=float, help="minimum frequency")
@@ -585,7 +586,7 @@ def _response_frequencies(args: argparse.Namespace) -> Optional[np.ndarray]:
 
 def _run_response(args: argparse.Namespace) -> int:
     """Analyse the response of an array and draw the figures."""
-    from shakelab.exploration.yarray import response as yr
+    from shakelab.exploration.yarray.response import ArrayResponse
 
     names = None
 
@@ -597,20 +598,12 @@ def _run_response(args: argparse.Namespace) -> int:
         names = list(source.sids)
         print(source.summary())
 
-    grid = None
-
-    if args.grid_max is not None or args.grid_size is not None:
-        if args.grid_max is None or args.grid_size is None:
-            raise ValueError("--grid-max and --grid-size go together")
-
-        grid = yr.ResponseGrid(args.grid_max, args.grid_size)
-
-    response = yr.array_response(source, grid=grid)
+    response = ArrayResponse(source, grid_max=args.grid_max,
+                             grid_size=args.grid_size)
     response.info()
-    analysis = yr.analyze_response(
-        response, resolution_level=args.resolution_level,
-        ambiguity_level=args.ambiguity_level, expected=args.expected,
-    )
+    analysis = response.analyze(args.resolution_level,
+                                args.ambiguity_level,
+                                expected=args.expected)
     analysis.info()
     frequencies = _response_frequencies(args)
     limits = None
@@ -630,10 +623,9 @@ def _run_response(args: argparse.Namespace) -> int:
     domain = None
 
     if args.search_max is not None:
-        domain = yr.analyze_search_domain(
-            response, args.search_max, ambiguity_level=args.ambiguity_level,
-            expected=args.expected,
-        )
+        domain = response.search_domain(args.search_max,
+                                        args.ambiguity_level,
+                                        expected=args.expected)
         domain.info()
 
     wanted = [

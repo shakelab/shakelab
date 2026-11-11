@@ -32,6 +32,8 @@ the options of the command line (``fmin``, ``grid_max``,
 changes with :meth:`BeamformingConfig.update`. A configuration is read
 from and written to JSON: ``BeamformingConfig("capon.json")``,
 :meth:`BeamformingConfig.read`, :meth:`BeamformingConfig.write`.
+:class:`PerformanceConfig` collects in the same way the parameters of
+the Monte Carlo experiments of :mod:`.performance` (survey planning).
 
 Options with a fixed set of values are enumerations; their string
 values are accepted everywhere (``method="capon"`` as
@@ -54,6 +56,12 @@ spectra or both, is read as ``spectra``), ``uncertainty`` (``statistical``,
 defaults of the classes; unknown sections are ignored, so that other
 applications (e.g. the graphics of the command-line interface) can
 keep their options in the same file.
+
+The JSON file of :class:`PerformanceConfig` (version 1) has
+``snr_db``, ``grid`` (as above, of wavenumbers), ``method`` (as
+above), ``strict``, ``monte_carlo`` (``trials``, ``realizations``,
+``seed``) and ``classification`` (``resolution_level``,
+``ambiguity_level``, ``boundary_margin``).
 """
 
 from __future__ import annotations
@@ -84,6 +92,7 @@ __all__ = [
     "GeometricUncertainty",
     "GridQuantity",
     "GridScale",
+    "PerformanceConfig",
     "SearchGrid",
     "StatisticalUncertainty",
     "TransformMethod",
@@ -744,70 +753,409 @@ class EllipticityGrid(_Replace):
 
 
 # ----------------------------------------------------------------------------
-# Complete configuration
+# Configurations of parameters
 # ----------------------------------------------------------------------------
 
 
-# Objects of the configuration, their classes and JSON sections.
-_OBJECTS = {
-    "frequencies": (FrequencyConfig, "frequencies"),
-    "grid": (SearchGrid, "grid"),
-    "window": (WindowConfig, "window"),
-    "ellipticity_grid": (EllipticityGrid, "ellipticity"),
-}
+class _FlatConfig:
+    """
+    Base of the configurations with single parameters.
 
-# Single parameters of the objects: name -> (object, field). The names
-# are those of the command-line options (``--grid-max`` -> grid_max).
-_FIELDS = {
-    "fmin": ("frequencies", "minimum"),
-    "fmax": ("frequencies", "maximum"),
-    "nfreq": ("frequencies", "size"),
-    "frequency_scale": ("frequencies", "scale"),
-    "grid_quantity": ("grid", "quantity"),
-    "grid_scale": ("grid", "scale"),
-    "grid_min": ("grid", "minimum"),
-    "grid_max": ("grid", "maximum"),
-    "grid_size": ("grid", "size"),
-    "azimuth_size": ("grid", "azimuth_size"),
-    "azimuths": ("grid", "azimuths"),
-    "window_type": ("window", "type"),
-    "window_length": ("window", "length"),
-    "window_taper": ("window", "taper"),
-    "window_overlap": ("window", "overlap"),
-    "windows_per_block": ("window", "windows_per_block"),
-    "block_overlap": ("window", "block_overlap"),
-    "ellipticity_angle_min": ("ellipticity_grid", "minimum_angle"),
-    "ellipticity_angle_max": ("ellipticity_grid", "maximum_angle"),
-    "ellipticity_angle_size": ("ellipticity_grid", "size"),
-}
+    A subclass declares its objects (``_OBJECTS``: name -> (class, JSON
+    section)), the single fields of the objects (``_FIELDS``: name ->
+    (object, field)), the other parameters (``_OPTIONS``: name ->
+    (default, JSON section or None for the top level, JSON key)) and
+    the parameters required for use (``_REQUIRED``), and validates its
+    state in :meth:`_validated`.
+    """
 
-# Other parameters: name -> (default, JSON section, JSON key); a None
-# section is the top level.
-_OPTIONS = {
-    "method": (BeamformingMethod.CAPON, "method", "name"),
-    "components": (ComponentMode.VERTICAL, None, "components"),
-    "diagonal_loading": (0.001, "method", "diagonal_loading"),
-    "music_sources": (1, "method", "music_sources"),
-    "spectra": (False, "output", "spectra"),
-    "maxima": (1, "output", "maxima"),
-    "peak_neighborhood": ((3, 3), "output", "neighborhood"),
-    "minimum_relative_power": (0.0, "output", "minimum_relative_power"),
-    "statistical_uncertainty": (
-        StatisticalUncertainty.NONE, "uncertainty", "statistical"
-    ),
-    "geometric_uncertainty": (
-        GeometricUncertainty.NONE, "uncertainty", "geometric"
-    ),
-    "strict": (True, None, "strict"),
-    "transform": (TransformMethod.DIRECT, "spectral", "transform"),
-    "fft_selection": (FFTSelection.NEAREST, "spectral", "fft_selection"),
-    "fft_padding": (None, "spectral", "fft_padding"),
-}
+    _OBJECTS: dict = {}
+    _FIELDS: dict = {}
+    _OPTIONS: dict = {}
+    _REQUIRED: tuple = ()
+    _EXAMPLE: str = ""
 
-_NAMES = frozenset(_OBJECTS) | frozenset(_FIELDS) | frozenset(_OPTIONS)
+    def __init__(self, source: Any = None, **parameters: Any) -> None:
+        object.__setattr__(self, "_state", self._validated(self._defaults()))
+
+        if source is not None:
+            self.read(source)
+
+        if parameters:
+            self.update(**parameters)
+
+    @classmethod
+    def _names(cls) -> frozenset:
+        """Names of all the parameters."""
+        return (frozenset(cls._OBJECTS) | frozenset(cls._FIELDS)
+                | frozenset(cls._OPTIONS))
+
+    def __getattr__(self, name: str) -> Any:
+        state = self.__dict__.get("_state")
+
+        if state is not None:
+            if name in state:
+                return state[name]
+
+            if name in self._FIELDS:
+                owner, field_name = self._FIELDS[name]
+                value = state[owner]
+                return None if value is None else getattr(value, field_name)
+
+        raise AttributeError(
+            f"{type(self).__name__!r} object has no attribute {name!r}"
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name not in self._names():
+            raise AttributeError(f"unknown configuration parameter {name!r}")
+
+        self.update(**{name: value})
+
+    def __eq__(self, other: Any) -> bool:
+        if type(other) is not type(self):
+            return NotImplemented
+
+        return self.to_dict() == other.to_dict()
+
+    __hash__ = None
+
+    # -- changes -----------------------------------------------------------
+
+    def update(self, **parameters: Any) -> None:
+        """
+        Change parameters.
+
+        The new values are validated together: if any is invalid, the
+        configuration is not changed.
+
+        Parameters
+        ----------
+        **parameters
+            Parameters by name (see the class notes).
+
+        Raises
+        ------
+        TypeError
+            If a parameter is unknown or has the wrong type.
+        ValueError
+            If a value is invalid or the options are incompatible.
+        """
+        names = self._names()
+        unknown = sorted(set(parameters) - names)
+
+        if unknown:
+            raise TypeError(
+                "unknown configuration parameters: " + ", ".join(unknown)
+                + "; accepted: " + ", ".join(sorted(names))
+            )
+
+        state = dict(self._state)
+
+        for name, (kind, _) in self._OBJECTS.items():
+            if name in parameters:
+                state[name] = self._as_object(name, kind, parameters[name])
+
+        changes: dict[str, dict] = {}
+
+        for name, (owner, field_name) in self._FIELDS.items():
+            if name in parameters:
+                changes.setdefault(owner, {})[field_name] = parameters[name]
+
+        for owner, values in changes.items():
+            state[owner] = self._merged(owner, state[owner], values)
+
+        for name in self._OPTIONS:
+            if name in parameters:
+                state[name] = parameters[name]
+
+        object.__setattr__(self, "_state", self._validated(state))
+
+    def copy(self, **parameters: Any) -> Any:
+        """
+        Return an independent copy, with some parameters changed.
+
+        Parameters
+        ----------
+        **parameters
+            Parameters of the copy (see :meth:`update`).
+
+        Returns
+        -------
+        object
+            Copy of the same class (the objects of the configuration
+            are immutable and shared).
+        """
+        new = type(self)()
+        object.__setattr__(new, "_state", dict(self._state))
+
+        if parameters:
+            new.update(**parameters)
+
+        return new
+
+    @property
+    def complete(self) -> bool:
+        """Whether the required parameters are given."""
+        return all(self._state[name] is not None for name in self._REQUIRED)
+
+    def check_complete(self) -> None:
+        """
+        Raise if the configuration cannot be used.
+
+        Raises
+        ------
+        ValueError
+            If a required parameter is missing.
+        """
+        missing = [name for name in self._REQUIRED
+                   if self._state[name] is None]
+
+        if missing:
+            raise ValueError(
+                "the configuration needs " + " and ".join(missing)
+                + f" (e.g. {self._EXAMPLE})"
+            )
+
+    # -- JSON --------------------------------------------------------------
+
+    def read(self, source: Any) -> None:
+        """
+        Replace the configuration with that of a JSON file.
+
+        Missing fields take the default values; unknown sections are
+        ignored (e.g. ``graphics`` of the command line).
+
+        Parameters
+        ----------
+        source : str, path-like or mapping
+            JSON file, or its content as a dictionary.
+
+        Raises
+        ------
+        TypeError
+            If a section has the wrong type.
+        ValueError
+            If the file is not valid JSON, the version is not supported
+            or a value is invalid.
+        """
+        if isinstance(source, Mapping):
+            data = source
+        else:
+            path = Path(source).expanduser()
+
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as error:
+                raise ValueError(
+                    f"{path}: invalid JSON at line {error.lineno}, column "
+                    f"{error.colno}: {error.msg}"
+                ) from error
+
+        parameters = self._from_json(data)
+        object.__setattr__(self, "_state", self._validated(self._defaults()))
+        self.update(**parameters)
+
+    def write(self, target: Any, owrite: bool = False) -> None:
+        """
+        Write the configuration to a JSON file.
+
+        Parameters
+        ----------
+        target : str or path-like
+            JSON file.
+        owrite : bool, optional
+            Overwrite an existing file. Default is False.
+
+        Raises
+        ------
+        FileExistsError
+            If the file exists and ``owrite`` is False.
+        """
+        path = Path(target).expanduser()
+
+        if path.exists() and not owrite:
+            raise FileExistsError(f"{path} exists (use owrite=True)")
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(self.to_dict(), indent=2) + "\n", encoding="utf-8"
+        )
+
+    def to_dict(self) -> dict:
+        """
+        Return the JSON representation.
+
+        Returns
+        -------
+        dict
+            Content of a JSON configuration (version 1); the objects
+            and the required parameters only if given.
+        """
+        state = self._state
+        data: dict = {"version": _VERSION}
+
+        for name, (_, section) in self._OBJECTS.items():
+            if state[name] is not None:
+                data[section] = state[name].to_dict()
+
+        for name, (_, section, key) in self._OPTIONS.items():
+            value = state[name]
+
+            if value is None and name in self._REQUIRED:
+                continue
+
+            if isinstance(value, Enum):
+                value = value.value
+            elif isinstance(value, tuple):
+                value = list(value)
+
+            if section is None:
+                data[key] = value
+            else:
+                data.setdefault(section, {})[key] = value
+
+        return data
+
+    def info(self) -> None:
+        """Print the configuration."""
+        print(self.summary())
+
+    def summary(self) -> str:
+        """
+        Return the configuration as text.
+
+        Returns
+        -------
+        str
+            The JSON representation, indented.
+        """
+        return (type(self).__name__ + "\n"
+                + json.dumps(self.to_dict(), indent=2))
+
+    # -- helpers -----------------------------------------------------------
+
+    @classmethod
+    def _defaults(cls) -> dict:
+        """State with the default values."""
+        state = {name: None for name in cls._OBJECTS}
+        state.update({name: value[0] for name, value in cls._OPTIONS.items()})
+        return state
+
+    @classmethod
+    def _as_object(cls, name: str, kind: type, value: Any) -> Any:
+        """Object of the configuration from an object or a mapping."""
+        if value is None and name in cls._REQUIRED:
+            return None
+
+        if isinstance(value, kind):
+            return value
+
+        if isinstance(value, Mapping):
+            return kind(**value)
+
+        raise TypeError(f"{name} must be a {kind.__name__} or a dictionary")
+
+    @classmethod
+    def _merged(cls, owner: str, current: Any, values: dict) -> Any:
+        """Object with some fields replaced."""
+        kind = cls._OBJECTS[owner][0]
+        base = {} if current is None else {
+            item.name: getattr(current, item.name)
+            for item in dataclasses.fields(current)
+        }
+
+        for name in cls._replaced(owner, values):
+            base.pop(name, None)
+
+        return kind(**{**base, **values})
+
+    @classmethod
+    def _replaced(cls, owner: str, values: dict) -> set:
+        """Fields of an object dropped when ``values`` are given."""
+        if owner == "grid" and "azimuth_size" in values:
+            return {"azimuths"}
+
+        return set()
+
+    @classmethod
+    def _validated(cls, state: dict) -> dict:
+        """Return a validated state."""
+        return dict(state)
+
+    @classmethod
+    def _from_json(cls, data: Any) -> dict:
+        """Parameters of a JSON configuration."""
+        if not isinstance(data, Mapping):
+            raise TypeError("the configuration must be a JSON object")
+
+        version = data.get("version", _VERSION)
+
+        if version != _VERSION:
+            raise ValueError(f"unsupported configuration version {version}")
+
+        data = dict(data)
+
+        if isinstance(data.get("method"), str):
+            data["method"] = {"name": data["method"]}
+
+        parameters = {}
+
+        for name, (_, section) in cls._OBJECTS.items():
+            if section in data:
+                parameters[name] = _section(data, section)
+
+        for name, (_, section, key) in cls._OPTIONS.items():
+            values = data if section is None else _section(data, section)
+
+            if key in values:
+                parameters[name] = values[key]
+
+        return parameters
 
 
-class BeamformingConfig:
+def _section(data: Mapping, name: str) -> dict:
+    """Return an optional JSON section as a dictionary."""
+    value = data.get(name, {})
+
+    if not isinstance(value, Mapping):
+        raise TypeError(f"the section {name!r} must be an object")
+
+    return dict(value)
+
+
+def _estimator(state: dict) -> None:
+    """Validate the estimator parameters of a state in place."""
+    if not isinstance(state["strict"], (bool, np.bool_)):
+        raise TypeError("strict must be a boolean")
+
+    loading = _real(state["diagonal_loading"], "diagonal_loading")
+
+    if loading < 0.0:
+        raise ValueError("diagonal_loading cannot be negative")
+
+    state.update(
+        method=_enum(state["method"], BeamformingMethod, "method"),
+        diagonal_loading=loading,
+        music_sources=_integer(state["music_sources"], "music_sources", 1),
+        strict=bool(state["strict"]),
+    )
+
+
+# ----------------------------------------------------------------------------
+# Beamforming configuration
+# ----------------------------------------------------------------------------
+
+
+class _OutputMode(Enum):
+    """Output modes of the JSON files of August 2026 (``output.mode``)."""
+
+    MAXIMA = "maxima"
+    SPECTRA = "spectra"
+    BOTH = "both"
+
+
+class BeamformingConfig(_FlatConfig):
     """
     Complete configuration of frequency-wavenumber processing.
 
@@ -884,46 +1232,62 @@ class BeamformingConfig:
     >>> config = BeamformingConfig("capon.json", window_length=4.0)
     >>> config.update(method="music")
     >>> config.grid_max = 2000.0
+    >>> music = config.copy(method="music")
     """
+    _OBJECTS = {
+        "frequencies": (FrequencyConfig, "frequencies"),
+        "grid": (SearchGrid, "grid"),
+        "window": (WindowConfig, "window"),
+        "ellipticity_grid": (EllipticityGrid, "ellipticity"),
+    }
 
-    def __init__(self, source: Any = None, **parameters: Any) -> None:
-        object.__setattr__(self, "_state", _validated(_defaults()))
+    # Names of the command-line options (``--grid-max`` -> grid_max).
+    _FIELDS = {
+        "fmin": ("frequencies", "minimum"),
+        "fmax": ("frequencies", "maximum"),
+        "nfreq": ("frequencies", "size"),
+        "frequency_scale": ("frequencies", "scale"),
+        "grid_quantity": ("grid", "quantity"),
+        "grid_scale": ("grid", "scale"),
+        "grid_min": ("grid", "minimum"),
+        "grid_max": ("grid", "maximum"),
+        "grid_size": ("grid", "size"),
+        "azimuth_size": ("grid", "azimuth_size"),
+        "azimuths": ("grid", "azimuths"),
+        "window_type": ("window", "type"),
+        "window_length": ("window", "length"),
+        "window_taper": ("window", "taper"),
+        "window_overlap": ("window", "overlap"),
+        "windows_per_block": ("window", "windows_per_block"),
+        "block_overlap": ("window", "block_overlap"),
+        "ellipticity_angle_min": ("ellipticity_grid", "minimum_angle"),
+        "ellipticity_angle_max": ("ellipticity_grid", "maximum_angle"),
+        "ellipticity_angle_size": ("ellipticity_grid", "size"),
+    }
 
-        if source is not None:
-            self.read(source)
+    _OPTIONS = {
+        "method": (BeamformingMethod.CAPON, "method", "name"),
+        "components": (ComponentMode.VERTICAL, None, "components"),
+        "diagonal_loading": (0.001, "method", "diagonal_loading"),
+        "music_sources": (1, "method", "music_sources"),
+        "spectra": (False, "output", "spectra"),
+        "maxima": (1, "output", "maxima"),
+        "peak_neighborhood": ((3, 3), "output", "neighborhood"),
+        "minimum_relative_power": (0.0, "output", "minimum_relative_power"),
+        "statistical_uncertainty": (
+            StatisticalUncertainty.NONE, "uncertainty", "statistical"
+        ),
+        "geometric_uncertainty": (
+            GeometricUncertainty.NONE, "uncertainty", "geometric"
+        ),
+        "strict": (True, None, "strict"),
+        "transform": (TransformMethod.DIRECT, "spectral", "transform"),
+        "fft_selection": (FFTSelection.NEAREST, "spectral", "fft_selection"),
+        "fft_padding": (None, "spectral", "fft_padding"),
+    }
 
-        if parameters:
-            self.update(**parameters)
-
-    def __getattr__(self, name: str) -> Any:
-        state = self.__dict__.get("_state")
-
-        if state is not None:
-            if name in state:
-                return state[name]
-
-            if name in _FIELDS:
-                owner, field_name = _FIELDS[name]
-                value = state[owner]
-                return None if value is None else getattr(value, field_name)
-
-        raise AttributeError(
-            f"'BeamformingConfig' object has no attribute {name!r}"
-        )
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name not in _NAMES:
-            raise AttributeError(f"unknown configuration parameter {name!r}")
-
-        self.update(**{name: value})
-
-    def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, BeamformingConfig):
-            return NotImplemented
-
-        return self.to_dict() == other.to_dict()
-
-    __hash__ = None
+    _REQUIRED = ("frequencies", "grid")
+    _EXAMPLE = "fmin, fmax, nfreq and grid_min, grid_max, grid_size"
 
     def __repr__(self) -> str:
         state = self._state
@@ -934,329 +1298,105 @@ class BeamformingConfig:
             f"{'set' if state['grid'] else 'missing'})"
         )
 
-    # -- changes -----------------------------------------------------------
+    @classmethod
+    def _defaults(cls) -> dict:
+        """State with the default values."""
+        state = super()._defaults()
+        state["window"] = WindowConfig()
+        state["ellipticity_grid"] = EllipticityGrid()
+        return state
 
-    def update(self, **parameters: Any) -> None:
-        """
-        Change parameters.
+    @classmethod
+    def _as_object(cls, name: str, kind: type, value: Any) -> Any:
+        """Object of the configuration (also explicit frequencies)."""
+        if (
+            name == "frequencies" and value is not None
+            and not isinstance(value, (FrequencyConfig, Mapping))
+        ):
+            return FrequencyConfig(values=value)
 
-        The new values are validated together: if any is invalid, the
-        configuration is not changed.
+        return super()._as_object(name, kind, value)
 
-        Parameters
-        ----------
-        **parameters
-            Parameters by name (see the class notes).
+    @classmethod
+    def _replaced(cls, owner: str, values: dict) -> set:
+        """Fields dropped: explicit frequencies, scale of a new quantity."""
+        names = super()._replaced(owner, values)
 
-        Raises
-        ------
-        TypeError
-            If a parameter is unknown or has the wrong type.
-        ValueError
-            If a value is invalid or the options are incompatible.
-        """
-        unknown = sorted(set(parameters) - _NAMES)
+        if owner == "frequencies" and set(values) & {
+            "minimum", "maximum", "size", "scale"
+        }:
+            names.add("values")
 
-        if unknown:
-            raise TypeError(
-                "unknown configuration parameters: " + ", ".join(unknown)
-                + "; accepted: " + ", ".join(sorted(_NAMES))
-            )
+        if owner == "grid" and "quantity" in values and "scale" not in values:
+            names.add("scale")
 
-        state = dict(self._state)
+        return names
 
-        for name, (kind, _) in _OBJECTS.items():
-            if name in parameters:
-                state[name] = _as_object(name, kind, parameters[name])
+    @classmethod
+    def _validated(cls, state: dict) -> dict:
+        """Return a validated state (enumerations, numbers, compatibility)."""
+        state = dict(state)
+        _estimator(state)
 
-        changes: dict[str, dict] = {}
+        if not isinstance(state["spectra"], (bool, np.bool_)):
+            raise TypeError("spectra must be a boolean")
 
-        for name, (owner, field_name) in _FIELDS.items():
-            if name in parameters:
-                changes.setdefault(owner, {})[field_name] = parameters[name]
+        state["spectra"] = bool(state["spectra"])
+        neighborhood = tuple(state["peak_neighborhood"])
 
-        for owner, values in changes.items():
-            state[owner] = _merged(owner, state[owner], values)
+        if len(neighborhood) != 2:
+            raise ValueError("peak_neighborhood must contain two integers")
 
-        for name in _OPTIONS:
-            if name in parameters:
-                state[name] = parameters[name]
+        relative = _real(state["minimum_relative_power"],
+                         "minimum_relative_power")
 
-        object.__setattr__(self, "_state", _validated(state))
+        if not 0.0 <= relative <= 1.0:
+            raise ValueError("minimum_relative_power must be in [0, 1]")
 
-    def copy(self) -> BeamformingConfig:
-        """
-        Return an independent copy.
+        padding = state["fft_padding"]
 
-        Returns
-        -------
-        BeamformingConfig
-            Copy (the objects of the configuration are immutable and
-            shared).
-        """
-        new = BeamformingConfig()
-        object.__setattr__(new, "_state", dict(self._state))
-        return new
+        if padding is not None:
+            padding = _integer(padding, "fft_padding", 1)
 
-    @property
-    def complete(self) -> bool:
-        """Whether frequencies and grid are given."""
-        return (
-            self._state["frequencies"] is not None
-            and self._state["grid"] is not None
+        state.update(
+            components=_enum(state["components"], ComponentMode,
+                             "components"),
+            maxima=_integer(state["maxima"], "maxima", 1),
+            peak_neighborhood=tuple(
+                _integer(value, "peak_neighborhood", 1)
+                for value in neighborhood
+            ),
+            minimum_relative_power=relative,
+            statistical_uncertainty=_enum(
+                state["statistical_uncertainty"], StatisticalUncertainty,
+                "statistical_uncertainty",
+            ),
+            geometric_uncertainty=_enum(
+                state["geometric_uncertainty"], GeometricUncertainty,
+                "geometric_uncertainty",
+            ),
+            transform=_enum(state["transform"], TransformMethod,
+                            "transform"),
+            fft_selection=_enum(
+                state["fft_selection"], FFTSelection, "fft_selection"
+            ),
+            fft_padding=padding,
         )
+        _check_compatibility(state)
+        return state
 
-    def check_complete(self) -> None:
-        """
-        Raise if the configuration cannot be used for processing.
+    @classmethod
+    def _from_json(cls, data: Any) -> dict:
+        """Parameters of a JSON configuration (also of August 2026)."""
+        output = data.get("output") if isinstance(data, Mapping) else None
 
-        Raises
-        ------
-        ValueError
-            If frequencies or grid are missing.
-        """
-        missing = [name for name in ("frequencies", "grid")
-                   if self._state[name] is None]
+        if isinstance(output, Mapping) and "mode" in output:
+            output = dict(output)
+            mode = _enum(output.pop("mode"), _OutputMode, "output.mode")
+            output.setdefault("spectra", mode is not _OutputMode.MAXIMA)
+            data = {**data, "output": output}
 
-        if missing:
-            raise ValueError(
-                "the configuration needs " + " and ".join(missing)
-                + " (e.g. fmin, fmax, nfreq and grid_min, grid_max, "
-                "grid_size)"
-            )
-
-    # -- JSON --------------------------------------------------------------
-
-    def read(self, source: Any) -> None:
-        """
-        Replace the configuration with that of a JSON file.
-
-        Missing fields take the default values; unknown sections are
-        ignored (e.g. ``graphics`` of the command line).
-
-        Parameters
-        ----------
-        source : str, path-like or mapping
-            JSON file, or its content as a dictionary.
-
-        Raises
-        ------
-        TypeError
-            If a section has the wrong type.
-        ValueError
-            If the file is not valid JSON, the version is not supported
-            or a value is invalid.
-        """
-        if isinstance(source, Mapping):
-            data = source
-        else:
-            path = Path(source).expanduser()
-
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError as error:
-                raise ValueError(
-                    f"{path}: invalid JSON at line {error.lineno}, column "
-                    f"{error.colno}: {error.msg}"
-                ) from error
-
-        parameters = _from_json(data)
-        object.__setattr__(self, "_state", _validated(_defaults()))
-        self.update(**parameters)
-
-    def write(self, target: Any, owrite: bool = False) -> None:
-        """
-        Write the configuration to a JSON file.
-
-        Parameters
-        ----------
-        target : str or path-like
-            JSON file.
-        owrite : bool, optional
-            Overwrite an existing file. Default is False.
-
-        Raises
-        ------
-        FileExistsError
-            If the file exists and ``owrite`` is False.
-        """
-        path = Path(target).expanduser()
-
-        if path.exists() and not owrite:
-            raise FileExistsError(f"{path} exists (use owrite=True)")
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(self.to_dict(), indent=2) + "\n", encoding="utf-8"
-        )
-
-    def to_dict(self) -> dict:
-        """
-        Return the JSON representation.
-
-        Returns
-        -------
-        dict
-            Content of a JSON configuration (version 1); frequencies
-            and grid only if given.
-        """
-        state = self._state
-        data: dict = {"version": _VERSION}
-
-        for name, (_, section) in _OBJECTS.items():
-            if state[name] is not None:
-                data[section] = state[name].to_dict()
-
-        for name, (_, section, key) in _OPTIONS.items():
-            value = state[name]
-
-            if isinstance(value, Enum):
-                value = value.value
-            elif isinstance(value, tuple):
-                value = list(value)
-
-            if section is None:
-                data[key] = value
-            else:
-                data.setdefault(section, {})[key] = value
-
-        return data
-
-    def info(self) -> None:
-        """Print the configuration."""
-        print(self.summary())
-
-    def summary(self) -> str:
-        """
-        Return the configuration as text.
-
-        Returns
-        -------
-        str
-            The JSON representation, indented.
-        """
-        return "BeamformingConfig\n" + json.dumps(self.to_dict(), indent=2)
-
-
-# ----------------------------------------------------------------------------
-# Configuration helpers
-# ----------------------------------------------------------------------------
-
-
-class _OutputMode(Enum):
-    """Output modes of the JSON files of August 2026 (``output.mode``)."""
-
-    MAXIMA = "maxima"
-    SPECTRA = "spectra"
-    BOTH = "both"
-
-
-def _defaults() -> dict:
-    """State of a configuration with the default values."""
-    state = {name: None for name in ("frequencies", "grid")}
-    state["window"] = WindowConfig()
-    state["ellipticity_grid"] = EllipticityGrid()
-    state.update({name: value[0] for name, value in _OPTIONS.items()})
-    return state
-
-
-def _as_object(name: str, kind: type, value: Any) -> Any:
-    """Object of the configuration from an object, mapping or values."""
-    if value is None and name in ("frequencies", "grid"):
-        return None
-
-    if isinstance(value, kind):
-        return value
-
-    if isinstance(value, Mapping):
-        return kind(**value)
-
-    if name == "frequencies":
-        return FrequencyConfig(values=value)
-
-    raise TypeError(f"{name} must be a {kind.__name__} or a dictionary")
-
-
-def _merged(owner: str, current: Any, values: dict) -> Any:
-    """Object with some fields replaced."""
-    kind = _OBJECTS[owner][0]
-    base = {} if current is None else {
-        item.name: getattr(current, item.name)
-        for item in dataclasses.fields(current)
-    }
-
-    if owner == "frequencies" and set(values) & {
-        "minimum", "maximum", "size", "scale"
-    }:
-        base.pop("values", None)
-
-    if owner == "grid":
-        if "azimuth_size" in values:
-            base.pop("azimuths", None)
-
-        if "quantity" in values and "scale" not in values:
-            base.pop("scale", None)
-
-    return kind(**{**base, **values})
-
-
-def _validated(state: dict) -> dict:
-    """Return a validated state (enumerations, numbers, compatibility)."""
-    state = dict(state)
-
-    for name in ("strict", "spectra"):
-        if not isinstance(state[name], (bool, np.bool_)):
-            raise TypeError(f"{name} must be a boolean")
-
-    state["spectra"] = bool(state["spectra"])
-
-    neighborhood = tuple(state["peak_neighborhood"])
-
-    if len(neighborhood) != 2:
-        raise ValueError("peak_neighborhood must contain two integers")
-
-    loading = _real(state["diagonal_loading"], "diagonal_loading")
-
-    if loading < 0.0:
-        raise ValueError("diagonal_loading cannot be negative")
-
-    relative = _real(state["minimum_relative_power"],
-                     "minimum_relative_power")
-
-    if not 0.0 <= relative <= 1.0:
-        raise ValueError("minimum_relative_power must be in [0, 1]")
-
-    padding = state["fft_padding"]
-
-    if padding is not None:
-        padding = _integer(padding, "fft_padding", 1)
-
-    state.update(
-        method=_enum(state["method"], BeamformingMethod, "method"),
-        components=_enum(state["components"], ComponentMode, "components"),
-        diagonal_loading=loading,
-        music_sources=_integer(state["music_sources"], "music_sources", 1),
-        maxima=_integer(state["maxima"], "maxima", 1),
-        peak_neighborhood=tuple(
-            _integer(value, "peak_neighborhood", 1) for value in neighborhood
-        ),
-        minimum_relative_power=relative,
-        statistical_uncertainty=_enum(
-            state["statistical_uncertainty"], StatisticalUncertainty,
-            "statistical_uncertainty",
-        ),
-        geometric_uncertainty=_enum(
-            state["geometric_uncertainty"], GeometricUncertainty,
-            "geometric_uncertainty",
-        ),
-        transform=_enum(state["transform"], TransformMethod, "transform"),
-        fft_selection=_enum(
-            state["fft_selection"], FFTSelection, "fft_selection"
-        ),
-        fft_padding=padding,
-    )
-    _check_compatibility(state)
-    return state
+        return super()._from_json(data)
 
 
 def _check_compatibility(state: dict) -> None:
@@ -1291,49 +1431,160 @@ def _check_compatibility(state: dict) -> None:
             )
 
 
-def _from_json(data: Any) -> dict:
-    """Parameters of a JSON configuration."""
-    if not isinstance(data, Mapping):
-        raise TypeError("the configuration must be a JSON object")
-
-    version = data.get("version", _VERSION)
-
-    if version != _VERSION:
-        raise ValueError(f"unsupported configuration version {version}")
-
-    data = dict(data)
-
-    if isinstance(data.get("method"), str):
-        data["method"] = {"name": data["method"]}
-
-    output = data.get("output")
-
-    if isinstance(output, Mapping) and "mode" in output:
-        output = dict(output)
-        mode = _enum(output.pop("mode"), _OutputMode, "output.mode")
-        output.setdefault("spectra", mode is not _OutputMode.MAXIMA)
-        data["output"] = output
-
-    parameters = {}
-
-    for name, (_, section) in _OBJECTS.items():
-        if section in data:
-            parameters[name] = _section(data, section)
-
-    for name, (_, section, key) in _OPTIONS.items():
-        values = data if section is None else _section(data, section)
-
-        if key in values:
-            parameters[name] = values[key]
-
-    return parameters
+# ----------------------------------------------------------------------------
+# Performance configuration
+# ----------------------------------------------------------------------------
 
 
-def _section(data: Mapping, name: str) -> dict:
-    """Return an optional JSON section as a dictionary."""
-    value = data.get(name, {})
+class PerformanceConfig(_FlatConfig):
+    """
+    Configuration of the Monte Carlo performance experiments.
 
-    if not isinstance(value, Mapping):
-        raise TypeError(f"the section {name!r} must be an object")
+    Same use as :class:`BeamformingConfig`: single parameters, the
+    search grid as a :class:`SearchGrid` or a dictionary, a JSON file
+    or its content in the constructor, :meth:`update`, assignment of
+    the attributes, :meth:`copy`, :meth:`read` and :meth:`write`.
 
-    return dict(value)
+    Parameters
+    ----------
+    source : str, path-like or mapping, optional
+        JSON file, or its content as a dictionary (see the module
+        notes). Default: the default values.
+    **parameters
+        Parameters (see Notes), replacing those of ``source``.
+
+    Raises
+    ------
+    TypeError
+        If a parameter is unknown or has the wrong type.
+    ValueError
+        If a value is invalid or the options are incompatible.
+
+    Notes
+    -----
+    Parameters and defaults:
+
+    - ``snr_db``: SNR per station in decibels (noise power
+      ``signal_power / 10**(snr_db / 10)``). Required.
+    - search grid of angular wavenumbers: ``grid`` (SearchGrid of
+      wavenumbers, or dictionary), or ``grid_min``, ``grid_max``,
+      ``grid_size``, ``azimuth_size`` (180) or ``azimuths``. Required.
+      The experiment does not depend on the frequency, which enters
+      only the conversion to velocity.
+    - ``method``: ``"capon"`` (default), ``"bartlett"`` or ``"music"``;
+      ``diagonal_loading`` (0.001), ``music_sources`` (1) and
+      ``strict`` (True) as in :class:`BeamformingConfig`.
+    - Monte Carlo: ``trials`` (1000, at least two), ``realizations``
+      (independent Fourier realizations of each sample matrix, 40),
+      ``seed`` of the random generator (None: not reproducible).
+    - classification of the trials: ``resolution_level`` (0.5) of the
+      LOCAL region, ``ambiguity_level`` (0.5) of the ALIAS regions,
+      ``boundary_margin`` (radial samples next to each radial boundary
+      of the grid classified as BOUNDARY, 0).
+
+    Every parameter is also an attribute, and assigning it is the same
+    as :meth:`update`.
+
+    Examples
+    --------
+    >>> config = PerformanceConfig(snr_db=-3.0, grid_min=0.0,
+    ...                            grid_max=0.24, grid_size=41,
+    ...                            trials=200, realizations=20, seed=1)
+    >>> bartlett = config.copy(method="bartlett")
+    """
+    _OBJECTS = {"grid": (SearchGrid, "grid")}
+
+    _FIELDS = {
+        "grid_min": ("grid", "minimum"),
+        "grid_max": ("grid", "maximum"),
+        "grid_size": ("grid", "size"),
+        "azimuth_size": ("grid", "azimuth_size"),
+        "azimuths": ("grid", "azimuths"),
+    }
+
+    _OPTIONS = {
+        "snr_db": (None, None, "snr_db"),
+        "method": (BeamformingMethod.CAPON, "method", "name"),
+        "diagonal_loading": (0.001, "method", "diagonal_loading"),
+        "music_sources": (1, "method", "music_sources"),
+        "strict": (True, None, "strict"),
+        "trials": (1000, "monte_carlo", "trials"),
+        "realizations": (40, "monte_carlo", "realizations"),
+        "seed": (None, "monte_carlo", "seed"),
+        "resolution_level": (0.5, "classification", "resolution_level"),
+        "ambiguity_level": (0.5, "classification", "ambiguity_level"),
+        "boundary_margin": (0, "classification", "boundary_margin"),
+    }
+
+    _REQUIRED = ("snr_db", "grid")
+    _EXAMPLE = "snr_db and grid_min, grid_max, grid_size"
+
+    def __repr__(self) -> str:
+        state = self._state
+        snr = state["snr_db"]
+        return (
+            f"PerformanceConfig({state['method'].value}, snr_db="
+            f"{'missing' if snr is None else format(snr, 'g')}, grid="
+            f"{'set' if state['grid'] else 'missing'})"
+        )
+
+    @property
+    def snr(self) -> float:
+        """Linear SNR per station (``10**(snr_db / 10)``)."""
+        self.check_complete()
+        return float(10.0 ** (self._state["snr_db"] / 10.0))
+
+    @classmethod
+    def _as_object(cls, name: str, kind: type, value: Any) -> Any:
+        """Search grid, of wavenumbers by default."""
+        if isinstance(value, Mapping):
+            value = kind(**{"quantity": GridQuantity.WAVENUMBER, **value})
+
+        return super()._as_object(name, kind, value)
+
+    @classmethod
+    def _merged(cls, owner: str, current: Any, values: dict) -> Any:
+        """Grid with some fields replaced (of wavenumbers)."""
+        if current is None:
+            values = {"quantity": GridQuantity.WAVENUMBER, **values}
+
+        return super()._merged(owner, current, values)
+
+    @classmethod
+    def _validated(cls, state: dict) -> dict:
+        """Return a validated state."""
+        state = dict(state)
+        _estimator(state)
+        grid = state["grid"]
+
+        if grid is not None and grid.quantity is not GridQuantity.WAVENUMBER:
+            raise ValueError("the performance experiments need a grid of "
+                             "wavenumbers")
+
+        if state["snr_db"] is not None:
+            state["snr_db"] = _real(state["snr_db"], "snr_db")
+
+        for name in ("resolution_level", "ambiguity_level"):
+            value = _real(state[name], name)
+
+            if not 0.0 < value < 1.0:
+                raise ValueError(f"{name} must be between 0 and 1 "
+                                 "(excluded)")
+
+            state[name] = value
+
+        state.update(
+            trials=_integer(state["trials"], "trials", 2),
+            realizations=_integer(state["realizations"], "realizations", 1),
+            boundary_margin=_integer(state["boundary_margin"],
+                                     "boundary_margin", 0),
+        )
+
+        if state["seed"] is not None:
+            state["seed"] = _integer(state["seed"], "seed", 0)
+
+        if grid is not None and 2 * state["boundary_margin"] >= grid.size:
+            raise ValueError("boundary_margin leaves no interior radial "
+                             "samples")
+
+        return state

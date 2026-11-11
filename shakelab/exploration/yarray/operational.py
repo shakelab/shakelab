@@ -24,14 +24,18 @@ Combines the geometric response (:mod:`.response`) and the Monte Carlo
 performance of an estimator (:mod:`.performance`) into a
 frequency-velocity-azimuth envelope: for every frequency ``f``, phase
 velocity ``c`` and propagation azimuth, the experiment of
-:func:`.performance.evaluate_performance` is run with the wavenumber
-``k = 2 pi f / c`` and the processing configuration of the user. The
+:meth:`ArrayResponse.performance
+<shakelab.exploration.yarray.response.ArrayResponse.performance>` is
+run with the wavenumber ``k = 2 pi f / c`` and the configuration of the
+user (:meth:`ArrayResponse.assess
+<shakelab.exploration.yarray.response.ArrayResponse.assess>`). The
 envelope holds the probabilities of LOCAL, ALIAS, OTHER and BOUNDARY
 outcomes, the local wavevector RMSE, the exact relative velocity RMSE,
 the quantization error of the search grid and a usability mask.
 
 There is no opaque quality score: a point is usable when it meets
-explicit criteria (:class:`OperationalCriteria`), and otherwise it
+explicit criteria (the ``min_*`` and ``max_*`` parameters of
+``assess``), and otherwise it
 gets the first limiting factor found (:class:`LimitingFactor`). The
 recommendations (:class:`Recommendation`) explain the limits and
 suggest processing changes (search range, grid sampling, SNR,
@@ -46,8 +50,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from shakelab.exploration.yarray.config import PerformanceConfig
 from shakelab.exploration.yarray.performance import (
-    PerformanceConfig,
     PerformanceResult,
     PlaneWaveSource,
     _check,
@@ -55,25 +59,19 @@ from shakelab.exploration.yarray.performance import (
     _evaluate,
     _search,
 )
-from shakelab.exploration.yarray.response import ArrayResponse
+from shakelab.exploration.yarray.response import ArrayResponse, _readonly
 
 __all__ = [
     "LimitingFactor",
     "OperationalAssessment",
-    "OperationalConfig",
-    "OperationalCriteria",
     "Recommendation",
     "RecommendationSeverity",
     "RecommendationType",
-    "assess_array",
 ]
 
-
-def _readonly(value: Any, dtype: Any = float) -> np.ndarray:
-    """Return a read-only copy of an array."""
-    array = np.array(value, dtype=dtype, copy=True)
-    array.setflags(write=False)
-    return array
+# Criteria of a usable point and their defaults (see ArrayResponse.assess).
+_CRITERIA = ("min_local", "max_alias", "max_other", "max_boundary",
+             "max_velocity_rmse", "max_grid_error")
 
 
 def _axis(value: Any, name: str) -> np.ndarray:
@@ -96,7 +94,6 @@ class LimitingFactor(Enum):
     RESOLUTION = "resolution"
     ALIASING = "aliasing"
     LOW_SNR = "low_snr"
-    INSUFFICIENT_REALIZATIONS = "insufficient_realizations"
     SEARCH_BOUNDARY = "search_boundary"
     GRID_QUANTIZATION = "grid_quantization"
     OTHER_FAILURE = "other_failure"
@@ -105,12 +102,9 @@ class LimitingFactor(Enum):
 class RecommendationType(Enum):
     """Category of a recommendation."""
 
-    ARRAY_APERTURE = "array_aperture"
-    ARRAY_SPACING = "array_spacing"
     ARRAY_ANISOTROPY = "array_anisotropy"
     SEARCH_RANGE = "search_range"
     RADIAL_SAMPLING = "radial_sampling"
-    AZIMUTH_SAMPLING = "azimuth_sampling"
     REALIZATIONS = "realizations"
     SNR = "snr"
 
@@ -123,111 +117,40 @@ class RecommendationSeverity(Enum):
     CRITICAL = "critical"
 
 
-@dataclass(frozen=True)
-class OperationalCriteria:
-    """
-    Criteria of a usable envelope point.
+def _azimuths(value: Any) -> np.ndarray:
+    """Return distinct azimuths in ``[0, 360)`` (12 uniform if None)."""
+    if value is None:
+        return np.linspace(0.0, 360.0, 12, endpoint=False)
 
-    Parameters
-    ----------
-    minimum_local_probability : float, optional
-        Smallest LOCAL probability. Default is 0.9.
-    maximum_alias_probability : float, optional
-        Largest ALIAS probability. Default is 0.05.
-    maximum_other_probability : float, optional
-        Largest OTHER probability. Default is 0.05.
-    maximum_boundary_probability : float, optional
-        Largest BOUNDARY probability. Default is 0.01.
-    maximum_relative_velocity_rmse : float, optional
-        Largest local velocity RMSE relative to the true velocity.
-        Default is 0.1.
-    maximum_grid_fraction : float, optional
-        Largest ratio of the grid quantization error to the resolution
-        radius of the response (a grid too coarse for the array).
-        Default is 0.1.
+    azimuths = np.mod(np.asarray(value, dtype=float), 360.0)
 
-    Raises
-    ------
-    ValueError
-        If a value is negative or a probability exceeds one.
-    """
+    if (
+        azimuths.ndim != 1 or azimuths.size == 0
+        or not np.all(np.isfinite(azimuths))
+        or np.unique(azimuths).size != azimuths.size
+    ):
+        raise ValueError("azimuths must be distinct finite values")
 
-    minimum_local_probability: float = 0.9
-    maximum_alias_probability: float = 0.05
-    maximum_other_probability: float = 0.05
-    maximum_boundary_probability: float = 0.01
-    maximum_relative_velocity_rmse: float = 0.1
-    maximum_grid_fraction: float = 0.1
-
-    def __post_init__(self) -> None:
-        for name in self.__dataclass_fields__:
-            value = float(getattr(self, name))
-
-            if not np.isfinite(value) or value < 0.0:
-                raise ValueError(f"{name} must be finite and non-negative")
-
-            if "probability" in name and value > 1.0:
-                raise ValueError(f"{name} cannot exceed one")
-
-            object.__setattr__(self, name, value)
+    return azimuths
 
 
-@dataclass(frozen=True, eq=False)
-class OperationalConfig:
-    """
-    Axes and criteria of the envelope.
+def _criteria(values: dict) -> dict:
+    """Return validated criteria."""
+    criteria = {}
 
-    Parameters
-    ----------
-    frequencies : array-like
-        Increasing frequencies in Hz.
-    velocities : array-like
-        Increasing phase velocities.
-    azimuths : array-like, optional
-        Propagation azimuths in degrees clockwise from north. Default:
-        12 uniform azimuths.
-    criteria : OperationalCriteria, optional
-        Usability criteria.
-    conservative_azimuth : bool, optional
-        If True (default), a frequency-velocity point is usable when
-        all the azimuths are; otherwise when at least half are.
+    for name in _CRITERIA:
+        value = float(values[name])
 
-    Raises
-    ------
-    ValueError
-        If an axis is invalid.
-    """
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(f"{name} must be finite and non-negative")
 
-    frequencies: Any
-    velocities: Any
-    azimuths: Any = None
-    criteria: OperationalCriteria = OperationalCriteria()
-    conservative_azimuth: bool = True
+        if name in ("min_local", "max_alias", "max_other",
+                    "max_boundary") and value > 1.0:
+            raise ValueError(f"{name} cannot exceed one")
 
-    def __post_init__(self) -> None:
-        if self.azimuths is None:
-            azimuths = np.linspace(0.0, 360.0, 12, endpoint=False)
-        else:
-            azimuths = np.mod(np.asarray(self.azimuths, dtype=float), 360.0)
+        criteria[name] = value
 
-            if (
-                azimuths.ndim != 1 or azimuths.size == 0
-                or not np.all(np.isfinite(azimuths))
-                or np.unique(azimuths).size != azimuths.size
-            ):
-                raise ValueError("azimuths must be distinct finite values")
-
-        if not isinstance(self.criteria, OperationalCriteria):
-            raise TypeError("criteria must be an OperationalCriteria")
-
-        if not isinstance(self.conservative_azimuth, bool):
-            raise TypeError("conservative_azimuth must be a bool")
-
-        object.__setattr__(self, "frequencies",
-                           _readonly(_axis(self.frequencies, "frequencies")))
-        object.__setattr__(self, "velocities",
-                           _readonly(_axis(self.velocities, "velocities")))
-        object.__setattr__(self, "azimuths", _readonly(azimuths))
+    return criteria
 
 
 @dataclass(frozen=True)
@@ -269,10 +192,19 @@ class OperationalAssessment:
     ----------
     response : ArrayResponse
         Geometric response.
-    performance_template : PerformanceConfig
-        Configuration of the experiments.
-    config : OperationalConfig
-        Axes and criteria.
+    config : PerformanceConfig
+        Configuration of the experiments (a copy).
+    frequencies, velocities, azimuths : numpy.ndarray
+        Axes of the envelope: frequencies in Hz, phase velocities and
+        propagation azimuths in degrees clockwise from north.
+    criteria : dict
+        Criteria of a usable point (``min_local``, ``max_alias``,
+        ``max_other``, ``max_boundary``, ``max_velocity_rmse``,
+        ``max_grid_error``; see :meth:`ArrayResponse.assess
+        <shakelab.exploration.yarray.response.ArrayResponse.assess>`).
+    conservative_azimuth : bool
+        Rule of :attr:`conservative_usable` (all the azimuths, or at
+        least half).
     resolution_radius : float
         Resolution radius of the response at the classification level.
     local_probability, alias_probability : numpy.ndarray
@@ -294,8 +226,12 @@ class OperationalAssessment:
     """
 
     response: ArrayResponse
-    performance_template: PerformanceConfig
-    config: OperationalConfig
+    config: PerformanceConfig
+    frequencies: np.ndarray
+    velocities: np.ndarray
+    azimuths: np.ndarray
+    criteria: dict
+    conservative_azimuth: bool
     resolution_radius: float
     local_probability: np.ndarray
     alias_probability: np.ndarray
@@ -309,24 +245,9 @@ class OperationalAssessment:
     recommendations: tuple = ()
 
     @property
-    def frequencies(self) -> np.ndarray:
-        """Frequencies in Hz."""
-        return self.config.frequencies
-
-    @property
-    def velocities(self) -> np.ndarray:
-        """Phase velocities."""
-        return self.config.velocities
-
-    @property
-    def azimuths(self) -> np.ndarray:
-        """Propagation azimuths."""
-        return self.config.azimuths
-
-    @property
     def conservative_usable(self) -> np.ndarray:
         """Usability of the frequency-velocity points."""
-        if self.config.conservative_azimuth:
+        if self.conservative_azimuth:
             return np.all(self.usable, axis=2)
 
         return np.mean(self.usable, axis=2) >= 0.5
@@ -380,16 +301,15 @@ class OperationalAssessment:
     def info(self) -> None:
         """Print a summary of the assessment."""
         geometry = self.response.geometry
-        template = self.performance_template
+        config = self.config
         usable = self.conservative_usable
         print(
             f"OperationalAssessment: {geometry.n_stations} stations "
             f"(spacing {geometry.minimum_spacing:.6g} to "
             f"{geometry.maximum_aperture:.6g}, anisotropy "
             f"{geometry.anisotropy_ratio:.4g}), "
-            f"{template.estimator.method.value}, SNR "
-            f"{template.snr_db:g} dB, "
-            f"{template.monte_carlo.realizations} realizations"
+            f"{config.method.value}, SNR {config.snr_db:g} dB, "
+            f"{config.realizations} realizations"
         )
         print(
             f"  envelope {self.frequencies.size} frequencies x "
@@ -411,12 +331,11 @@ class OperationalAssessment:
 
 
 def _limiting_factor(result: PerformanceResult, frequency: float,
-                     criteria: OperationalCriteria,
-                     radius: float) -> LimitingFactor:
+                     criteria: dict, radius: float) -> LimitingFactor:
     """Return the first limiting factor of an experiment."""
     outcome = result.outcome
 
-    if outcome.boundary_probability > criteria.maximum_boundary_probability:
+    if outcome.boundary_probability > criteria["max_boundary"]:
         return LimitingFactor.SEARCH_BOUNDARY
 
     fraction = (
@@ -424,16 +343,16 @@ def _limiting_factor(result: PerformanceResult, frequency: float,
         else float("inf")
     )
 
-    if fraction > criteria.maximum_grid_fraction:
+    if fraction > criteria["max_grid_error"]:
         return LimitingFactor.GRID_QUANTIZATION
 
-    if outcome.alias_probability > criteria.maximum_alias_probability:
+    if outcome.alias_probability > criteria["max_alias"]:
         return LimitingFactor.ALIASING
 
-    if outcome.other_probability > criteria.maximum_other_probability:
+    if outcome.other_probability > criteria["max_other"]:
         return LimitingFactor.OTHER_FAILURE
 
-    if outcome.local_probability < criteria.minimum_local_probability:
+    if outcome.local_probability < criteria["min_local"]:
         return LimitingFactor.LOW_SNR
 
     velocity = result.velocity_statistics(frequency)
@@ -441,7 +360,7 @@ def _limiting_factor(result: PerformanceResult, frequency: float,
     if velocity is None:
         return LimitingFactor.OTHER_FAILURE
 
-    if velocity.relative_rmse > criteria.maximum_relative_velocity_rmse:
+    if velocity.relative_rmse > criteria["max_velocity_rmse"]:
         return LimitingFactor.RESOLUTION
 
     return LimitingFactor.NONE
@@ -450,7 +369,7 @@ def _limiting_factor(result: PerformanceResult, frequency: float,
 def _recommendations(assessment: OperationalAssessment) -> tuple:
     """Return the recommendations of an assessment."""
     items = []
-    criteria = assessment.config.criteria
+    criteria = assessment.criteria
     anisotropy = assessment.response.geometry.anisotropy_ratio
 
     def add(category, severity, message, value=None):
@@ -469,7 +388,7 @@ def _recommendations(assessment: OperationalAssessment) -> tuple:
             "search range, SNR, averaging or geometry.")
 
     if np.any(assessment.conservative_alias_probability
-              > criteria.maximum_alias_probability):
+              > criteria["max_alias"]):
         add(RecommendationType.SEARCH_RANGE,
             RecommendationSeverity.WARNING,
             "Part of the domain is limited by geometric aliasing: restrict "
@@ -480,7 +399,7 @@ def _recommendations(assessment: OperationalAssessment) -> tuple:
     )
 
     if np.any(fraction[np.isfinite(fraction)]
-              > criteria.maximum_grid_fraction):
+              > criteria["max_grid_error"]):
         add(RecommendationType.RADIAL_SAMPLING,
             RecommendationSeverity.WARNING,
             "The quantization of the search grid is not negligible with "
@@ -488,13 +407,14 @@ def _recommendations(assessment: OperationalAssessment) -> tuple:
             "azimuth more finely.")
 
     if np.max(assessment.other_probability) > \
-            criteria.maximum_other_probability:
+            criteria["max_other"]:
         add(RecommendationType.SNR, RecommendationSeverity.INFO,
             "Noise-driven OTHER outcomes occur in part of the domain: test "
-            "higher SNR or more averaging with performance_sweep().")
+            "higher SNR or more averaging with "
+            "ArrayResponse.performance_sweep().")
 
     if np.min(assessment.local_probability) < \
-            criteria.minimum_local_probability:
+            criteria["min_local"]:
         add(RecommendationType.REALIZATIONS, RecommendationSeverity.INFO,
             "The LOCAL probability is below the criterion in part of the "
             "domain: test more Fourier realizations before changing the "
@@ -508,49 +428,28 @@ def _recommendations(assessment: OperationalAssessment) -> tuple:
     return tuple(items)
 
 
-def assess_array(
-    response: ArrayResponse,
-    performance_config: PerformanceConfig,
-    operational_config: OperationalConfig,
-) -> OperationalAssessment:
-    """
-    Return the operational envelope of an array.
-
-    Parameters
-    ----------
-    response : ArrayResponse
-        Geometric response of a two-dimensional array.
-    performance_config : PerformanceConfig
-        Template of the experiments: grid, estimator, SNR,
-        realizations and trials are the same at every point; the seed
-        of point ``i`` (in row-major order) is ``seed + i`` (seed 0 if
-        None).
-    operational_config : OperationalConfig
-        Frequencies, velocities, azimuths and criteria.
-
-    Returns
-    -------
-    OperationalAssessment
-        Envelope, usability, limiting factors and recommendations.
-
-    Notes
-    -----
-    Points with a wavenumber outside the radial range of the grid are
-    not simulated: they are BOUNDARY with probability one.
-    """
+def _assess(response: ArrayResponse, config: PerformanceConfig,
+            frequencies: Any, velocities: Any, azimuths: Any,
+            criteria: dict, conservative_azimuth: bool
+            ) -> OperationalAssessment:
+    """Return the envelope (see :meth:`ArrayResponse.assess`)."""
     if not isinstance(response, ArrayResponse):
         raise TypeError("response must be an ArrayResponse")
 
-    if not isinstance(performance_config, PerformanceConfig):
-        raise TypeError("performance_config must be a PerformanceConfig")
+    if not isinstance(config, PerformanceConfig):
+        raise TypeError("config must be a PerformanceConfig")
 
-    if not isinstance(operational_config, OperationalConfig):
-        raise TypeError("operational_config must be an OperationalConfig")
+    if not isinstance(conservative_azimuth, bool):
+        raise TypeError("conservative_azimuth must be a bool")
 
-    config = operational_config
-    grid = performance_config.grid
-    shape = (config.frequencies.size, config.velocities.size,
-             config.azimuths.size)
+    config.check_complete()
+    config = config.copy()
+    criteria = _criteria(criteria)
+    frequencies = _readonly(_axis(frequencies, "frequencies"))
+    velocities = _readonly(_axis(velocities, "velocities"))
+    azimuths = _readonly(_azimuths(azimuths))
+    grid = config.grid
+    shape = (frequencies.size, velocities.size, azimuths.size)
     values = {
         name: np.full(shape, np.nan) for name in (
             "local_probability", "alias_probability", "other_probability",
@@ -560,16 +459,16 @@ def assess_array(
     }
     usable = np.zeros(shape, dtype=bool)
     factors = np.empty(shape, dtype=object)
-    context = _context(response, performance_config.classification)
+    context = _context(response, config)
     search = _search(response, grid)
     radius = context.analysis.limits.resolution_radius
-    base = performance_config.monte_carlo.seed or 0
+    base = config.seed or 0
     point = 0
 
     for index in np.ndindex(shape):
         i, j, m = index
-        frequency = float(config.frequencies[i])
-        wavenumber = 2.0 * np.pi * frequency / config.velocities[j]
+        frequency = float(frequencies[i])
+        wavenumber = 2.0 * np.pi * frequency / velocities[j]
         seed = base + point
         point += 1
 
@@ -582,11 +481,9 @@ def assess_array(
             factors[index] = LimitingFactor.SEARCH_BOUNDARY
             continue
 
-        source = PlaneWaveSource(float(wavenumber),
-                                 float(config.azimuths[m]))
-        experiment = performance_config.replace(
-            monte_carlo=performance_config.monte_carlo.replace(seed=seed)
-        )
+        source = PlaneWaveSource(float(wavenumber), float(azimuths[m]),
+                                 frequency=frequency)
+        experiment = config.copy(seed=seed)
         _check(response, source, experiment)
         result = _evaluate(response, source, experiment, context, search)
         outcome = result.outcome
@@ -608,14 +505,18 @@ def assess_array(
         if velocity is not None:
             values["relative_velocity_rmse"][index] = velocity.relative_rmse
 
-        factors[index] = _limiting_factor(result, frequency,
-                                          config.criteria, radius)
+        factors[index] = _limiting_factor(result, frequency, criteria,
+                                          radius)
         usable[index] = factors[index] is LimitingFactor.NONE
 
     assessment = OperationalAssessment(
         response=response,
-        performance_template=performance_config,
         config=config,
+        frequencies=frequencies,
+        velocities=velocities,
+        azimuths=azimuths,
+        criteria=criteria,
+        conservative_azimuth=conservative_azimuth,
         resolution_radius=float(radius),
         usable=_readonly(usable, bool),
         limiting_factor=_readonly(factors, object),

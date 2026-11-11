@@ -185,5 +185,7 @@ def test_response_command_from_array(capsys):
     assert "9 stations" in capsys.readouterr().out
     assert main(["response", "--input", ARRAY, "--plot-search-domain"]) == 1
     assert "--search-max" in capsys.readouterr().err
-    assert main(["response", "--input", ARRAY, "--grid-max", "0.3"]) == 1
-    assert "go together" in capsys.readouterr().err
+    assert main(["response", "--input", ARRAY, "--grid-max", "0.3"]) == 0
+    assert "extent +/-0.3" in capsys.readouterr().out
+    assert main(["response", "--input", ARRAY, "--grid-size", "60"]) == 1
+    assert "odd" in capsys.readouterr().err

@@ -680,7 +680,7 @@ def plot_array_geometry(
 
     if isinstance(array, ArrayData):
         names = array.sids
-        geometry = ArrayGeometry.from_array(array)
+        geometry = ArrayGeometry(array)
     elif isinstance(array, ArrayResponse):
         geometry = array.geometry
     elif isinstance(array, ArrayGeometry):
@@ -891,8 +891,8 @@ def plot_search_domain(
     analysis : ResponseAnalysis
         Response analysis.
     domain : SearchDomainAnalysis
-        Search domain (:func:`~shakelab.exploration.yarray.response.
-        analyze_search_domain`).
+        Search domain (:meth:`ArrayResponse.search_domain
+        <shakelab.exploration.yarray.response.ArrayResponse.search_domain>`).
     scale : {"db", "linear"}, optional
         Power scale. Default decibels.
     floor : float, optional
@@ -952,8 +952,8 @@ def plot_velocity_limits(
     Parameters
     ----------
     limits : VelocityLimits
-        Limits (:func:`~shakelab.exploration.yarray.response.
-        velocity_limits`).
+        Limits (:meth:`~shakelab.exploration.yarray.response.
+        ResponseAnalysis.velocity_limits`).
     fill : bool, optional
         Shade the usable band. Default True.
     log_frequency, log_velocity : bool, optional
@@ -1017,8 +1017,8 @@ def plot_performance(result: PerformanceResult, ax: Any = None) -> tuple:
     Parameters
     ----------
     result : PerformanceResult
-        Experiment (:func:`~shakelab.exploration.yarray.performance.
-        evaluate_performance`).
+        Experiment (:meth:`ArrayResponse.performance
+        <shakelab.exploration.yarray.response.ArrayResponse.performance>`).
     ax : matplotlib.axes.Axes, optional
         Axis to draw on; a new figure otherwise.
 
@@ -1061,8 +1061,8 @@ def plot_performance(result: PerformanceResult, ax: Any = None) -> tuple:
     axis.set_ylabel("$k_y$ (rad per unit)")
     config = result.config
     axis.set_title(
-        f"{config.estimator.method.value}, SNR {config.snr_db:g} dB, "
-        f"{config.monte_carlo.realizations} realizations"
+        f"{config.method.value}, SNR {config.snr_db:g} dB, "
+        f"{config.realizations} realizations"
     )
     axis.legend(loc="upper right", fontsize=8)
 
@@ -1091,8 +1091,8 @@ def plot_performance_sweep(
     Parameters
     ----------
     sweep : PerformanceSweepResult
-        Sweep (:func:`~shakelab.exploration.yarray.performance.
-        performance_sweep`).
+        Sweep of :meth:`~shakelab.exploration.yarray.response.
+        ArrayResponse.performance_sweep`.
     quantity : str, optional
         ``"local_probability"`` (default), ``"alias_probability"``,
         ``"other_probability"``, ``"boundary_probability"``,
@@ -1160,8 +1160,8 @@ def plot_operational(
     Parameters
     ----------
     assessment : OperationalAssessment
-        Assessment (:func:`~shakelab.exploration.yarray.operational.
-        assess_array`).
+        Assessment (:meth:`ArrayResponse.assess
+        <shakelab.exploration.yarray.response.ArrayResponse.assess>`).
     quantity : str, optional
         ``"local_probability"`` (default), ``"alias_probability"`` or
         ``"relative_velocity_rmse"``.
@@ -1206,13 +1206,12 @@ def plot_operational(
     if log_velocity:
         _plain_log_axis(axis, "y")
 
-    template = assessment.performance_template
+    config = assessment.config
     axis.set_xlabel("Frequency (Hz)")
     axis.set_ylabel("Phase velocity")
     axis.set_title(
-        f"Operational envelope: {template.estimator.method.value}, SNR "
-        f"{template.snr_db:g} dB, {template.monte_carlo.realizations} "
-        "realizations"
+        f"Operational envelope: {config.method.value}, SNR "
+        f"{config.snr_db:g} dB, {config.realizations} realizations"
     )
 
     return figure, axis

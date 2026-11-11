@@ -34,71 +34,30 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from shakelab.exploration import yarray as ya
-from shakelab.graphics.yarray import (
-    plot_array_geometry,
-    plot_array_response,
-    plot_resolution,
-    plot_search_domain,
-    plot_velocity_limits,
-)
+from shakelab.exploration.yarray import ArrayData, ArrayResponse
+from shakelab.graphics.yarray import plot_array_response, plot_velocity_limits
 
-# Test data of the repository (the example runs from any folder).
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
+DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
+warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
 
-warnings.filterwarnings("ignore", message="STLO")
+array = ArrayData(DATA / "sesame_array.json")
+response = ArrayResponse(array)          # or coordinates (n, 2|3); grid_max
+response.info()                          # geometry and grid
 
-# 1. Station coordinates (east, north, in metres): a centre and three
-#    rings of three stations at 10, 25 and 60 m. The response accepts
-#    plain coordinates, or an ArrayData.
-coordinates = np.array([
-    [0.0, 0.0],
-    [0.0, 10.0], [8.7, -5.0], [-8.7, -5.0],
-    [16.1, 19.2], [8.7, -24.6], [-24.6, 5.4],
-    [59.1, 10.4], [-38.6, 46.0], [-20.5, -56.4],
-])
-
-# 2. Response on a wavenumber grid chosen from the geometry.
-response = ya.array_response(coordinates)
-response.info()
-
-# 3. Main lobe, ambiguities and limits, at half power (default).
-analysis = ya.analyze_response(response)
+analysis = response.analyze()            # resolution_level, ambiguity_level
 analysis.info()
+limits = analysis.velocity_limits([2.0, 5.0, 10.0, 20.0])
+response.search_domain(0.2).info()       # is |k| <= 0.2 rad/m safe?
 
-limits = analysis.limits
-print(f"resolved from {limits.resolution_radius:.3f} rad/m, "
-      f"without aliases up to {limits.aliasing_radius:.3f} rad/m")
-
-# 4. Phase velocities measurable at each frequency.
-velocity = analysis.velocity_limits([2.0, 5.0, 10.0, 20.0])
-for frequency, low, high in zip(velocity.frequencies, velocity.minimum,
-                                velocity.maximum):
-    print(f"{frequency:4.0f} Hz: {low:5.0f} to {high:5.0f} m/s")
-
-# 5. Is a search up to 0.2 rad/m free of aliases?
-domain = ya.analyze_search_domain(response, 0.2)
-domain.info()
-
-# 6. Uncertain positions (0.5 m of standard deviation): the expected
-#    response loses coherence at high wavenumbers.
+# A planned layout (east, north in m), positions known within 0.5 m.
+coordinates = [[0, 0], [0, 10], [9, -5], [-9, -5], [16, 19], [9, -25],
+               [-25, 5], [59, 10], [-39, 46], [-20, -56]]
 covariances = np.repeat([np.eye(2) * 0.25], len(coordinates), axis=0)
-uncertain = ya.array_response(coordinates,
-                              coordinate_covariances=covariances)
-ya.analyze_response(uncertain, expected=True).info()
+uncertain = ArrayResponse(coordinates, coordinate_covariances=covariances)
+uncertain.analyze(expected=True).info()
 
-# 7. The array of the SESAME test data.
-array = ya.ArrayData(DATA / "sesame_array.json")
-ya.analyze_response(ya.array_response(array)).info()
-
-figure, axes = plt.subplots(2, 3, figsize=(17, 10))
-plot_array_geometry(response, ax=axes[0, 0])
-plot_array_response(analysis, ax=axes[0, 1])
-plot_resolution(analysis, ax=axes[0, 2])
-plot_search_domain(analysis, domain, ax=axes[1, 0])
-plot_velocity_limits(analysis.velocity_limits(np.geomspace(1, 30, 30)),
-                     ax=axes[1, 1])
-plot_array_geometry(array, labels=True, ax=axes[1, 2])
+figure, axes = plt.subplots(1, 2, figsize=(13, 5))
+plot_array_response(analysis, ax=axes[0])
+plot_velocity_limits(limits, ax=axes[1])
 figure.tight_layout()
 plt.show()

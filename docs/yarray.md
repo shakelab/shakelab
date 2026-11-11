@@ -682,35 +682,60 @@ the monitor. See
 ## 14. Survey planning
 
 ```python
-response = ya.array_response(array)             # or plain coordinates
-analysis = ya.analyze_response(response)        # levels 0.5
+from shakelab.exploration.yarray import (
+    ArrayData, ArrayResponse, PerformanceConfig,
+)
+
+response = ArrayResponse(ArrayData("array.json"))  # or coordinates
+analysis = response.analyze()                      # levels 0.5
 analysis.info()
 limits = analysis.velocity_limits([1, 2, 5, 10, 20])
-ya.analyze_search_domain(response, 0.1).info()
+response.search_domain(0.1).info()
 
-config = ya.PerformanceConfig(
-    snr_db=0.0,
-    grid=ya.SearchGrid(0.0, 0.2, 41, quantity="wavenumber"),
-    estimator=ya.EstimatorConfig("capon"),
-    monte_carlo=ya.MonteCarloConfig(trials=500, realizations=40, seed=1),
-)
-source = ya.PlaneWaveSource.from_velocity(400.0, 8.0, azimuth=30.0)
-ya.evaluate_performance(response, source, config).info()
-ya.performance_sweep(response, source, config, snr_db=[-10, 0, 10],
-                     realizations=[10, 20, 40]).info()
-assessment = ya.assess_array(response, config, ya.OperationalConfig(
-    frequencies=[2, 4, 8, 16], velocities=[150, 300, 600, 1200]))
+config = PerformanceConfig(snr_db=0.0, method="capon", grid_min=0.0,
+                           grid_max=0.2, grid_size=41, trials=500,
+                           realizations=40, seed=1)
+wave = {"velocity": 400.0, "frequency": 8.0, "azimuth": 30.0}
+response.performance(config, **wave).info()
+response.performance_sweep(config, snr_db=[-10, 0, 10],
+                           realizations=[10, 20, 40], **wave).info()
+assessment = response.assess(config, frequencies=[2, 4, 8, 16],
+                             velocities=[150, 300, 600, 1200])
 assessment.info()
 ```
 
-`array_response` accepts an `ArrayData` (and then its coordinate
-covariances, for the expected response), an `ArrayGeometry` or
-coordinates; `ResponseGrid.from_geometry` chooses the grid. The
-experiments need a wavenumber search grid and are reproducible through
-`MonteCarloConfig.seed` (point `i` of a sweep or assessment uses a
-derived seed). Figures: `plot_array_geometry`, `plot_array_response`,
-`plot_resolution`, `plot_search_domain`, `plot_velocity_limits`,
-`plot_performance`, `plot_performance_sweep`, `plot_operational`. See
+`ArrayResponse` accepts an `ArrayData` (and then its coordinate
+covariances, for the expected response: `analyze(expected=True)`), an
+`ArrayGeometry` or coordinates, and is computed once: the response does
+not follow later changes of the array. The wavenumber grid is chosen
+from the geometry (extent 1.25 times `2 pi / minimum_spacing`, 12
+samples per `2 pi / maximum_aperture`); `grid_max` and `grid_size`
+replace either choice.
+
+`PerformanceConfig` works as `BeamformingConfig` (single parameters,
+JSON file in the constructor, `update`, `copy(**changes)`, `read`,
+`write`): `snr_db` and the search grid (`grid_min`, `grid_max`,
+`grid_size`, `azimuth_size` or `azimuths`; always of wavenumbers, the
+experiment does not depend on the frequency) are required; `method`
+(Capon by default), `diagonal_loading`, `music_sources`, `strict`;
+`trials`, `realizations`, `seed` (reproducible runs; point `i` of a
+sweep or assessment uses a derived seed); `resolution_level`,
+`ambiguity_level` and `boundary_margin` of the classification. It is
+not derived from a beamforming configuration, whose grid is usually of
+velocities and whose overlapping windows are fewer independent
+realizations than `windows_per_block`.
+
+The plane wave is given by `wavenumber`, or by `velocity` and
+`frequency`, with `azimuth` (0) and `signal_power` (1); a known
+frequency is kept in `result.source` and used by
+`result.velocity_statistics()`. The criteria of `assess` are
+parameters: `min_local` (0.9), `max_alias` (0.05), `max_other`
+(0.05), `max_boundary` (0.01), `max_velocity_rmse` (0.1, relative) and
+`max_grid_error` (0.1, relative to the resolution radius), with
+`conservative_azimuth` (all the azimuths, or at least half). Figures:
+`plot_array_geometry`, `plot_array_response`, `plot_resolution`,
+`plot_search_domain`, `plot_velocity_limits`, `plot_performance`,
+`plot_performance_sweep`, `plot_operational`. See
 [`yarray_13_response.py`](../examples/exploration/yarray_13_response.py),
 [`yarray_14_performance.py`](../examples/exploration/yarray_14_performance.py)
 and [`yarray_15_operational.py`](../examples/exploration/yarray_15_operational.py).

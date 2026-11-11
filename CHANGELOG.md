@@ -451,24 +451,32 @@ corrections. The format follows
   quantiles (`summary`) and peaks with their prominence (`peaks`,
   `scipy.signal.find_peaks`). `graphics.yarray.plot_density`;
   `slab-yarray --plot-density`.
-- `exploration.yarray.response`: geometric response of an array
-  (`array_response`, also expected under Gaussian coordinate
-  uncertainty), main lobe, ambiguities and resolution/aliasing limits
-  (`analyze_response` returning a `ResponseAnalysis`), circular search
-  domains (`analyze_search_domain`) and velocity limits
-  (`velocity_limits`). `exploration.yarray.performance`: Monte Carlo
-  performance of Bartlett, Capon and MUSIC for a plane wave in white
-  noise (`evaluate_performance`, `performance_sweep`; LOCAL, ALIAS,
-  OTHER and BOUNDARY outcomes with Wilson intervals, local errors,
-  exact velocity statistics). `exploration.yarray.operational`:
-  frequency-velocity-azimuth envelope with explicit criteria, limiting
-  factors and recommendations (`assess_array`). Same results as the
-  YArray code of August 2026 with the same seeds. Figures
+- `exploration.yarray.response.ArrayResponse(array or coordinates,
+  coordinate_covariances, grid_max, grid_size)`: geometric response of
+  an array (also expected under Gaussian coordinate uncertainty) and
+  entry point of survey planning: `analyze` (main lobe, ambiguities,
+  resolution/aliasing limits: `ResponseAnalysis`, with
+  `velocity_limits`), `search_domain` (circular search domains),
+  `performance` and `performance_sweep` (Monte Carlo performance of
+  Bartlett, Capon and MUSIC for a plane wave in white noise, given by
+  `wavenumber` or by `velocity` and `frequency`; LOCAL, ALIAS, OTHER
+  and BOUNDARY outcomes with Wilson intervals, local errors, exact
+  velocity statistics), `assess` (frequency-velocity-azimuth envelope
+  with explicit criteria `min_local`, `max_alias`, `max_other`,
+  `max_boundary`, `max_velocity_rmse`, `max_grid_error`, limiting
+  factors and recommendations). `PerformanceConfig` (in
+  `exploration.yarray.config`): configuration of the experiments with
+  the mechanics of `BeamformingConfig` (single parameters `snr_db`,
+  `method`, `grid_min`, `grid_max`, `grid_size`, `trials`,
+  `realizations`, `seed`, levels of the classification...; JSON file,
+  `update`, `copy`, `read`, `write`); `copy(**changes)` of both
+  configurations returns a modified copy. Same results as the YArray
+  code of August 2026 with the same seeds. Figures
   `plot_array_geometry`, `plot_array_response`, `plot_resolution`,
   `plot_search_domain`, `plot_velocity_limits`, `plot_performance`,
   `plot_performance_sweep`, `plot_operational`; command
   `slab-yarray response` (array file, waveforms or a text file of
-  coordinates).
+  coordinates; `--grid-max` and `--grid-size` also alone).
 - `exploration.yarray.config.SearchGrid`: the scale defaults to linear
   for wavenumber grids (the only spacing allowed for them), log
   otherwise.
