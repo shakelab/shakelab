@@ -24,14 +24,7 @@ simulation is processed as real data would be. Each estimate is LOCAL
 OTHER (elsewhere, noise) or BOUNDARY (at the edge of the search grid).
 The probabilities and the errors tell how reliable the analysis is for
 a given array, estimator, signal-to-noise ratio and number of windows.
-
-Run (from any folder)::
-
-    python examples/exploration/yarray_14_performance.py
 """
-
-import warnings
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 
@@ -42,10 +35,7 @@ from shakelab.exploration.yarray import (
 )
 from shakelab.graphics.yarray import plot_performance, plot_performance_sweep
 
-DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
-warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
-
-response = ArrayResponse(ArrayData(DATA / "sesame_array.json"))
+response = ArrayResponse(ArrayData("array.json"))
 
 config = PerformanceConfig(snr_db=-8.0, method="capon",
                            grid_min=0.0, grid_max=0.24, grid_size=41,

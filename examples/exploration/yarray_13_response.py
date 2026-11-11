@@ -22,14 +22,7 @@ The response depends only on the station positions: it tells which
 wavevectors the array resolves (main lobe) and which it confuses
 (aliases), hence the phase velocities it can measure at each
 frequency. It is computed before a survey, from the planned layout.
-
-Run (from any folder)::
-
-    python examples/exploration/yarray_13_response.py
 """
-
-import warnings
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -37,10 +30,7 @@ import numpy as np
 from shakelab.exploration.yarray import ArrayData, ArrayResponse
 from shakelab.graphics.yarray import plot_array_response, plot_velocity_limits
 
-DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
-warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
-
-array = ArrayData(DATA / "sesame_array.json")
+array = ArrayData("array.json")
 response = ArrayResponse(array)          # or coordinates (n, 2|3); grid_max
 response.info()                          # geometry and grid
 

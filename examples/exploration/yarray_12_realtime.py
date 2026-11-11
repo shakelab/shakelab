@@ -19,28 +19,14 @@
 Real-time array monitoring with the SeedLink client.
 
 The client receives the data in a background thread and calls an
-ArrayMonitor every INTERVAL seconds; the monitor processes the last
-WINDOW seconds in its own thread, so that the reception is never
+ArrayMonitor at regular intervals; the monitor processes the last
+seconds of data in its own thread, so that the reception is never
 delayed, and can be queried meanwhile.
-
-Set SERVER, SELECT and METADATA to an array streamed by a SeedLink
-server, then run (from any folder; results go to ./output)::
-
-    python examples/exploration/yarray_12_realtime.py
 """
 
-import time
-
 from shakelab.exploration.yarray import ArrayMonitor, BeamformingConfig
-from shakelab.libutils.timeN import Date
 from shakelab.signals.io import metadata_reader
 from shakelab.signals.seedlink import Client
-
-SERVER = "rtserve.example.org"      # SeedLink server of the array
-SELECT = "XX.A*..HH?"               # channels of the array stations
-METADATA = "array.xml"              # positions and orientations
-WINDOW = 300.0                      # seconds analysed at each call
-INTERVAL = 60.0                     # seconds between two analyses
 
 config = BeamformingConfig(
     fmin=2.0, fmax=10.0, nfreq=15,
@@ -48,28 +34,25 @@ config = BeamformingConfig(
     window_type="fixed", window_length=5.0, transform="rfft",
 )
 
-client = Client(SERVER, metadata=metadata_reader(METADATA))
-client.select(SELECT)
-client.set_buffer(max_duration=2 * WINDOW)
+client = Client("rtserve.example.org", metadata=metadata_reader("array.xml"))
+client.select("XX.A*..HH?")
+client.set_buffer(max_duration=600)
 
-monitor = ArrayMonitor(config, window=WINDOW, output="output/monitor.pkl")
+monitor = ArrayMonitor(config, window=300, output="monitor.pkl")
 
 
 @monitor.on_result
 def show(monitor, result):
-    best = result.maxima_at(rank=1, frequency=5.0)[0]
-    print(f"{best.time}  5 Hz: {best.velocity:.0f} m/s, "
-          f"azimuth {best.azimuth:.0f}")
+    print(result.maxima_at(rank=1, frequency=5.0))
 
 
-# clock="data": intervals on the time of the data (also for old data).
-client.every(INTERVAL, monitor, clock="data")
-client.start(start=Date.now() - 1800.0, duration=900.0)
+client.every(60, monitor)               # clock="data" to replay an archive
+client.start()
 
-while client.running:
-    time.sleep(INTERVAL)
-    print(monitor.status())
+# From any thread, while it runs:
+monitor.status()
+monitor.latest()
+monitor.result("2026-11-01T10:00", "2026-11-01T11:00")
 
 client.stop()
 monitor.close()
-monitor.result().dispersion().info()

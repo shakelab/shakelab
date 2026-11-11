@@ -21,17 +21,9 @@ Density of the spectral maxima.
 The maxima of many blocks scatter around the dispersion curves; their
 density at each frequency shows the curves, its summary gives mode,
 median and a quantile interval, its peaks the candidate modes.
-
-Run (from any folder)::
-
-    python examples/exploration/yarray_10_density.py
 """
 
-import warnings
-from pathlib import Path
-
 import matplotlib.pyplot as plt
-import numpy as np
 
 from shakelab.exploration.yarray import (
     ArrayData,
@@ -40,9 +32,6 @@ from shakelab.exploration.yarray import (
 )
 from shakelab.graphics.yarray import plot_density
 
-DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
-warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
-
 config = BeamformingConfig(
     fmin=3.0, fmax=10.0, nfreq=15,
     grid_min=100.0, grid_max=1500.0, grid_size=80, azimuth_size=72,
@@ -50,7 +39,7 @@ config = BeamformingConfig(
     windows_per_block=15, block_overlap=0.8,   # many blocks
     maxima=3,
 )
-result = Beamformer(ArrayData(DATA / "sesame_array.json"), config).process()
+result = Beamformer(ArrayData("array.json"), config).process()
 
 density = result.density(
     coordinate="log_velocity",          # or "wavenumber", "log_slowness"
@@ -58,11 +47,8 @@ density = result.density(
 )
 density.info()
 
-summary = density.summary()
+summary = density.summary()             # mode, median, quantiles
 peaks = density.peaks(2, minimum_relative_density=0.2)
-
-for frequency, mode in zip(summary.frequencies, np.exp(summary.mode)):
-    print(f"{frequency:5.2f} Hz: mode {mode:5.0f} m/s")
 
 plot_density(density, peaks=peaks, summary=summary)
 plt.show()

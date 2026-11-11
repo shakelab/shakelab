@@ -22,14 +22,7 @@ Where will the f-k analysis be reliable? The performance experiment is
 repeated over a grid of frequencies, velocities and azimuths, and each
 point is marked usable when it meets explicit criteria; otherwise it
 gets the factor that limits it. Recommendations summarize the result.
-
-Run (from any folder)::
-
-    python examples/exploration/yarray_15_operational.py
 """
-
-import warnings
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 
@@ -40,10 +33,7 @@ from shakelab.exploration.yarray import (
 )
 from shakelab.graphics.yarray import plot_operational
 
-DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
-warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
-
-response = ArrayResponse(ArrayData(DATA / "sesame_array.json"))
+response = ArrayResponse(ArrayData("array.json"))
 config = PerformanceConfig(snr_db=-3.0, method="capon",
                            grid_min=0.0, grid_max=0.24, grid_size=41,
                            azimuth_size=72, trials=50, realizations=20,

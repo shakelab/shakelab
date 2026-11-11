@@ -22,14 +22,7 @@ Uncertainty of the beam power.
 error of the power from the spread of the windows of a block.
 ``geometric_uncertainty="expected_coherence"`` (Bartlett): power
 expected with uncertain station coordinates.
-
-Run (from any folder)::
-
-    python examples/exploration/yarray_08_uncertainty.py
 """
-
-import warnings
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 
@@ -39,10 +32,7 @@ from shakelab.exploration.yarray import (
     BeamformingConfig,
 )
 from shakelab.graphics.yarray import plot_spectrum
-from shakelab.signals.io import reader
-
-DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
-warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
+from shakelab.signals.io import metadata_reader, reader
 
 config = BeamformingConfig(
     frequencies=[6.0],
@@ -50,28 +40,17 @@ config = BeamformingConfig(
     window_type="fixed", window_length=2.0, windows_per_block=30,
     spectra=True, statistical_uncertainty="empirical",
 )
-result = Beamformer(ArrayData(DATA / "sesame_array.json"), config).process()
+result = Beamformer(ArrayData("array.json"), config).process()
 best = result.maxima_at(rank=1)[0]
-print(f"power {best.power:.3g} +/- {best.power_standard_error:.2g}")
+print(best.power, best.power_standard_error)
 
-# Coordinates with a variance of 1 m**2 (a dictionary gives one value,
-# or a 3 x 3 covariance, per station).
-collection = reader(str(DATA / "sesame" / "*.sac"))
-coordinates = {
-    stream.sid.rsplit(".", 1)[0]: (
-        stream.records()[0].head.extra["sac"]["USER7"],
-        stream.records()[0].head.extra["sac"]["USER8"],
-    )
-    for stream in collection
-}
-uncertain = ArrayData(collection, coordinates=coordinates,
-                      coordinate_covariance=1.0)
+# Coordinates with a variance of 1 m**2 (one value, or a 3 x 3
+# covariance, per station).
+collection = reader("data/*.mseed", metadata=metadata_reader("array.xml"))
+uncertain = ArrayData(collection, coordinate_covariance=1.0)
 config.update(method="bartlett", statistical_uncertainty="none",
               geometric_uncertainty="expected_coherence")
-print(Beamformer(uncertain, config).process().maxima_at(rank=1)[0].velocity)
+expected = Beamformer(uncertain, config).process()
 
-figure, axes = plt.subplots(1, 2, figsize=(13, 5))
-plot_spectrum(result, 6.0, ax=axes[0])
-plot_spectrum(result, 6.0, quantity="standard_error", ax=axes[1])
-figure.tight_layout()
+plot_spectrum(result, 6.0, quantity="standard_error")
 plt.show()

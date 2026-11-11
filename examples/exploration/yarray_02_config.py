@@ -21,10 +21,6 @@ The configuration.
 Every parameter of the analysis has a default and the name of the
 corresponding command-line option (``--grid-max`` is ``grid_max``).
 Only frequencies and search grid are required.
-
-Run (from any folder; files are written to ./output)::
-
-    python examples/exploration/yarray_02_config.py
 """
 
 from shakelab.exploration.yarray import BeamformingConfig, SearchGrid
@@ -43,7 +39,7 @@ config.info()
 # Changes are validated together; parameters are also attributes.
 config.update(method="music", music_sources=2)
 config.window_length = 4.0
-print(config.method, config.window)
+bartlett = config.copy(method="bartlett")
 
 # Groups of parameters can be given as objects or dictionaries.
 config.frequencies = [2.0, 3.0, 5.0, 8.0]
@@ -51,11 +47,5 @@ config.grid = SearchGrid(0.0, 0.25, 51, quantity="wavenumber")
 config.window = {"type": "cycles", "length": 20}
 
 # Files: written, read, and read with changes (as on the command line).
-config.write("output/config.json", owrite=True)
-again = BeamformingConfig("output/config.json", method="bartlett")
-print(again == config, again.method)
-
-try:
-    config.update(components="rayleigh_joint", method="bartlett")
-except ValueError as error:
-    print(f"refused: {error}")
+config.write("capon.json")
+config = BeamformingConfig("capon.json", method="bartlett")

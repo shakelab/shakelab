@@ -11,7 +11,7 @@ The package derives from the YArray development code written in
 August 2026 outside the repository (project MODERN), brought into
 ShakeLab in blocks. This file records its design, its conventions and
 the state of the work; the theory and the use are in the guide
-[`docs/yarray.md`](../../../docs/yarray.md), the runnable examples in
+[`docs/yarray.md`](../../../docs/yarray.md), the examples in
 [`examples/exploration/`](../../../examples/README.md#exploration).
 
 ## Status

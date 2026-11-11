@@ -34,15 +34,9 @@ Steps
    response.
 4. Plot the corrected accelerations over the ESM ones on a common time
    axis, and their difference.
-
-Run from the root of the repository::
-
-    python examples/signals/response_correction_esm.py
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -50,8 +44,6 @@ import numpy as np
 from shakelab.signals.io import metadata_reader, reader
 from shakelab.signals.libio.dyna import dynaread
 
-DATA = Path(__file__).resolve().parents[2] / "tests" / "signals" / "data"
-ESM = DATA / "ESM" / "ASCII"
 COMPONENTS = ("HNE", "HNN", "HNZ")
 
 
@@ -59,15 +51,15 @@ COMPONENTS = ("HNE", "HNN", "HNZ")
 # Data
 # ----------------------------------------------------------------------------
 
-meta = metadata_reader(str(DATA / "MODE.xml"))
+meta = metadata_reader("MODE.xml")
 issues = meta.validate()
 print("Metadata issues:", issues if issues else "none")
 
-raw = reader(str(DATA / "MODE.mseed"), metadata=meta)
+raw = reader("MODE.mseed", metadata=meta)
 
 esm = {}
 for cha in COMPONENTS:
-    record = dynaread(ESM / f"IV.MODE..{cha}.D.IT-2012-0008.ACC.MP.ASC")
+    record = dynaread(f"IV.MODE..{cha}.D.IT-2012-0008.ACC.MP.ASC")
     header = record.head.extra["dyna"]
     esm[cha] = {
         "record": record,

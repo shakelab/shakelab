@@ -489,8 +489,8 @@ corrections. The format follows
   (theory, use, limits).
 - The examples are no longer run by the test suite
   (`tests/test_examples.py` removed): they are references for the
-  user, some need a server or user data; files they write go to
-  `output/` (ignored by git).
+  user, written with generic file names and servers (no paths to the
+  test data), to be adapted to the user's data.
 - Test data of `exploration.yarray`: nine three-component stations of
   the SESAME simulation (were three), with the maxima of the August
   2026 code for every component mode.

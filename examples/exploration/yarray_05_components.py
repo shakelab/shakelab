@@ -21,14 +21,7 @@ Horizontal components.
 For each azimuth of the grid the horizontal motion is projected on
 the propagation direction (radial: Rayleigh waves) and normal to it
 (transverse: Love waves).
-
-Run (from any folder)::
-
-    python examples/exploration/yarray_05_components.py
 """
-
-import warnings
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 
@@ -39,23 +32,16 @@ from shakelab.exploration.yarray import (
 )
 from shakelab.graphics.yarray import plot_dispersion
 
-DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
-warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
-
 config = BeamformingConfig(
     fmin=3.0, fmax=10.0, nfreq=12,
     grid_min=100.0, grid_max=1500.0, grid_size=60, azimuth_size=72,
     window_type="fixed", window_length=2.0, windows_per_block=30,
     components="three_component_separate",   # or radial, transverse
 )
-result = Beamformer(ArrayData(DATA / "sesame_array.json"), config).process()
-print(result.components)
+result = Beamformer(ArrayData("array.json"), config).process()
 
-figure, axes = plt.subplots(1, 3, figsize=(17, 5), sharey=True)
-
-for axis, component in zip(axes, result.components):
+for component in result.components:      # vertical, radial, transverse
     result.dispersion(component=component).info()
-    plot_dispersion(result, component=component, ax=axis)
 
-figure.tight_layout()
+plot_dispersion(result, component="radial")
 plt.show()

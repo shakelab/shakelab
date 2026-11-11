@@ -18,17 +18,11 @@
 """
 Processing times.
 
-The cost of the main choices of a configuration on the SESAME test
-data. Times depend on the machine: compare them with each other.
-
-Run (from any folder)::
-
-    python examples/exploration/yarray_16_profiling.py
+The cost of the main choices of a configuration. Times depend on the
+machine and on the data: compare them with each other.
 """
 
 import time
-import warnings
-from pathlib import Path
 
 from shakelab.exploration.yarray import (
     ArrayData,
@@ -36,44 +30,26 @@ from shakelab.exploration.yarray import (
     BeamformingConfig,
 )
 
-DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
-warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
-
-array = ArrayData(DATA / "sesame_array.json")
-base = BeamformingConfig(
+array = ArrayData("array.json")
+config = BeamformingConfig(
     fmin=3.0, fmax=10.0, nfreq=50,
     grid_min=100.0, grid_max=2000.0, grid_size=100, azimuth_size=180,
     window_type="fixed", window_length=2.0, windows_per_block=40,
 )
-cases = {
-    "bartlett": {"method": "bartlett"},
-    "capon": {},
-    "music": {"method": "music"},
-    "radial": {"components": "radial"},
-    "three components": {"components": "three_component_separate"},
-    "rfft nearest": {"transform": "rfft"},
-    "rfft interp": {"transform": "rfft", "fft_selection": "interp"},
-    "200 freq, direct": {"nfreq": 200},
-    "200 freq, rfft": {"nfreq": 200, "transform": "rfft"},
-    "rtbf, 19 ellipticities": {"components": "rayleigh_joint", "nfreq": 10,
-                               "ellipticity_angle_size": 19},
-    "rtbf, 61 ellipticities": {"components": "rayleigh_joint", "nfreq": 10},
-}
+cases = [
+    {"method": "bartlett"},
+    {"method": "music"},
+    {"components": "three_component_separate"},
+    {"transform": "rfft"},
+    {"transform": "rfft", "fft_selection": "interp"},
+    {"components": "rayleigh_joint", "ellipticity_angle_size": 19},
+]
 
-for name, changes in cases.items():
-    config = base.copy()
-    config.update(**changes)
+for changes in cases:
     start = time.perf_counter()
-    Beamformer(array, config).process()
-    print(f"{name:24s} {time.perf_counter() - start:6.2f} s")
+    Beamformer(array, config.copy(**changes)).process()
+    print(changes, time.perf_counter() - start)
 
-# Repeated analyses (as in real time), with and without the cache.
-for cache in [False, True]:
-    beamformer = Beamformer(array, base, cache=cache)
-    start = time.perf_counter()
-
-    for _ in range(5):
-        beamformer.process()
-
-    print(f"5 analyses, cache={cache!s:5s}   "
-          f"{time.perf_counter() - start:6.2f} s")
+# Repeated analyses (as in real time): the cache keeps the steering
+# vectors while coordinates and grid do not change.
+beamformer = Beamformer(array, config, cache=True)
