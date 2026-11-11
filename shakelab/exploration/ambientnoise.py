@@ -21,7 +21,7 @@
 """
 import numpy as np
 
-from shakelab.signals.base import Record
+from shakelab.signals.windowing import split_record
 
 
 def average_spectral_ratio(numerator, denominator,
@@ -66,8 +66,8 @@ def average_spectral_ratio(numerator, denominator,
                             order=filter_order)
 
     # Split into time windows
-    num_segments = split_record(num_filtered, window_length, overlapping)
-    den_segments = split_record(den_filtered, window_length, overlapping)
+    num_segments = split_record(num_filtered, window_length, overlap=overlapping)
+    den_segments = split_record(den_filtered, window_length, overlap=overlapping)
 
     if len(num_segments) != len(den_segments):
         raise ValueError("Unequal number of segments")
@@ -163,70 +163,6 @@ def spectral_ratio(numerator, denominator,
         ratio.logsmooth(sigma=logsmooth_sigma)
 
     return ratio
-
-
-def split_record(record, window_length, overlapping=0.0):
-    """
-    Split a Record object into multiple fixed-length Record windows.
-
-    Parameters:
-        record (Record): Input Record object.
-        window_length (float): Window length in seconds.
-        overlapping (float): Overlap ratio (0.0 to <1.0).
-
-    Returns:
-        list[Record]: List of Record segments.
-    """
-    dt = record.delta
-    nsamp = record.nsamp
-
-    start_indices = split_window(nsamp, dt, window_length, overlapping)
-    win_size = int(window_length / dt)
-
-    segments = []
-    for i0 in start_indices:
-        i1 = i0 + win_size
-        data_segment = record.data[i0:i1]
-
-        # Create a new record and copy header
-        sub = Record(data=data_segment)
-        sub.head = record.head.copy()
-        sub.head._parent = sub  # update parent reference
-        sub.head.time = record.time + i0 * dt
-
-        segments.append(sub)
-
-    return segments
-
-
-def split_window(number_of_samples, dt, window_length, overlapping=0.0):
-    """
-    Split a time series into windows and return the start indices
-    of each window.
-
-    Parameters:
-        number_of_samples (int): Total number of samples in the time series.
-        dt (float): Sampling interval in seconds.
-        window_length (float): Window length in seconds.
-        overlapping (float): Overlap between windows (0.0 to <1.0).
-        Default is 0.
-
-    Returns:
-        list[int]: Indices of the first sample of each window.
-    """
-    if not (0.0 <= overlapping < 1.0):
-        raise ValueError("Overlapping must be in the range [0.0, 1.0)")
-
-    win_size = int(window_length / dt)
-    if win_size <= 0:
-        raise ValueError("Window size must be at least one sample")
-
-    step = int(win_size * (1.0 - overlapping))
-    if step <= 0:
-        raise ValueError("Step between windows must be positive")
-
-    indices = list(range(0, number_of_samples - win_size + 1, step))
-    return indices
 
 
 def combine_spectral_directions(spectrum_x, spectrum_y, method='energy'):

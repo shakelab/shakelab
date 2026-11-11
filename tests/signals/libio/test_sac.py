@@ -39,6 +39,7 @@ from shakelab.signals.libio.sac import (
     FOOTER_FIELDS,
     HEADER_SIZE,
     Sac,
+    SacWarning,
     sacread,
     sacwrite,
 )
@@ -140,6 +141,27 @@ def test_extra_header_fields():
     assert extra["EVLA"] == pytest.approx(48.0, abs=1e-4)
     assert extra["IDEP"] == 50
     assert "B" not in extra and "STLA" not in extra
+
+
+def test_local_coordinates_in_stla_stlo():
+    """
+    Non-geographic STLA/STLO are ignored with a warning, not an error.
+
+    Some programs write local coordinates in metres (e.g. the SESAME
+    array simulations, STLA 1964, STLO 2048): the record is read, the
+    location is left empty and the values stay in the extra fields.
+    """
+    sac = Sac.read(DATA / "seism.sac")
+    sac.head["STLA"] = 1964.0
+    sac.head["STLO"] = 2048.0
+
+    with pytest.warns(SacWarning, match="not geographic"):
+        record = sac.to_shakelab()
+
+    assert record.location is None
+    assert record.head.extra["sac"]["STLA"] == 1964.0
+    assert record.head.extra["sac"]["STLO"] == 2048.0
+    assert record.nsamp == sac.head["NPTS"]
 
 
 @pytest.mark.parametrize("name", ["testxy.sac", "seism.sac"])

@@ -384,6 +384,31 @@ corrections. The format follows
 
 ### Added
 
+- `signals.windowing` (new): division of time series into windows,
+  shared by spectral averaging, spectral ratios and array processing.
+  `window_size(delta, duration=... | cycles=..., frequency=...)`,
+  `window_starts(nsamp, size, overlap= | step=)` (first index of every
+  complete window, or of every complete block of windows),
+  `segments` (the windows of an array as a read-only view, along any
+  axis), `taper` (windows of `scipy.signal.get_window`, normalized to
+  unit mean square or unit sum), `effective_realizations` (number of
+  independent windows equivalent to overlapping tapered windows,
+  Percival and Walden, 1993) and `split_record` (windows of a Record
+  as new records).
+- `exploration.yarray` (new subpackage, under development): seismic
+  array processing. `exploration.yarray.data`: `StationData` and
+  `ArrayData`, immutable snapshots of the waveforms of a set of
+  stations on a common time axis, with ENU coordinates and component
+  orientations, projections on any direction (vertical, horizontal,
+  radial, transverse); `ArrayData.from_collection` and
+  `ArrayData.from_records` build them from ShakeLab waveforms (any
+  source, also the buffer of the SeedLink client), cutting a common
+  time window, grouping channels by station, taking positions and
+  orientations from the channel metadata (or explicit local
+  coordinates and orientations), with coordinate uncertainties and
+  exclusion of stations with gaps (`ArrayDataWarning`, or an error
+  with `gaps="raise"`).
+
 - `signals.spectrogram.Spectrogram`: time-frequency representation of a
   Record (`Record.spectrogram(method, **options)` or
   `Spectrogram.from_record`), with methods `"wft"`, `"cwt"` and
@@ -573,6 +598,10 @@ corrections. The format follows
 
 ### Fixed
 
+- `signals.libio.sac`: a file whose STLA/STLO are not geographic
+  coordinates (e.g. local coordinates in metres) could not be read
+  (the location raised a ValueError); the location is now ignored with
+  a `SacWarning` and the values are kept in `head.extra["sac"]`.
 - `signals.spectrogram.wft_transform` rejected the windows given as a
   tuple (e.g. `("tukey", 0.25)`), as documented.
 - `signals.spectrogram.cwt_transform` used `numpy.core` (deprecated in
@@ -679,6 +708,9 @@ corrections. The format follows
 
 ### Removed
 
+- `exploration.ambientnoise.split_window` and `split_record`: replaced
+  by `signals.windowing.window_starts` and `split_record` (argument
+  `overlap` instead of `overlapping`).
 - `signals.fdsnws.FDSNClient`, `FDSNCode`, `get_mseed_module` and
   `get_fdsn_data_center_registry` (replaced by `Client`, the patterns
   of `signals.codes` and `datacenters(refresh=True)`, which verifies

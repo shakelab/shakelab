@@ -615,7 +615,7 @@ class Sac:
         """Channel metadata from the header."""
         h = self.head
         channel = {}
-        if h["STLO"] is not None and h["STLA"] is not None:
+        if self._has_location():
             channel["location"] = (
                 (h["STLO"], h["STLA"])
                 if h["STEL"] is None
@@ -635,15 +635,44 @@ class Sac:
                 )
         return channel
 
+    def _has_location(self) -> bool:
+        """
+        Whether STLO and STLA are geographic coordinates.
+
+        Values outside the valid ranges (e.g. local coordinates in
+        metres written by some programs) are ignored with a warning and
+        kept in the extra fields.
+        """
+        if self._invalid_location():
+            h = self.head
+            warnings.warn(
+                f"STLO {h['STLO']}, STLA {h['STLA']} are not geographic "
+                "coordinates: location ignored",
+                SacWarning,
+                stacklevel=5,
+            )
+            return False
+        return self.head["STLO"] is not None and self.head["STLA"] is not None
+
+    def _invalid_location(self) -> bool:
+        """Whether STLO and STLA are set but out of their ranges."""
+        lon, lat = self.head["STLO"], self.head["STLA"]
+        if lon is None or lat is None:
+            return False
+        return not (-90.0 <= lat <= 90.0 and -180.0 <= lon < 360.0)
+
     def _extra(self) -> dict:
         """Defined header fields not represented by the record."""
         reference = self.reference_ns
+        ignored = (
+            ("STLA", "STLO", "STEL") if self._invalid_location() else ()
+        )
         extra = {}
         for name in HEADER_FIELDS:
             value = self.head[name]
             if (
                 value is None
-                or name in _RECORD_FIELDS
+                or (name in _RECORD_FIELDS and name not in ignored)
                 or name.startswith(("UNUSED", "INTERNAL"))
                 or name in ("NSNPTS", "SB", "SDELTA")
             ):
