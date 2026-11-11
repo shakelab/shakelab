@@ -31,7 +31,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from shakelab.exploration.yarray.io import read_array
+from shakelab.exploration.yarray.data import ArrayData
 from shakelab.exploration.yarray.response import (
     ArrayGeometry,
     ResponseAnalysis,
@@ -51,7 +51,7 @@ def _sesame():
     """SESAME array (its SAC headers hold local coordinates)."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="STLO")
-        return read_array(DATA / "sesame_array.json")
+        return ArrayData(DATA / "sesame_array.json")
 
 
 def _square(count=4, spacing=10.0):

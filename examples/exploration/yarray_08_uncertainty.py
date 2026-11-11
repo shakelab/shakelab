@@ -18,16 +18,10 @@
 """
 Uncertainty of the beam power.
 
-Two options of the configuration:
-
-- statistical_uncertainty="empirical" (Bartlett and Capon): standard
-  error of the power at every grid point, from the spread of the
-  windows of the block (corrected for their overlap);
-- geometric_uncertainty="expected_coherence" (Bartlett): the power
-  expected when the station coordinates are uncertain (Gaussian
-  errors with a given covariance).
-
-Both are uncertainties of the power, not of the position of a maximum.
+``statistical_uncertainty="empirical"`` (Bartlett and Capon): standard
+error of the power from the spread of the windows of a block.
+``geometric_uncertainty="expected_coherence"`` (Bartlett): power
+expected with uncertain station coordinates.
 
 Run (from any folder)::
 
@@ -39,36 +33,29 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from shakelab.exploration import yarray as ya
+from shakelab.exploration.yarray import (
+    ArrayData,
+    Beamformer,
+    BeamformingConfig,
+)
 from shakelab.graphics.yarray import plot_spectrum
 from shakelab.signals.io import reader
 
-# Test data of the repository (the example runs from any folder).
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
+DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
+warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
 
-warnings.filterwarnings("ignore", message="STLO")
-
-
-config = ya.BeamformingConfig(
+config = BeamformingConfig(
     frequencies=[6.0],
-    grid=ya.SearchGrid(100.0, 1500.0, 60, azimuth_size=72),
-    window=ya.WindowConfig(type="fixed", length=2.0,
-                           windows_per_block=30),
-    method="capon",
-    output="both",
+    grid_min=100.0, grid_max=1500.0, grid_size=60, azimuth_size=72,
+    window_type="fixed", window_length=2.0, windows_per_block=30,
+    spectra=True, statistical_uncertainty="empirical",
 )
-
-# 1. Empirical standard error of the power.
-array = ya.read_array(DATA / "sesame_array.json")
-result = ya.beamform(array,
-                     config.replace(statistical_uncertainty="empirical"))
+result = Beamformer(ArrayData(DATA / "sesame_array.json"), config).process()
 best = result.maxima_at(rank=1)[0]
 print(f"power {best.power:.3g} +/- {best.power_standard_error:.2g}")
 
-# 2. Uncertain coordinates: a variance of 1 m**2 (1 m of standard
-#    deviation) for every station; a dictionary gives one value (or a
-#    3 x 3 covariance) per station.
+# Coordinates with a variance of 1 m**2 (a dictionary gives one value,
+# or a 3 x 3 covariance, per station).
 collection = reader(str(DATA / "sesame" / "*.sac"))
 coordinates = {
     stream.sid.rsplit(".", 1)[0]: (
@@ -77,15 +64,12 @@ coordinates = {
     )
     for stream in collection
 }
-uncertain = ya.ArrayData.from_collection(
-    collection, coordinates=coordinates, coordinate_covariance=1.0,
-)
-expected = ya.beamform(uncertain, config.replace(
-    method="bartlett", geometric_uncertainty="expected_coherence",
-))
-print(expected.maxima_at(rank=1)[0].velocity)
+uncertain = ArrayData(collection, coordinates=coordinates,
+                      coordinate_covariance=1.0)
+config.update(method="bartlett", statistical_uncertainty="none",
+              geometric_uncertainty="expected_coherence")
+print(Beamformer(uncertain, config).process().maxima_at(rank=1)[0].velocity)
 
-# 3. Power and its standard error.
 figure, axes = plt.subplots(1, 2, figsize=(13, 5))
 plot_spectrum(result, 6.0, ax=axes[0])
 plot_spectrum(result, 6.0, quantity="standard_error", ax=axes[1])

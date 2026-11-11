@@ -36,13 +36,15 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 
-from shakelab.exploration.yarray.beamforming import beamform  # noqa: E402
+from shakelab.exploration.yarray.beamforming import (  # noqa: E402
+    Beamformer,
+)
 from shakelab.exploration.yarray.config import (  # noqa: E402
     BeamformingConfig,
     SearchGrid,
     WindowConfig,
 )
-from shakelab.exploration.yarray.io import read_array  # noqa: E402
+from shakelab.exploration.yarray.data import ArrayData  # noqa: E402
 from shakelab.exploration.yarray.operational import (  # noqa: E402
     OperationalConfig,
     assess_array,
@@ -89,17 +91,20 @@ def results():
     """Vertical and Rayleigh joint results with spectra."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        array = read_array(ARRAY)
+        array = ArrayData(ARRAY)
 
     config = BeamformingConfig(
-        [3.0, 5.0], SearchGrid(100.0, 2000.0, 30, azimuth_size=36),
+        frequencies=[3.0, 5.0],
+        grid=SearchGrid(100.0, 2000.0, 30, azimuth_size=36),
         window=WindowConfig(length=10, windows_per_block=20),
-        output="both", maxima=2, statistical_uncertainty="empirical",
+        spectra=True, maxima=2, statistical_uncertainty="empirical",
     )
-    vertical = beamform(array, config)
-    joint = beamform(array, config.replace(
+    beamformer = Beamformer(array, config)
+    vertical = beamformer.process()
+    beamformer.config.update(
         components="rayleigh_joint", statistical_uncertainty="none",
-    ))
+    )
+    joint = beamformer.process()
     yield vertical, joint
     plt.close("all")
 
@@ -249,7 +254,7 @@ def test_plot_array_geometry(analysis):
     """Stations, centroid, labels and principal axes."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        array = read_array(ARRAY)
+        array = ArrayData(ARRAY)
 
     _, axis = plot_array_geometry(array, labels=True)
     assert len(axis.collections[0].get_offsets()) == 9

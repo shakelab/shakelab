@@ -191,19 +191,116 @@ def test_ellipticity_grid():
 # ----------------------------------------------------------------------------
 
 
+def _config(**kwargs):
+    """Configuration with explicit frequencies and the test grid."""
+    return BeamformingConfig(frequencies=[2.0], grid=GRID, **kwargs)
+
+
 def test_strings_and_defaults():
     """Strings are converted; frequencies become a FrequencyConfig."""
-    config = BeamformingConfig([2.0, 4.0], GRID, method="Bartlett",
-                               components="radial")
+    config = BeamformingConfig(frequencies=[2.0, 4.0], grid=GRID,
+                               method="Bartlett", components="radial")
 
     assert config.method is BeamformingMethod.BARTLETT
     assert config.components is ComponentMode.RADIAL
     assert config.frequencies.is_explicit
     assert config.window.windows_per_block == 40
     assert config.peak_neighborhood == (3, 3)
+    assert config.complete
 
     with pytest.raises(ValueError, match="'capon'"):
-        BeamformingConfig([2.0], GRID, method="beam")
+        _config(method="beam")
+
+
+def test_single_parameters_equal_objects():
+    """Single parameters build the same objects as the classes."""
+    single = BeamformingConfig(
+        fmin=3.0, fmax=10.0, nfreq=12, grid_min=100.0, grid_max=2000.0,
+        grid_size=50, window_type="fixed", window_length=2.0,
+        windows_per_block=30, ellipticity_angle_size=31,
+    )
+    objects = BeamformingConfig(
+        frequencies=FrequencyConfig(minimum=3.0, maximum=10.0, size=12),
+        grid=GRID,
+        window={"type": "fixed", "length": 2.0, "windows_per_block": 30},
+        ellipticity_grid=EllipticityGrid(size=31),
+    )
+
+    assert single == objects
+    assert single.fmin == 3.0 and single.window_length == 2.0
+    assert single.grid_size == 50 and single.azimuth_size == 180
+    assert BeamformingConfig().fmin is None
+
+
+def test_single_parameters_apply_on_objects():
+    """Single parameters replace fields of the objects and the file."""
+    config = BeamformingConfig(
+        window=WindowConfig(type="fixed", length=5.0), window_length=4.0
+    )
+    assert config.window.to_dict() == WindowConfig(
+        type="fixed", length=4.0
+    ).to_dict()
+
+    config = BeamformingConfig(EXAMPLE, method="music", nfreq=20)
+    assert config.method is BeamformingMethod.MUSIC
+    assert config.frequencies.size == 20
+    assert config.fmin == 2.0
+
+
+def test_update_and_attributes():
+    """update and assignment validate all the values together."""
+    config = _config()
+    config.update(method="music", music_sources=2)
+    config.grid_max = 3000.0
+
+    assert config.method is BeamformingMethod.MUSIC
+    assert config.grid.maximum == 3000.0
+
+    with pytest.raises(ValueError):
+        config.update(components="rayleigh_joint", method="bartlett")
+
+    assert config.components is ComponentMode.VERTICAL
+
+    config.update(components="rayleigh_joint", method="capon")
+    assert config.components is ComponentMode.RAYLEIGH_JOINT
+
+    with pytest.raises(TypeError, match="unknown"):
+        config.update(grid_maximum=1.0)
+    with pytest.raises(AttributeError):
+        config.speed = 1.0
+    with pytest.raises(AttributeError):
+        config.window.length = 1.0
+
+
+def test_frequency_and_grid_changes():
+    """Ranges replace values; derived defaults follow the new values."""
+    config = _config()
+    config.update(fmin=1.0, fmax=4.0, nfreq=4)
+    assert not config.frequencies.is_explicit
+
+    config.frequencies = [3.0, 5.0]
+    assert config.frequencies.is_explicit
+
+    config.update(grid_quantity="wavenumber", grid_min=0.0, grid_max=0.1)
+    assert config.grid.scale is GridScale.LINEAR
+
+    config.azimuths = [0.0, 90.0]
+    assert config.azimuth_size == 2
+
+    config.azimuth_size = 36
+    assert config.azimuths is None and config.azimuth_size == 36
+
+
+def test_copy_and_equality():
+    """Copies are independent; equality compares the values."""
+    config = _config()
+    copy = config.copy()
+    copy.method = "bartlett"
+
+    assert config.method is BeamformingMethod.CAPON
+    assert copy != config
+    copy.method = "capon"
+    assert copy == config
 
 
 @pytest.mark.parametrize(
@@ -222,7 +319,7 @@ def test_strings_and_defaults():
 def test_incompatible_options(kwargs, match):
     """Unsupported combinations are rejected with a clear message."""
     with pytest.raises(ValueError, match=match):
-        BeamformingConfig([2.0], GRID, **kwargs)
+        _config(**kwargs)
 
 
 def test_direct_transform_needs_sampled_frequencies():
@@ -230,36 +327,21 @@ def test_direct_transform_needs_sampled_frequencies():
     frequencies = FrequencyConfig(minimum=1.0, maximum=5.0)
 
     with pytest.raises(ValueError, match="direct"):
-        BeamformingConfig(frequencies, GRID)
+        BeamformingConfig(frequencies=frequencies, grid=GRID)
 
     config = BeamformingConfig(
-        frequencies, GRID, transform="rfft",
-        window=WindowConfig(type="fixed", length=4.0),
+        frequencies=frequencies, grid=GRID, transform="rfft",
+        window_type="fixed", window_length=4.0,
     )
     assert config.transform is TransformMethod.RFFT
 
 
-def test_wrong_section_types():
-    """Sections must be the configuration classes."""
+def test_wrong_types():
+    """Objects of the wrong type and non-boolean flags are rejected."""
     with pytest.raises(TypeError):
-        BeamformingConfig([2.0], {"minimum": 100})
+        BeamformingConfig(grid=[100, 2000, 10])
     with pytest.raises(TypeError):
-        BeamformingConfig([2.0], GRID, strict="yes")
-
-
-def test_replace():
-    """replace returns a validated copy."""
-    config = BeamformingConfig([2.0], GRID)
-    music = config.replace(method="music", music_sources=2)
-
-    assert music.method is BeamformingMethod.MUSIC
-    assert config.method is BeamformingMethod.CAPON
-
-    window = config.window.replace(length=10.0)
-    assert window.length == 10.0
-
-    with pytest.raises(ValueError):
-        config.replace(components="rayleigh_joint", method="bartlett")
+        _config(strict="yes")
 
 
 def test_reads_august_example():
@@ -268,21 +350,32 @@ def test_reads_august_example():
 
     Unknown sections (``graphics``) are ignored.
     """
-    config = BeamformingConfig.from_dict(EXAMPLE)
+    config = BeamformingConfig(EXAMPLE)
 
     assert config.window.type is WindowType.FIXED
     assert config.grid.quantity is GridQuantity.VELOCITY
     assert config.maxima == 3
     assert config.frequencies.size == 100
 
+    assert config.spectra is True
     expected = {key: value for key, value in EXAMPLE.items()
                 if key != "graphics"}
+    expected["output"] = {"spectra": True, "maxima": 3,
+                          "neighborhood": [3, 3],
+                          "minimum_relative_power": 0.0}
     assert config.to_dict() == expected
+
+    for mode, spectra in (("maxima", False), ("spectra", True)):
+        data = {**EXAMPLE, "output": {"mode": mode}}
+        assert BeamformingConfig(data).spectra is spectra
+
+    with pytest.raises(TypeError, match="boolean"):
+        BeamformingConfig(spectra="yes")
 
 
 def test_minimal_json_uses_defaults():
-    """Only frequencies and grid are required."""
-    config = BeamformingConfig.from_dict({
+    """Missing fields take the defaults; frequencies and grid are needed."""
+    config = BeamformingConfig({
         "frequencies": {"values": [2.0, 3.0]},
         "grid": {"minimum": 100, "maximum": 1000, "size": 10},
         "method": "bartlett",
@@ -292,25 +385,34 @@ def test_minimal_json_uses_defaults():
     assert config.window.length == 20.0
 
     with pytest.raises(ValueError, match="version"):
-        BeamformingConfig.from_dict({**EXAMPLE, "version": 2})
-    with pytest.raises(ValueError, match="frequencies and grid"):
-        BeamformingConfig.from_dict({"grid": EXAMPLE["grid"]})
+        BeamformingConfig({**EXAMPLE, "version": 2})
     with pytest.raises(TypeError):
-        BeamformingConfig.from_dict({**EXAMPLE, "window": [1, 2]})
+        BeamformingConfig({**EXAMPLE, "window": [1, 2]})
+
+    partial = BeamformingConfig({"grid": EXAMPLE["grid"]})
+    assert not partial.complete
+    assert "frequencies" not in partial.to_dict()
+
+    with pytest.raises(ValueError, match="needs frequencies"):
+        partial.check_complete()
 
 
-def test_read_and_write(tmp_path):
+def test_read_and_write(tmp_path, capsys):
     """Files round trip; existing files are protected."""
     path = tmp_path / "config.json"
     config = BeamformingConfig(
-        FrequencyConfig(minimum=1.0, maximum=8.0, size=12),
-        SearchGrid(0.0, 0.05, 40, quantity="wavenumber", scale="linear"),
+        frequencies=FrequencyConfig(minimum=1.0, maximum=8.0, size=12),
+        grid=SearchGrid(0.0, 0.05, 40, quantity="wavenumber"),
         components="rayleigh_joint",
         window=WindowConfig(length=15, windows_per_block=60),
     )
     config.write(path)
 
-    assert BeamformingConfig.read(path).to_dict() == config.to_dict()
+    assert BeamformingConfig(path) == config
+
+    other = _config(method="music")
+    other.read(path)
+    assert other == config
 
     with pytest.raises(FileExistsError):
         config.write(path)
@@ -319,6 +421,9 @@ def test_read_and_write(tmp_path):
     path.write_text("{ invalid", encoding="utf-8")
 
     with pytest.raises(ValueError, match="invalid JSON"):
-        BeamformingConfig.read(path)
+        BeamformingConfig(path)
 
     assert json.loads(json.dumps(config.to_dict())) == config.to_dict()
+
+    config.info()
+    assert '"rayleigh_joint"' in capsys.readouterr().out

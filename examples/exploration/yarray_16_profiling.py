@@ -18,8 +18,8 @@
 """
 Processing times.
 
-Measures the cost of the main choices of a configuration on the SESAME
-test data. Times depend on the machine: compare them with each other.
+The cost of the main choices of a configuration on the SESAME test
+data. Times depend on the machine: compare them with each other.
 
 Run (from any folder)::
 
@@ -30,69 +30,50 @@ import time
 import warnings
 from pathlib import Path
 
-from shakelab.exploration import yarray as ya
-
-# Test data of the repository (the example runs from any folder).
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
-
-warnings.filterwarnings("ignore", message="STLO")
-
-array = ya.read_array(DATA / "sesame_array.json")
-
-config = ya.BeamformingConfig(
-    frequencies=ya.FrequencyConfig(minimum=3.0, maximum=10.0, size=50),
-    grid=ya.SearchGrid(100.0, 2000.0, 100, azimuth_size=180),
-    window=ya.WindowConfig(type="fixed", length=2.0,
-                           windows_per_block=40),
+from shakelab.exploration.yarray import (
+    ArrayData,
+    Beamformer,
+    BeamformingConfig,
 )
 
-# 1. Estimators.
-for method in ["bartlett", "capon", "music"]:
-    start = time.perf_counter()
-    ya.beamform(array, config.replace(method=method))
-    print(f"{method:24s} {time.perf_counter() - start:6.2f} s")
+DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
+warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
 
-# 2. Components.
-for components in ["vertical", "radial", "three_component_separate"]:
-    start = time.perf_counter()
-    ya.beamform(array, config.replace(components=components))
-    print(f"{components:24s} {time.perf_counter() - start:6.2f} s")
-
-# 3. Transforms, with 50 and 200 frequencies.
-for size in [50, 200]:
-    frequencies = ya.FrequencyConfig(minimum=3.0, maximum=10.0, size=size)
-
-    for transform, selection in [("direct", "nearest"),
-                                 ("rfft", "nearest"), ("rfft", "interp")]:
-        start = time.perf_counter()
-        ya.beamform(array, config.replace(
-            frequencies=frequencies, transform=transform,
-            fft_selection=selection,
-        ))
-        print(f"{size} frequencies, {transform} {selection:8s} "
-              f"{time.perf_counter() - start:6.2f} s")
-
-# 4. RTBF: the most expensive analysis (a system of dimension 18 for
-#    each frequency, block, azimuth and ellipticity).
-rtbf = config.replace(
-    components="rayleigh_joint",
-    frequencies=ya.FrequencyConfig(minimum=3.0, maximum=10.0, size=10),
+array = ArrayData(DATA / "sesame_array.json")
+base = BeamformingConfig(
+    fmin=3.0, fmax=10.0, nfreq=50,
+    grid_min=100.0, grid_max=2000.0, grid_size=100, azimuth_size=180,
+    window_type="fixed", window_length=2.0, windows_per_block=40,
 )
-for size in [19, 61]:
-    start = time.perf_counter()
-    ya.beamform(array, rtbf.replace(
-        ellipticity_grid=ya.EllipticityGrid(-85.0, 85.0, size)
-    ))
-    print(f"rtbf, {size} ellipticities    "
-          f"{time.perf_counter() - start:6.2f} s")
+cases = {
+    "bartlett": {"method": "bartlett"},
+    "capon": {},
+    "music": {"method": "music"},
+    "radial": {"components": "radial"},
+    "three components": {"components": "three_component_separate"},
+    "rfft nearest": {"transform": "rfft"},
+    "rfft interp": {"transform": "rfft", "fft_selection": "interp"},
+    "200 freq, direct": {"nfreq": 200},
+    "200 freq, rfft": {"nfreq": 200, "transform": "rfft"},
+    "rtbf, 19 ellipticities": {"components": "rayleigh_joint", "nfreq": 10,
+                               "ellipticity_angle_size": 19},
+    "rtbf, 61 ellipticities": {"components": "rayleigh_joint", "nfreq": 10},
+}
 
-# 5. Repeated analyses of the same array, with and without the cache
-#    of the steering vectors (as in real time).
+for name, changes in cases.items():
+    config = base.copy()
+    config.update(**changes)
+    start = time.perf_counter()
+    Beamformer(array, config).process()
+    print(f"{name:24s} {time.perf_counter() - start:6.2f} s")
+
+# Repeated analyses (as in real time), with and without the cache.
 for cache in [False, True]:
-    beamformer = ya.Beamformer(config, cache=cache)
+    beamformer = Beamformer(array, base, cache=cache)
     start = time.perf_counter()
+
     for _ in range(5):
-        beamformer.process(array)
+        beamformer.process()
+
     print(f"5 analyses, cache={cache!s:5s}   "
           f"{time.perf_counter() - start:6.2f} s")

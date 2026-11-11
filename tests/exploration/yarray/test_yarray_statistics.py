@@ -46,7 +46,7 @@ from shakelab.exploration.yarray.statistics import (
 from shakelab.libutils.timeN import Date
 
 GRID = SearchGrid(100.0, 1000.0, 200, scale="linear")
-CONFIG = BeamformingConfig([4.0], GRID)
+CONFIG = BeamformingConfig(frequencies=[4.0], grid=GRID)
 START = Date("2026-01-01T00:00:00")
 
 
@@ -63,9 +63,10 @@ def _maximum(velocity, frequency=4.0, block=0, rank=1, power=1.0,
 def _result(maxima, config=CONFIG):
     """Result holding the given maxima."""
     frequencies = sorted({item.frequency for item in maxima})
-    return BeamformingResult(
-        maxima=tuple(maxima), spectra=None, config=config,
-        block_times={f: (START,) for f in frequencies},
+    return BeamformingResult._from_parts(
+        maxima=maxima, spectra=None, config=config,
+        block_times={f: (START,) for f in frequencies}, sids=(),
+        coordinates=np.empty((0, 3)), units=None,
     )
 
 
@@ -97,7 +98,9 @@ def test_single_maximum_is_one_gaussian_kernel():
 def test_coordinates_and_counts():
     """Wavenumber and log-slowness grids; counts by frequency."""
     maxima = [_maximum(400.0), _maximum(410.0), _maximum(300.0, 6.0)]
-    result = _result(maxima, CONFIG.replace(frequencies=[4.0, 6.0]))
+    result = _result(
+        maxima, BeamformingConfig(frequencies=[4.0, 6.0], grid=GRID)
+    )
 
     density = maximum_density(result)
     assert density.coordinate is DensityCoordinate.WAVENUMBER

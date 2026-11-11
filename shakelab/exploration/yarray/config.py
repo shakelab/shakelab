@@ -25,9 +25,13 @@ analysis frequencies (:class:`FrequencyConfig`), windows and covariance
 blocks (:class:`WindowConfig`), search grid (:class:`SearchGrid`),
 ellipticity grid of the Rayleigh joint processing
 (:class:`EllipticityGrid`), estimator, components, output and
-uncertainties. All classes are immutable; :meth:`replace` returns a
-modified copy. A configuration is read from and written to JSON with
-:meth:`BeamformingConfig.read` and :meth:`BeamformingConfig.write`.
+uncertainties. Its parameters can be given singly, with the names of
+the options of the command line (``fmin``, ``grid_max``,
+``window_length``...), or grouped in the objects, which are immutable
+(:meth:`replace` returns a modified copy); the configuration itself
+changes with :meth:`BeamformingConfig.update`. A configuration is read
+from and written to JSON: ``BeamformingConfig("capon.json")``,
+:meth:`BeamformingConfig.read`, :meth:`BeamformingConfig.write`.
 
 Options with a fixed set of values are enumerations; their string
 values are accepted everywhere (``method="capon"`` as
@@ -43,8 +47,9 @@ or ``minimum``, ``maximum``, ``size``, ``scale``), ``spectral``
 ``azimuth_size`` or ``azimuths``), ``window`` (``type``, ``length``,
 ``taper``, ``overlap``, ``windows_per_block``, ``block_overlap``),
 ``ellipticity`` (``minimum_angle``, ``maximum_angle``, ``size``),
-``output`` (``mode``, ``maxima``, ``neighborhood``,
-``minimum_relative_power``), ``uncertainty`` (``statistical``,
+``output`` (``spectra``, ``maxima``, ``neighborhood``,
+``minimum_relative_power``; the ``mode`` of the August files, maxima,
+spectra or both, is read as ``spectra``), ``uncertainty`` (``statistical``,
 ``geometric``) and ``strict``. Missing optional fields take the
 defaults of the classes; unknown sections are ignored, so that other
 applications (e.g. the graphics of the command-line interface) can
@@ -57,7 +62,7 @@ import dataclasses
 import json
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from numbers import Integral, Real
 from pathlib import Path
@@ -79,7 +84,6 @@ __all__ = [
     "GeometricUncertainty",
     "GridQuantity",
     "GridScale",
-    "OutputMode",
     "SearchGrid",
     "StatisticalUncertainty",
     "TransformMethod",
@@ -147,14 +151,6 @@ class ComponentMode(Enum):
     TRANSVERSE = "transverse"
     THREE_COMPONENT_SEPARATE = "three_component_separate"
     RAYLEIGH_JOINT = "rayleigh_joint"
-
-
-class OutputMode(Enum):
-    """Results kept: spectral maxima, complete spectra or both."""
-
-    MAXIMA = "maxima"
-    SPECTRA = "spectra"
-    BOTH = "both"
 
 
 class StatisticalUncertainty(Enum):
@@ -752,325 +748,321 @@ class EllipticityGrid(_Replace):
 # ----------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, eq=False)
-class BeamformingConfig(_Replace):
+# Objects of the configuration, their classes and JSON sections.
+_OBJECTS = {
+    "frequencies": (FrequencyConfig, "frequencies"),
+    "grid": (SearchGrid, "grid"),
+    "window": (WindowConfig, "window"),
+    "ellipticity_grid": (EllipticityGrid, "ellipticity"),
+}
+
+# Single parameters of the objects: name -> (object, field). The names
+# are those of the command-line options (``--grid-max`` -> grid_max).
+_FIELDS = {
+    "fmin": ("frequencies", "minimum"),
+    "fmax": ("frequencies", "maximum"),
+    "nfreq": ("frequencies", "size"),
+    "frequency_scale": ("frequencies", "scale"),
+    "grid_quantity": ("grid", "quantity"),
+    "grid_scale": ("grid", "scale"),
+    "grid_min": ("grid", "minimum"),
+    "grid_max": ("grid", "maximum"),
+    "grid_size": ("grid", "size"),
+    "azimuth_size": ("grid", "azimuth_size"),
+    "azimuths": ("grid", "azimuths"),
+    "window_type": ("window", "type"),
+    "window_length": ("window", "length"),
+    "window_taper": ("window", "taper"),
+    "window_overlap": ("window", "overlap"),
+    "windows_per_block": ("window", "windows_per_block"),
+    "block_overlap": ("window", "block_overlap"),
+    "ellipticity_angle_min": ("ellipticity_grid", "minimum_angle"),
+    "ellipticity_angle_max": ("ellipticity_grid", "maximum_angle"),
+    "ellipticity_angle_size": ("ellipticity_grid", "size"),
+}
+
+# Other parameters: name -> (default, JSON section, JSON key); a None
+# section is the top level.
+_OPTIONS = {
+    "method": (BeamformingMethod.CAPON, "method", "name"),
+    "components": (ComponentMode.VERTICAL, None, "components"),
+    "diagonal_loading": (0.001, "method", "diagonal_loading"),
+    "music_sources": (1, "method", "music_sources"),
+    "spectra": (False, "output", "spectra"),
+    "maxima": (1, "output", "maxima"),
+    "peak_neighborhood": ((3, 3), "output", "neighborhood"),
+    "minimum_relative_power": (0.0, "output", "minimum_relative_power"),
+    "statistical_uncertainty": (
+        StatisticalUncertainty.NONE, "uncertainty", "statistical"
+    ),
+    "geometric_uncertainty": (
+        GeometricUncertainty.NONE, "uncertainty", "geometric"
+    ),
+    "strict": (True, None, "strict"),
+    "transform": (TransformMethod.DIRECT, "spectral", "transform"),
+    "fft_selection": (FFTSelection.NEAREST, "spectral", "fft_selection"),
+    "fft_padding": (None, "spectral", "fft_padding"),
+}
+
+_NAMES = frozenset(_OBJECTS) | frozenset(_FIELDS) | frozenset(_OPTIONS)
+
+
+class BeamformingConfig:
     """
     Complete configuration of frequency-wavenumber processing.
 
+    Every parameter can be given singly, with the names of the options
+    of the command line (``--grid-max`` is ``grid_max``), or grouped in
+    the objects :class:`FrequencyConfig`, :class:`SearchGrid`,
+    :class:`WindowConfig` and :class:`EllipticityGrid` (also as
+    dictionaries with the fields of the JSON sections). Single
+    parameters apply on top of the objects and of the file.
+
     Parameters
     ----------
-    frequencies : FrequencyConfig or array-like
-        Analysis frequencies (an array gives explicit values).
-    grid : SearchGrid
-        Wavevectors searched.
-    window : WindowConfig, optional
-        Windows and covariance blocks.
-    method : BeamformingMethod or str, optional
-        ``"capon"`` (default), ``"bartlett"`` or ``"music"``.
-    components : ComponentMode or str, optional
-        ``"vertical"`` (default), ``"radial"``, ``"transverse"``,
-        ``"three_component_separate"`` or ``"rayleigh_joint"`` (Capon
-        only).
-    diagonal_loading : float, optional
-        Diagonal loading of Capon, relative to the mean power of the
-        matrix. Default is 0.001.
-    music_sources : int, optional
-        Number of sources excluded from the MUSIC noise subspace.
-        Default is 1.
-    ellipticity_grid : EllipticityGrid, optional
-        Ellipticities of the Rayleigh joint processing.
-    output : OutputMode or str, optional
-        ``"maxima"`` (default), ``"spectra"`` or ``"both"``.
-    maxima : int, optional
-        Number of maxima kept for each block, frequency and component.
-        Default is 1.
-    peak_neighborhood : tuple of int, optional
-        Size ``(azimuths, radial values)`` of the neighbourhood of a
-        local maximum. Default is (3, 3).
-    minimum_relative_power : float, optional
-        Smallest power of a maximum, relative to the largest of the
-        spectrum, in ``[0, 1]``. Default is 0.
-    statistical_uncertainty : StatisticalUncertainty or str, optional
-        ``"none"`` (default) or ``"empirical"`` (Bartlett and Capon):
-        standard error of the power from the spread of the windows.
-    geometric_uncertainty : GeometricUncertainty or str, optional
-        ``"none"`` (default) or ``"expected_coherence"`` (Bartlett):
-        expected power over the uncertainty of the station coordinates.
-    strict : bool, optional
-        If True (default), Capon and MUSIC require more windows per
-        block than the dimension of the matrix.
-    transform : TransformMethod or str, optional
-        ``"direct"`` (default) or ``"rfft"`` (fixed windows only).
-    fft_selection : FFTSelection or str, optional
-        ``"nearest"`` (default) or ``"interp"``, with ``"rfft"``.
-    fft_padding : int, optional
-        Zero padding of the RFFT (default 1 for nearest, 8 for interp).
+    source : str, path-like or mapping, optional
+        JSON file, or its content as a dictionary (see the module
+        notes). Default: the default values.
+    **parameters
+        Parameters (see Notes), replacing those of ``source``.
 
     Raises
     ------
     TypeError
-        If a section has the wrong type.
+        If a parameter is unknown or has the wrong type.
     ValueError
         If a value is invalid or the options are incompatible.
+
+    Notes
+    -----
+    Parameters and defaults:
+
+    - frequencies: ``frequencies`` (FrequencyConfig, dictionary or
+      explicit values in Hz), or ``fmin``, ``fmax``, ``nfreq``,
+      ``frequency_scale`` (``"log"``). Required.
+    - search grid: ``grid`` (SearchGrid or dictionary), or
+      ``grid_min``, ``grid_max``, ``grid_size``, ``grid_quantity``
+      (``"velocity"``), ``grid_scale``, ``azimuth_size`` (180) or
+      ``azimuths``. Required.
+    - windows: ``window`` (WindowConfig or dictionary), or
+      ``window_type`` (``"cycles"``), ``window_length`` (20),
+      ``window_taper`` (0.1), ``window_overlap`` (0.5),
+      ``windows_per_block`` (40), ``block_overlap`` (0.5).
+    - ``method``: ``"capon"`` (default), ``"bartlett"`` or ``"music"``;
+      ``diagonal_loading`` of Capon, relative to the mean power of the
+      matrix (0.001); ``music_sources`` excluded from the MUSIC noise
+      subspace (1).
+    - ``components``: ``"vertical"`` (default), ``"radial"``,
+      ``"transverse"``, ``"three_component_separate"`` or
+      ``"rayleigh_joint"`` (Capon only); ellipticities of the joint
+      processing: ``ellipticity_grid``, or ``ellipticity_angle_min``
+      (-85), ``ellipticity_angle_max`` (85), ``ellipticity_angle_size``
+      (61).
+    - output: the maxima are always kept; ``spectra`` keeps also the
+      complete beam-power spectra of every block (False: they can
+      take much memory); ``maxima`` kept for each block, frequency and
+      component (1), ``peak_neighborhood`` (azimuths, radial values) of
+      a local maximum ((3, 3)), ``minimum_relative_power`` of a maximum
+      relative to the largest of the spectrum (0).
+    - ``statistical_uncertainty``: ``"none"`` or ``"empirical"``
+      (Bartlett and Capon); ``geometric_uncertainty``: ``"none"`` or
+      ``"expected_coherence"`` (Bartlett).
+    - ``strict``: Capon and MUSIC require more windows per block than
+      the dimension of the matrix (True).
+    - ``transform``: ``"direct"`` or ``"rfft"`` (fixed windows only),
+      ``fft_selection`` (``"nearest"`` or ``"interp"``) and
+      ``fft_padding`` (1 for nearest, 8 for interp).
+
+    Every parameter is also an attribute, and assigning it is the same
+    as :meth:`update`.
+
+    Examples
+    --------
+    >>> config = BeamformingConfig(fmin=3.0, fmax=10.0, nfreq=12,
+    ...                            grid_min=100.0, grid_max=1500.0,
+    ...                            grid_size=60, method="capon")
+    >>> config = BeamformingConfig("capon.json", window_length=4.0)
+    >>> config.update(method="music")
+    >>> config.grid_max = 2000.0
     """
 
-    frequencies: Any
-    grid: SearchGrid
-    window: WindowConfig = field(default_factory=WindowConfig)
-    method: Any = BeamformingMethod.CAPON
-    components: Any = ComponentMode.VERTICAL
-    diagonal_loading: float = 0.001
-    music_sources: int = 1
-    ellipticity_grid: EllipticityGrid = field(
-        default_factory=EllipticityGrid
-    )
-    output: Any = OutputMode.MAXIMA
-    maxima: int = 1
-    peak_neighborhood: tuple = (3, 3)
-    minimum_relative_power: float = 0.0
-    statistical_uncertainty: Any = StatisticalUncertainty.NONE
-    geometric_uncertainty: Any = GeometricUncertainty.NONE
-    strict: bool = True
-    transform: Any = TransformMethod.DIRECT
-    fft_selection: Any = FFTSelection.NEAREST
-    fft_padding: Optional[int] = None
+    def __init__(self, source: Any = None, **parameters: Any) -> None:
+        object.__setattr__(self, "_state", _validated(_defaults()))
 
-    def __post_init__(self) -> None:
-        frequencies = self.frequencies
+        if source is not None:
+            self.read(source)
 
-        if not isinstance(frequencies, FrequencyConfig):
-            frequencies = FrequencyConfig(values=frequencies)
+        if parameters:
+            self.update(**parameters)
 
-        for name, kind in (
-            ("grid", SearchGrid),
-            ("window", WindowConfig),
-            ("ellipticity_grid", EllipticityGrid),
-        ):
-            if not isinstance(getattr(self, name), kind):
-                raise TypeError(f"{name} must be a {kind.__name__}")
+    def __getattr__(self, name: str) -> Any:
+        state = self.__dict__.get("_state")
 
-        if not isinstance(self.strict, bool):
-            raise TypeError("strict must be a boolean")
+        if state is not None:
+            if name in state:
+                return state[name]
 
-        neighborhood = tuple(self.peak_neighborhood)
+            if name in _FIELDS:
+                owner, field_name = _FIELDS[name]
+                value = state[owner]
+                return None if value is None else getattr(value, field_name)
 
-        if len(neighborhood) != 2:
-            raise ValueError("peak_neighborhood must contain two integers")
-
-        loading = _real(self.diagonal_loading, "diagonal_loading")
-
-        if loading < 0.0:
-            raise ValueError("diagonal_loading cannot be negative")
-
-        relative = _real(self.minimum_relative_power,
-                         "minimum_relative_power")
-
-        if not 0.0 <= relative <= 1.0:
-            raise ValueError("minimum_relative_power must be in [0, 1]")
-
-        padding = self.fft_padding
-
-        if padding is not None:
-            padding = _integer(padding, "fft_padding", 1)
-
-        _set(
-            self,
-            frequencies=frequencies,
-            method=_enum(self.method, BeamformingMethod, "method"),
-            components=_enum(self.components, ComponentMode, "components"),
-            diagonal_loading=loading,
-            music_sources=_integer(self.music_sources, "music_sources", 1),
-            output=_enum(self.output, OutputMode, "output"),
-            maxima=_integer(self.maxima, "maxima", 1),
-            peak_neighborhood=tuple(
-                _integer(value, "peak_neighborhood", 1)
-                for value in neighborhood
-            ),
-            minimum_relative_power=relative,
-            statistical_uncertainty=_enum(
-                self.statistical_uncertainty, StatisticalUncertainty,
-                "statistical_uncertainty",
-            ),
-            geometric_uncertainty=_enum(
-                self.geometric_uncertainty, GeometricUncertainty,
-                "geometric_uncertainty",
-            ),
-            transform=_enum(self.transform, TransformMethod, "transform"),
-            fft_selection=_enum(
-                self.fft_selection, FFTSelection, "fft_selection"
-            ),
-            fft_padding=padding,
+        raise AttributeError(
+            f"'BeamformingConfig' object has no attribute {name!r}"
         )
-        self._check_compatibility()
 
-    def _check_compatibility(self) -> None:
-        """Raise for combinations of options that are not supported."""
-        method = self.method
-        joint = self.components is ComponentMode.RAYLEIGH_JOINT
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name not in _NAMES:
+            raise AttributeError(f"unknown configuration parameter {name!r}")
 
-        if self.transform is TransformMethod.RFFT:
-            if self.window.type is not WindowType.FIXED:
-                raise ValueError("the RFFT needs windows of fixed duration")
-        elif not self.frequencies.is_sampled:
-            raise ValueError(
-                "the direct transform needs explicit frequencies or a "
-                "range with size"
-            )
+        self.update(**{name: value})
 
-        if joint and method is not BeamformingMethod.CAPON:
-            raise ValueError("the Rayleigh joint processing needs Capon")
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, BeamformingConfig):
+            return NotImplemented
 
-        if self.statistical_uncertainty is StatisticalUncertainty.EMPIRICAL:
-            if method is BeamformingMethod.MUSIC or joint:
-                raise ValueError(
-                    "the empirical uncertainty is available for Bartlett "
-                    "and Capon on single components"
-                )
+        return self.to_dict() == other.to_dict()
 
-        if self.geometric_uncertainty is not GeometricUncertainty.NONE:
-            if method is not BeamformingMethod.BARTLETT:
-                raise ValueError(
-                    "the coordinate uncertainty is available for Bartlett"
-                )
+    __hash__ = None
 
-    # -- JSON --------------------------------------------------------------
+    def __repr__(self) -> str:
+        state = self._state
+        return (
+            f"BeamformingConfig({state['method'].value}, "
+            f"{state['components'].value}, frequencies="
+            f"{'set' if state['frequencies'] else 'missing'}, grid="
+            f"{'set' if state['grid'] else 'missing'})"
+        )
 
-    @classmethod
-    def from_dict(cls, data: Mapping) -> BeamformingConfig:
+    # -- changes -----------------------------------------------------------
+
+    def update(self, **parameters: Any) -> None:
         """
-        Build a configuration from its JSON representation.
+        Change parameters.
+
+        The new values are validated together: if any is invalid, the
+        configuration is not changed.
 
         Parameters
         ----------
-        data : mapping
-            Content of a JSON configuration (see the module notes).
+        **parameters
+            Parameters by name (see the class notes).
+
+        Raises
+        ------
+        TypeError
+            If a parameter is unknown or has the wrong type.
+        ValueError
+            If a value is invalid or the options are incompatible.
+        """
+        unknown = sorted(set(parameters) - _NAMES)
+
+        if unknown:
+            raise TypeError(
+                "unknown configuration parameters: " + ", ".join(unknown)
+                + "; accepted: " + ", ".join(sorted(_NAMES))
+            )
+
+        state = dict(self._state)
+
+        for name, (kind, _) in _OBJECTS.items():
+            if name in parameters:
+                state[name] = _as_object(name, kind, parameters[name])
+
+        changes: dict[str, dict] = {}
+
+        for name, (owner, field_name) in _FIELDS.items():
+            if name in parameters:
+                changes.setdefault(owner, {})[field_name] = parameters[name]
+
+        for owner, values in changes.items():
+            state[owner] = _merged(owner, state[owner], values)
+
+        for name in _OPTIONS:
+            if name in parameters:
+                state[name] = parameters[name]
+
+        object.__setattr__(self, "_state", _validated(state))
+
+    def copy(self) -> BeamformingConfig:
+        """
+        Return an independent copy.
 
         Returns
         -------
         BeamformingConfig
-            Configuration.
+            Copy (the objects of the configuration are immutable and
+            shared).
+        """
+        new = BeamformingConfig()
+        object.__setattr__(new, "_state", dict(self._state))
+        return new
+
+    @property
+    def complete(self) -> bool:
+        """Whether frequencies and grid are given."""
+        return (
+            self._state["frequencies"] is not None
+            and self._state["grid"] is not None
+        )
+
+    def check_complete(self) -> None:
+        """
+        Raise if the configuration cannot be used for processing.
+
+        Raises
+        ------
+        ValueError
+            If frequencies or grid are missing.
+        """
+        missing = [name for name in ("frequencies", "grid")
+                   if self._state[name] is None]
+
+        if missing:
+            raise ValueError(
+                "the configuration needs " + " and ".join(missing)
+                + " (e.g. fmin, fmax, nfreq and grid_min, grid_max, "
+                "grid_size)"
+            )
+
+    # -- JSON --------------------------------------------------------------
+
+    def read(self, source: Any) -> None:
+        """
+        Replace the configuration with that of a JSON file.
+
+        Missing fields take the default values; unknown sections are
+        ignored (e.g. ``graphics`` of the command line).
+
+        Parameters
+        ----------
+        source : str, path-like or mapping
+            JSON file, or its content as a dictionary.
 
         Raises
         ------
         TypeError
             If a section has the wrong type.
         ValueError
-            If the version is not supported or a value is invalid.
+            If the file is not valid JSON, the version is not supported
+            or a value is invalid.
         """
-        if not isinstance(data, Mapping):
-            raise TypeError("the configuration must be a mapping")
+        if isinstance(source, Mapping):
+            data = source
+        else:
+            path = Path(source).expanduser()
 
-        version = data.get("version", _VERSION)
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as error:
+                raise ValueError(
+                    f"{path}: invalid JSON at line {error.lineno}, column "
+                    f"{error.colno}: {error.msg}"
+                ) from error
 
-        if version != _VERSION:
-            raise ValueError(f"unsupported configuration version {version}")
-
-        if "frequencies" not in data or "grid" not in data:
-            raise ValueError("the configuration needs frequencies and grid")
-
-        method = data.get("method", {})
-
-        if isinstance(method, str):
-            method = {"name": method}
-
-        sections = {
-            name: _section(data, name)
-            for name in ("spectral", "output", "uncertainty", "ellipticity",
-                         "window", "grid", "frequencies")
-        }
-        options = {}
-        _copy(sections["spectral"], options, transform="transform",
-              fft_selection="fft_selection", fft_padding="fft_padding")
-        _copy(_section({"method": method}, "method"), options,
-              name="method", diagonal_loading="diagonal_loading",
-              music_sources="music_sources")
-        _copy(sections["output"], options, mode="output", maxima="maxima",
-              neighborhood="peak_neighborhood",
-              minimum_relative_power="minimum_relative_power")
-        _copy(sections["uncertainty"], options,
-              statistical="statistical_uncertainty",
-              geometric="geometric_uncertainty")
-        _copy(data, options, components="components", strict="strict")
-
-        return cls(
-            frequencies=FrequencyConfig(**sections["frequencies"]),
-            grid=SearchGrid(**sections["grid"]),
-            window=WindowConfig(**sections["window"]),
-            ellipticity_grid=EllipticityGrid(**sections["ellipticity"]),
-            **options,
-        )
-
-    def to_dict(self) -> dict:
-        """
-        Return the JSON representation.
-
-        Returns
-        -------
-        dict
-            Content of a JSON configuration (version 1).
-        """
-        return {
-            "version": _VERSION,
-            "frequencies": self.frequencies.to_dict(),
-            "spectral": {
-                "transform": self.transform.value,
-                "fft_selection": self.fft_selection.value,
-                "fft_padding": self.fft_padding,
-            },
-            "method": {
-                "name": self.method.value,
-                "diagonal_loading": self.diagonal_loading,
-                "music_sources": self.music_sources,
-            },
-            "components": self.components.value,
-            "grid": self.grid.to_dict(),
-            "window": self.window.to_dict(),
-            "ellipticity": self.ellipticity_grid.to_dict(),
-            "output": {
-                "mode": self.output.value,
-                "maxima": self.maxima,
-                "neighborhood": list(self.peak_neighborhood),
-                "minimum_relative_power": self.minimum_relative_power,
-            },
-            "uncertainty": {
-                "statistical": self.statistical_uncertainty.value,
-                "geometric": self.geometric_uncertainty.value,
-            },
-            "strict": self.strict,
-        }
-
-    @classmethod
-    def read(cls, source: Any) -> BeamformingConfig:
-        """
-        Read a configuration from a JSON file.
-
-        Parameters
-        ----------
-        source : str or path-like
-            JSON file.
-
-        Returns
-        -------
-        BeamformingConfig
-            Configuration.
-
-        Raises
-        ------
-        ValueError
-            If the file is not valid JSON or the configuration is
-            invalid.
-        """
-        path = Path(source).expanduser()
-
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as error:
-            raise ValueError(
-                f"{path}: invalid JSON at line {error.lineno}, column "
-                f"{error.colno}: {error.msg}"
-            ) from error
-
-        return cls.from_dict(data)
+        parameters = _from_json(data)
+        object.__setattr__(self, "_state", _validated(_defaults()))
+        self.update(**parameters)
 
     def write(self, target: Any, owrite: bool = False) -> None:
         """
@@ -1093,14 +1085,248 @@ class BeamformingConfig(_Replace):
         if path.exists() and not owrite:
             raise FileExistsError(f"{path} exists (use owrite=True)")
 
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             json.dumps(self.to_dict(), indent=2) + "\n", encoding="utf-8"
         )
 
+    def to_dict(self) -> dict:
+        """
+        Return the JSON representation.
+
+        Returns
+        -------
+        dict
+            Content of a JSON configuration (version 1); frequencies
+            and grid only if given.
+        """
+        state = self._state
+        data: dict = {"version": _VERSION}
+
+        for name, (_, section) in _OBJECTS.items():
+            if state[name] is not None:
+                data[section] = state[name].to_dict()
+
+        for name, (_, section, key) in _OPTIONS.items():
+            value = state[name]
+
+            if isinstance(value, Enum):
+                value = value.value
+            elif isinstance(value, tuple):
+                value = list(value)
+
+            if section is None:
+                data[key] = value
+            else:
+                data.setdefault(section, {})[key] = value
+
+        return data
+
+    def info(self) -> None:
+        """Print the configuration."""
+        print(self.summary())
+
+    def summary(self) -> str:
+        """
+        Return the configuration as text.
+
+        Returns
+        -------
+        str
+            The JSON representation, indented.
+        """
+        return "BeamformingConfig\n" + json.dumps(self.to_dict(), indent=2)
+
 
 # ----------------------------------------------------------------------------
-# JSON helpers
+# Configuration helpers
 # ----------------------------------------------------------------------------
+
+
+class _OutputMode(Enum):
+    """Output modes of the JSON files of August 2026 (``output.mode``)."""
+
+    MAXIMA = "maxima"
+    SPECTRA = "spectra"
+    BOTH = "both"
+
+
+def _defaults() -> dict:
+    """State of a configuration with the default values."""
+    state = {name: None for name in ("frequencies", "grid")}
+    state["window"] = WindowConfig()
+    state["ellipticity_grid"] = EllipticityGrid()
+    state.update({name: value[0] for name, value in _OPTIONS.items()})
+    return state
+
+
+def _as_object(name: str, kind: type, value: Any) -> Any:
+    """Object of the configuration from an object, mapping or values."""
+    if value is None and name in ("frequencies", "grid"):
+        return None
+
+    if isinstance(value, kind):
+        return value
+
+    if isinstance(value, Mapping):
+        return kind(**value)
+
+    if name == "frequencies":
+        return FrequencyConfig(values=value)
+
+    raise TypeError(f"{name} must be a {kind.__name__} or a dictionary")
+
+
+def _merged(owner: str, current: Any, values: dict) -> Any:
+    """Object with some fields replaced."""
+    kind = _OBJECTS[owner][0]
+    base = {} if current is None else {
+        item.name: getattr(current, item.name)
+        for item in dataclasses.fields(current)
+    }
+
+    if owner == "frequencies" and set(values) & {
+        "minimum", "maximum", "size", "scale"
+    }:
+        base.pop("values", None)
+
+    if owner == "grid":
+        if "azimuth_size" in values:
+            base.pop("azimuths", None)
+
+        if "quantity" in values and "scale" not in values:
+            base.pop("scale", None)
+
+    return kind(**{**base, **values})
+
+
+def _validated(state: dict) -> dict:
+    """Return a validated state (enumerations, numbers, compatibility)."""
+    state = dict(state)
+
+    for name in ("strict", "spectra"):
+        if not isinstance(state[name], (bool, np.bool_)):
+            raise TypeError(f"{name} must be a boolean")
+
+    state["spectra"] = bool(state["spectra"])
+
+    neighborhood = tuple(state["peak_neighborhood"])
+
+    if len(neighborhood) != 2:
+        raise ValueError("peak_neighborhood must contain two integers")
+
+    loading = _real(state["diagonal_loading"], "diagonal_loading")
+
+    if loading < 0.0:
+        raise ValueError("diagonal_loading cannot be negative")
+
+    relative = _real(state["minimum_relative_power"],
+                     "minimum_relative_power")
+
+    if not 0.0 <= relative <= 1.0:
+        raise ValueError("minimum_relative_power must be in [0, 1]")
+
+    padding = state["fft_padding"]
+
+    if padding is not None:
+        padding = _integer(padding, "fft_padding", 1)
+
+    state.update(
+        method=_enum(state["method"], BeamformingMethod, "method"),
+        components=_enum(state["components"], ComponentMode, "components"),
+        diagonal_loading=loading,
+        music_sources=_integer(state["music_sources"], "music_sources", 1),
+        maxima=_integer(state["maxima"], "maxima", 1),
+        peak_neighborhood=tuple(
+            _integer(value, "peak_neighborhood", 1) for value in neighborhood
+        ),
+        minimum_relative_power=relative,
+        statistical_uncertainty=_enum(
+            state["statistical_uncertainty"], StatisticalUncertainty,
+            "statistical_uncertainty",
+        ),
+        geometric_uncertainty=_enum(
+            state["geometric_uncertainty"], GeometricUncertainty,
+            "geometric_uncertainty",
+        ),
+        transform=_enum(state["transform"], TransformMethod, "transform"),
+        fft_selection=_enum(
+            state["fft_selection"], FFTSelection, "fft_selection"
+        ),
+        fft_padding=padding,
+    )
+    _check_compatibility(state)
+    return state
+
+
+def _check_compatibility(state: dict) -> None:
+    """Raise for combinations of options that are not supported."""
+    method = state["method"]
+    joint = state["components"] is ComponentMode.RAYLEIGH_JOINT
+    frequencies = state["frequencies"]
+
+    if state["transform"] is TransformMethod.RFFT:
+        if state["window"].type is not WindowType.FIXED:
+            raise ValueError("the RFFT needs windows of fixed duration")
+    elif frequencies is not None and not frequencies.is_sampled:
+        raise ValueError(
+            "the direct transform needs explicit frequencies or a range "
+            "with size"
+        )
+
+    if joint and method is not BeamformingMethod.CAPON:
+        raise ValueError("the Rayleigh joint processing needs Capon")
+
+    if state["statistical_uncertainty"] is StatisticalUncertainty.EMPIRICAL:
+        if method is BeamformingMethod.MUSIC or joint:
+            raise ValueError(
+                "the empirical uncertainty is available for Bartlett and "
+                "Capon on single components"
+            )
+
+    if state["geometric_uncertainty"] is not GeometricUncertainty.NONE:
+        if method is not BeamformingMethod.BARTLETT:
+            raise ValueError(
+                "the coordinate uncertainty is available for Bartlett"
+            )
+
+
+def _from_json(data: Any) -> dict:
+    """Parameters of a JSON configuration."""
+    if not isinstance(data, Mapping):
+        raise TypeError("the configuration must be a JSON object")
+
+    version = data.get("version", _VERSION)
+
+    if version != _VERSION:
+        raise ValueError(f"unsupported configuration version {version}")
+
+    data = dict(data)
+
+    if isinstance(data.get("method"), str):
+        data["method"] = {"name": data["method"]}
+
+    output = data.get("output")
+
+    if isinstance(output, Mapping) and "mode" in output:
+        output = dict(output)
+        mode = _enum(output.pop("mode"), _OutputMode, "output.mode")
+        output.setdefault("spectra", mode is not _OutputMode.MAXIMA)
+        data["output"] = output
+
+    parameters = {}
+
+    for name, (_, section) in _OBJECTS.items():
+        if section in data:
+            parameters[name] = _section(data, section)
+
+    for name, (_, section, key) in _OPTIONS.items():
+        values = data if section is None else _section(data, section)
+
+        if key in values:
+            parameters[name] = values[key]
+
+    return parameters
 
 
 def _section(data: Mapping, name: str) -> dict:
@@ -1111,10 +1337,3 @@ def _section(data: Mapping, name: str) -> dict:
         raise TypeError(f"the section {name!r} must be an object")
 
     return dict(value)
-
-
-def _copy(source: Mapping, target: dict, **names: str) -> None:
-    """Copy the present JSON fields to keyword arguments, renamed."""
-    for key, argument in names.items():
-        if key in source:
-            target[argument] = source[key]

@@ -20,10 +20,11 @@ Unit tests for :mod:`shakelab.exploration.yarray.data`.
 
 The data model is checked on synthetic records (projections onto
 rotated components, time-axis and unit checks, coordinate
-covariances) and the builders on synthetic collections with
+covariances), the filling of an array on synthetic collections with
 geographic positions (ENU coordinates against
-``geodeticN.geo_to_enu``, time windows, gaps, selections, metadata
-orientations) and on an excerpt of the SESAME array simulation.
+``geodeticN.geo_to_enu``, fixed origin, time windows, gaps,
+selections, metadata orientations, progressive additions) and on an
+excerpt of the SESAME array simulation.
 """
 
 from __future__ import annotations
@@ -303,21 +304,113 @@ def test_array_covariances_with_missing_stations():
 
 
 def test_array_checks():
-    """Duplicate identifiers and different time axes are rejected."""
+    """Duplicates, sampling and units are checked when adding."""
     station = StationData("XX.A..", _station_records("A"), (0.0, 0.0))
-    shifted = StationData(
-        "XX.B..", _station_records("B", start=Date(START) + 0.004),
-        (5.0, 0.0),
+    slower = StationData(
+        "XX.B..", [_record("XX.B..HHZ", delta=0.02)], (5.0, 0.0)
     )
+    counts = StationData("XX.C..", [_record("XX.C..HHZ")], (5.0, 0.0))
+    object.__setattr__(counts.records[0].head, "units", "counts")
+    array = ArrayData([station])
 
-    with pytest.raises(ValueError, match="unique"):
+    with pytest.raises(ValueError, match="already in the array"):
+        array.add(station)
+    with pytest.raises(ValueError, match="already in the array"):
         ArrayData([station, station])
-    with pytest.raises(ValueError, match="no resampling"):
-        ArrayData([station, shifted])
-    with pytest.raises(ValueError):
-        ArrayData([])
+    with pytest.raises(ValueError, match="sampling"):
+        array.add(slower)
     with pytest.raises(TypeError):
         ArrayData([station], frame=(13.0, 46.0))
+    with pytest.raises(TypeError):
+        ArrayData(42)
+    with pytest.raises(TypeError, match="not to StationData"):
+        array.add(station, coordinates={})
+
+    with pytest.raises(ValueError, match="no channel"):
+        ArrayData([])
+
+    assert array.sids == ("XX.A..",)
+
+
+def test_empty_array():
+    """An empty array has no time axis and cannot be processed."""
+    array = ArrayData()
+
+    assert array.nsta == 0 and array.delta is None
+    assert array.starttime is None and array.nsamp == 0
+    assert array.coordinates.shape == (0, 3)
+    assert "no stations" in repr(array) and "no stations" in array.summary()
+
+    with pytest.raises(ValueError, match="no station"):
+        array.window()
+    with pytest.raises(ValueError, match="no station"):
+        array.vertical()
+
+
+def test_different_time_axes_and_window():
+    """
+    Stations on different time axes are joined on a common window.
+
+    A sub-sample shift (0.4 samples) cannot be processed: no
+    resampling is performed.
+    """
+    late = StationData(
+        "XX.B..", _station_records("B", start=Date(START) + 1.0), (5.0, 0)
+    )
+    array = _array(2)
+    array.add(late)
+
+    assert not array.synchronized
+    assert array.starttime == Date(START) + 1.0
+    assert array.nsamp == 400
+    assert "different time axes" in array.summary()
+
+    with pytest.raises(ValueError, match="window"):
+        array.vertical()
+
+    common = array.window()
+    assert common.synchronized and common.nsamp == 400
+    assert common.vertical().shape == (3, 400)
+    assert array.nsamp == 400 and array["XX.A0.."].nsamp == 500
+
+    part = array.window(Date(START) + 2.0, Date(START) + 3.0)
+    assert part.nsamp == 101 and part.starttime == Date(START) + 2.0
+
+    with pytest.warns(ArrayDataWarning, match="XX.B.."):
+        early = array.window(Date(START), Date(START) + 0.5)
+
+    assert early.sids == ("XX.A0..", "XX.A1..")
+    assert early.excluded[0][0] == "XX.B.."
+
+    with pytest.raises(ValueError, match="XX.B.."):
+        array.window(Date(START), Date(START) + 0.5, gaps="raise")
+
+    shifted = StationData(
+        "XX.C..", _station_records("C", start=Date(START) + 0.004),
+        (5.0, 5.0),
+    )
+    array.add(shifted)
+
+    with pytest.raises(ValueError, match="no resampling"):
+        array.window()
+
+
+def test_add_remove_and_copy():
+    """Stations are added and removed; copies are independent."""
+    array = ArrayData()
+    array.add(StationData("XX.A..", _station_records("A"), (0.0, 0.0)))
+    array.add(_station_records("B"), coordinates={"XX.B.": (10.0, 0.0)})
+    copy = array.copy()
+    array.remove("XX.A..")
+
+    assert array.sids == ("XX.B.",)
+    assert copy.sids == ("XX.A..", "XX.B.")
+    assert "XX.B." in array and "XX.A.." not in array
+
+    with pytest.raises(KeyError):
+        array.remove(["XX.B.", "XX.Z.."])
+
+    assert array.sids == ("XX.B.",)
 
 
 def test_array_projection_requires_support():
@@ -341,15 +434,14 @@ def test_array_projection_requires_support():
 
 def test_from_collection_geographic_coordinates():
     """
-    Positions from the metadata are ENU coordinates in a centred frame.
+    Positions from the metadata are ENU coordinates.
 
-    The reference is the mean longitude, latitude and elevation of the
-    stations; the coordinates equal ``geo_to_enu`` in that frame.
+    The origin is the first station (A01); the coordinates equal
+    ``geo_to_enu`` in that frame.
     """
-    array = ArrayData.from_collection(_array_collection())
-    mean = np.mean(list(LOCATIONS.values()), axis=0)
+    array = ArrayData(_array_collection())
 
-    np.testing.assert_allclose(array.frame.ref_geo, mean)
+    np.testing.assert_allclose(array.frame.ref_geo, LOCATIONS["A01"])
 
     for station in array:
         expected = geo_to_enu(LOCATIONS[station.sid.split(".")[1]],
@@ -365,7 +457,7 @@ def test_from_collection_geographic_coordinates():
 def test_from_collection_reference_point():
     """A reference point fixes the origin of the frame."""
     point = WgsPoint(13.25, 46.06, 120.0)
-    array = ArrayData.from_collection(_array_collection(), reference=point)
+    array = ArrayData(_array_collection(), reference=point)
 
     assert array.frame == MetricFrame((13.25, 46.06, 120.0), "enu")
     np.testing.assert_allclose(array["XX.A01."].coordinates, 0.0, atol=1e-6)
@@ -374,7 +466,7 @@ def test_from_collection_reference_point():
 def test_from_collection_explicit_coordinates():
     """Explicit local coordinates replace the metadata."""
     coordinates = {"XX.A01.": (0, 0), "XX.A02.": (10, 0), "XX.A03.": (0, 10)}
-    array = ArrayData.from_collection(
+    array = ArrayData(
         _array_collection(), coordinates=coordinates
     )
 
@@ -382,7 +474,7 @@ def test_from_collection_explicit_coordinates():
     np.testing.assert_array_equal(array["XX.A03."].coordinates, [0, 10, 0])
 
     with pytest.raises(ValueError, match="missing"):
-        ArrayData.from_collection(
+        ArrayData(
             _array_collection(), coordinates={"XX.A01.": (0, 0)}
         )
 
@@ -392,28 +484,34 @@ def test_from_collection_missing_location():
     collection = _collection(_station_records("A01"))
 
     with pytest.raises(ValueError, match="unknown"):
-        ArrayData.from_collection(collection)
+        ArrayData(collection)
 
 
-def test_from_collection_common_window():
-    """The default window is the interval covered by all channels."""
+def test_from_collection_station_windows():
+    """
+    Each station keeps its data; the common window is taken later.
+
+    The records are cut only to the interval covered by all the
+    channels of each station.
+    """
     records = (
         _station_records("A01", location=LOCATIONS["A01"])
         + _station_records("A02", location=LOCATIONS["A02"],
                            start=Date(START) + 1.0)
     )
-    array = ArrayData.from_collection(_collection(records))
+    array = ArrayData(_collection(records))
 
     assert array.starttime == Date(START) + 1.0
     assert array.nsamp == 400
+    assert array["XX.A01."].nsamp == 500
     np.testing.assert_array_equal(
-        array["XX.A01."].records[0].data, records[0].data[100:]
+        array.window()["XX.A01."].records[0].data, records[0].data[100:]
     )
 
 
 def test_from_collection_explicit_window():
     """An explicit window is cut with both bounds included."""
-    array = ArrayData.from_collection(
+    array = ArrayData(
         _array_collection(),
         starttime=Date(START) + 1.0,
         endtime=Date(START) + 2.0,
@@ -421,12 +519,13 @@ def test_from_collection_explicit_window():
 
     assert array.nsamp == 101
     assert array.starttime == Date(START) + 1.0
+    assert array.synchronized
 
 
 def test_from_collection_does_not_modify_input():
     """The records of the array are new records."""
     collection = _array_collection()
-    array = ArrayData.from_collection(collection, endtime=Date(START) + 1.0)
+    array = ArrayData(collection, endtime=Date(START) + 1.0)
     array[0].records[0].data[:] = 0.0
 
     assert collection.records()[0].nsamp == 500
@@ -447,7 +546,7 @@ def _gap_collection():
 def test_from_collection_drops_stations_with_gaps():
     """Stations with gaps are excluded with a warning."""
     with pytest.warns(ArrayDataWarning, match="XX.A02."):
-        array = ArrayData.from_collection(_gap_collection())
+        array = ArrayData(_gap_collection())
 
     assert array.sids == ("XX.A01.", "XX.A03.")
     assert array.excluded[0][0] == "XX.A02."
@@ -457,10 +556,10 @@ def test_from_collection_drops_stations_with_gaps():
 def test_from_collection_raises_on_gaps():
     """With gaps='raise' an incomplete station is an error."""
     with pytest.raises(ValueError, match="XX.A02..HHN"):
-        ArrayData.from_collection(_gap_collection(), gaps="raise")
+        ArrayData(_gap_collection(), gaps="raise")
 
     with pytest.raises(ValueError):
-        ArrayData.from_collection(_gap_collection(), gaps="fill")
+        ArrayData(_gap_collection(), gaps="fill")
 
 
 def test_from_collection_selection():
@@ -472,22 +571,22 @@ def test_from_collection_selection():
     collection = _collection(records)
 
     with pytest.raises(ValueError, match="select"):
-        ArrayData.from_collection(collection)
+        ArrayData(collection)
 
-    array = ArrayData.from_collection(collection, select="XX.*..HH?")
+    array = ArrayData(collection, select="XX.*..HH?")
     assert array.sids == ("XX.A01.", "XX.A02.")
 
-    vertical = ArrayData.from_collection(collection, select=["*.*..HHZ"])
+    vertical = ArrayData(collection, select=["*.*..HHZ"])
     assert all(station.ncomp == 1 for station in vertical)
 
     with pytest.raises(ValueError, match="no channel"):
-        ArrayData.from_collection(collection, select="YY.*")
+        ArrayData(collection, select="YY.*")
 
 
 def test_from_collection_orientations_and_covariance():
     """Per-station orientations and covariances are applied."""
     rotation = [[0, 0, 1], [1, 0, 0], [0, 1, 0]]
-    array = ArrayData.from_collection(
+    array = ArrayData(
         _array_collection(),
         orientations={"XX.A02.": rotation},
         coordinate_covariance={"XX.A01.": 0.04},
@@ -497,7 +596,7 @@ def test_from_collection_orientations_and_covariance():
     assert array["XX.A01."].coordinate_covariance[0, 0] == 0.04
     assert array["XX.A03."].coordinate_covariance is None
 
-    common = ArrayData.from_collection(_array_collection(),
+    common = ArrayData(_array_collection(),
                                        coordinate_covariance=0.01)
     assert all(st.coordinate_covariance[1, 1] == 0.01 for st in common)
 
@@ -505,9 +604,13 @@ def test_from_collection_orientations_and_covariance():
 def test_from_collection_type_checks():
     """Inputs of the wrong type are rejected."""
     with pytest.raises(TypeError):
-        ArrayData.from_collection(_station_records("A"))
+        ArrayData(42)
     with pytest.raises(TypeError):
-        ArrayData.from_collection(_array_collection(), coordinates=[(0, 0)])
+        ArrayData(_array_collection(), coordinates=[(0, 0)])
+    with pytest.raises(TypeError, match="mixed"):
+        ArrayData([_station_records("A")[0], StationData(
+            "XX.B..", _station_records("B"), (0.0, 0.0)
+        )])
 
 
 def test_from_records_equals_from_collection():
@@ -517,17 +620,104 @@ def test_from_records_equals_from_collection():
     for station, location in LOCATIONS.items():
         records += _station_records(station, location=location)
 
-    first = ArrayData.from_records(records)
-    second = ArrayData.from_collection(_collection(records))
+    first = ArrayData(records)
+    second = ArrayData(_collection(records))
 
     assert first.sids == second.sids
     np.testing.assert_array_equal(first.coordinates, second.coordinates)
     np.testing.assert_array_equal(first.canonical(), second.canonical())
 
     with pytest.raises(ValueError, match="identifier"):
-        ArrayData.from_records([Record(data=[1.0], delta=1.0, time=START)])
+        ArrayData([Record(data=[1.0], delta=1.0, time=START)])
     with pytest.raises(TypeError):
-        ArrayData.from_records([np.zeros(3)])
+        ArrayData([np.zeros(3)])
+
+
+def test_fixed_reference_and_progressive_additions():
+    """
+    The origin is fixed by the first station with a position.
+
+    Adding stations does not move it; set_reference recomputes the
+    coordinates, by default from the mean position.
+    """
+    records = {
+        name: _station_records(name, location=LOCATIONS[name])
+        for name in LOCATIONS
+    }
+    array = ArrayData(records["A01"])
+
+    assert array.frame.ref_geo == pytest.approx(LOCATIONS["A01"])
+    np.testing.assert_allclose(array["XX.A01."].coordinates, 0.0, atol=1e-6)
+
+    array.add(records["A02"] + records["A03"])
+    np.testing.assert_allclose(array["XX.A01."].coordinates, 0.0, atol=1e-6)
+    np.testing.assert_allclose(
+        array["XX.A03."].coordinates,
+        geo_to_enu(LOCATIONS["A03"], array.frame),
+    )
+
+    all_at_once = ArrayData(_array_collection())
+    np.testing.assert_allclose(array.coordinates, all_at_once.coordinates)
+
+    array.set_reference()
+    mean = np.mean(list(LOCATIONS.values()), axis=0)
+    np.testing.assert_allclose(array.frame.ref_geo, mean)
+    np.testing.assert_allclose(
+        array["XX.A02."].coordinates,
+        geo_to_enu(LOCATIONS["A02"], array.frame),
+    )
+
+    point = (13.25, 46.06, 120.0)
+    array.set_reference(point)
+    assert array.frame == MetricFrame(point, "enu")
+    assert array["XX.A02."].location == array.window()["XX.A02."].location
+
+
+def test_local_and_geographic_stations():
+    """Local and geographic positions mix only as the rules allow."""
+    local = ArrayData(_station_records("B01"),
+                      coordinates={"XX.B01.": (0.0, 0.0)})
+
+    with pytest.raises(ValueError, match="local coordinates"):
+        local.add(_station_records("A01", location=LOCATIONS["A01"]))
+
+    with pytest.raises(ValueError, match="give the reference"):
+        local.set_reference()
+
+    local.set_reference((13.0, 46.0))
+    assert local.frame is not None
+    np.testing.assert_array_equal(local["XX.B01."].coordinates, 0.0)
+
+    geographic = ArrayData(_array_collection())
+    geographic.add(_station_records("B01"),
+                   coordinates={"XX.B01.": (5.0, 5.0)})
+
+    with pytest.raises(ValueError, match="no geographic position"):
+        geographic.set_reference()
+
+
+def test_array_file_and_additions(tmp_path):
+    """An array file fills the array; other stations can be added."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        array = ArrayData(DATA.parent / "sesame_array.json")
+        other = ArrayData()
+        other.read(DATA.parent / "sesame_array.json")
+
+    assert array.sids == other.sids and array.nsta == 9
+    assert array.synchronized
+
+    with pytest.raises(TypeError, match="no options"):
+        ArrayData(DATA.parent / "sesame_array.json", select="*")
+
+    with pytest.raises(ValueError, match="already"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            array.read(DATA.parent / "sesame_array.json")
+
+    extra = array["S1001"].records
+    array.add(StationData("EXTRA", extra, (0.0, 0.0)))
+    assert array.nsta == 10
 
 
 def test_sesame_excerpt():
@@ -549,7 +739,7 @@ def test_sesame_excerpt():
             sac["USER7"], sac["USER8"], sac["USER9"]
         )
 
-    array = ArrayData.from_collection(collection, coordinates=coordinates)
+    array = ArrayData(collection, coordinates=coordinates)
 
     assert array.sids == tuple(
         f".S{number}." for number in (1001, 1002, 1003, 1006, 1017, 1019,

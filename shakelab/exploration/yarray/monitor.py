@@ -30,7 +30,7 @@ called by :meth:`Client.every <shakelab.signals.seedlink.Client.every>`:
     client = seedlink.Client("server", metadata=meta)
     client.select("XX.A*..HH?")
     client.set_buffer(max_duration=900)
-    monitor = ArrayMonitor(Beamformer(config, cache=True), window=600)
+    monitor = ArrayMonitor(config, window=600)
     client.every(600, monitor)
     client.start()
     ...
@@ -51,7 +51,7 @@ replays of archives with ``clock="data"``).
 
 All the query methods (:meth:`status`, :meth:`latest`, :meth:`results`,
 :meth:`result`, :meth:`array`) can be called from any thread while the
-monitor runs: they return immutable objects or copies.
+monitor runs: they return copies.
 
 Windows whose data cannot be processed (no data, too few stations,
 too short, singular matrices) are skipped and reported; other errors
@@ -73,9 +73,7 @@ from shakelab.exploration.yarray.beamforming import (
     Beamformer,
     BeamformingResult,
 )
-from shakelab.exploration.yarray.config import BeamformingConfig
 from shakelab.exploration.yarray.data import ArrayData
-from shakelab.exploration.yarray.io import write_result
 from shakelab.libutils.timeN import Date
 from shakelab.signals.base import StreamCollection
 
@@ -93,9 +91,9 @@ class ArrayMonitor:
 
     Parameters
     ----------
-    beamformer : Beamformer or BeamformingConfig
-        Processing applied to each window (a configuration is wrapped
-        in a Beamformer with cache).
+    config : BeamformingConfig, str or path-like
+        Configuration of the processing of each window, or a JSON file
+        (the monitor keeps a copy).
     window : float
         Duration of the analysed data, in seconds, ending at the latest
         time covered by all the selected channels.
@@ -108,8 +106,8 @@ class ArrayMonitor:
     min_stations : int, optional
         Fewest stations for an analysis. Default is 3.
     output : str or path-like, optional
-        File to which each result is appended (pickle, see
-        :func:`~.io.write_result`).
+        File to which each result is appended (see
+        :meth:`BeamformingResult.write`).
     keep : int, optional
         Results kept in memory (the latest). Default: all.
     background : bool, optional
@@ -117,21 +115,21 @@ class ArrayMonitor:
     queue_size : int, optional
         Analyses waiting for the worker. Default is 1.
     coordinates, reference, orientations, coordinate_covariance : optional
-        Passed to :meth:`ArrayData.from_collection` (positions and
-        orientations otherwise come from the metadata of the records).
+        Passed to :class:`ArrayData` (positions and orientations
+        otherwise come from the metadata of the records).
 
     Raises
     ------
     TypeError
-        If ``beamformer`` is neither a Beamformer nor a configuration.
+        If ``config`` is neither a configuration nor a file.
     ValueError
-        If ``window``, ``min_stations``, ``keep`` or ``queue_size`` are
-        not positive.
+        If the configuration is incomplete, or ``window``,
+        ``min_stations``, ``keep`` or ``queue_size`` are not positive.
     """
 
     def __init__(
         self,
-        beamformer: Any,
+        config: Any,
         window: float,
         select: Any = None,
         gaps: str = "drop",
@@ -145,11 +143,8 @@ class ArrayMonitor:
         orientations: Any = None,
         coordinate_covariance: Any = None,
     ) -> None:
-        if isinstance(beamformer, BeamformingConfig):
-            beamformer = Beamformer(beamformer, cache=True)
-
-        if not isinstance(beamformer, Beamformer):
-            raise TypeError("beamformer must be a Beamformer or a config")
+        beamformer = Beamformer(config=config, cache=True)
+        beamformer.config.check_complete()
 
         if not float(window) > 0.0:
             raise ValueError("window must be positive")
@@ -160,7 +155,7 @@ class ArrayMonitor:
             if int(value) < 1:
                 raise ValueError(f"{name} must be at least 1")
 
-        self.beamformer = beamformer
+        self._beamformer = beamformer
         self.window = float(window)
         self.select = select
         self.gaps = gaps
@@ -338,7 +333,7 @@ class ArrayMonitor:
         begin = time.perf_counter()
 
         try:
-            array = ArrayData.from_collection(
+            array = ArrayData(
                 collection, select=self.select, starttime=starttime,
                 endtime=endtime, gaps=self.gaps, **self._array_options,
             )
@@ -350,7 +345,8 @@ class ArrayMonitor:
                 )
                 return None
 
-            result = self.beamformer.process(array)
+            self._beamformer.array = array
+            result = self._beamformer.process(gaps=self.gaps)
 
         except _SKIPPED_ERRORS as error:
             self._skip(f"window {starttime} - {endtime}: {error}")
@@ -364,7 +360,7 @@ class ArrayMonitor:
             return None
 
         if self.output is not None:
-            write_result(result, self.output, append=True)
+            result.write(self.output, append=True)
 
         with self._lock:
             self._results.append((Date(starttime), Date(endtime), result))
@@ -415,6 +411,11 @@ class ArrayMonitor:
     # -- queries -----------------------------------------------------------
 
     @property
+    def config(self) -> Any:
+        """Copy of the configuration of the processing."""
+        return self._beamformer.config.copy()
+
+    @property
     def running(self) -> bool:
         """Whether the worker thread is running."""
         return self._thread is not None and self._thread.is_alive()
@@ -453,7 +454,9 @@ class ArrayMonitor:
             Latest result, None before the first analysis.
         """
         with self._lock:
-            return self._results[-1][2] if self._results else None
+            latest = self._results[-1][2] if self._results else None
+
+        return None if latest is None else latest.copy()
 
     def results(self, starttime: Any = None, endtime: Any = None) -> list:
         """
@@ -476,7 +479,7 @@ class ArrayMonitor:
             items = list(self._results)
 
         return [
-            result for first, last, result in items
+            result.copy() for first, last, result in items
             if (start is None or last >= start)
             and (end is None or first <= end)
         ]
@@ -497,11 +500,17 @@ class ArrayMonitor:
         Returns
         -------
         BeamformingResult or None
-            Joined result (:meth:`BeamformingResult.concatenate`), None
-            if there is none.
+            Joined result (:meth:`BeamformingResult.append`), None if
+            there is none.
         """
         items = self.results(starttime, endtime)
-        return BeamformingResult.concatenate(items) if items else None
+
+        if not items:
+            return None
+
+        joined = BeamformingResult()
+        joined.append(items)
+        return joined
 
     def array(self) -> Optional[ArrayData]:
         """
@@ -510,10 +519,12 @@ class ArrayMonitor:
         Returns
         -------
         ArrayData or None
-            Immutable snapshot, None before the first analysis.
+            Copy of the array, None before the first analysis.
         """
         with self._lock:
-            return self._array
+            array = self._array
+
+        return None if array is None else array.copy()
 
     # -- helpers -----------------------------------------------------------
 

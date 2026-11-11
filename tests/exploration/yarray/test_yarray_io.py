@@ -19,8 +19,8 @@
 Unit tests for :mod:`shakelab.exploration.yarray.io`.
 
 Array files are read from the SESAME excerpt (also with explicit
-orientations, reader options and errors); results are written,
-appended and read back.
+orientations, reader options and errors); result files are written,
+appended and read back, and other files are rejected.
 """
 
 from __future__ import annotations
@@ -33,17 +33,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from shakelab.exploration.yarray.beamforming import beamform
-from shakelab.exploration.yarray.config import (
-    BeamformingConfig,
-    SearchGrid,
-    WindowConfig,
+from shakelab.exploration.yarray.beamforming import (
+    Beamformer,
+    BeamformingResult,
 )
+from shakelab.exploration.yarray.config import BeamformingConfig
+from shakelab.exploration.yarray.data import ArrayData
 from shakelab.exploration.yarray.io import (
-    read_array,
-    read_result,
-    read_results,
-    write_result,
+    read_array_file,
+    read_result_states,
+    write_result_state,
 )
 
 DATA = Path(__file__).parent / "data"
@@ -66,6 +65,11 @@ def _edited(tmp_path, change):
     path = tmp_path / "array.json"
     path.write_text(json.dumps(data))
     return path
+
+
+def read_array(path):
+    """Array of the stations of an array file."""
+    return ArrayData(read_array_file(path)[0])
 
 
 def test_read_array():
@@ -135,6 +139,26 @@ def test_invalid_array_files(tmp_path, change, error, match):
         read_array(_edited(tmp_path, change))
 
 
+def test_reference_of_the_array_file(tmp_path):
+    """The reference of the file is the origin of the local frame."""
+    path = _edited(tmp_path, lambda d: d.update(reference=[13.25, 46.06]))
+    stations, reference = read_array_file(path)
+    array = ArrayData(path)
+
+    assert reference == (13.25, 46.06)
+    assert array.frame.ref_geo == pytest.approx((13.25, 46.06, 0.0))
+    assert read_array_file(ARRAY)[1] is None
+
+    other = ArrayData(reference=(13.0, 46.0))
+
+    with pytest.raises(ValueError, match="differs"):
+        other.read(path)
+
+    with pytest.raises(ValueError, match="longitude"):
+        read_array_file(_edited(tmp_path / "bad",
+                                lambda d: d.update(reference="here")))
+
+
 def test_invalid_json(tmp_path):
     """Syntax errors report their position."""
     path = tmp_path / "array.json"
@@ -147,51 +171,52 @@ def test_invalid_json(tmp_path):
 def _result():
     """A small result on the SESAME excerpt."""
     config = BeamformingConfig(
-        [5.0], SearchGrid(100.0, 2000.0, 20, azimuth_size=36),
-        method="bartlett", window=WindowConfig(length=10,
-                                               windows_per_block=20),
+        frequencies=[5.0], grid_min=100.0, grid_max=2000.0, grid_size=20,
+        azimuth_size=36, method="bartlett", window_length=10,
+        windows_per_block=20,
     )
-    return beamform(read_array(ARRAY), config)
+    return Beamformer(read_array(ARRAY), config).process()
 
 
-def test_write_and_read_results(tmp_path):
-    """Results are written, appended and read back."""
+def test_result_states(tmp_path):
+    """States are written, appended and read back."""
     path = tmp_path / "out" / "result.pkl"
-    result = _result()
-    write_result(result, path)
+    state = _result()._state()
+    write_result_state(state, path)
 
-    assert read_result(path).maxima == result.maxima
+    assert read_result_states(path)[0]["maxima"] == state["maxima"]
 
     with pytest.raises(FileExistsError):
-        write_result(result, path)
+        write_result_state(state, path)
 
-    write_result(result, path, append=True)
+    write_result_state(state, path, append=True)
+    assert len(read_result_states(path)) == 2
+    assert len(read_result_states(path, first=True)) == 1
 
-    assert len(read_results(path)) == 2
-    with pytest.raises(ValueError, match="concatenate"):
-        read_result(path)
+    joined = BeamformingResult(path)
+    assert joined.nblocks == 2 * BeamformingResult._from_state(state).nblocks
 
-    joined = read_result(path, concatenate=True)
-    assert len(joined.block_times[5.0]) == 2 * len(result.block_times[5.0])
-
-    write_result(result, path, owrite=True)
-    assert len(read_results(path)) == 1
-
-    with pytest.raises(TypeError):
-        write_result("result", path, owrite=True)
+    write_result_state(state, path, owrite=True)
+    assert len(read_result_states(path)) == 1
 
 
-def test_read_results_rejects_other_objects(tmp_path):
-    """Files with other objects or empty are rejected."""
+def test_read_results_rejects_other_files(tmp_path):
+    """Files with other objects, other versions or empty are rejected."""
     import pickle
 
     path = tmp_path / "other.pkl"
     path.write_bytes(pickle.dumps({"a": 1}))
 
-    with pytest.raises(ValueError, match="unexpected"):
-        read_results(path)
+    with pytest.raises(ValueError, match="not a YArray result"):
+        read_result_states(path)
+
+    path.write_bytes(pickle.dumps({"format": "shakelab.yarray.result",
+                                   "version": 9}))
+
+    with pytest.raises(ValueError, match="version 9"):
+        read_result_states(path)
 
     path.write_bytes(b"")
 
     with pytest.raises(ValueError, match="no result"):
-        read_results(path)
+        read_result_states(path)

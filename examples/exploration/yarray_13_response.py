@@ -51,7 +51,7 @@ warnings.filterwarnings("ignore", message="STLO")
 
 # 1. Station coordinates (east, north, in metres): a centre and three
 #    rings of three stations at 10, 25 and 60 m. The response accepts
-#    plain coordinates, or an ArrayData (e.g. from read_array).
+#    plain coordinates, or an ArrayData.
 coordinates = np.array([
     [0.0, 0.0],
     [0.0, 10.0], [8.7, -5.0], [-8.7, -5.0],
@@ -89,7 +89,7 @@ uncertain = ya.array_response(coordinates,
 ya.analyze_response(uncertain, expected=True).info()
 
 # 7. The array of the SESAME test data.
-array = ya.read_array(DATA / "sesame_array.json")
+array = ya.ArrayData(DATA / "sesame_array.json")
 ya.analyze_response(ya.array_response(array)).info()
 
 figure, axes = plt.subplots(2, 3, figsize=(17, 10))

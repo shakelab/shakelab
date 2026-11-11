@@ -21,12 +21,14 @@
 Frequency-wavenumber beamforming of seismic arrays.
 
 :class:`Beamformer` applies a :class:`~.config.BeamformingConfig` to
-:class:`~.data.ArrayData` snapshots and returns a
-:class:`BeamformingResult`: the local maxima of the beam power
-(:class:`SpectralMaximum`) and, optionally, the complete spectra
-(:class:`FrequencySpectrum`), for every analysis frequency, covariance
-block and processed component. :func:`beamform` is the same as a
-function.
+an :class:`~.data.ArrayData`, on the window common to its stations or
+on a given one, and returns a :class:`BeamformingResult`: the local
+maxima of the beam power (:class:`SpectralMaximum`) and, optionally,
+the complete spectra (:class:`FrequencySpectrum`), for every analysis
+frequency, covariance block and processed component. Results of
+successive windows are joined with :meth:`BeamformingResult.append`;
+:meth:`BeamformingResult.dispersion` and
+:meth:`BeamformingResult.density` summarize the maxima.
 
 Processing
 ----------
@@ -70,9 +72,12 @@ ambient vibration arrays. Geophysical Journal International, 215(1),
 
 from __future__ import annotations
 
+import json
 import math
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+import os
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -84,7 +89,6 @@ from shakelab.exploration.yarray.config import (
     FFTSelection,
     GeometricUncertainty,
     GridQuantity,
-    OutputMode,
     StatisticalUncertainty,
     TransformMethod,
 )
@@ -112,9 +116,9 @@ __all__ = [
     "BeamformingResult",
     "BeamformingWarning",
     "Beamformer",
+    "DispersionCurve",
     "FrequencySpectrum",
     "SpectralMaximum",
-    "beamform",
 ]
 
 # Directions (east, north, up) of the motion used by each mode.
@@ -302,35 +306,137 @@ class FrequencySpectrum:
 
 
 @dataclass(frozen=True, eq=False)
+class DispersionCurve:
+    """
+    Statistics of the spectral maxima of one rank at each frequency.
+
+    Attributes
+    ----------
+    component : str
+        Processed component.
+    rank : int
+        Rank of the maxima.
+    frequency : numpy.ndarray
+        Frequencies in Hz with at least one maximum.
+    velocity : numpy.ndarray
+        Median phase velocity of the blocks, in m/s (distance units of
+        the coordinates per second).
+    velocity_low, velocity_high : numpy.ndarray
+        16th and 84th percentiles of the velocity.
+    azimuth : numpy.ndarray
+        Circular mean of the propagation azimuths, in degrees.
+    count : numpy.ndarray
+        Number of maxima (blocks) at each frequency.
+    ellipticity : numpy.ndarray, optional
+        Median signed ellipticity (Rayleigh joint processing).
+    """
+
+    component: str
+    rank: int
+    frequency: np.ndarray
+    velocity: np.ndarray
+    velocity_low: np.ndarray
+    velocity_high: np.ndarray
+    azimuth: np.ndarray
+    count: np.ndarray
+    ellipticity: Optional[np.ndarray] = None
+
+    def info(self) -> None:
+        """Print the curve as a table."""
+        print(self.summary())
+
+    def summary(self) -> str:
+        """
+        Return the curve as a text table.
+
+        Returns
+        -------
+        str
+            One line for each frequency.
+        """
+        lines = [
+            f"DispersionCurve: {self.component}, rank {self.rank}",
+            "  f (Hz)    v (m/s)   v16 (m/s)  v84 (m/s)  azimuth  blocks"
+            + ("  ellipticity" if self.ellipticity is not None else ""),
+        ]
+
+        for index, frequency in enumerate(self.frequency):
+            line = (
+                f"  {frequency:7.3f}  {self.velocity[index]:9.1f}  "
+                f"{self.velocity_low[index]:9.1f}  "
+                f"{self.velocity_high[index]:9.1f}  "
+                f"{self.azimuth[index]:7.1f}  {self.count[index]:6d}"
+            )
+
+            if self.ellipticity is not None:
+                line += f"  {self.ellipticity[index]:11.3f}"
+
+            lines.append(line)
+
+        return "\n".join(lines)
+
+
 class BeamformingResult:
     """
     Result of frequency-wavenumber processing.
 
+    A result holds the maxima (and optionally the spectra) of the
+    covariance blocks of one or more analyses with the same
+    configuration: :meth:`append` adds those of a later analysis,
+    :meth:`write` with ``append=True`` adds them to a file, which is
+    read back joined.
+
+    Parameters
+    ----------
+    source : str or path-like, optional
+        Result file to read (see :meth:`read`). Default: an empty
+        result.
+
     Attributes
     ----------
-    maxima : tuple of SpectralMaximum
-        Local maxima (empty with ``output="spectra"``).
-    spectra : tuple of FrequencySpectrum or None
-        Complete spectra (None with ``output="maxima"``).
-    config : BeamformingConfig
-        Configuration used.
+    maxima : list of SpectralMaximum
+        Local maxima.
+    spectra : list of FrequencySpectrum or None
+        Complete spectra (None unless the configuration has
+        ``spectra=True``).
+    config : BeamformingConfig or None
+        Configuration used (None for an empty result).
     block_times : dict
         Centres of the covariance blocks, by frequency.
-    sids : tuple of str
-        Stations processed.
-    coordinates : numpy.ndarray
-        Their coordinates ``(n_stations, 3)``.
     units : str or None
         Units of the data (None if unknown).
+
+    Examples
+    --------
+    >>> result = beamformer.process()
+    >>> result.write("result.pkl")
+    >>> result = BeamformingResult("result.pkl")
+    >>> result.append(beamformer.process(start, end))
     """
 
-    maxima: tuple
-    spectra: Optional[tuple]
-    config: BeamformingConfig
-    block_times: dict = field(default_factory=dict)
-    sids: tuple = ()
-    coordinates: Optional[np.ndarray] = None
-    units: Optional[str] = None
+    def __init__(self, source: Any = None) -> None:
+        self.maxima: list = []
+        self.spectra: Optional[list] = None
+        self.config: Optional[BeamformingConfig] = None
+        self.block_times: dict = {}
+        self.units: Optional[str] = None
+        self._block_stations: dict = {}
+        self._station_sets: list = []
+
+        if source is not None:
+            self.read(source)
+
+    def __repr__(self) -> str:
+        if self.config is None:
+            return "BeamformingResult(empty)"
+
+        return (
+            f"BeamformingResult({self.config.method.value}, "
+            f"{self.config.components.value}, {self.nblocks} blocks, "
+            f"{len(self.maxima)} maxima)"
+        )
+
+    # -- properties -----------------------------------------------------
 
     @property
     def frequencies(self) -> np.ndarray:
@@ -340,12 +446,46 @@ class BeamformingResult:
     @property
     def components(self) -> tuple[str, ...]:
         """Processed components."""
+        if self.config is None:
+            return ()
+
         return _MODE_OUTPUTS[self.config.components]
+
+    @property
+    def nblocks(self) -> int:
+        """Number of covariance blocks, summed over the frequencies."""
+        return sum(len(times) for times in self.block_times.values())
+
+    @property
+    def sids(self) -> tuple[str, ...]:
+        """Stations processed in at least one block."""
+        sids: dict = {}
+
+        for names, _ in self._station_sets:
+            sids.update(dict.fromkeys(names))
+
+        return tuple(sids)
+
+    @property
+    def coordinates(self) -> np.ndarray:
+        """Coordinates ``(n_stations, 3)`` of :attr:`sids`."""
+        positions: dict = {}
+
+        for names, coordinates in self._station_sets:
+            for name, row in zip(names, coordinates):
+                positions.setdefault(name, row)
+
+        if not positions:
+            return np.empty((0, 3))
+
+        return np.array([positions[name] for name in self.sids])
 
     @property
     def power_units(self) -> Optional[str]:
         """Units of the power, None for the MUSIC pseudo-power."""
-        if self.config.method is BeamformingMethod.MUSIC:
+        if self.config is None or (
+            self.config.method is BeamformingMethod.MUSIC
+        ):
             return None
 
         units = f"({self.units or 'unit'})**2/Hz"
@@ -354,6 +494,8 @@ class BeamformingResult:
             return f"({units})**2"
 
         return units
+
+    # -- selection ------------------------------------------------------
 
     def maxima_at(
         self,
@@ -416,7 +558,10 @@ class BeamformingResult:
             If the component was not processed.
         """
         if not self.spectra:
-            raise ValueError("the result has no spectra (output='maxima')")
+            raise ValueError(
+                "the result has no spectra (configuration with "
+                "spectra=False)"
+            )
 
         frequency = self._nearest_frequency(frequency)
         component = component or self.components[0]
@@ -427,78 +572,251 @@ class BeamformingResult:
 
         raise KeyError(component)
 
-    @classmethod
-    def concatenate(cls, results: Iterable) -> BeamformingResult:
+    def stations_at(self, frequency: float, block: int) -> tuple[str, ...]:
         """
-        Join results of consecutive data with the same configuration.
-
-        Blocks are renumbered; maxima and spectra keep the order of the
-        results.
+        Return the stations processed in a covariance block.
 
         Parameters
         ----------
-        results : iterable of BeamformingResult
-            Results with the same configuration and frequencies.
+        frequency : float
+            Frequency in Hz (the nearest analysis frequency).
+        block : int
+            Index of the block at that frequency (as
+            :attr:`SpectralMaximum.block`).
 
         Returns
         -------
-        BeamformingResult
-            Joined result (stations and coordinates of the first).
+        tuple of str
+            Station identifiers.
+        """
+        frequency = self._nearest_frequency(frequency)
+        return self._station_sets[self._block_stations[frequency][block]][0]
+
+    # -- analysis -------------------------------------------------------
+
+    def dispersion(
+        self,
+        rank: int = 1,
+        component: Optional[str] = None,
+    ) -> DispersionCurve:
+        """
+        Return the statistics of the maxima of a rank at each frequency.
+
+        Parameters
+        ----------
+        rank : int, optional
+            Rank of the maxima. Default 1 (the largest of each block).
+        component : str, optional
+            Component; required if several were processed.
+
+        Returns
+        -------
+        DispersionCurve
+            Median velocity, percentiles, mean azimuth and number of
+            blocks at each frequency with maxima.
 
         Raises
         ------
         ValueError
-            If no result is given or the results are not compatible.
+            If the component is ambiguous or not processed, or there
+            are no maxima of that rank.
         """
-        results = list(results)
+        component = self._component(component)
+        groups: dict = {}
 
-        if not results:
-            raise ValueError("no result to concatenate")
+        for item in self.maxima_at(rank=rank, component=component):
+            groups.setdefault(item.frequency, []).append(item)
 
-        first = results[0]
-        reference = first.config.to_dict()
+        if not groups:
+            raise ValueError(f"no maximum of rank {rank} for {component}")
 
-        for item in results[1:]:
-            if item.config.to_dict() != reference:
-                raise ValueError("results with different configurations")
+        frequencies = sorted(groups)
+        columns: dict = {name: [] for name in (
+            "velocity", "velocity_low", "velocity_high", "azimuth",
+            "count", "ellipticity",
+        )}
 
-            if set(item.block_times) != set(first.block_times):
-                raise ValueError("results with different frequencies")
-
-        maxima = []
-        times = {frequency: [] for frequency in first.block_times}
-        offsets = {}
-
-        for item in results:
-            for frequency, block in item.block_times.items():
-                offsets[frequency] = len(times[frequency])
-                times[frequency].extend(block)
-
-            maxima.extend(
-                _replace_block(maximum, offsets[maximum.frequency])
-                for maximum in item.maxima
+        for frequency in frequencies:
+            items = groups[frequency]
+            velocity = np.array([item.velocity for item in items])
+            low, median, high = np.percentile(velocity, (16.0, 50.0, 84.0))
+            angles = np.radians([item.azimuth for item in items])
+            columns["velocity"].append(median)
+            columns["velocity_low"].append(low)
+            columns["velocity_high"].append(high)
+            columns["azimuth"].append(np.degrees(np.arctan2(
+                np.mean(np.sin(angles)), np.mean(np.cos(angles))
+            )) % 360.0)
+            columns["count"].append(len(items))
+            values = [item.ellipticity for item in items
+                      if item.ellipticity is not None]
+            columns["ellipticity"].append(
+                float(np.median(values)) if values else np.nan
             )
 
-        spectra = None
+        ellipticity = np.array(columns.pop("ellipticity"))
 
-        if first.spectra is not None:
-            spectra = tuple(
-                _join_spectra([
-                    item.spectrum(spectrum.frequency, spectrum.component)
-                    for item in results
-                ])
-                for spectrum in first.spectra
-            )
-
-        return cls(
-            maxima=tuple(maxima),
-            spectra=spectra,
-            config=first.config,
-            block_times={key: tuple(value) for key, value in times.items()},
-            sids=first.sids,
-            coordinates=first.coordinates,
-            units=first.units,
+        return DispersionCurve(
+            component=component,
+            rank=int(rank),
+            frequency=np.array(frequencies),
+            ellipticity=(
+                None if np.all(np.isnan(ellipticity)) else ellipticity
+            ),
+            **{
+                name: np.array(values, dtype=int if name == "count"
+                               else float)
+                for name, values in columns.items()
+            },
         )
+
+    def density(self, **options: Any) -> Any:
+        """
+        Return the density of the maxima at each frequency.
+
+        Parameters
+        ----------
+        **options
+            Options of
+            :func:`~shakelab.exploration.yarray.statistics.maximum_density`
+            (``component``, ``ranks``, ``coordinate``, ``weighting``,
+            ``bandwidth_mode``...).
+
+        Returns
+        -------
+        MaximumDensity
+            Density, with its summary and peaks.
+        """
+        from shakelab.exploration.yarray.statistics import maximum_density
+
+        return maximum_density(self, **options)
+
+    # -- joining and files ----------------------------------------------
+
+    def append(self, other: Any) -> None:
+        """
+        Add the blocks of other results.
+
+        Blocks are renumbered; maxima and spectra keep the order of the
+        results. The stations of each block are kept
+        (:meth:`stations_at`).
+
+        Parameters
+        ----------
+        other : BeamformingResult or iterable of BeamformingResult
+            Results with the same configuration, frequencies and units.
+
+        Raises
+        ------
+        TypeError
+            If an element is not a BeamformingResult.
+        ValueError
+            If the results are not compatible (nothing is added).
+        """
+        items = (
+            [other] if isinstance(other, BeamformingResult) else list(other)
+        )
+
+        for item in items:
+            if not isinstance(item, BeamformingResult):
+                raise TypeError("only BeamformingResult can be appended")
+
+        items = [item for item in items if item.config is not None]
+        reference = self if self.config is not None else (
+            items[0] if items else None
+        )
+
+        for item in items:
+            _check_compatible(reference, item)
+
+        for item in items:
+            if item is self:
+                item = item.copy()
+
+            self._join(item)
+
+    def copy(self) -> BeamformingResult:
+        """
+        Return a copy of the result.
+
+        Returns
+        -------
+        BeamformingResult
+            New result; maxima and spectra are immutable and shared.
+        """
+        new = BeamformingResult()
+        new._join(self)
+        return new
+
+    def read(self, source: Any) -> None:
+        """
+        Add the results of a file.
+
+        Parameters
+        ----------
+        source : str or path-like
+            File written by :meth:`write` (trusted origin only: pickle).
+
+        Raises
+        ------
+        ValueError
+            If the file is not a result file or its pieces are not
+            compatible with each other or with this result.
+        """
+        from shakelab.exploration.yarray.io import read_result_states
+
+        self.append([
+            BeamformingResult._from_state(state)
+            for state in read_result_states(source)
+        ])
+
+    def write(
+        self,
+        target: Any,
+        append: bool = False,
+        owrite: bool = False,
+    ) -> None:
+        """
+        Write the result to a file (pickle).
+
+        Parameters
+        ----------
+        target : str or path-like
+            File; folders are created.
+        append : bool, optional
+            Add the result to the file (created if missing), to
+            accumulate successive analyses; the file must hold results
+            with the same configuration. Default False.
+        owrite : bool, optional
+            Overwrite an existing file (ignored with ``append``).
+            Default False.
+
+        Raises
+        ------
+        ValueError
+            If the result is empty, or ``append`` and the file holds
+            results that are not compatible.
+        FileExistsError
+            If the file exists and neither ``append`` nor ``owrite`` is
+            set.
+        """
+        from shakelab.exploration.yarray.io import (
+            read_result_states,
+            write_result_state,
+        )
+
+        if self.config is None:
+            raise ValueError("an empty result cannot be written")
+
+        path = Path(target).expanduser()
+
+        if append and path.exists() and path.stat().st_size > 0:
+            first = BeamformingResult._from_state(
+                read_result_states(path, first=True)[0]
+            )
+            _check_compatible(first, self, context=f"{path}: ")
+
+        write_result_state(self._state(), path, append=append, owrite=owrite)
 
     def info(self) -> None:
         """Print a summary of the result."""
@@ -514,8 +832,11 @@ class BeamformingResult:
             Configuration, frequencies, blocks and strongest maxima.
         """
         config = self.config
+
+        if config is None:
+            return "BeamformingResult: empty"
+
         frequencies = self.frequencies
-        nblocks = sum(len(value) for value in self.block_times.values())
         lines = [
             f"BeamformingResult: {config.method.value}, "
             f"{config.components.value}, {len(self.sids)} stations",
@@ -524,7 +845,7 @@ class BeamformingResult:
                 f" ({frequencies[0]:.4g} - {frequencies[-1]:.4g} Hz)"
                 if len(frequencies) else ""
             ),
-            f"  blocks      : {nblocks} (all frequencies)",
+            f"  blocks      : {self.nblocks} (all frequencies)",
             f"  maxima      : {len(self.maxima)}",
             f"  spectra     : {'yes' if self.spectra else 'no'}",
             f"  power units : {self.power_units}",
@@ -542,6 +863,142 @@ class BeamformingResult:
 
         return "\n".join(lines)
 
+    # -- helpers --------------------------------------------------------
+
+    @classmethod
+    def _from_parts(
+        cls,
+        maxima: list,
+        spectra: Optional[list],
+        config: BeamformingConfig,
+        block_times: dict,
+        sids: tuple,
+        coordinates: np.ndarray,
+        units: Optional[str],
+    ) -> BeamformingResult:
+        """Result of one analysis (one set of stations)."""
+        result = cls()
+        result.maxima = list(maxima)
+        result.spectra = None if spectra is None else list(spectra)
+        result.config = config.copy()
+        result.block_times = {
+            frequency: tuple(times) for frequency, times in block_times.items()
+        }
+        result.units = units
+        coordinates = np.array(coordinates, dtype=float)
+        coordinates.setflags(write=False)
+        result._station_sets = [(tuple(sids), coordinates)]
+        result._block_stations = {
+            frequency: (0,) * len(times)
+            for frequency, times in block_times.items()
+        }
+        return result
+
+    @classmethod
+    def _from_state(cls, state: dict) -> BeamformingResult:
+        """Result from the state of a file."""
+        result = cls()
+        result.maxima = list(state["maxima"])
+        result.spectra = (
+            None if state["spectra"] is None else list(state["spectra"])
+        )
+        result.config = BeamformingConfig(state["config"])
+        result.block_times = dict(state["block_times"])
+        result.units = state["units"]
+        result._station_sets = [
+            (tuple(sids), np.array(coordinates, dtype=float))
+            for sids, coordinates in state["station_sets"]
+        ]
+        result._block_stations = dict(state["block_stations"])
+        return result
+
+    def _state(self) -> dict:
+        """State written to a file."""
+        return {
+            "config": self.config.to_dict(),
+            "maxima": list(self.maxima),
+            "spectra": None if self.spectra is None else list(self.spectra),
+            "block_times": dict(self.block_times),
+            "block_stations": dict(self._block_stations),
+            "station_sets": [
+                (sids, np.array(coordinates))
+                for sids, coordinates in self._station_sets
+            ],
+            "units": self.units,
+        }
+
+    def _join(self, other: BeamformingResult) -> None:
+        """Add the blocks of a compatible result."""
+        if other.config is None:
+            return
+
+        if self.config is None:
+            self.config = other.config.copy()
+            self.units = other.units
+            self.spectra = None if other.spectra is None else []
+            self.block_times = dict.fromkeys(other.block_times, ())
+            self._block_stations = dict.fromkeys(other.block_times, ())
+
+        mapping = []
+
+        for sids, coordinates in other._station_sets:
+            for index, (names, values) in enumerate(self._station_sets):
+                if names == sids and np.array_equal(values, coordinates):
+                    mapping.append(index)
+                    break
+            else:
+                mapping.append(len(self._station_sets))
+                self._station_sets.append((sids, coordinates))
+
+        offsets = {}
+
+        for frequency, times in other.block_times.items():
+            offsets[frequency] = len(self.block_times[frequency])
+            self.block_times[frequency] = self.block_times[frequency] + times
+            self._block_stations[frequency] = (
+                self._block_stations[frequency] + tuple(
+                    mapping[index]
+                    for index in other._block_stations[frequency]
+                )
+            )
+
+        self.maxima.extend(
+            _replace_block(maximum, offsets[maximum.frequency])
+            for maximum in other.maxima
+        )
+
+        if other.spectra is not None:
+            joined = []
+
+            for spectrum in other.spectra:
+                mine = [
+                    item for item in self.spectra
+                    if item.frequency == spectrum.frequency
+                    and item.component == spectrum.component
+                ]
+                joined.append(
+                    _join_spectra(mine + [spectrum]) if mine else spectrum
+                )
+
+            self.spectra = joined
+
+    def _component(self, component: Optional[str]) -> str:
+        """Return the requested component, or the only one processed."""
+        components = self.components
+
+        if component is None:
+            if len(components) != 1:
+                raise ValueError(
+                    "choose the component: " + ", ".join(components)
+                )
+
+            return components[0]
+
+        if component not in components:
+            raise ValueError(f"component {component!r} was not processed")
+
+        return component
+
     def _nearest_frequency(self, frequency: float) -> float:
         """Return the analysis frequency nearest to a value."""
         frequencies = self.frequencies
@@ -550,6 +1007,28 @@ class BeamformingResult:
             raise ValueError("the result has no frequencies")
 
         return float(frequencies[np.argmin(np.abs(frequencies - frequency))])
+
+
+def _check_compatible(
+    reference: Optional[BeamformingResult],
+    other: BeamformingResult,
+    context: str = "",
+) -> None:
+    """Raise if two results cannot be joined."""
+    if reference is None or reference is other:
+        return
+
+    if reference.config.to_dict() != other.config.to_dict():
+        raise ValueError(f"{context}results with different configurations")
+
+    if set(reference.block_times) != set(other.block_times):
+        raise ValueError(f"{context}results with different frequencies")
+
+    if reference.units != other.units:
+        raise ValueError(
+            f"{context}results in different units ({reference.units}, "
+            f"{other.units})"
+        )
 
 
 def _replace_block(maximum: SpectralMaximum, offset: int) -> SpectralMaximum:
@@ -593,147 +1072,166 @@ def _join_spectra(items: Sequence) -> FrequencySpectrum:
 
 class Beamformer:
     """
-    Frequency-wavenumber processing with a fixed configuration.
-
-    The same object serves scripts, the command-line interface and the
-    array monitor of the SeedLink client: :meth:`process` has no side
-    effects on the object, apart from the optional cache.
+    Frequency-wavenumber processing of an array.
 
     Parameters
     ----------
-    config : BeamformingConfig, str or path-like
-        Configuration, or a JSON file to read it from.
+    array : ArrayData, optional
+        Array to process (kept by reference: stations added later are
+        processed too).
+    config : BeamformingConfig, str or path-like, optional
+        Configuration, or a JSON file to read it from. The beamformer
+        keeps a copy (:attr:`config`).
     cache : bool, optional
         Keep the steering vectors of the search grid between calls,
-        while the station coordinates do not change (repeated
-        processing of the same array, e.g. in real time). Default is
-        False.
+        while station coordinates and grid do not change (repeated
+        processing, e.g. in real time). Default is False: the memory is
+        about ``16 * n_stations * n_grid * n_frequencies`` bytes.
 
     Examples
     --------
-    >>> beamformer = Beamformer(BeamformingConfig.read("capon.json"))
-    >>> result = beamformer.process(array)
-    >>> result.info()
+    >>> beamformer = Beamformer(array, "capon.json")
+    >>> result = beamformer.process()
+    >>> result = beamformer.process("2017-03-01T10:00", "2017-03-01T10:05")
+    >>> beamformer.config.update(method="music")
     """
 
-    def __init__(self, config: Any, cache: bool = False) -> None:
-        self._config = None
+    def __init__(
+        self,
+        array: Optional[ArrayData] = None,
+        config: Any = None,
+        cache: bool = False,
+    ) -> None:
+        self._array: Optional[ArrayData] = None
+        self._config: Optional[BeamformingConfig] = None
         self._cache: dict = {}
-        self._geometry = None
+        self._cache_key: Any = None
         self.cache = bool(cache)
-        self.set_config(config)
+
+        if array is not None:
+            self.array = array
+
+        if config is not None:
+            self.config = config
 
     def __repr__(self) -> str:
+        config = self._config
+        method = "no config" if config is None else (
+            f"{config.method.value}, {config.components.value}"
+        )
+        stations = 0 if self._array is None else self._array.nsta
         return (
-            f"Beamformer({self._config.method.value}, "
-            f"{self._config.components.value}, cache={self.cache})"
+            f"Beamformer({method}, {stations} stations, cache={self.cache})"
         )
 
+    # -- properties -----------------------------------------------------
+
     @property
-    def config(self) -> BeamformingConfig:
-        """Current configuration."""
+    def array(self) -> Optional[ArrayData]:
+        """Array processed."""
+        return self._array
+
+    @array.setter
+    def array(self, array: ArrayData) -> None:
+        if not isinstance(array, ArrayData):
+            raise TypeError("array must be an ArrayData")
+
+        self._array = array
+
+    @property
+    def config(self) -> Optional[BeamformingConfig]:
+        """Configuration (the copy of the beamformer, changeable)."""
         return self._config
 
-    def set_config(self, config: Any) -> None:
-        """
-        Change the configuration.
-
-        Parameters
-        ----------
-        config : BeamformingConfig, str or path-like
-            Configuration, or a JSON file.
-
-        Raises
-        ------
-        TypeError
-            If ``config`` is neither a configuration nor a path.
-        """
-        if not isinstance(config, BeamformingConfig):
-            if not isinstance(config, (str, bytes)) and not hasattr(
-                config, "__fspath__"
-            ):
-                raise TypeError(
-                    "config must be a BeamformingConfig or a JSON file"
-                )
-
-            config = BeamformingConfig.read(config)
+    @config.setter
+    def config(self, config: Any) -> None:
+        if isinstance(config, BeamformingConfig):
+            config = config.copy()
+        elif isinstance(config, (str, os.PathLike)):
+            config = BeamformingConfig(config)
+        else:
+            raise TypeError(
+                "config must be a BeamformingConfig or a JSON file"
+            )
 
         self._config = config
-        self._cache = {}
 
-    def process(self, array: ArrayData) -> BeamformingResult:
+    # -- processing -----------------------------------------------------
+
+    def process(
+        self,
+        starttime: Any = None,
+        endtime: Any = None,
+        gaps: str = "drop",
+    ) -> BeamformingResult:
         """
-        Process an array snapshot.
+        Process the array on a time window.
 
         Parameters
         ----------
-        array : ArrayData
-            Synchronized waveforms of the array.
+        starttime, endtime : Date or str, optional
+            Window, bounds included. Default: the window common to all
+            the stations.
+        gaps : {"drop", "raise"}, optional
+            Stations that do not cover the window: excluded with an
+            :class:`~.data.ArrayDataWarning` (default) or an error.
 
         Returns
         -------
         BeamformingResult
             Maxima and, if configured, spectra.
+
+        Raises
+        ------
+        ValueError
+            If array or configuration are missing or incomplete, the
+            window is invalid, the components are not observable at
+            every station, the coordinate covariances are missing for
+            the geometric uncertainty, or a block has too few windows
+            for the estimator.
+
+        Warns
+        -----
+        BeamformingWarning
+            For frequencies whose windows do not fill a covariance
+            block (no result at these frequencies).
         """
+        if self._array is None:
+            raise ValueError("the beamformer has no array")
+
+        if self._config is None:
+            raise ValueError("the beamformer has no configuration")
+
+        self._config.check_complete()
+        array = self._array.window(starttime, endtime, gaps=gaps)
         steering = None
 
         if self.cache:
-            geometry = array.coordinates.tobytes()
+            key = (
+                array.coordinates.tobytes(),
+                json.dumps(self._config.grid.to_dict()),
+            )
 
-            if geometry != self._geometry:
-                self._geometry = geometry
+            if key != self._cache_key:
+                self._cache_key = key
                 self._cache = {}
 
             steering = self._cache
 
-        return beamform(array, self._config, steering_cache=steering)
+        return _beamform(array, self._config, steering_cache=steering)
 
 
-def beamform(
+def _beamform(
     array: ArrayData,
     config: BeamformingConfig,
     steering_cache: Optional[dict] = None,
 ) -> BeamformingResult:
     """
-    Apply frequency-wavenumber processing to an array snapshot.
+    Apply frequency-wavenumber processing to a synchronized array.
 
-    Parameters
-    ----------
-    array : ArrayData
-        Synchronized waveforms of the array.
-    config : BeamformingConfig
-        Configuration.
-    steering_cache : dict, optional
-        Dictionary in which the steering vectors are kept by frequency;
-        it must be used with one array geometry only (see
-        :class:`Beamformer`).
-
-    Returns
-    -------
-    BeamformingResult
-        Maxima and, if configured, spectra.
-
-    Raises
-    ------
-    TypeError
-        If the arguments have the wrong type.
-    ValueError
-        If the components are not observable at every station, the
-        coordinate covariances are missing for the geometric
-        uncertainty, or a block has too few windows for the estimator.
-
-    Warns
-    -----
-    BeamformingWarning
-        For frequencies whose windows do not fill a covariance block
-        (no result at these frequencies).
+    ``steering_cache`` keeps the steering vectors by frequency; it must
+    be used with one geometry and grid only (see :class:`Beamformer`).
     """
-    if not isinstance(array, ArrayData):
-        raise TypeError("array must be an ArrayData")
-
-    if not isinstance(config, BeamformingConfig):
-        raise TypeError("config must be a BeamformingConfig")
-
     inputs = _MODE_INPUTS[config.components]
     motion = np.moveaxis(
         array.matrix([_DIRECTIONS[name] for name in inputs]), 1, 0
@@ -856,7 +1354,7 @@ def _spectral_slices(motion: np.ndarray, delta: float, config: Any):
 
 
 class _Context:
-    """Accumulator of the results of one call of :func:`beamform`."""
+    """Accumulator of the results of one call of :func:`_beamform`."""
 
     def __init__(
         self,
@@ -941,10 +1439,9 @@ class _Context:
                         value
                     )
 
-                if config.output is not OutputMode.SPECTRA:
-                    self._store_maxima(
-                        index, time, frequency, name, fields, steering, grid
-                    )
+                self._store_maxima(
+                    index, time, frequency, name, fields, steering, grid
+                )
 
         self.block_times[frequency] = tuple(times)
         self._store_spectra(
@@ -1075,7 +1572,7 @@ class _Context:
         effective: float,
     ) -> None:
         """Append the spectra of one frequency."""
-        if self.config.output is OutputMode.MAXIMA:
+        if not self.config.spectra:
             return
 
         grid = self.config.grid
@@ -1099,14 +1596,13 @@ class _Context:
 
     def result(self) -> BeamformingResult:
         """Return the accumulated result."""
-        return BeamformingResult(
-            maxima=tuple(self.maxima),
+        return BeamformingResult._from_parts(
+            maxima=self.maxima,
             spectra=(
-                None if self.config.output is OutputMode.MAXIMA
-                else tuple(self.spectra)
+                self.spectra if self.config.spectra else None
             ),
             config=self.config,
-            block_times=dict(self.block_times),
+            block_times=self.block_times,
             sids=self.array.sids,
             coordinates=self.array.coordinates,
             units=self.array.units,

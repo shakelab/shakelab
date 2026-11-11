@@ -23,21 +23,23 @@ the state of the work; the theory and the use are in the guide
 | 3 | `io` (array files, results), `monitor` (`ArrayMonitor`), `cli` (`slab-yarray`), `shakelab.graphics.yarray`, example | done (commit `14ecf0b`) |
 | 4 | `statistics` (density of maxima), `plot_density`, `--plot-density` | done (commit `d1c1f9c`) |
 | 5 | `response`, `performance`, `operational` (array design and survey planning), their figures, `slab-yarray response` | done (commit `21b3c8e`) |
-| 6 | Nine-station three-component test data and references; examples of every way of use (library, command line, real time, planning, profiling); `docs/yarray.md` | done |
+| 6 | Nine-station three-component test data and references; examples of every way of use (library, command line, real time, planning, profiling); `docs/yarray.md` | done (commit `f711fb0`) |
+| A | Interface: `ArrayData` filled progressively (time window taken at processing, fixed ENU origin), `BeamformingConfig` with single parameters, `Beamformer(array, config).process(start, end)`, results with `read`/`write`/`append`, stations of each block, `dispersion`, `density`; shorter examples | in progress |
+| B | Interface of the survey planning (`response`, `performance`, `operational`) | planned |
 
 ## Modules
 
 | Module | Content |
 |---|---|
-| `data` | `StationData`, `ArrayData`: immutable snapshots of the waveforms of the stations on a common time axis, ENU coordinates, component orientations; `ArrayData.from_collection` / `from_records` build them from ShakeLab waveforms (any source, also a SeedLink buffer) |
-| `config` | `BeamformingConfig` and its sections (`FrequencyConfig`, `WindowConfig`, `SearchGrid`, `EllipticityGrid`), with `read`/`write` (JSON), `to_dict`/`from_dict`, `replace` |
+| `data` | `StationData` (immutable: records, ENU coordinates, component orientations, geographic position), `ArrayData` (filled from array files, ShakeLab waveforms of any source, also a SeedLink buffer, or stations: `read`, `add`, `remove`; common window with `window`; fixed ENU origin, `set_reference`) |
+| `config` | `BeamformingConfig` (single parameters named as the command-line options, or the objects `FrequencyConfig`, `WindowConfig`, `SearchGrid`, `EllipticityGrid`; JSON file in the constructor, `read`, `write`, `update`, `copy`) |
 | `estimators` | Bartlett, Capon, MUSIC and their statistics, on matrices and steering vectors (shared with the future performance analysis) |
-| `beamforming` | `Beamformer` (`process`), `beamform`, results `BeamformingResult`, `FrequencySpectrum`, `SpectralMaximum` |
+| `beamforming` | `Beamformer(array, config)` (`process(starttime, endtime)`), results `BeamformingResult` (`append`, `read`, `write`, `dispersion`, `density`, `stations_at`), `FrequencySpectrum`, `SpectralMaximum`, `DispersionCurve` |
 | `statistics` | `maximum_density` (density of the maxima versus frequency in wavenumber, log-slowness or log-velocity; kernels of the grid resolution, Silverman or fixed width; uniform or power weights), `MaximumDensity.summary` (mode, median, quantiles), `MaximumDensity.peaks` (candidate modes, prominences of `scipy.signal`) |
 | `response` | geometric response of the array (`array_response`, expected response under coordinate uncertainty), `analyze_response` (`ResponseAnalysis`: main lobe, ambiguities, limits), `analyze_search_domain`, `velocity_limits`; `ArrayGeometry`, `ResponseGrid` |
 | `performance` | Monte Carlo performance of Bartlett, Capon and MUSIC for one plane wave in white noise: LOCAL/ALIAS/OTHER/BOUNDARY outcomes, Wilson intervals, local errors, exact velocity statistics (`evaluate_performance`, `performance_sweep`) |
 | `operational` | frequency-velocity-azimuth envelope with explicit usability criteria, limiting factors and recommendations (`assess_array`) |
-| `io` | `read_array` (array file: local coordinates, a waveform file per component, reader options), `write_result` (also `append`), `read_results`, `read_result` (pickle) |
+| `io` | file formats: array files (local coordinates, a waveform file per component, reader options) and result files (pickle), used by `ArrayData.read` and `BeamformingResult.read`/`write` |
 | `monitor` | `ArrayMonitor`: periodic processing of the data of the SeedLink client (`client.every(interval, monitor)`) in a worker thread, queryable while running |
 | `cli` | command line `slab-yarray` (`python -m shakelab.exploration.yarray`) |
 
@@ -65,30 +67,29 @@ from shakelab.exploration.yarray import (
 )
 
 data = reader("data/*.mseed", metadata=metadata_reader("array.xml"))
-array = ArrayData.from_collection(data, select="XX.*..HH?")
+array = ArrayData(data, select="XX.*..HH?")
 
-config = BeamformingConfig.read("capon_rtbf.json")
-result = Beamformer(config).process(array)
+config = BeamformingConfig("capon_rtbf.json", window_length=4.0)
+beamformer = Beamformer(array, config)
+result = beamformer.process()                       # common window
 result.info()
+result.dispersion().info()
 
-for maximum in result.maxima_at(rank=1):
-    print(maximum.time, maximum.frequency, maximum.velocity,
-          maximum.azimuth, maximum.ellipticity)
-
-total = BeamformingResult.concatenate([result_1, result_2])
+result.append(beamformer.process("2026-11-01T10:00", "2026-11-01T10:10"))
+result.write("result.pkl")
+result = BeamformingResult("result.pkl")
 ```
 
 Real time:
 
 ```python
-from shakelab.signals import seedlink
+from shakelab.signals.seedlink import Client
 from shakelab.exploration.yarray import ArrayMonitor
 
-client = seedlink.Client("server", metadata=metadata_reader("array.xml"))
+client = Client("server", metadata=metadata_reader("array.xml"))
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=900)
-monitor = ArrayMonitor(Beamformer(config, cache=True), window=600,
-                       output="monitor.pkl")
+monitor = ArrayMonitor(config, window=600, output="monitor.pkl")
 monitor.on_result(lambda monitor, result: print(result.summary()))
 client.every(600, monitor)          # clock="data" to replay an archive
 client.start()
@@ -131,7 +132,7 @@ performance):
 ```python
 from shakelab.exploration import yarray as ya
 
-array = ya.read_array("array.json")          # or plain coordinates
+array = ya.ArrayData("array.json")           # or plain coordinates
 response = ya.array_response(array)          # automatic grid
 analysis = ya.analyze_response(response)     # levels 0.5 by default
 analysis.info()                              # resolution, aliasing
@@ -169,7 +170,7 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
 
 - Coordinates East, North, Up in metres; when computed from
   geographic positions, in the local ENU frame `ArrayData.frame`
-  (default: mean position of the stations).
+  (default: the first station added; see `ArrayData`).
 - Azimuths in degrees clockwise from north; propagation azimuth (the
   direction towards which the wave travels).
 - Wavevector `k = 2 pi f / c`, `kx = k sin(az)`, `ky = k cos(az)`;
@@ -195,18 +196,37 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
   `estimators` < `config` < `beamforming` < applications (command
   line, monitor, graphics). Numerical modules have no file I/O, no
   plotting and no global state.
-- `ArrayData` is immutable and built with new records cut on the
-  common window: later changes of the input (e.g. a SeedLink buffer)
-  do not affect a snapshot being processed.
+- `ArrayData` is a container filled progressively (decision of
+  2026-11-11): the stations keep their own time axis and the common
+  window is taken when processing (`window`, used by `Beamformer`), so
+  that stations from different sources can be added one at a time.
+  `StationData` stays immutable and the builders create new records:
+  later changes of the input (e.g. a SeedLink buffer) do not affect
+  the array.
+- The origin of the ENU frame is fixed at the first station added
+  with a geographic position, or given (`reference`, or the
+  `reference` of the array file); adding
+  stations does not move it; `set_reference` recomputes the
+  coordinates.
 - Stations not covering the window without gaps are excluded with an
   `ArrayDataWarning` (`gaps="drop"`, default) or raise an error
   (`gaps="raise"`); samples not simultaneous between stations are an
   error (no implicit resampling).
+- `BeamformingConfig`: one name per parameter, the same as the
+  command-line option; the objects (`WindowConfig`...) stay immutable,
+  the configuration changes with `update`, validated as a whole.
+  `Beamformer` and `ArrayMonitor` keep a copy, the results their own.
+- A result file holds one result, possibly written in pieces
+  (`append=True`, same configuration checked); the stations and
+  coordinates are recorded for each block, so that results of windows
+  with different stations (real time with `gaps="drop"`) join
+  correctly.
 - Frequencies whose windows do not fill a covariance block (data too
   short) give no result and a `BeamformingWarning` instead of an
   error, as needed by real-time processing of short windows.
 - `Beamformer(cache=True)` keeps the steering vectors while the
-  coordinates do not change (about 15% faster for repeated calls).
+  coordinates and the grid do not change (about 15-30% faster for
+  repeated calls).
 - Options with fixed values are enumerations; their string values are
   accepted everywhere.
 
@@ -228,10 +248,10 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
 - Spectral code moved to `signals` (`windowing`, `crossspectral`,
   `fourier.dft`), with the conventions of `fourier`.
 - `Yarray` (runner) replaced by `Beamformer`; `read_processing_config`
-  by `BeamformingConfig.read`; `npts` by `nsamp`; result times are
+  by `BeamformingConfig(file)`; `npts` by `nsamp`; result times are
   `Date`; `BeamformingResult` gains `block_times`, `sids`,
-  `coordinates`, `units`, `maxima_at`, `spectrum`, `concatenate`,
-  `info`.
+  `coordinates`, `units`, `maxima_at`, `spectrum`, `append`,
+  `stations_at`, `dispersion`, `density`, `info`.
 - The SAC reader accepts the SESAME files (local coordinates in
   STLA/STLO).
 - Block 5 (`response`, `performance`, `operational`): same results as

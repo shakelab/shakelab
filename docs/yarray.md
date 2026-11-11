@@ -389,10 +389,10 @@ and suggest processing changes; the geometry itself is not optimized.
 # Part II. Use
 
 ```python
-from shakelab.exploration import yarray as ya
+from shakelab.exploration.yarray import ArrayData, Beamformer
 ```
 
-exposes the main classes and functions; the modules are
+The package exposes the main classes and functions; the modules are
 `data`, `config`, `estimators`, `beamforming`, `statistics`,
 `response`, `performance`, `operational`, `io`, `monitor` and `cli`,
 the figures `shakelab.graphics.yarray`. Options with fixed values are
@@ -403,40 +403,76 @@ enumerations whose string values are accepted everywhere
 
 An `ArrayData` holds the stations (`StationData`: records, ENU
 coordinates, orientation of the components, optional coordinate
-covariance) on a common time axis. It is immutable: later changes of
-the source (e.g. a SeedLink buffer) do not affect it.
+covariance and geographic position). It is filled in one go or
+progressively, from any source:
 
-| Source | Function |
+| Source | Use |
 |---|---|
-| Array file (JSON: local coordinates, one waveform file per component, reader options) | `read_array("array.json")` |
-| Waveforms read by ShakeLab (any format and source), with metadata or a table of coordinates | `ArrayData.from_collection(collection, select=..., coordinates=..., coordinate_covariance=...)` |
-| Records in memory | `ArrayData.from_records(records, coordinates=...)` |
+| Array file (JSON: local coordinates, one waveform file per component, reader options) | `ArrayData("array.json")`, or `array.read("array.json")` |
+| Waveforms read by ShakeLab (StreamCollection, Stream, records: any format and source), with metadata or a table of coordinates | `ArrayData(collection, select=..., coordinates=..., coordinate_covariance=...)`, or `array.add(...)` |
+| Stations already built | `array.add(station)` |
+
+```python
+from shakelab.exploration.yarray import ArrayData
+
+array = ArrayData()
+array.read("array.json")
+array.add(records, coordinates={"XX.A10.": (120.0, -35.0)})
+array.remove("XX.A03.")
+array.info()
+```
+
+The stations need not share their time axis: each keeps the interval
+covered by all its channels (or `starttime`, `endtime`), and the
+window common to all of them (`starttime`, `endtime`, `nsamp` of the
+array) is taken when the array is processed (`array.window(...)`,
+used by the beamformer). Stations with gaps are excluded with an
+`ArrayDataWarning` (`gaps="drop"`) or raise (`gaps="raise"`); samples
+that are not simultaneous are an error (no implicit resampling);
+sampling interval and units must be the same for all the stations.
 
 With geographic positions in the metadata the coordinates are
-computed in a local ENU frame (`ArrayData.frame`, default origin the
-mean position). The common window is the interval covered by all
-channels (or `starttime`, `endtime`); stations with gaps are excluded
-with an `ArrayDataWarning` (`gaps="drop"`) or raise
-(`gaps="raise"`); samples that are not simultaneous are an error (no
-implicit resampling).
+computed in a local ENU frame (`ArrayData.frame`). Its origin is fixed:
+the `reference` given to `ArrayData` or written in the array file
+(`"reference": [lon, lat, elevation]`), otherwise the position of the
+first station added; adding stations does not move it.
+`set_reference(point)` (or `set_reference()`, the mean of the current
+stations) changes it and recomputes the coordinates.
 
 ## 10. Configuration
 
-`BeamformingConfig` collects every parameter; all its parts are
-immutable and `replace` returns a modified copy. It is read from and
-written to JSON with `BeamformingConfig.read` and `write`.
+`BeamformingConfig` collects every parameter. Each one can be given
+singly, with the name of the corresponding command-line option
+(`--grid-max` is `grid_max`), or grouped in the objects
+`FrequencyConfig`, `WindowConfig`, `SearchGrid` and `EllipticityGrid`
+(immutable, also as dictionaries with the fields of the JSON
+sections); single parameters apply on top of the objects and of the
+file. The configuration changes with `update` (all the values are
+validated together) or by assigning a parameter.
+
+```python
+from shakelab.exploration.yarray import BeamformingConfig
+
+config = BeamformingConfig(fmin=2.0, fmax=12.0, nfreq=30,
+                           grid_min=100.0, grid_max=2000.0, grid_size=100,
+                           window_type="fixed", window_length=5.0)
+config = BeamformingConfig("capon.json", method="music")  # file + changes
+config.update(components="radial", maxima=3)
+config.window_length = 4.0
+config.write("radial.json")
+```
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `frequencies` | required | `FrequencyConfig` or explicit values |
-| `grid` | required | `SearchGrid` |
-| `window` | `WindowConfig()` | windows and covariance blocks |
+| `frequencies` | required | `FrequencyConfig`, dictionary or explicit values; or `fmin`, `fmax`, `nfreq`, `frequency_scale` |
+| `grid` | required | `SearchGrid` or dictionary; or `grid_min`, `grid_max`, `grid_size`, `grid_quantity`, `grid_scale`, `azimuth_size`, `azimuths` |
+| `window` | `WindowConfig()` | windows and covariance blocks; or `window_type`, `window_length`, `window_taper`, `window_overlap`, `windows_per_block`, `block_overlap` |
 | `method` | `capon` | `bartlett`, `capon`, `music` |
 | `components` | `vertical` | `vertical`, `radial`, `transverse`, `three_component_separate`, `rayleigh_joint` |
 | `diagonal_loading` | 0.001 | relative loading of Capon |
 | `music_sources` | 1 | sources excluded from the MUSIC noise subspace |
-| `ellipticity_grid` | -85 to 85 degrees, 61 | `EllipticityGrid` of RTBF |
-| `output` | `maxima` | `maxima`, `spectra`, `both` |
+| `ellipticity_grid` | -85 to 85 degrees, 61 | `EllipticityGrid` of RTBF; or `ellipticity_angle_min`, `ellipticity_angle_max`, `ellipticity_angle_size` |
+| `spectra` | False | keep also the complete spectra of every block (the maxima are always kept); they can take much memory |
 | `maxima` | 1 | maxima kept per spectrum |
 | `peak_neighborhood` | (3, 3) | neighbourhood of a maximum (azimuth, radial) |
 | `minimum_relative_power` | 0 | smallest power of a maximum, relative to the largest |
@@ -473,9 +509,10 @@ written to JSON with `BeamformingConfig.read` and `write`.
 The JSON file has the sections `frequencies`, `spectral` (`transform`,
 `fft_selection`, `fft_padding`), `method` (`name`, `diagonal_loading`,
 `music_sources`), `components`, `grid`, `window`, `ellipticity`
-(`minimum_angle`, `maximum_angle`, `size`), `output` (`mode`,
-`maxima`, `neighborhood`, `minimum_relative_power`), `uncertainty`
-(`statistical`, `geometric`) and `strict`:
+(`minimum_angle`, `maximum_angle`, `size`), `output` (`spectra`,
+`maxima`, `neighborhood`, `minimum_relative_power`; the `mode` of the
+August files is read as `spectra`), `uncertainty` (`statistical`,
+`geometric`) and `strict`:
 
 ```json
 {
@@ -490,7 +527,7 @@ The JSON file has the sections `frequencies`, `spectral` (`transform`,
   "window": {"type": "fixed", "length": 5.0, "taper": 0.1,
              "overlap": 0.5, "windows_per_block": 40,
              "block_overlap": 0.5},
-  "output": {"mode": "both", "maxima": 3},
+  "output": {"spectra": true, "maxima": 3},
   "uncertainty": {"statistical": "none", "geometric": "none"},
   "graphics": {"dispersion": true, "ranks": [1, 2, 3]}
 }
@@ -503,41 +540,55 @@ the same file.
 ## 11. Processing and results
 
 ```python
-array = ya.read_array("array.json")
-config = ya.BeamformingConfig.read("capon.json")
-result = ya.Beamformer(config).process(array)     # or ya.beamform(...)
+from shakelab.exploration.yarray import ArrayData, Beamformer
+
+array = ArrayData("array.json")
+beamformer = Beamformer(array, "capon.json")
+result = beamformer.process()                       # common window
+part = beamformer.process("2026-11-01T10:00", "2026-11-01T10:10")
 result.info()
+result.dispersion().info()
 
 for maximum in result.maxima_at(rank=1):
     print(maximum.time, maximum.frequency, maximum.velocity,
           maximum.azimuth, maximum.power)
 ```
 
-`Beamformer(config, cache=True)` keeps the steering vectors between
-calls on the same coordinates (repeated analyses, real time);
-`set_config` changes the configuration. Frequencies whose windows do
-not fill one block give no result and a `BeamformingWarning`, not an
-error.
+`Beamformer(array, config)` keeps the array by reference (stations
+added later are processed too) and a copy of the configuration
+(`beamformer.config`, which can be changed between runs).
+`cache=True` keeps the steering vectors while station coordinates and
+grid do not change (repeated analyses, real time). Frequencies whose
+windows do not fill one block give no result and a
+`BeamformingWarning`, not an error.
 
 `BeamformingResult` holds the maxima (`SpectralMaximum`), the spectra
 if requested (`spectrum(frequency, component)` returns a
 `FrequencySpectrum` with the power of every block on the grid, and
 its standard error or ellipticity), the configuration, the stations
-(`sids`, `coordinates`), the block times and the units of the power
-(`power_units`). `BeamformingResult.concatenate` joins the results of
-consecutive data (blocks renumbered).
+(`sids`, `coordinates`, and `stations_at(frequency, block)` for the
+stations of each block), the block times and the units of the power
+(`power_units`). `dispersion(rank=1)` gives, at each frequency, the
+median velocity of the maxima with its 16-84 % interval, their mean
+azimuth and their number (`DispersionCurve`). `append` adds the
+results of later windows (blocks renumbered; results with the same
+configuration, frequencies and units).
 
-Results are written as pickle files (`write_result`, also
-`append=True` to accumulate successive analyses; `read_results`,
-`read_result`). Pickle is a provisional format for trusted local
-files: never open one from an untrusted source.
+```python
+result.write("daily.pkl")
+beamformer.process(start, end).write("daily.pkl", append=True)
+daily = BeamformingResult("daily.pkl")              # joined
+```
+
+A result file holds one result, possibly written in several pieces:
+`write(append=True)` checks that the configuration is the same.
+Pickle is a provisional format for trusted local files: never open one
+from an untrusted source.
 
 The density of the maxima:
 
 ```python
-from shakelab.exploration.yarray.statistics import maximum_density
-
-density = maximum_density(result, coordinate="log_velocity",
+density = result.density(coordinate="log_velocity",
                           weighting="relative_power")
 summary = density.summary()              # mode, median, quantiles
 peaks = density.peaks(3, minimum_relative_density=0.1)
@@ -570,7 +621,7 @@ slab-yarray response --input array.json --fmin 1 --fmax 20 --plot-all
 |---|---|
 | Input (one) | `--input` array file; `--data` waveform files with `--metadata`, `--select`, `--start`, `--end`; `--result` saved result to plot |
 | Configuration and output | `--config`, `--write-config`, `-o/--output`, `--append`, `--owrite` |
-| Processing (replace the JSON) | `--frequencies` or `--fmin --fmax --nfreq`, `--frequency-scale`, `--method`, `--components`, `--diagonal-loading`, `--music-sources`, `--grid-quantity`, `--grid-scale`, `--grid-min`, `--grid-max`, `--grid-size`, `--azimuth-size`, `--window-type`, `--window-length`, `--window-taper`, `--window-overlap`, `--windows-per-block`, `--block-overlap`, `--ellipticity-angle-min/max/size`, `--output-mode`, `--maxima`, `--minimum-relative-power`, `--statistical-uncertainty`, `--geometric-uncertainty`, `--strict`, `--transform`, `--fft-selection`, `--fft-padding` |
+| Processing (replace the JSON) | `--frequencies` or `--fmin --fmax --nfreq`, `--frequency-scale`, `--method`, `--components`, `--diagonal-loading`, `--music-sources`, `--grid-quantity`, `--grid-scale`, `--grid-min`, `--grid-max`, `--grid-size`, `--azimuth-size`, `--window-type`, `--window-length`, `--window-taper`, `--window-overlap`, `--windows-per-block`, `--block-overlap`, `--ellipticity-angle-min/max/size`, `--spectra`, `--maxima`, `--minimum-relative-power`, `--statistical-uncertainty`, `--geometric-uncertainty`, `--strict`, `--transform`, `--fft-selection`, `--fft-padding` |
 | Figures | `--plot-dispersion`, `--plot-ellipticity`, `--plot-spectrum` (`--frequency`, `--block`, `--spectrum-view`, `--spectrum-quantity`), `--plot-density` (`--density-coordinate`), `--component`, `--ranks`, `--show`, `--save-figures`, `--figure-format`, `--dpi` |
 
 The figures can also be requested in the section `graphics` of the
@@ -594,14 +645,14 @@ See [`yarray_11_command_line.sh`](../examples/exploration/yarray_11_command_line
 ## 13. Real time
 
 ```python
-from shakelab.signals import seedlink
+from shakelab.exploration.yarray import ArrayMonitor
 from shakelab.signals.io import metadata_reader
+from shakelab.signals.seedlink import Client
 
-client = seedlink.Client("server", metadata=metadata_reader("array.xml"))
+client = Client("server", metadata=metadata_reader("array.xml"))
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=900)
-monitor = ya.ArrayMonitor(ya.Beamformer(config, cache=True), window=600,
-                          output="monitor.pkl")
+monitor = ArrayMonitor(config, window=600, output="monitor.pkl")
 monitor.on_result(lambda monitor, result: print(result.summary()))
 client.every(600, monitor)        # clock="data" to replay an archive
 client.start()
@@ -620,7 +671,8 @@ that cannot be processed (buffer shorter than the window, too few
 stations, no complete block) are skipped and reported; an unexpected
 error stops the worker and is raised by `close()`. `status()`,
 `latest()`, `results(start, end)`, `result(start, end)` (joined) and
-`array()` can be called at any time; each result can also be appended
+`array()` can be called at any time and return copies; each result can
+also be appended
 to a file (`output`). `background=False` processes in the call;
 `monitor.process(collection, start, end)` processes given data. Any
 object with `get_data(select)` returning a `StreamCollection` can feed
@@ -668,7 +720,7 @@ and [`yarray_15_operational.py`](../examples/exploration/yarray_15_operational.p
 1. Check the array first (`slab-yarray response`): the velocity limits
    tell which frequencies and velocities the grid should cover.
 2. Keep the configuration in a version-controlled JSON file and start
-   with a compact run (`output="both"`, few frequencies) to inspect
+   with a compact run (`spectra=True`, few frequencies) to inspect
    spectra, number of blocks and windows per block.
 3. For Capon and MUSIC use more windows per block than stations
    (`2N` for RTBF); prefer more windows to more loading.

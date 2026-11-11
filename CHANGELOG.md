@@ -409,24 +409,33 @@ corrections. The format follows
   vertical, radial, transverse, separate three-component and Rayleigh
   three-component RTBF with signed ellipticity; empirical power
   uncertainty and coordinate uncertainty). `BeamformingConfig` with
-  `read`/`write` (JSON) and `replace`, enumerations accepted as
-  strings; `Beamformer(config, cache=False).process(array)` and
-  `beamform`; `BeamformingResult` with `maxima_at`, `spectrum`,
-  `concatenate`, `info`, block times, stations and units. The beam
+  every parameter also given singly, with the names of the
+  command-line options (`fmin`, `grid_max`, `window_length`...), a
+  JSON file in the constructor with parameters replacing its values,
+  `update` (validated as a whole) or assignment, `read`, `write`,
+  `copy`; `spectra=True` keeps the complete spectra besides the
+  maxima (`output.mode` of the August files read as `spectra`);
+  enumerations accepted as strings;
+  `Beamformer(array, config, cache=False).process(starttime, endtime)`;
+  `BeamformingResult` with `maxima_at`, `spectrum`, `append` (results
+  of successive windows), `read`/`write` (also accumulating in one
+  file), stations of each block (`stations_at`), `dispersion` (median
+  velocity, 16-84 % interval, mean azimuth by frequency:
+  `DispersionCurve`), `density`, `info`, block times and units. The beam
   power is a power spectral density (units of the data squared per
   Hz, also for uncorrected data). Ported from the YArray development
   code of August 2026: same maxima on the SESAME simulation; see
   `shakelab/exploration/yarray/README.md`.
-- `exploration.yarray.io`: `read_array` (array file in JSON with
+- `exploration.yarray.io`: formats of the array files (JSON with
   local coordinates, a waveform file per component and reader options,
-  as the YArray files of August 2026), `write_result` (pickle, also
-  appending), `read_results`, `read_result`.
-- `exploration.yarray.monitor.ArrayMonitor`: periodic array processing
-  of the data of the SeedLink client (`client.every(interval,
-  monitor)`), in a worker thread with a short queue (late windows
-  dropped and reported), callbacks `on_result` and `on_skip`, and
-  queries from any thread (`status`, `latest`, `results`, `result`,
-  `array`).
+  as the YArray files of August 2026; read by `ArrayData`) and of the
+  result files (pickle; `BeamformingResult.read`/`write`).
+- `exploration.yarray.monitor.ArrayMonitor(config, window, ...)`:
+  periodic array processing of the data of the SeedLink client
+  (`client.every(interval, monitor)`), in a worker thread with a short
+  queue (late windows dropped and reported), callbacks `on_result` and
+  `on_skip`, and queries from any thread returning copies (`status`,
+  `latest`, `results`, `result`, `array`, `config`).
 - Command `slab-yarray` (`python -m shakelab.exploration.yarray`):
   processing of array files or of waveform files with metadata, JSON
   configuration with command-line options replacing its values,
@@ -481,18 +490,23 @@ corrections. The format follows
   is skipped with its duration as reason, without building the array
   (no warnings about every station at the start of an acquisition).
 - `exploration.yarray` (new subpackage, under development): seismic
-  array processing. `exploration.yarray.data`: `StationData` and
-  `ArrayData`, immutable snapshots of the waveforms of a set of
-  stations on a common time axis, with ENU coordinates and component
-  orientations, projections on any direction (vertical, horizontal,
-  radial, transverse); `ArrayData.from_collection` and
-  `ArrayData.from_records` build them from ShakeLab waveforms (any
-  source, also the buffer of the SeedLink client), cutting a common
-  time window, grouping channels by station, taking positions and
-  orientations from the channel metadata (or explicit local
-  coordinates and orientations), with coordinate uncertainties and
-  exclusion of stations with gaps (`ArrayDataWarning`, or an error
-  with `gaps="raise"`).
+  array processing. `exploration.yarray.data`: `StationData`
+  (immutable: records, ENU coordinates, component orientations,
+  geographic position) and `ArrayData`, filled in one go or
+  progressively (`ArrayData("array.json")`, `ArrayData(collection,
+  ...)`, `read`, `add`, `remove`) from array files, ShakeLab waveforms
+  (StreamCollection, Stream or records of any source, also the buffer
+  of the SeedLink client) or stations, grouping channels by station,
+  taking positions and orientations from the channel metadata (or
+  explicit local coordinates and orientations), with coordinate
+  uncertainties and exclusion of stations with gaps
+  (`ArrayDataWarning`, or an error with `gaps="raise"`). The stations
+  keep their time axis; the common window is taken at processing
+  (`window`); the origin of the ENU frame is the first station added
+  with a geographic position, or is given (`reference`, also in the
+  array file), and is changed with `set_reference`;
+  projections on any direction (vertical, horizontal, radial,
+  transverse).
 
 - `signals.spectrogram.Spectrogram`: time-frequency representation of a
   Record (`Record.spectrogram(method, **options)` or

@@ -30,15 +30,15 @@ stations of the SESAME simulation:
 
 | Example | Content |
 |---|---|
-| [`exploration/yarray_01_array.py`](exploration/yarray_01_array.py) | Building the array data: array file, waveforms with a table of coordinates (channel and time selection), records in memory |
-| [`exploration/yarray_02_config.py`](exploration/yarray_02_config.py) | The configuration: `BeamformingConfig` from Python, other frequency, window and grid forms, `replace`, JSON |
-| [`exploration/yarray_03_beamforming.py`](exploration/yarray_03_beamforming.py) | A vertical Capon analysis: `beamform` and `Beamformer`, the maxima, dispersion and spectrum figures |
+| [`exploration/yarray_01_array.py`](exploration/yarray_01_array.py) | Building the array data: array file, waveforms with a table of coordinates (channel and time selection), one station at a time |
+| [`exploration/yarray_02_config.py`](exploration/yarray_02_config.py) | The configuration: single parameters, `update` and attributes, objects and dictionaries, JSON files with changes |
+| [`exploration/yarray_03_beamforming.py`](exploration/yarray_03_beamforming.py) | A vertical Capon analysis: `Beamformer`, a time window, the maxima, the dispersion curve, figures |
 | [`exploration/yarray_04_methods.py`](exploration/yarray_04_methods.py) | Bartlett, Capon and MUSIC on the same data, with their options |
 | [`exploration/yarray_05_components.py`](exploration/yarray_05_components.py) | Radial, transverse and the three components separately |
 | [`exploration/yarray_06_rtbf.py`](exploration/yarray_06_rtbf.py) | Rayleigh three-component beamforming with the signed ellipticity |
 | [`exploration/yarray_07_transforms.py`](exploration/yarray_07_transforms.py) | Direct transform and RFFT (nearest bins, interpolation, all the bins of a range), windows of cycles |
 | [`exploration/yarray_08_uncertainty.py`](exploration/yarray_08_uncertainty.py) | Empirical standard error of the power, uncertain station coordinates |
-| [`exploration/yarray_09_results.py`](exploration/yarray_09_results.py) | Results: maxima, spectra, joining consecutive results, files |
+| [`exploration/yarray_09_results.py`](exploration/yarray_09_results.py) | Results: maxima, spectra, dispersion curve, joining successive windows, files |
 | [`exploration/yarray_10_density.py`](exploration/yarray_10_density.py) | Density of the maxima: summary, peaks, figure |
 | [`exploration/yarray_11_command_line.sh`](exploration/yarray_11_command_line.sh) | `slab-yarray` and `slab-yarray response`, command by command (shell script) |
 | [`exploration/yarray_12_realtime.py`](exploration/yarray_12_realtime.py) | Real-time monitoring of an array with the SeedLink client and `ArrayMonitor` (needs a server) |

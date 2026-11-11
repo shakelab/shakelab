@@ -27,10 +27,18 @@ SeedLink client: array data (:mod:`.data`), configuration
 (:mod:`.beamforming`), statistics of the maxima (:mod:`.statistics`),
 geometric response and limits (:mod:`.response`), Monte Carlo
 performance of the estimators (:mod:`.performance`), operational
-assessment for survey planning (:mod:`.operational`), input and output
+assessment for survey planning (:mod:`.operational`), file formats
 (:mod:`.io`), real-time monitor (:mod:`.monitor`) and command line
-(:mod:`.cli`, installed as ``slab-yarray``). Figures are in :mod:`shakelab.graphics.yarray`. See
-``README.md`` in this folder.
+(:mod:`.cli`, installed as ``slab-yarray``). Figures are in
+:mod:`shakelab.graphics.yarray`. See ``README.md`` in this folder.
+
+.. code-block:: python
+
+    from shakelab.exploration.yarray import ArrayData, Beamformer
+
+    array = ArrayData("array.json")
+    result = Beamformer(array, "capon.json").process()
+    result.dispersion().info()
 """
 
 from __future__ import annotations
@@ -39,9 +47,9 @@ from shakelab.exploration.yarray.beamforming import (
     Beamformer,
     BeamformingResult,
     BeamformingWarning,
+    DispersionCurve,
     FrequencySpectrum,
     SpectralMaximum,
-    beamform,
 )
 from shakelab.exploration.yarray.config import (
     BeamformingConfig,
@@ -54,12 +62,6 @@ from shakelab.exploration.yarray.data import (
     ArrayData,
     ArrayDataWarning,
     StationData,
-)
-from shakelab.exploration.yarray.io import (
-    read_array,
-    read_result,
-    read_results,
-    write_result,
 )
 from shakelab.exploration.yarray.monitor import ArrayMonitor
 from shakelab.exploration.yarray.operational import (
@@ -101,6 +103,7 @@ __all__ = [
     "BeamformingResult",
     "BeamformingWarning",
     "ClassificationConfig",
+    "DispersionCurve",
     "EllipticityGrid",
     "EstimatorConfig",
     "FrequencyConfig",
@@ -123,12 +126,7 @@ __all__ = [
     "analyze_search_domain",
     "array_response",
     "assess_array",
-    "beamform",
     "evaluate_performance",
     "performance_sweep",
-    "read_array",
-    "read_result",
-    "read_results",
     "velocity_limits",
-    "write_result",
 ]

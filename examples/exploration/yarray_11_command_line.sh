@@ -39,7 +39,7 @@ cat > output/capon.json << 'END'
            "azimuth_size": 72},
   "window": {"type": "fixed", "length": 2.0, "windows_per_block": 30},
   "method": {"name": "capon"},
-  "output": {"mode": "both", "maxima": 2},
+  "output": {"spectra": true, "maxima": 2},
   "graphics": {"dispersion": true, "ranks": [1]}
 }
 END

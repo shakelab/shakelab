@@ -16,57 +16,46 @@
 # with this download. If not, see <http://www.gnu.org/licenses/>
 # ****************************************************************************
 """
-The processing configuration.
+The configuration.
 
-BeamformingConfig collects every parameter of the analysis. It is
-immutable: ``replace`` returns a modified copy. The same configuration
-is written to and read from JSON, and used by the command line.
+Every parameter of the analysis has a default and the name of the
+corresponding command-line option (``--grid-max`` is ``grid_max``).
+Only frequencies and search grid are required.
 
 Run (from any folder; files are written to ./output)::
 
     python examples/exploration/yarray_02_config.py
 """
 
-from pathlib import Path
+from shakelab.exploration.yarray import BeamformingConfig, SearchGrid
 
-from shakelab.exploration import yarray as ya
-
-OUTPUT = Path("output")             # files written by the example
-OUTPUT.mkdir(exist_ok=True)
-
-# 1. A configuration from Python. Only frequencies and grid are needed;
-#    every other parameter has a default.
-config = ya.BeamformingConfig(
-    # 12 frequencies from 3 to 10 Hz, logarithmically spaced
-    frequencies=ya.FrequencyConfig(minimum=3.0, maximum=10.0, size=12),
-    # 60 velocities from 100 to 1500 m/s (log), 72 azimuths
-    grid=ya.SearchGrid(100.0, 1500.0, 60, azimuth_size=72),
-    # windows of 2 s, 30 windows per covariance block
-    window=ya.WindowConfig(type="fixed", length=2.0,
-                           windows_per_block=30),
+config = BeamformingConfig(
+    fmin=3.0, fmax=10.0, nfreq=12,              # log-spaced frequencies
+    grid_min=100.0, grid_max=1500.0, grid_size=60,  # velocities (m/s)
+    azimuth_size=72,
+    window_type="fixed", window_length=2.0, windows_per_block=30,
     method="capon",
-    output="both",              # keep maxima and full spectra
-    maxima=2,                   # two maxima per spectrum
+    spectra=True,                               # keep the whole spectra
+    maxima=2,
 )
-print(config)
+config.info()
 
-# 2. Other ways of giving frequencies and grid.
-explicit = ya.FrequencyConfig(values=[2.0, 3.0, 5.0, 8.0])
-cycles = ya.WindowConfig(type="cycles", length=20)    # 20 cycles
-slowness = ya.SearchGrid(0.0005, 0.01, 50, quantity="slowness")
-wavenumber = ya.SearchGrid(0.0, 0.25, 51, quantity="wavenumber")
+# Changes are validated together; parameters are also attributes.
+config.update(method="music", music_sources=2)
+config.window_length = 4.0
+print(config.method, config.window)
 
-# 3. Modified copies.
-music = config.replace(method="music")
-longer = config.replace(window=config.window.replace(length=4.0))
+# Groups of parameters can be given as objects or dictionaries.
+config.frequencies = [2.0, 3.0, 5.0, 8.0]
+config.grid = SearchGrid(0.0, 0.25, 51, quantity="wavenumber")
+config.window = {"type": "cycles", "length": 20}
 
-# 4. JSON: write, read, and the equivalent dictionary.
-config.write(OUTPUT / "capon.json", owrite=True)
-again = ya.BeamformingConfig.read(OUTPUT / "capon.json")
-print(again.to_dict())
+# Files: written, read, and read with changes (as on the command line).
+config.write("output/config.json", owrite=True)
+again = BeamformingConfig("output/config.json", method="bartlett")
+print(again == config, again.method)
 
-# 5. Invalid combinations are refused when the configuration is built.
 try:
-    config.replace(components="rayleigh_joint", method="bartlett")
+    config.update(components="rayleigh_joint", method="bartlett")
 except ValueError as error:
     print(f"refused: {error}")

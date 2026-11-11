@@ -32,7 +32,7 @@ import pytest
 
 from shakelab.exploration.yarray.cli import main
 from shakelab.exploration.yarray.config import BeamformingConfig
-from shakelab.exploration.yarray.io import read_results
+from shakelab.exploration.yarray.io import read_result_states
 
 DATA = Path(__file__).parent / "data"
 ARRAY = str(DATA / "sesame_array.json")
@@ -71,8 +71,8 @@ def test_process_from_options(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "ArrayData: 9 stations" in out
     assert "BeamformingResult: capon, vertical" in out
-    assert len(read_results(output)) == 1
-    assert BeamformingConfig.read(written).frequencies.size == 3
+    assert len(read_result_states(output)) == 1
+    assert BeamformingConfig(written).frequencies.size == 3
 
 
 def test_options_replace_the_configuration(tmp_path):
@@ -84,7 +84,7 @@ def test_options_replace_the_configuration(tmp_path):
                  "bartlett", "--frequencies", "4", "--write-config",
                  str(written)]) == 0
 
-    used = BeamformingConfig.read(written)
+    used = BeamformingConfig(written)
     assert used.method.value == "bartlett"
     assert list(used.frequencies.values) == [4.0]
     assert used.window.length == 10.0
@@ -100,7 +100,7 @@ def test_append_and_plot_saved_result(tmp_path):
         assert main(["--input", ARRAY, "--config", str(config), "-o",
                      str(output), "--append"]) == 0
 
-    assert len(read_results(output)) == 2
+    assert len(read_result_states(output)) == 2
     assert main(["--result", str(output), "--plot-spectrum", "--frequency",
                  "5", "--spectrum-view", "azimuth", "--save-figures",
                  str(tmp_path / "figures")]) == 0
@@ -128,7 +128,7 @@ def test_graphics_section(tmp_path):
 @pytest.mark.parametrize(
     "arguments, message",
     [
-        (["--input", ARRAY, "--fmin", "3"], "go together"),
+        (["--input", ARRAY, "--fmin", "3"], "minimum and maximum"),
         (["--input", ARRAY], "frequencies and grid"),
         (["--input", "missing.json", "--frequencies", "3", "--grid-min",
           "100", "--grid-max", "200", "--grid-size", "5"], "missing"),

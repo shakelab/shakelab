@@ -40,7 +40,6 @@ from shakelab.exploration.yarray.beamforming import (
     Beamformer,
     BeamformingResult,
     BeamformingWarning,
-    beamform,
 )
 from shakelab.exploration.yarray.config import (
     BeamformingConfig,
@@ -48,7 +47,6 @@ from shakelab.exploration.yarray.config import (
     WindowConfig,
 )
 from shakelab.exploration.yarray.data import ArrayData, StationData
-from shakelab.exploration.yarray.io import read_array
 from shakelab.signals import fourier
 from shakelab.signals.base import Record
 from shakelab.signals.crossspectral import coefficients
@@ -81,6 +79,18 @@ def _array(motion, coordinates, units=None, comps="ZNE"):
         stations.append(StationData(f"XX.S{i:02d}.", records, xy))
 
     return ArrayData(stations)
+
+
+def beamform(array, config):
+    """Process an array with a configuration."""
+    return Beamformer(array, config).process()
+
+
+def _changed(config, **changes):
+    """Modified copy of a configuration."""
+    copy = config.copy()
+    copy.update(**changes)
+    return copy
 
 
 def _delays(coordinates, velocity=VELOCITY, azimuth=AZIMUTH):
@@ -132,7 +142,7 @@ def _config(**kwargs):
         grid=SearchGrid(200.0, 800.0, 61, scale="linear",
                         azimuth_size=72),
         window=WindowConfig(type="fixed", length=4.0, windows_per_block=40),
-        output="both",
+        spectra=True,
     )
     options.update(kwargs)
     return BeamformingConfig(**options)
@@ -291,7 +301,7 @@ def test_rfft_all_bins_in_range():
 
     result = beamform(_harmonic_array(), _config(
         frequencies=FrequencyConfig(minimum=3.9, maximum=5.1),
-        transform="rfft", output="maxima",
+        transform="rfft", spectra=False,
     ))
 
     np.testing.assert_allclose(result.frequencies, [4.0, 4.25, 4.5, 4.75,
@@ -348,7 +358,7 @@ def test_geometric_uncertainty():
             for st in array
         ])
 
-    plain = beamform(array, config.replace(geometric_uncertainty="none"))
+    plain = beamform(array, _changed(config, geometric_uncertainty="none"))
     zero = beamform(with_covariance(0.0), config)
     blurred = beamform(with_covariance(25.0), config)
 
@@ -356,13 +366,17 @@ def test_geometric_uncertainty():
     assert np.max(blurred.spectra[0].power) < np.max(plain.spectra[0].power)
 
 
-def test_output_modes():
-    """maxima, spectra or both are kept."""
+def test_spectra_option():
+    """Maxima are always kept, the spectra with spectra=True."""
     array = _harmonic_array()
+    plain = beamform(array, _config(spectra=False))
+    spectra = beamform(array, _config(spectra=True))
 
-    assert beamform(array, _config(output="maxima")).spectra is None
-    spectra = beamform(array, _config(output="spectra"))
-    assert spectra.maxima == () and spectra.spectra
+    assert plain.spectra is None and plain.maxima
+    assert spectra.spectra and spectra.maxima == plain.maxima
+
+    with pytest.raises(ValueError, match="spectra=False"):
+        plain.spectrum(4.0)
 
     several = beamform(array, _config(maxima=3))
     ranks = {item.rank for item in several.maxima}
@@ -377,7 +391,7 @@ def test_strict_realizations():
     with pytest.raises(ValueError, match="realizations"):
         beamform(_harmonic_array(), config)
 
-    beamform(_harmonic_array(), config.replace(strict=False))
+    beamform(_harmonic_array(), _changed(config, strict=False))
 
 
 def test_short_data_gives_empty_frequencies():
@@ -387,7 +401,7 @@ def test_short_data_gives_empty_frequencies():
     with pytest.warns(BeamformingWarning, match="2 frequencies"):
         result = beamform(_harmonic_array(nsamp=3000), config)
 
-    assert result.maxima == ()
+    assert result.maxima == []
     assert result.block_times == {4.0: (), 6.0: ()}
     assert result.spectra[0].power.shape == (0, 72, 61)
 
@@ -402,40 +416,66 @@ def test_beamformer_cache_and_config(tmp_path):
     array = _harmonic_array()
     config = _config()
     reference = beamform(array, config)
-    beamformer = Beamformer(config, cache=True)
+    beamformer = Beamformer(array, config, cache=True)
 
     for _ in range(2):
-        result = beamformer.process(array)
+        result = beamformer.process()
         np.testing.assert_array_equal(result.spectra[0].power,
                                       reference.spectra[0].power)
 
     assert set(beamformer._cache) == {4.0, 6.0}
 
+    beamformer.config.update(grid_max=900.0)
+    beamformer.process()
+    assert beamformer.config.grid.maximum == 900.0
+    assert config.grid.maximum == 800.0
+
     path = tmp_path / "config.json"
-    config.replace(method="bartlett").write(path)
-    beamformer.set_config(path)
+    _changed(config, method="bartlett").write(path)
+    beamformer.config = path
 
     assert beamformer.config.method.value == "bartlett"
-    assert beamformer._cache == {}
+
+    with pytest.raises(TypeError):
+        Beamformer(array, 42)
 
     with pytest.raises(TypeError):
         Beamformer(42)
 
 
-def test_concatenate():
-    """Results of consecutive data join with renumbered blocks."""
+def test_beamformer_needs_array_and_complete_config():
+    """Missing array, configuration or frequencies are errors."""
+    array = _harmonic_array()
+
+    with pytest.raises(ValueError, match="no array"):
+        Beamformer(config=_config()).process()
+
+    with pytest.raises(ValueError, match="no configuration"):
+        Beamformer(array).process()
+
+    with pytest.raises(ValueError, match="frequencies"):
+        Beamformer(array, BeamformingConfig(grid_min=100.0, grid_max=900.0,
+                                            grid_size=10)).process()
+
+
+def _halves(array, config):
+    """Results of the two halves of an array, processed by windows."""
+    beamformer = Beamformer(array, config)
+    middle = array.starttime + 120.0
+    return (
+        beamformer.process(endtime=middle - DELTA),
+        beamformer.process(starttime=middle),
+    )
+
+
+def test_process_window_and_append():
+    """Results of consecutive windows join with renumbered blocks."""
     array = _harmonic_array(nsamp=24000)
     config = _config()
     whole = beamform(array, config)
-    first, second = (
-        beamform(ArrayData([
-            StationData(st.sid, [rec.extract(start, end)
-                                 for rec in st.records], st.coordinates)
-            for st in array
-        ]), config)
-        for start, end in ((None, 119.99), (120.0, None))
-    )
-    joined = BeamformingResult.concatenate([first, second])
+    first, second = _halves(array, config)
+    joined = BeamformingResult()
+    joined.append([first, second])
 
     assert len(joined.block_times[4.0]) == (
         len(first.block_times[4.0]) + len(second.block_times[4.0])
@@ -444,11 +484,106 @@ def test_concatenate():
     assert blocks == list(range(len(blocks)))
     assert joined.spectrum(4.0).power.shape[0] == len(blocks)
     assert len(whole.maxima) >= len(joined.maxima)
+    assert first.block_times[4.0][0] == whole.block_times[4.0][0]
 
-    with pytest.raises(ValueError):
-        BeamformingResult.concatenate(
-            [first, beamform(array, config.replace(method="bartlett"))]
-        )
+    with pytest.raises(ValueError, match="configurations"):
+        joined.append(beamform(array, _changed(config, method="bartlett")))
+
+    assert joined.nblocks == first.nblocks + second.nblocks
+
+    copy = joined.copy()
+    copy.append(copy)
+    assert copy.nblocks == 2 * joined.nblocks
+
+
+def test_stations_of_each_block():
+    """Joined results keep the stations of each block."""
+    array = _harmonic_array(nsamp=24000)
+    config = _config(frequencies=[4.0])
+    first, _ = _halves(array, config)
+    smaller = array.copy()
+    smaller.remove("XX.S09.")
+    _, second = _halves(smaller, config)
+    joined = first.copy()
+    joined.append(second)
+
+    assert joined.sids == array.sids
+    assert joined.coordinates.shape == (10, 3)
+    assert joined.stations_at(4.0, 0) == array.sids
+    assert joined.stations_at(4.0, joined.nblocks - 1) == smaller.sids
+
+
+def test_result_files(tmp_path):
+    """Results are written, accumulated in a file and read joined."""
+    array = _harmonic_array(nsamp=24000)
+    config = _config()
+    first, second = _halves(array, config)
+    path = tmp_path / "out" / "result.pkl"
+    first.write(path)
+    second.write(path, append=True)
+    joined = BeamformingResult(path)
+
+    assert joined.nblocks == first.nblocks + second.nblocks
+    assert joined.config == config
+    assert len(joined.maxima) == len(first.maxima) + len(second.maxima)
+    np.testing.assert_array_equal(
+        joined.spectrum(6.0).power[:first.spectrum(6.0).nblocks],
+        first.spectrum(6.0).power,
+    )
+
+    with pytest.raises(FileExistsError):
+        first.write(path)
+
+    with pytest.raises(ValueError, match="configurations"):
+        beamform(array, _changed(config, maxima=2)).write(path, append=True)
+
+    with pytest.raises(ValueError, match="empty"):
+        BeamformingResult().write(tmp_path / "empty.pkl")
+
+    other = tmp_path / "other.pkl"
+    other.write_bytes(b"\x80\x04N.")
+
+    with pytest.raises(ValueError, match="not a YArray result"):
+        BeamformingResult(other)
+
+
+def test_dispersion_and_density(capsys):
+    """Median velocity, percentiles and azimuth of the rank-1 maxima."""
+    result = beamform(_harmonic_array(nsamp=24000), _config(maxima=2))
+    curve = result.dispersion()
+
+    np.testing.assert_allclose(curve.frequency, [4.0, 6.0])
+    np.testing.assert_allclose(curve.velocity, VELOCITY, atol=10.0)
+    np.testing.assert_allclose(curve.azimuth, AZIMUTH)
+    assert np.all(curve.velocity_low <= curve.velocity)
+    assert np.all(curve.velocity <= curve.velocity_high)
+    assert list(curve.count) == [len(result.block_times[4.0]),
+                                 len(result.block_times[6.0])]
+    assert curve.ellipticity is None
+
+    curve.info()
+    assert "rank 1" in capsys.readouterr().out
+
+    density = result.density(ranks=[1])
+    assert density.component == "vertical"
+
+    with pytest.raises(ValueError, match="rank 5"):
+        result.dispersion(rank=5)
+
+    joint = beamform(
+        _harmonic_array(freqs=(5.0,), ellipticity=0.5),
+        _config(components="rayleigh_joint", frequencies=[5.0]),
+    ).dispersion()
+    assert joint.ellipticity[0] == pytest.approx(0.5, abs=0.1)
+
+    three = beamform(_harmonic_array(), _config(
+        components="three_component_separate", method="bartlett",
+    ))
+
+    with pytest.raises(ValueError, match="choose the component"):
+        three.dispersion()
+
+    assert three.dispersion(component="radial").component == "radial"
 
 
 def test_result_access_and_summary(capsys):
@@ -481,7 +616,7 @@ def _sesame_array():
     """The nine SESAME stations (array file)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return read_array(DATA / "sesame_array.json")
+        return ArrayData(DATA / "sesame_array.json")
 
 
 @pytest.mark.parametrize(
@@ -506,7 +641,7 @@ def test_reference_august_2026(case):
     reference = json.loads(
         (DATA / "reference.json").read_text()
     )["cases"][case]
-    config = BeamformingConfig.from_dict(reference["config"])
+    config = BeamformingConfig(reference["config"])
     array = _sesame_array()
     result = beamform(array, config)
 

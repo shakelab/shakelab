@@ -21,7 +21,7 @@
 Command-line array processing.
 
 The data come from an array file (``--input``, see
-:func:`~.io.read_array`), from waveform files read by ShakeLab with
+:meth:`~.data.ArrayData.read`), from waveform files read by ShakeLab with
 their metadata (``--data``, ``--metadata``), or a saved result is only
 plotted (``--result``). The configuration is a JSON file (``--config``,
 see :mod:`.config`), whose values the processing options of the
@@ -71,47 +71,27 @@ from typing import Any, Optional
 
 import numpy as np
 
-from shakelab.exploration.yarray.beamforming import Beamformer
+from shakelab.exploration.yarray.beamforming import (
+    Beamformer,
+    BeamformingResult,
+)
 from shakelab.exploration.yarray.config import BeamformingConfig
 from shakelab.exploration.yarray.data import ArrayData
-from shakelab.exploration.yarray.io import (
-    read_array,
-    read_result,
-    write_result,
-)
 
 __all__ = ["main"]
 
-# Processing options: argument name -> (JSON section, key).
-_OPTIONS = {
-    "frequency_scale": ("frequencies", "scale"),
-    "method": ("method", "name"),
-    "diagonal_loading": ("method", "diagonal_loading"),
-    "music_sources": ("method", "music_sources"),
-    "grid_quantity": ("grid", "quantity"),
-    "grid_scale": ("grid", "scale"),
-    "grid_min": ("grid", "minimum"),
-    "grid_max": ("grid", "maximum"),
-    "grid_size": ("grid", "size"),
-    "azimuth_size": ("grid", "azimuth_size"),
-    "window_type": ("window", "type"),
-    "window_length": ("window", "length"),
-    "window_taper": ("window", "taper"),
-    "window_overlap": ("window", "overlap"),
-    "windows_per_block": ("window", "windows_per_block"),
-    "block_overlap": ("window", "block_overlap"),
-    "ellipticity_angle_min": ("ellipticity", "minimum_angle"),
-    "ellipticity_angle_max": ("ellipticity", "maximum_angle"),
-    "ellipticity_angle_size": ("ellipticity", "size"),
-    "output_mode": ("output", "mode"),
-    "maxima": ("output", "maxima"),
-    "minimum_relative_power": ("output", "minimum_relative_power"),
-    "statistical_uncertainty": ("uncertainty", "statistical"),
-    "geometric_uncertainty": ("uncertainty", "geometric"),
-    "transform": ("spectral", "transform"),
-    "fft_selection": ("spectral", "fft_selection"),
-    "fft_padding": ("spectral", "fft_padding"),
-}
+# Processing options: same names as the BeamformingConfig parameters.
+_OPTIONS = (
+    "frequencies", "fmin", "fmax", "nfreq", "frequency_scale", "method",
+    "components", "diagonal_loading", "music_sources", "grid_quantity",
+    "grid_scale", "grid_min", "grid_max", "grid_size", "azimuth_size",
+    "window_type", "window_length", "window_taper", "window_overlap",
+    "windows_per_block", "block_overlap", "ellipticity_angle_min",
+    "ellipticity_angle_max", "ellipticity_angle_size", "spectra",
+    "maxima", "minimum_relative_power", "statistical_uncertainty",
+    "geometric_uncertainty", "strict", "transform", "fft_selection",
+    "fft_padding",
+)
 
 
 # ----------------------------------------------------------------------------
@@ -165,19 +145,19 @@ def _run(args: argparse.Namespace) -> int:
             if getattr(args, name) is not None:
                 raise ValueError(f"--{name.replace('_', '-')} needs data")
 
-        result = read_result(args.result, concatenate=True)
+        result = BeamformingResult(args.result)
     else:
-        config = BeamformingConfig.from_dict(_config_dict(args))
+        config = _config(args)
 
         if args.write_config is not None:
             config.write(args.write_config, owrite=args.owrite)
 
         array = _array(args)
         print(array.summary())
-        result = Beamformer(config).process(array)
+        result = Beamformer(array, config).process()
 
         if args.output is not None:
-            write_result(result, args.output, append=args.append,
+            result.write(args.output, append=args.append,
                          owrite=args.owrite)
             print(f"result written to {args.output}")
 
@@ -265,8 +245,9 @@ def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
     processing.add_argument("--ellipticity-angle-min", type=float)
     processing.add_argument("--ellipticity-angle-max", type=float)
     processing.add_argument("--ellipticity-angle-size", type=int)
-    processing.add_argument("--output-mode",
-                            choices=("maxima", "spectra", "both"))
+    processing.add_argument("--spectra",
+                            action=argparse.BooleanOptionalAction,
+                            help="keep the complete spectra")
     processing.add_argument("--maxima", type=int)
     processing.add_argument("--minimum-relative-power", type=float)
     processing.add_argument("--statistical-uncertainty",
@@ -317,58 +298,28 @@ def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
     return parser
 
 
-def _config_dict(args: argparse.Namespace) -> dict:
+def _config(args: argparse.Namespace) -> BeamformingConfig:
     """Configuration from the file, with the options replacing values."""
-    data: dict = {}
+    config = BeamformingConfig(
+        args.config,
+        **{name: getattr(args, name) for name in _OPTIONS
+           if getattr(args, name) is not None},
+    )
 
-    if args.config is not None:
-        data = json.loads(args.config.read_text(encoding="utf-8"))
-
-        if not isinstance(data, Mapping):
-            raise ValueError(f"{args.config}: not a JSON object")
-
-        data = {key: value for key, value in data.items()
-                if key != "graphics"}
-
-    if isinstance(data.get("method"), str):
-        data["method"] = {"name": data["method"]}
-
-    if args.frequencies is not None:
-        data["frequencies"] = {"values": args.frequencies}
-    elif args.fmin is not None or args.fmax is not None:
-        if args.fmin is None or args.fmax is None:
-            raise ValueError("--fmin and --fmax go together")
-
-        data["frequencies"] = {
-            "minimum": args.fmin, "maximum": args.fmax, "size": args.nfreq,
-        }
-    elif args.nfreq is not None:
-        data.setdefault("frequencies", {})["size"] = args.nfreq
-
-    for name, (section, key) in _OPTIONS.items():
-        value = getattr(args, name)
-
-        if value is not None:
-            data.setdefault(section, {})[key] = value
-
-    for name in ("components", "strict"):
-        if getattr(args, name) is not None:
-            data[name] = getattr(args, name)
-
-    if "frequencies" not in data or "grid" not in data:
+    if not config.complete:
         raise ValueError(
             "the configuration needs frequencies and grid: give --config "
             "or --frequencies/--fmin --fmax and --grid-min --grid-max "
             "--grid-size"
         )
 
-    return data
+    return config
 
 
 def _array(args: argparse.Namespace) -> ArrayData:
     """Array data from an array file or waveform files."""
     if args.input is not None:
-        return read_array(args.input)
+        return ArrayData(args.input)
 
     from shakelab.signals.io import metadata_reader, reader
 
@@ -379,7 +330,7 @@ def _array(args: argparse.Namespace) -> ArrayData:
         args.data, metadata=metadata, select=args.select,
         starttime=args.start, endtime=args.end,
     )
-    return ArrayData.from_collection(collection, select=args.select)
+    return ArrayData(collection, select=args.select)
 
 
 # ----------------------------------------------------------------------------
@@ -486,10 +437,8 @@ def _figures(result: Any, options: dict) -> list:
         ))
 
     if "density" in wanted:
-        from shakelab.exploration.yarray.statistics import maximum_density
-
-        density = maximum_density(
-            result, component=component, ranks=options["ranks"],
+        density = result.density(
+            component=component, ranks=options["ranks"],
             coordinate=options["coordinate"],
         )
         figure, _ = graphics.plot_density(

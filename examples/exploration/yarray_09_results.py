@@ -18,9 +18,9 @@
 """
 Working with the results.
 
-A BeamformingResult holds the maxima, the spectra (if requested), the
-configuration and the stations. Results of consecutive data are
-joined, saved to files and read back.
+A BeamformingResult holds maxima, spectra (if requested), configuration
+and stations of one or more analyses. Results of successive windows
+are joined, written to files and read back.
 
 Run (from any folder; files are written to ./output)::
 
@@ -30,74 +30,44 @@ Run (from any folder; files are written to ./output)::
 import warnings
 from pathlib import Path
 
-from shakelab.exploration import yarray as ya
-
-OUTPUT = Path("output")             # files written by the example
-OUTPUT.mkdir(exist_ok=True)
-
-# Test data of the repository (the example runs from any folder).
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
-
-warnings.filterwarnings("ignore", message="STLO")
-
-array = ya.read_array(DATA / "sesame_array.json")
-
-config = ya.BeamformingConfig(
-    frequencies=ya.FrequencyConfig(minimum=3.0, maximum=10.0, size=12),
-    grid=ya.SearchGrid(100.0, 1500.0, 60, azimuth_size=72),
-    window=ya.WindowConfig(type="fixed", length=2.0,
-                           windows_per_block=20),
-    output="both",
-    maxima=3,
+from shakelab.exploration.yarray import (
+    ArrayData,
+    Beamformer,
+    BeamformingConfig,
+    BeamformingResult,
 )
 
-result = ya.beamform(array, config)
-result.info()
+DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
+warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
 
-# 1. Selection of the maxima by rank, component and frequency.
-maxima = result.maxima_at(rank=1, frequency=6.0)
-first = maxima[0]
-print(first.velocity, first.slowness, first.kx, first.ky, first.time)
+array = ArrayData(DATA / "sesame_array.json")
+config = BeamformingConfig(
+    fmin=3.0, fmax=10.0, nfreq=12,
+    grid_min=100.0, grid_max=1500.0, grid_size=60, azimuth_size=72,
+    window_type="fixed", window_length=2.0, windows_per_block=20,
+    spectra=True, maxima=3,
+)
+beamformer = Beamformer(array, config)
+result = beamformer.process()
 
-# 2. The spectrum of a frequency: power of every block on the grid.
+# Maxima, spectra, dispersion curve.
+best = result.maxima_at(rank=1, frequency=6.0)[0]
+print(best.velocity, best.slowness, best.azimuth, best.time)
 spectrum = result.spectrum(6.0)
-print(spectrum.power.shape)        # (blocks, azimuths, radial values)
-print(spectrum.azimuths[:4], spectrum.grid_values[:4])
-print(spectrum.times)              # centres of the blocks
+print(spectrum.power.shape)          # (blocks, azimuths, radial values)
+result.dispersion().info()
 
-# 3. What the result knows about itself.
-print(result.config.method, result.sids, result.coordinates.shape)
-print(result.frequencies)          # analysis frequencies
-
-# 4. Results of consecutive data join into one (blocks renumbered).
+# Successive windows joined into one result.
 middle = array.starttime + 30.0
-first_half = ya.ArrayData([
-    ya.StationData(station.sid,
-                   [record.extract(None, middle - 0.01)
-                    for record in station.records],
-                   station.coordinates)
-    for station in array
-])
-second_half = ya.ArrayData([
-    ya.StationData(station.sid,
-                   [record.extract(middle, None)
-                    for record in station.records],
-                   station.coordinates)
-    for station in array
-])
-first = ya.beamform(first_half, config)
-second = ya.beamform(second_half, config)
-joined = ya.BeamformingResult.concatenate([first, second])
+joined = beamformer.process(endtime=middle - array.delta)
+joined.append(beamformer.process(starttime=middle))
 joined.info()
+print(joined.stations_at(6.0, block=0))
 
-# 5. Files (pickle; only for trusted files): one result, or successive
-#    results appended to the same file.
-ya.write_result(result, OUTPUT / "result.pkl", owrite=True)
-ya.write_result(first, OUTPUT / "daily.pkl", owrite=True)
-ya.write_result(second, OUTPUT / "daily.pkl", append=True)
+# Files: one result, or results accumulated in one file.
+result.write("output/result.pkl", owrite=True)
+joined.write("output/daily.pkl", owrite=True)
+beamformer.process(starttime=middle).write("output/daily.pkl", append=True)
 
-result = ya.read_result(OUTPUT / "result.pkl")
-results = ya.read_results(OUTPUT / "daily.pkl")              # list of results
-joined = ya.read_result(OUTPUT / "daily.pkl", concatenate=True)
-print(len(results), len(joined.maxima))
+daily = BeamformingResult("output/daily.pkl")
+print(daily.nblocks, len(daily.maxima))

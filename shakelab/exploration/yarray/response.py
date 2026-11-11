@@ -282,7 +282,7 @@ class ArrayGeometry:
         Parameters
         ----------
         array : ArrayData
-            Array data (e.g. from :func:`read_array`).
+            Array data.
 
         Returns
         -------

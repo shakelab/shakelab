@@ -44,7 +44,7 @@ DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
 
 warnings.filterwarnings("ignore", message="STLO")
 
-array = ya.read_array(DATA / "sesame_array.json")
+array = ya.ArrayData(DATA / "sesame_array.json")
 response = ya.array_response(array)
 
 # 1. The experiment: the search grid (of wavenumbers), the estimator,

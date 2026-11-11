@@ -20,7 +20,7 @@ A frequency-wavenumber analysis.
 
 Vertical Capon beamforming of the nine SESAME stations: the spectral
 maxima give phase velocity and azimuth at each frequency and for each
-covariance block (here a few blocks over 60 s).
+covariance block.
 
 Run (from any folder)::
 
@@ -32,45 +32,37 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from shakelab.exploration import yarray as ya
+from shakelab.exploration.yarray import (
+    ArrayData,
+    Beamformer,
+    BeamformingConfig,
+)
 from shakelab.graphics.yarray import plot_dispersion, plot_spectrum
 
-# Test data of the repository (the example runs from any folder).
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
+DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
+warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
 
-warnings.filterwarnings("ignore", message="STLO")
-
-array = ya.read_array(DATA / "sesame_array.json")
-
-config = ya.BeamformingConfig(
-    frequencies=ya.FrequencyConfig(minimum=3.0, maximum=10.0, size=12),
-    grid=ya.SearchGrid(100.0, 1500.0, 60, azimuth_size=72),
-    window=ya.WindowConfig(type="fixed", length=2.0,
-                           windows_per_block=30),
-    method="capon",
-    output="both",
-    maxima=2,
+array = ArrayData(DATA / "sesame_array.json")
+config = BeamformingConfig(
+    fmin=3.0, fmax=10.0, nfreq=12,
+    grid_min=100.0, grid_max=1500.0, grid_size=60, azimuth_size=72,
+    window_type="fixed", window_length=2.0, windows_per_block=30,
+    spectra=True, maxima=2,
 )
 
-# 1. Process: a function for a single analysis...
-result = ya.beamform(array, config)
-
-#    ...or a Beamformer, for repeated analyses with the same
-#    configuration (cache=True keeps the steering vectors).
-beamformer = ya.Beamformer(config, cache=True)
-result = beamformer.process(array)
+beamformer = Beamformer(array, config)
+result = beamformer.process()                 # window common to all stations
 result.info()
 
-# 2. The maxima: rank 1 is the strongest of each spectrum.
+# A part of the record only.
+first = beamformer.process("2003-01-01T00:01:45", "2003-01-01T00:02:30")
+
 for maximum in result.maxima_at(rank=1, frequency=5.0):
-    print(f"{maximum.time}  {maximum.frequency:.2f} Hz  "
-          f"{maximum.velocity:6.0f} m/s  azimuth {maximum.azimuth:5.1f}  "
-          f"power {maximum.power:.3g}")
+    print(f"{maximum.time}  {maximum.velocity:6.0f} m/s  "
+          f"azimuth {maximum.azimuth:5.1f}  power {maximum.power:.3g}")
 
-print(result.power_units)    # (unit)**2/Hz: data not corrected
+result.dispersion().info()
 
-# 3. Figures: maxima versus frequency and one spectrum.
 figure, axes = plt.subplots(1, 2, figsize=(13, 5))
 plot_dispersion(result, ax=axes[0])
 plot_spectrum(result, 5.0, block=0, ax=axes[1])

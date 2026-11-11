@@ -18,10 +18,9 @@
 """
 Building the array data.
 
-An ArrayData holds the records of the stations on a common time axis,
-with their coordinates (east, north, up, in metres). This example
-builds the same array of the SESAME simulation (nine three-component
-stations, 60 s) in three ways.
+An ArrayData holds the stations of an array: records, coordinates
+(east, north, up, in metres) and orientation of the components. It is
+filled from an array file, from waveforms or one station at a time.
 
 Run (from any folder)::
 
@@ -31,55 +30,36 @@ Run (from any folder)::
 import warnings
 from pathlib import Path
 
-from shakelab.exploration import yarray as ya
+from shakelab.exploration.yarray import ArrayData
 from shakelab.signals.io import reader
 
-# Test data of the repository (the example runs from any folder).
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "tests" / "exploration" / "yarray" / "data"
+DATA = Path(__file__).resolve().parents[2] / "tests/exploration/yarray/data"
+warnings.filterwarnings("ignore", message="STLO")  # local SAC coordinates
 
-# The SESAME files keep local coordinates in STLA/STLO: the SAC reader
-# warns that they are not geographic.
-warnings.filterwarnings("ignore", message="STLO")
-
-# 1. From an array file: a JSON file listing, for each station, its
-#    local coordinates and one waveform file per component.
-array = ya.read_array(DATA / "sesame_array.json")
+# From an array file (local coordinates and one file per component).
+array = ArrayData(DATA / "sesame_array.json")
 array.info()
 
-# 2. From waveforms read by ShakeLab and a table of coordinates.
-#    The keys are NET.STA.LOC of the records (here ".S1001." and so
-#    on: the SESAME files have no network code). With geographic
-#    positions in the metadata (e.g. StationXML) the table is not
-#    needed: the coordinates are computed in a local ENU frame.
+# From waveforms read by ShakeLab. With geographic positions in the
+# metadata (e.g. StationXML) no coordinates are needed.
 collection = reader(str(DATA / "sesame" / "*.sac"))
-
-coordinates = {}
-for stream in collection:
-    header = stream.records()[0].head.extra["sac"]
-    coordinates[stream.sid.rsplit(".", 1)[0]] = (header["USER7"],
-                                                 header["USER8"])
-
-array = ya.ArrayData.from_collection(collection, coordinates=coordinates)
-print(array.sids)
-
-#    The channels and the time window can be selected.
-array = ya.ArrayData.from_collection(
-    collection,
-    coordinates=coordinates,
-    select="*.S10[01]*..*",
-    starttime="2003-01-01T00:01:50",
-    endtime="2003-01-01T00:02:30",
-)
+coordinates = {
+    stream.sid.rsplit(".", 1)[0]: (
+        stream.records()[0].head.extra["sac"]["USER7"],
+        stream.records()[0].head.extra["sac"]["USER8"],
+    )
+    for stream in collection
+}
+array = ArrayData(collection, coordinates=coordinates,
+                  select="*.S100*..*", starttime="2003-01-01T00:01:50")
 print(array.sids, array.starttime, array.nsamp)
 
-# 3. From records already in memory (e.g. processed by the user).
-records = [record for stream in collection for record in stream.records()]
-array = ya.ArrayData.from_records(records, coordinates=coordinates)
+# One station at a time, from any source.
+array = ArrayData()
 
-# The array is immutable: later changes of the records do not
-# affect it. Its main properties:
-print(array.delta, array.units)          # sampling, units (None here)
-print(array.coordinates[:3])             # (n_stations, 3) in metres
-station = array.stations[0]
-print(station.sid, station.ncomp, station.vertical()[:5])
+for station in ["S1001", "S1002", "S1003"]:
+    array.add(collection, select=f"*.{station}..*", coordinates=coordinates)
+
+array.remove(".S1003.")
+print(array)
+print(array.coordinates, array.delta, array.units)

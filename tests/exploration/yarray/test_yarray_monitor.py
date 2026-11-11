@@ -38,12 +38,8 @@ import numpy as np
 import pytest
 
 from shakelab.exploration.yarray.beamforming import Beamformer
-from shakelab.exploration.yarray.config import (
-    BeamformingConfig,
-    SearchGrid,
-    WindowConfig,
-)
-from shakelab.exploration.yarray.io import read_results
+from shakelab.exploration.yarray.config import BeamformingConfig
+from shakelab.exploration.yarray.io import read_result_states
 from shakelab.exploration.yarray.monitor import ArrayMonitor
 from shakelab.libutils.timeN import Date
 from shakelab.signals.base import Record, StreamCollection
@@ -55,10 +51,9 @@ AZIMUTH = 60.0
 COORDINATES = np.random.default_rng(1).uniform(-100.0, 100.0, (6, 2))
 SIDS = [f"XX.S{i:02d}." for i in range(6)]
 CONFIG = BeamformingConfig(
-    [4.0],
-    SearchGrid(200.0, 800.0, 31, scale="linear", azimuth_size=72),
-    window=WindowConfig(type="fixed", length=2.0, windows_per_block=20),
-    method="bartlett",
+    frequencies=[4.0], grid_min=200.0, grid_max=800.0, grid_size=31,
+    grid_scale="linear", azimuth_size=72, window_type="fixed",
+    window_length=2.0, windows_per_block=20, method="bartlett",
 )
 
 
@@ -110,7 +105,7 @@ def _monitor(**kwargs):
         "background": False,
     }
     options.update(kwargs)
-    return ArrayMonitor(Beamformer(CONFIG, cache=True), **options)
+    return ArrayMonitor(CONFIG, **options)
 
 
 def test_synchronous_analysis():
@@ -146,13 +141,17 @@ def test_callbacks_and_queries(tmp_path):
 
     assert len(seen) == 3
     assert len(monitor.results()) == 2
-    assert len(read_results(path)) == 3
+    assert len(read_result_states(path)) == 3
     assert monitor.results(endtime=START + 10.0) == []
 
     joined = monitor.result()
     assert len(joined.block_times[4.0]) == 2 * len(
         seen[0].block_times[4.0]
     )
+
+    latest = monitor.latest()
+    latest.maxima.clear()
+    assert monitor.latest().maxima
 
 
 def test_skipped_windows():
@@ -222,9 +221,9 @@ class _SlowBeamformer(Beamformer):
         super().__init__(*args, **kwargs)
         self.release = threading.Event()
 
-    def process(self, array):
+    def process(self, *args, **kwargs):
         self.release.wait(5.0)
-        return super().process(array)
+        return super().process(*args, **kwargs)
 
 
 def test_late_windows_are_dropped():
@@ -234,10 +233,11 @@ def test_late_windows_are_dropped():
     The first window is being processed, the second is queued; the
     third replaces it and the second is reported as dropped.
     """
-    beamformer = _SlowBeamformer(CONFIG)
+    beamformer = _SlowBeamformer(config=CONFIG, cache=True)
     monitor = ArrayMonitor(
-        beamformer, window=30.0, coordinates=dict(zip(SIDS, COORDINATES))
+        CONFIG, window=30.0, coordinates=dict(zip(SIDS, COORDINATES))
     )
+    monitor._beamformer = beamformer
     reasons = []
     monitor.on_skip(lambda monitor, reason: reasons.append(reason))
     client = _Client(_records())
@@ -261,16 +261,16 @@ def test_late_windows_are_dropped():
 class _FailingBeamformer(Beamformer):
     """Beamformer with an unexpected error."""
 
-    def process(self, array):
+    def process(self, *args, **kwargs):
         raise KeyError("unexpected")
 
 
 def test_unexpected_error_stops_the_worker():
     """Unexpected errors stop the worker and are raised by close."""
     monitor = ArrayMonitor(
-        _FailingBeamformer(CONFIG), window=30.0,
-        coordinates=dict(zip(SIDS, COORDINATES)),
+        CONFIG, window=30.0, coordinates=dict(zip(SIDS, COORDINATES)),
     )
+    monitor._beamformer = _FailingBeamformer(config=CONFIG)
     monitor(_Client(_records()))
     deadline = time.monotonic() + 5.0
 
@@ -286,16 +286,18 @@ def test_unexpected_error_stops_the_worker():
 
 
 def test_invalid_arguments():
-    """Wrong beamformer and windows are rejected."""
+    """Wrong configurations and windows are rejected."""
     with pytest.raises(TypeError):
-        ArrayMonitor("capon", window=10.0)
+        ArrayMonitor(42, window=10.0)
+    with pytest.raises(ValueError, match="frequencies"):
+        ArrayMonitor(BeamformingConfig(), window=10.0)
     with pytest.raises(ValueError):
         ArrayMonitor(CONFIG, window=0.0)
     with pytest.raises(ValueError):
         ArrayMonitor(CONFIG, window=10.0, keep=0)
 
-    assert isinstance(ArrayMonitor(CONFIG, window=10.0).beamformer,
-                      Beamformer)
+    monitor = ArrayMonitor(CONFIG, window=10.0)
+    assert monitor.config == CONFIG and monitor.config is not CONFIG
 
 
 def _seedlink_test_server():
@@ -336,7 +338,7 @@ def test_within_the_seedlink_client():
         client.select("XX.*..HHZ")
         client.set_buffer()
         monitor = ArrayMonitor(
-            Beamformer(CONFIG, cache=True), window=30.0,
+            CONFIG, window=30.0,
             coordinates=dict(zip(SIDS, COORDINATES)),
         )
         monitor.on_skip(

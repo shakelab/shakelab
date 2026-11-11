@@ -18,49 +18,68 @@
 #
 # ****************************************************************************
 """
-Synchronized array data.
+Array data.
 
 The array-processing methods of :mod:`shakelab.exploration.yarray`
-work on an :class:`ArrayData`: a snapshot of the waveforms of a set of
-stations on a common time axis, with the position of every station in
-a local metric frame and the orientation of every recorded component.
-Each station (:class:`StationData`) has one, two or three components.
+work on an :class:`ArrayData`: the waveforms of a set of stations, with
+the position of every station in a local metric frame and the
+orientation of every recorded component. Each station
+(:class:`StationData`) has one, two or three components on a common
+time axis.
 
-An ``ArrayData`` is built from ShakeLab waveforms, whatever their
-origin (files read with :func:`shakelab.signals.io.reader`, the buffer
-of a SeedLink client, a FDSN request):
+An ``ArrayData`` is a container filled in one go or progressively:
 
-- :meth:`ArrayData.from_collection` from a
-  :class:`~shakelab.signals.base.StreamCollection`;
-- :meth:`ArrayData.from_records` from a sequence of
-  :class:`~shakelab.signals.base.Record`.
+.. code-block:: python
 
-Both cut the channels on a common time window, group them by station
-and take positions and orientations from the channel metadata, unless
-they are given explicitly.
+    array = ArrayData("array.json")              # array file
+    array = ArrayData(collection)                # waveforms with metadata
+    array = ArrayData()
+    array.read("array.json")
+    array.add(records, coordinates={...})
+    array.add(station)
+    array.remove("XX.S01.")
+
+Waveforms come from any ShakeLab source (files read with
+:func:`shakelab.signals.io.reader`, the buffer of a SeedLink client, a
+FDSN request): a :class:`~shakelab.signals.base.StreamCollection`, a
+:class:`~shakelab.signals.base.Stream`, records or ready
+:class:`StationData`.
 
 Conventions
 -----------
 Coordinates are East, North, Up in metres (``x = East``, ``y = North``,
 ``z = Up``). When they are computed from geographic positions, the
-frame is the local ENU frame of :attr:`ArrayData.frame` (by default
-centred on the mean position of the stations); explicit coordinates
-are in a local frame chosen by the user. Orientations are unit vectors
-of the positive direction of each component in the same frame.
-Azimuths are in degrees clockwise from north.
+frame is the local ENU frame of :attr:`ArrayData.frame`; explicit
+coordinates are in a local frame chosen by the user. Orientations are
+unit vectors of the positive direction of each component in the same
+frame. Azimuths are in degrees clockwise from north.
 
 Design choices
 --------------
-``StationData`` and ``ArrayData`` are immutable: stations, records,
-coordinates and orientations cannot be replaced after construction.
-The records are stored by reference: the builders create new records
-(cut to the common window), so that later changes of the input data do
-not affect the snapshot.
+The stations of an array need not share their time axis: the time
+window common to all of them is taken when the array is processed
+(:meth:`ArrayData.window`, used by the beamformer), so that stations
+can be added one at a time from different sources. Their sampling
+interval and units must be the same; the samples of the processed
+window must be simultaneous (no resampling is performed).
+
+The origin of the ENU frame is fixed: given by ``reference`` (or by
+the array file), otherwise the position of the first station added
+with a geographic position; adding stations does not move it.
+:meth:`ArrayData.set_reference` changes it and recomputes the
+coordinates.
+
+``StationData`` is immutable; an ``ArrayData`` changes only by adding
+and removing stations. The records are stored by reference: the
+builders create new records, so that later changes of the input data do
+not affect the array.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import math
+import os
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Real
@@ -76,7 +95,12 @@ from shakelab.libutils.geodeticN import (
 )
 from shakelab.libutils.timeN import Date
 from shakelab.libutils.utils import warn_external
-from shakelab.signals.base import SNAP_TOLERANCE, Record, StreamCollection
+from shakelab.signals.base import (
+    SNAP_TOLERANCE,
+    Record,
+    Stream,
+    StreamCollection,
+)
 from shakelab.signals.codes import match_sid
 
 __all__ = [
@@ -109,7 +133,7 @@ _SAMPLING_RTOL = 1e-9
 # of one station.
 _LOCATION_TOLERANCE = 0.1
 
-# Accepted values of the ``gaps`` argument of the builders.
+# Accepted values of the ``gaps`` arguments.
 _GAP_POLICIES = ("drop", "raise")
 
 CoordinateCovariance = Union[None, Real, Sequence, np.ndarray, Mapping]
@@ -363,11 +387,14 @@ class StationData:
         Uncertainty of the coordinates, in square metres: a scalar
         (variance of each horizontal coordinate), or a (2, 2)
         horizontal or (3, 3) covariance matrix.
+    location : WgsPoint, optional
+        Geographic position from which the coordinates derive (None for
+        coordinates given in a local frame).
 
     Raises
     ------
     TypeError
-        If a record is not a Record.
+        If a record is not a Record or ``location`` is not a WgsPoint.
     ValueError
         If the records are not one to three, are empty, contain
         non-finite samples, are not on the same time axis or have
@@ -384,6 +411,7 @@ class StationData:
     coordinates: Any
     orientation: Any = None
     coordinate_covariance: Any = None
+    location: Optional[WgsPoint] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.sid, str) or not self.sid.strip():
@@ -399,6 +427,11 @@ class StationData:
 
         if not all(isinstance(record, Record) for record in records):
             raise TypeError(f"station {sid}: records must be Record")
+
+        if self.location is not None and not isinstance(
+            self.location, WgsPoint
+        ):
+            raise TypeError(f"station {sid}: location must be a WgsPoint")
 
         _check_records(sid, records)
         _common_units(records, f"station {sid}")
@@ -673,72 +706,476 @@ class StationData:
         angle = math.radians(_check_azimuth(azimuth))
         return self.project((math.cos(angle), -math.sin(angle), 0.0))
 
+    # -- conversion -----------------------------------------------------
+
+    def cut(
+        self,
+        starttime: Any,
+        endtime: Any,
+        snap_tolerance: float = SNAP_TOLERANCE,
+    ) -> Optional[StationData]:
+        """
+        Return the station on a time window.
+
+        Parameters
+        ----------
+        starttime, endtime : Date or str
+            Window, bounds included.
+        snap_tolerance : float, optional
+            Times within this fraction of a sampling interval from a
+            sample coincide with it.
+
+        Returns
+        -------
+        StationData or None
+            Station with new records on the window, None if the records
+            do not cover it.
+        """
+        start = Date(starttime)
+        end = Date(endtime)
+        tolerance = snap_tolerance * self.delta
+
+        if (
+            self.starttime - start > tolerance
+            or end - self.endtime > tolerance
+        ):
+            return None
+
+        return dataclasses.replace(self, records=[
+            record.extract(start, end, snap_tolerance=snap_tolerance)
+            for record in self.records
+        ])
+
 
 # ----------------------------------------------------------------------------
 # Array data
 # ----------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, eq=False)
 class ArrayData:
     """
-    Stations of an array on a common time axis.
+    Stations of a seismic array.
 
     Parameters
     ----------
-    stations : sequence of StationData
-        Stations, in processing order; identifiers must be unique and
-        all records must share start time, sampling interval, number of
-        samples and units.
-    frame : MetricFrame, optional
-        Local ENU frame of the coordinates, when they derive from
-        geographic positions. None for coordinates in a local frame
-        without a geographic reference.
-    excluded : sequence of tuple, optional
-        ``(sid, reason)`` of the stations left out by the builders.
+    source : str, path-like or waveforms, optional
+        An array file (JSON, see :meth:`read`), or the waveforms of the
+        stations to add (see :meth:`add`). Default: an empty array.
+    reference : MetricFrame, WgsPoint or sequence of float, optional
+        Origin of the ENU frame: a frame, or a point ``(lon, lat[,
+        elevation])``. Default: the reference of the array file, or the
+        position of the first station added with a geographic position.
+        For an array in local coordinates it is the geographic position
+        of their origin (optional).
+    **options
+        Options of :meth:`add` (only with waveforms).
 
     Raises
     ------
     TypeError
-        If a station is not a StationData or ``frame`` is not a
-        MetricFrame.
-    ValueError
-        If there are no stations, identifiers are repeated or the
-        stations are not on the same time axis.
+        If ``options`` are given with an array file.
+
+    Examples
+    --------
+    >>> array = ArrayData("array.json")
+    >>> array = ArrayData(collection, select="XX.*..HH?")
+    >>> array = ArrayData()
+    >>> array.add(records, coordinates={"XX.A01.": (0.0, 0.0)})
     """
 
-    stations: Sequence[StationData]
-    frame: Optional[MetricFrame] = None
-    excluded: Sequence[tuple] = ()
+    def __init__(
+        self,
+        source: Any = None,
+        reference: Any = None,
+        **options: Any,
+    ) -> None:
+        self._stations: dict[str, StationData] = {}
+        self._frame: Optional[MetricFrame] = None
+        self._excluded: list = []
 
-    def __post_init__(self) -> None:
-        stations = tuple(self.stations)
+        if reference is not None:
+            self._frame = _frame(reference, [])
+
+        if source is None:
+            if options:
+                raise TypeError("options need waveforms to add")
+
+        elif _is_path(source):
+            if options:
+                raise TypeError(
+                    "an array file takes no options: "
+                    + ", ".join(sorted(options))
+                )
+
+            self.read(source)
+
+        else:
+            self.add(source, **options)
+
+    def __len__(self) -> int:
+        """Return the number of stations."""
+        return len(self._stations)
+
+    def __iter__(self) -> Iterator[StationData]:
+        """Iterate over the stations."""
+        return iter(tuple(self._stations.values()))
+
+    def __contains__(self, sid: Any) -> bool:
+        """Return whether a station identifier is in the array."""
+        return sid in self._stations
+
+    def __getitem__(self, item: Any) -> Any:
+        """Return a station by position or identifier."""
+        if isinstance(item, str):
+            return self._stations[item]
+
+        return self.stations[item]
+
+    def __repr__(self) -> str:
+        if not self._stations:
+            return "ArrayData(no stations)"
+
+        return (
+            f"ArrayData({len(self)} stations at {self.rate:g} Hz, common "
+            f"window {self.starttime} - {self.endtime})"
+        )
+
+    # -- filling --------------------------------------------------------
+
+    def read(self, source: Any) -> None:
+        """
+        Add the stations of an array file.
+
+        The file (JSON) lists the stations with their local coordinates
+        and the waveform file of each component, for data without (or
+        with unusable) metadata, and optionally the geographic position
+        of the origin of the coordinates; see :mod:`.io` for the format.
+
+        Parameters
+        ----------
+        source : str or path-like
+            Array file.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the array file or a waveform file does not exist.
+        ValueError
+            If the file is invalid, its reference differs from that of
+            the array, or a station cannot be added (see :meth:`add`).
+        """
+        from shakelab.exploration.yarray.io import read_array_file
+
+        stations, reference = read_array_file(source)
+
+        if reference is not None:
+            frame = _frame(reference, [])
+
+            if self._frame is not None and self._frame != frame:
+                raise ValueError(
+                    f"{source}: the reference of the file differs from "
+                    "that of the array"
+                )
+
+        self._insert(stations, [])
+
+        if reference is not None:
+            self._frame = frame
+
+    def add(
+        self,
+        data: Any,
+        select: Any = None,
+        starttime: Any = None,
+        endtime: Any = None,
+        coordinates: Optional[Mapping] = None,
+        orientations: Optional[Mapping] = None,
+        coordinate_covariance: CoordinateCovariance = None,
+        gaps: str = "drop",
+        snap_tolerance: float = SNAP_TOLERANCE,
+    ) -> None:
+        """
+        Add stations.
+
+        Waveforms are grouped by station (``NET.STA.LOC``, up to three
+        channels of one instrument); records of the same channel are
+        consecutive segments of it. Each station is cut to the time
+        window covered by all its channels, or to the given window.
+
+        Parameters
+        ----------
+        data : StationData, Record, Stream, StreamCollection or iterable
+            Stations, or waveforms with source identifiers
+            ``NET.STA.LOC.CHA``. A StreamCollection is not modified.
+        select : str or list of str, optional
+            Channel pattern(s) ``NET.STA.LOC.CHA`` (see
+            :mod:`shakelab.signals.codes`). Default: every channel.
+        starttime, endtime : Date or str, optional
+            Time window, bounds included. Default: the interval covered
+            by all the channels of each station.
+        coordinates : mapping, optional
+            Station positions ``{sid: (x, y[, z])}`` in metres, in the
+            frame of the array, for every added station (``sid`` is
+            ``NET.STA.LOC``). Default: the positions of the records
+            (:attr:`Record.location`), in the ENU frame of the array.
+        orientations : mapping, optional
+            Orientation matrices ``{sid: matrix}`` overriding those of
+            the metadata for some stations, rows in the order Z, N, E
+            and then by channel code.
+        coordinate_covariance : float, array-like or mapping, optional
+            Coordinate uncertainty, in square metres: one value for all
+            stations (see :class:`StationData`) or a mapping by station.
+        gaps : {"drop", "raise"}, optional
+            Stations whose channels do not cover the window with
+            continuous data: excluded with an :class:`ArrayDataWarning`
+            (``"drop"``, default; listed in :attr:`excluded`) or an
+            error (``"raise"``).
+        snap_tolerance : float, optional
+            Times within this fraction of a sampling interval from a
+            sample coincide with it.
+
+        Raises
+        ------
+        TypeError
+            If ``data`` has the wrong type, or options are given with
+            StationData.
+        ValueError
+            If no channel is selected, a station has channels of
+            different instruments or more than three, a station has a
+            gap with ``gaps="raise"``, positions or orientations are
+            missing, an identifier is already in the array, or the
+            sampling interval or the units differ from those of the
+            array.
+        """
+        if gaps not in _GAP_POLICIES:
+            raise ValueError("gaps must be 'drop' or 'raise'")
+
+        stations, groups = _split_input(data, select)
+
+        if stations is not None:
+            given = {
+                "select": select, "starttime": starttime,
+                "endtime": endtime, "coordinates": coordinates,
+                "orientations": orientations,
+                "coordinate_covariance": coordinate_covariance,
+            }
+            used = sorted(name for name, value in given.items()
+                          if value is not None)
+
+            if used:
+                raise TypeError(
+                    "options apply to waveforms, not to StationData: "
+                    + ", ".join(used)
+                )
+
+            self._insert(stations, [])
+            return
+
+        if coordinates is not None and not isinstance(coordinates, Mapping):
+            raise TypeError("coordinates must be a mapping {sid: (x, y[, z])}")
+
+        if orientations is not None and not isinstance(orientations, Mapping):
+            raise TypeError("orientations must be a mapping {sid: matrix}")
+
+        channels, excluded = _station_channels(
+            groups, starttime, endtime, gaps, snap_tolerance
+        )
+
+        if not channels:
+            _warn_excluded(excluded)
+            raise ValueError("no station covers the time window")
+
+        if coordinates is not None:
+            missing = sorted(set(channels) - set(coordinates))
+
+            if missing:
+                raise ValueError(
+                    "coordinates are missing for stations "
+                    + ", ".join(missing)
+                )
+
+            positions = {sid: (coordinates[sid], None) for sid in channels}
+
+        else:
+            positions = self._geographic_positions(channels)
+
+        stations = [
+            StationData(
+                sid=sid,
+                records=records,
+                coordinates=positions[sid][0],
+                orientation=_station_value(orientations, sid),
+                coordinate_covariance=_station_value(
+                    coordinate_covariance, sid
+                ),
+                location=positions[sid][1],
+            )
+            for sid, records in channels.items()
+        ]
+        self._insert(stations, excluded)
+
+    def remove(self, sid: Any) -> None:
+        """
+        Remove stations.
+
+        Parameters
+        ----------
+        sid : str or list of str
+            Station identifier(s).
+
+        Raises
+        ------
+        KeyError
+            If a station is not in the array (nothing is removed).
+        """
+        sids = [sid] if isinstance(sid, str) else list(sid)
+        missing = [item for item in sids if item not in self._stations]
+
+        if missing:
+            raise KeyError(", ".join(str(item) for item in missing))
+
+        for item in sids:
+            del self._stations[item]
+
+    def set_reference(self, reference: Any = None) -> None:
+        """
+        Change the origin of the ENU frame.
+
+        The coordinates of the stations with a geographic position are
+        recomputed; for an array in local coordinates the reference is
+        only the geographic position of their origin.
+
+        Parameters
+        ----------
+        reference : MetricFrame, WgsPoint or sequence of float, optional
+            New origin. Default: the mean position of the stations
+            (centre of the array).
+
+        Raises
+        ------
+        ValueError
+            If only some stations have a geographic position, or the
+            default is requested for an array without geographic
+            positions.
+        """
+        stations = list(self._stations.values())
+        located = [st for st in stations if st.location is not None]
+
+        if located and len(located) != len(stations):
+            missing = sorted(st.sid for st in stations if st.location is None)
+            raise ValueError(
+                "stations " + ", ".join(missing) + " have no geographic "
+                "position: the coordinates cannot be recomputed"
+            )
+
+        if not located:
+            if reference is None:
+                raise ValueError(
+                    "the stations have no geographic position: give the "
+                    "reference"
+                )
+
+            self._frame = _frame(reference, [])
+            return
+
+        frame = _frame(reference, [st.location for st in located])
+        self._frame = frame
+        self._stations = {
+            st.sid: dataclasses.replace(
+                st, coordinates=geo_to_enu(st.location, frame)
+            )
+            for st in stations
+        }
+
+    def copy(self) -> ArrayData:
+        """
+        Return a copy of the array.
+
+        Returns
+        -------
+        ArrayData
+            New array with the same stations (immutable, shared).
+        """
+        return self._derived(list(self._stations.values()), [])
+
+    def window(
+        self,
+        starttime: Any = None,
+        endtime: Any = None,
+        gaps: str = "drop",
+        snap_tolerance: float = SNAP_TOLERANCE,
+    ) -> ArrayData:
+        """
+        Return the array on a common time window.
+
+        Parameters
+        ----------
+        starttime, endtime : Date or str, optional
+            Window, bounds included. Default: the window common to all
+            the stations (:attr:`starttime`, :attr:`endtime`).
+        gaps : {"drop", "raise"}, optional
+            Stations that do not cover the window: excluded with an
+            :class:`ArrayDataWarning` (default) or an error.
+        snap_tolerance : float, optional
+            Times within this fraction of a sampling interval from a
+            sample coincide with it.
+
+        Returns
+        -------
+        ArrayData
+            Synchronized array with new records.
+
+        Raises
+        ------
+        ValueError
+            If the array is empty, the window is empty, a station does
+            not cover it with ``gaps="raise"``, no station is left or
+            the samples of the stations are not simultaneous.
+        """
+        if gaps not in _GAP_POLICIES:
+            raise ValueError("gaps must be 'drop' or 'raise'")
+
+        if not self._stations:
+            raise ValueError("the array has no station")
+
+        start = self.starttime if starttime is None else Date(starttime)
+        end = self.endtime if endtime is None else Date(endtime)
+
+        if end < start:
+            raise ValueError(
+                "the stations have no common time window"
+                if starttime is None and endtime is None
+                else f"empty time window ({start} - {end})"
+            )
+
+        stations = []
+        excluded = []
+
+        for station in self._stations.values():
+            cut = station.cut(start, end, snap_tolerance)
+
+            if cut is not None:
+                stations.append(cut)
+                continue
+
+            reason = (
+                f"data from {station.starttime} to {station.endtime} do "
+                f"not cover {start} - {end}"
+            )
+
+            if gaps == "raise":
+                raise ValueError(f"station {station.sid}: {reason}")
+
+            excluded.append((station.sid, reason))
+
+        _warn_excluded(excluded)
 
         if not stations:
-            raise ValueError("an array needs at least one station")
-
-        if not all(isinstance(item, StationData) for item in stations):
-            raise TypeError("stations must be StationData")
-
-        if self.frame is not None and not isinstance(self.frame, MetricFrame):
-            raise TypeError("frame must be a MetricFrame")
-
-        sids = [station.sid for station in stations]
-
-        if len(sids) != len(set(sids)):
-            raise ValueError("station identifiers must be unique")
+            raise ValueError("no station covers the time window")
 
         reference = stations[0]
 
         for station in stations[1:]:
-            if not math.isclose(
-                station.delta, reference.delta, rel_tol=_SAMPLING_RTOL
-            ):
-                raise ValueError(
-                    "stations with different sampling intervals "
-                    f"({reference.sid}, {station.sid})"
-                )
-
             if (
                 station.nsamp != reference.nsamp
                 or station.starttime != reference.starttime
@@ -752,245 +1189,47 @@ class ArrayData:
                     "is performed)"
                 )
 
-        _common_units(
-            (rec for station in stations for rec in station.records),
-            "array",
-        )
-
-        object.__setattr__(self, "stations", stations)
-        object.__setattr__(
-            self, "excluded", tuple(tuple(item) for item in self.excluded)
-        )
-
-    def __len__(self) -> int:
-        """Return the number of stations."""
-        return len(self.stations)
-
-    def __iter__(self) -> Iterator[StationData]:
-        """Iterate over the stations."""
-        return iter(self.stations)
-
-    def __getitem__(self, item: Any) -> Any:
-        """Return a station by position or identifier."""
-        if isinstance(item, str):
-            for station in self.stations:
-                if station.sid == item:
-                    return station
-
-            raise KeyError(item)
-
-        return self.stations[item]
-
-    def __repr__(self) -> str:
-        return (
-            f"ArrayData({len(self)} stations, {self.nsamp} samples at "
-            f"{self.rate:g} Hz from {self.starttime})"
-        )
-
-    # -- builders -------------------------------------------------------
-
-    @classmethod
-    def from_collection(
-        cls,
-        collection: StreamCollection,
-        select: Any = None,
-        starttime: Any = None,
-        endtime: Any = None,
-        coordinates: Optional[Mapping] = None,
-        reference: Any = None,
-        orientations: Optional[Mapping] = None,
-        coordinate_covariance: CoordinateCovariance = None,
-        gaps: str = "drop",
-        snap_tolerance: float = SNAP_TOLERANCE,
-    ) -> ArrayData:
-        """
-        Build an array from a stream collection.
-
-        Parameters
-        ----------
-        collection : StreamCollection
-            Waveforms of the array, e.g. from
-            :func:`shakelab.signals.io.reader` or the buffer of a
-            SeedLink client. It is not modified.
-        select : str or list of str, optional
-            Channel pattern(s) ``NET.STA.LOC.CHA`` (see
-            :mod:`shakelab.signals.codes`). Default: every channel.
-        starttime, endtime : Date or str, optional
-            Common time window, bounds included. Default: the interval
-            covered by all the selected channels.
-        coordinates : mapping, optional
-            Station positions ``{sid: (x, y[, z])}`` in metres, in a
-            local frame, for every station (``sid`` is ``NET.STA.LOC``).
-            Default: the positions of the records
-            (:attr:`Record.location`), in the ENU frame of
-            ``reference``.
-        reference : MetricFrame, WgsPoint or sequence of float, optional
-            Origin of the ENU frame: a frame, or a point ``(lon, lat[,
-            elevation])``. Default: the mean position of the stations.
-            With ``coordinates`` it is the geographic origin of the
-            given frame (optional).
-        orientations : mapping, optional
-            Orientation matrices ``{sid: matrix}`` overriding those of
-            the metadata for some stations, rows in the order Z, N, E
-            and then by channel code.
-        coordinate_covariance : float, array-like or mapping, optional
-            Coordinate uncertainty, in square metres: one value for all
-            stations (see :class:`StationData`) or a mapping by station.
-        gaps : {"drop", "raise"}, optional
-            Stations whose channels do not cover the whole window with
-            continuous data: excluded with an
-            :class:`ArrayDataWarning` (``"drop"``, default; listed in
-            :attr:`excluded`) or an error (``"raise"``).
-        snap_tolerance : float, optional
-            Times within this fraction of a sampling interval from a
-            sample coincide with it.
-
-        Returns
-        -------
-        ArrayData
-            Array with new records cut to the window.
-
-        Raises
-        ------
-        TypeError
-            If ``collection`` is not a StreamCollection.
-        ValueError
-            If no channel is selected, the channels of a station have
-            different band or instrument codes (use ``select``), the
-            window is empty, a station has a gap with
-            ``gaps="raise"``, no station is left, positions or
-            orientations are missing, or the stations are not sampled
-            simultaneously.
-        """
-        if not isinstance(collection, StreamCollection):
-            raise TypeError("collection must be a StreamCollection")
-
-        streams = [
-            stream for stream in collection
-            if stream.records() and _selected(stream.sid, select)
-        ]
-
-        if not streams:
-            raise ValueError("no channel is selected")
-
-        groups: dict[str, list] = {}
-
-        for stream in streams:
-            groups.setdefault(_station_sid(stream.sid), []).append(
-                stream.records()
-            )
-
-        return _build(
-            groups,
-            starttime=starttime,
-            endtime=endtime,
-            coordinates=coordinates,
-            reference=reference,
-            orientations=orientations,
-            covariance=coordinate_covariance,
-            gaps=gaps,
-            snap_tolerance=snap_tolerance,
-        )
-
-    @classmethod
-    def from_records(
-        cls,
-        records: Iterable[Record],
-        starttime: Any = None,
-        endtime: Any = None,
-        coordinates: Optional[Mapping] = None,
-        reference: Any = None,
-        orientations: Optional[Mapping] = None,
-        coordinate_covariance: CoordinateCovariance = None,
-        gaps: str = "drop",
-        snap_tolerance: float = SNAP_TOLERANCE,
-    ) -> ArrayData:
-        """
-        Build an array from records.
-
-        Records of the same channel (same ``sid``) are taken as
-        consecutive segments of it. The arguments are those of
-        :meth:`from_collection`.
-
-        Parameters
-        ----------
-        records : iterable of Record
-            Records with a source identifier ``NET.STA.LOC.CHA``.
-        starttime, endtime : Date or str, optional
-            Common time window, bounds included.
-        coordinates : mapping, optional
-            Station positions ``{sid: (x, y[, z])}`` in metres.
-        reference : MetricFrame, WgsPoint or sequence of float, optional
-            Origin of the ENU frame.
-        orientations : mapping, optional
-            Orientation matrices by station.
-        coordinate_covariance : float, array-like or mapping, optional
-            Coordinate uncertainty, in square metres.
-        gaps : {"drop", "raise"}, optional
-            Treatment of incomplete stations.
-        snap_tolerance : float, optional
-            Time tolerance, as a fraction of a sampling interval.
-
-        Returns
-        -------
-        ArrayData
-            Array with new records cut to the window.
-
-        Raises
-        ------
-        TypeError
-            If an element is not a Record.
-        ValueError
-            As :meth:`from_collection`; also for records without a
-            source identifier.
-        """
-        channels: dict[str, list] = {}
-
-        for record in records:
-            if not isinstance(record, Record):
-                raise TypeError("records must be Record")
-
-            if not record.sid:
-                raise ValueError("records need a source identifier")
-
-            channels.setdefault(record.sid, []).append(record)
-
-        if not channels:
-            raise ValueError("no record is given")
-
-        groups: dict[str, list] = {}
-
-        for sid, segments in channels.items():
-            groups.setdefault(_station_sid(sid), []).append(segments)
-
-        return _build(
-            groups,
-            starttime=starttime,
-            endtime=endtime,
-            coordinates=coordinates,
-            reference=reference,
-            orientations=orientations,
-            covariance=coordinate_covariance,
-            gaps=gaps,
-            snap_tolerance=snap_tolerance,
-        )
+        return self._derived(stations, excluded)
 
     # -- properties -----------------------------------------------------
 
     @property
+    def stations(self) -> tuple[StationData, ...]:
+        """Stations, in the order they were added."""
+        return tuple(self._stations.values())
+
+    @property
+    def frame(self) -> Optional[MetricFrame]:
+        """
+        Local ENU frame of the coordinates.
+
+        None for an array in local coordinates without a geographic
+        reference (see :meth:`set_reference`).
+        """
+        return self._frame
+
+    @property
+    def excluded(self) -> tuple[tuple, ...]:
+        """``(sid, reason)`` of the stations left out by the builders."""
+        return tuple(self._excluded)
+
+    @property
     def nsta(self) -> int:
         """Number of stations."""
-        return len(self.stations)
+        return len(self._stations)
 
     @property
     def sids(self) -> tuple[str, ...]:
-        """Station identifiers, in processing order."""
-        return tuple(station.sid for station in self.stations)
+        """Station identifiers, in the order they were added."""
+        return tuple(self._stations)
 
     @property
     def coordinates(self) -> np.ndarray:
         """Station coordinates ``(n_stations, 3)``, in metres."""
-        return np.stack([station.coordinates for station in self.stations])
+        if not self._stations:
+            return np.empty((0, 3))
+
+        return np.stack([st.coordinates for st in self._stations.values()])
 
     @property
     def coordinate_covariances(self) -> Optional[np.ndarray]:
@@ -1000,7 +1239,7 @@ class ArrayData:
         None if no station has one; zeros for the stations without one
         otherwise.
         """
-        values = [station.coordinate_covariance for station in self.stations]
+        values = [st.coordinate_covariance for st in self._stations.values()]
 
         if all(value is None for value in values):
             return None
@@ -1010,40 +1249,63 @@ class ArrayData:
         ])
 
     @property
+    def synchronized(self) -> bool:
+        """Whether all the stations share their time axis."""
+        stations = self.stations
+
+        return bool(stations) and all(
+            st.starttime == stations[0].starttime
+            and st.nsamp == stations[0].nsamp
+            for st in stations[1:]
+        )
+
+    @property
+    def delta(self) -> Optional[float]:
+        """Sampling interval in seconds (None for an empty array)."""
+        return self.stations[0].delta if self._stations else None
+
+    @property
+    def rate(self) -> Optional[float]:
+        """Sampling rate in Hz (None for an empty array)."""
+        return self.stations[0].rate if self._stations else None
+
+    @property
+    def starttime(self) -> Optional[Date]:
+        """Start of the window common to all the stations."""
+        if not self._stations:
+            return None
+
+        return max(st.starttime for st in self._stations.values())
+
+    @property
+    def endtime(self) -> Optional[Date]:
+        """End of the window common to all the stations."""
+        if not self._stations:
+            return None
+
+        return min(st.endtime for st in self._stations.values())
+
+    @property
     def nsamp(self) -> int:
-        """Number of samples of each record."""
-        return self.stations[0].nsamp
+        """Number of samples of the common window (0 if empty)."""
+        if self.synchronized:
+            return self.stations[0].nsamp
 
-    @property
-    def delta(self) -> float:
-        """Sampling interval in seconds."""
-        return self.stations[0].delta
+        if not self._stations or self.endtime < self.starttime:
+            return 0
 
-    @property
-    def rate(self) -> float:
-        """Sampling rate in Hz."""
-        return self.stations[0].rate
-
-    @property
-    def starttime(self) -> Date:
-        """Time of the first sample."""
-        return self.stations[0].starttime
-
-    @property
-    def endtime(self) -> Date:
-        """Time of the last sample."""
-        return self.stations[0].endtime
+        return int(round((self.endtime - self.starttime) / self.delta)) + 1
 
     @property
     def duration(self) -> float:
-        """Time between first and last sample, in seconds."""
-        return (self.nsamp - 1) * self.delta
+        """Length of the common window, in seconds."""
+        return max(self.nsamp - 1, 0) * (self.delta or 0.0)
 
     @property
     def units(self) -> Optional[str]:
         """Common units of the records, or None if unknown."""
         return _common_units(
-            (rec for station in self.stations for rec in station.records),
+            (rec for st in self._stations.values() for rec in st.records),
             "array",
         )
 
@@ -1093,8 +1355,8 @@ class ArrayData:
             Station identifiers.
         """
         return tuple(
-            station.sid for station in self.stations
-            if not station.supports(direction, tolerance)
+            st.sid for st in self._stations.values()
+            if not st.supports(direction, tolerance)
         )
 
     def project(
@@ -1120,12 +1382,12 @@ class ArrayData:
         Raises
         ------
         ValueError
-            If some stations cannot reconstruct the direction.
+            If the array is not synchronized (see :meth:`window`) or
+            some stations cannot reconstruct the direction.
         """
         self._require_support((direction,), tolerance)
         return np.stack([
-            station.project(direction, tolerance)
-            for station in self.stations
+            st.project(direction, tolerance) for st in self._stations.values()
         ])
 
     def matrix(
@@ -1151,8 +1413,8 @@ class ArrayData:
         Raises
         ------
         ValueError
-            If no direction is given or some stations cannot
-            reconstruct one.
+            If no direction is given, the array is not synchronized or
+            some stations cannot reconstruct a direction.
         """
         directions = tuple(directions)
 
@@ -1161,8 +1423,8 @@ class ArrayData:
 
         self._require_support(directions, tolerance)
         return np.stack([
-            station.matrix(directions, tolerance)
-            for station in self.stations
+            st.matrix(directions, tolerance)
+            for st in self._stations.values()
         ])
 
     def vertical(self) -> np.ndarray:
@@ -1209,36 +1471,142 @@ class ArrayData:
         Returns
         -------
         str
-            Time axis, frame, stations and excluded stations.
+            Common window, frame, stations and excluded stations.
         """
+        frame = (
+            "local, no geographic reference" if self._frame is None
+            else "ENU from lon {:.6f}, lat {:.6f}, h {:.1f} m".format(
+                *self._frame.ref_geo
+            )
+        )
+
+        if not self._stations:
+            return f"ArrayData: no stations\n  frame     : {frame}"
+
+        synchronized = self.synchronized
         lines = [
-            f"ArrayData: {self.nsta} stations",
-            f"  time      : {self.starttime} - {self.endtime} "
+            f"ArrayData: {self.nsta} stations"
+            + ("" if synchronized else " (different time axes)"),
+            f"  window    : {self.starttime} - {self.endtime} "
             f"({self.nsamp} samples at {self.rate:g} Hz)",
             f"  units     : {self.units}",
-            "  frame     : "
-            + (
-                "local, no geographic reference" if self.frame is None
-                else "ENU from lon {:.6f}, lat {:.6f}, h {:.1f} m".format(
-                    *self.frame.ref_geo
-                )
-            ),
+            f"  frame     : {frame}",
         ]
 
-        for station in self.stations:
+        for station in self._stations.values():
             x, y, z = station.coordinates
-            lines.append(
+            line = (
                 f"  {station.sid:<16} {station.ncomp} comp  "
                 f"x {x:10.2f}  y {y:10.2f}  z {z:8.2f} m"
             )
 
-        for sid, reason in self.excluded:
+            if not synchronized:
+                line += f"  {station.starttime} - {station.endtime}"
+
+            lines.append(line)
+
+        for sid, reason in self._excluded:
             lines.append(f"  excluded {sid}: {reason}")
 
         return "\n".join(lines)
 
+    # -- helpers --------------------------------------------------------
+
+    def _derived(self, stations: list, excluded: list) -> ArrayData:
+        """New array with the frame of this one and other stations."""
+        array = ArrayData()
+        array._frame = self._frame
+        array._stations = {st.sid: st for st in stations}
+        array._excluded = list(self._excluded) + list(excluded)
+        return array
+
+    def _insert(self, stations: list, excluded: list) -> None:
+        """Add checked stations and record the excluded ones."""
+        for station in stations:
+            if not isinstance(station, StationData):
+                raise TypeError("stations must be StationData")
+
+        sids = [station.sid for station in stations]
+        repeated = sorted({
+            sid for sid in sids
+            if sid in self._stations or sids.count(sid) > 1
+        })
+
+        if repeated:
+            raise ValueError(
+                "stations already in the array: " + ", ".join(repeated)
+            )
+
+        every = list(self._stations.values()) + list(stations)
+
+        if every:
+            first = every[0]
+
+            for station in every[1:]:
+                if not math.isclose(
+                    station.delta, first.delta, rel_tol=_SAMPLING_RTOL
+                ):
+                    raise ValueError(
+                        "stations with different sampling intervals "
+                        f"({first.sid}, {station.sid}): no resampling is "
+                        "performed"
+                    )
+
+            _common_units(
+                (rec for station in every for rec in station.records),
+                "array",
+            )
+
+        for station in stations:
+            self._stations[station.sid] = station
+
+        self._excluded.extend(excluded)
+        _warn_excluded(excluded)
+
+    def _geographic_positions(self, channels: dict) -> dict:
+        """Coordinates and locations of new stations from metadata."""
+        locations = {
+            sid: _station_location(sid, records)
+            for sid, records in channels.items()
+        }
+        missing = sorted(sid for sid, point in locations.items()
+                         if point is None)
+
+        if missing:
+            raise ValueError(
+                "the location of stations " + ", ".join(missing)
+                + " is unknown: give metadata or coordinates"
+            )
+
+        if self._frame is None:
+            local = sorted(st.sid for st in self._stations.values()
+                           if st.location is None)
+
+            if local:
+                raise ValueError(
+                    "the array is in local coordinates without a "
+                    "geographic reference: give the coordinates of the "
+                    "new stations, or a reference (set_reference)"
+                )
+
+            self._frame = _frame(next(iter(locations.values())), [])
+
+        return {
+            sid: (geo_to_enu(point, self._frame), point)
+            for sid, point in locations.items()
+        }
+
     def _require_support(self, directions: tuple, tolerance: float) -> None:
-        """Raise if some station cannot reconstruct a direction."""
+        """Raise if the array cannot give the motion along directions."""
+        if not self._stations:
+            raise ValueError("the array has no station")
+
+        if not self.synchronized:
+            raise ValueError(
+                "the stations are on different time axes: take a common "
+                "window with window()"
+            )
+
         missing = sorted({
             sid for direction in directions
             for sid in self.unsupported_stations(direction, tolerance)
@@ -1275,30 +1643,6 @@ def _station_sid(sid: Optional[str]) -> str:
         )
 
     return ".".join(parts[:3])
-
-
-def _time_window(groups: dict, starttime: Any, endtime: Any) -> tuple:
-    """Return the requested window, or the one common to all channels."""
-    starts = [
-        min(record.starttime for record in segments)
-        for channels in groups.values() for segments in channels
-    ]
-    ends = [
-        max(record.endtime for record in segments)
-        for channels in groups.values() for segments in channels
-    ]
-
-    start = max(starts) if starttime is None else Date(starttime)
-    end = min(ends) if endtime is None else Date(endtime)
-
-    if end < start:
-        raise ValueError(
-            "the selected channels have no common time window"
-            if starttime is None and endtime is None
-            else f"empty time window ({start} - {end})"
-        )
-
-    return start, end
 
 
 def _cut_channel(
@@ -1378,32 +1722,92 @@ def _station_value(value: Any, sid: str) -> Any:
     return value
 
 
-def _build(
+def _is_path(value: Any) -> bool:
+    """Return whether a value is a file path."""
+    return isinstance(value, (str, os.PathLike))
+
+
+def _split_input(data: Any, select: Any) -> tuple:
+    """
+    Classify the data given to :meth:`ArrayData.add`.
+
+    Returns ``(stations, None)`` for StationData, ``(None, groups)``
+    for waveforms, where ``groups`` maps ``NET.STA.LOC`` to the list of
+    the segments of each selected channel.
+    """
+    if isinstance(data, StationData):
+        return [data], None
+
+    if isinstance(data, StreamCollection):
+        segments = [
+            stream.records() for stream in data
+            if stream.records() and _selected(stream.sid, select)
+        ]
+        return None, _groups(segments)
+
+    if isinstance(data, Stream):
+        items = list(data.records())
+    elif isinstance(data, Record):
+        items = [data]
+    elif isinstance(data, Iterable) and not isinstance(data, (str, bytes)):
+        items = list(data)
+    else:
+        raise TypeError(
+            "data must be StationData, Record, Stream, StreamCollection "
+            "or an iterable of them"
+        )
+
+    if items and all(isinstance(item, StationData) for item in items):
+        return items, None
+
+    channels: dict[str, list] = {}
+
+    for record in items:
+        if not isinstance(record, Record):
+            raise TypeError(
+                "data must be StationData or waveforms, not mixed"
+            )
+
+        if not record.sid:
+            raise ValueError("records need a source identifier")
+
+        if _selected(record.sid, select):
+            channels.setdefault(record.sid, []).append(record)
+
+    return None, _groups(list(channels.values()))
+
+
+def _groups(segments: list) -> dict:
+    """Group the segment lists of the channels by station."""
+    if not segments:
+        raise ValueError("no channel is selected")
+
+    groups: dict[str, list] = {}
+
+    for channel in segments:
+        groups.setdefault(_station_sid(channel[0].sid), []).append(channel)
+
+    return groups
+
+
+def _station_channels(
     groups: dict,
     starttime: Any,
     endtime: Any,
-    coordinates: Optional[Mapping],
-    reference: Any,
-    orientations: Optional[Mapping],
-    covariance: Any,
     gaps: str,
     snap_tolerance: float,
-) -> ArrayData:
-    """Build an ArrayData from channels grouped by station."""
-    if gaps not in _GAP_POLICIES:
-        raise ValueError("gaps must be 'drop' or 'raise'")
+) -> tuple[dict, list]:
+    """Cut the channels of each station to its window."""
+    channels: dict[str, list] = {}
+    excluded = []
 
-    if coordinates is not None and not isinstance(coordinates, Mapping):
-        raise TypeError("coordinates must be a mapping {sid: (x, y[, z])}")
-
-    if orientations is not None and not isinstance(orientations, Mapping):
-        raise TypeError("orientations must be a mapping {sid: matrix}")
-
-    for sid, channels in groups.items():
-        codes = {
-            (segments[0].sid or "").split(".")[-1][:-1]
-            for segments in channels
-        }
+    for sid in sorted(groups):
+        segments = [
+            sorted(channel, key=lambda rec: rec.starttime)
+            for channel in groups[sid]
+        ]
+        codes = {(channel[0].sid or "").split(".")[-1][:-1]
+                 for channel in segments}
 
         if len(codes) > 1:
             raise ValueError(
@@ -1411,95 +1815,59 @@ def _build(
                 f"({', '.join(sorted(codes))}): choose them with select"
             )
 
-        if len(channels) > 3:
+        if len(segments) > 3:
             raise ValueError(
                 f"station {sid} has more than three channels: choose "
                 "them with select"
             )
 
-    start, end = _time_window(groups, starttime, endtime)
-    stations: dict[str, list] = {}
-    excluded = []
-
-    for sid in sorted(groups):
+        start = (
+            max(channel[0].starttime for channel in segments)
+            if starttime is None else Date(starttime)
+        )
+        end = (
+            min(channel[-1].endtime for channel in segments)
+            if endtime is None else Date(endtime)
+        )
         records = []
+        reason = None
 
-        for segments in groups[sid]:
-            segments = sorted(segments, key=lambda rec: rec.starttime)
-            record = _cut_channel(segments, start, end, snap_tolerance)
-
-            if record is None:
-                reason = (
-                    f"channel {segments[0].sid} does not cover "
-                    f"{start} - {end} without gaps"
-                )
-
-                if gaps == "raise":
-                    raise ValueError(f"station {sid}: {reason}")
-
-                excluded.append((sid, reason))
-                break
-
-            records.append(record)
-
+        if end < start:
+            reason = (
+                "the channels have no common time window"
+                if starttime is None and endtime is None
+                else f"empty time window ({start} - {end})"
+            )
         else:
-            stations[sid] = sorted(records, key=_component_key)
+            for channel in segments:
+                record = _cut_channel(channel, start, end, snap_tolerance)
 
+                if record is None:
+                    reason = (
+                        f"channel {channel[0].sid} does not cover "
+                        f"{start} - {end} without gaps"
+                    )
+                    break
+
+                records.append(record)
+
+        if reason is not None:
+            if gaps == "raise":
+                raise ValueError(f"station {sid}: {reason}")
+
+            excluded.append((sid, reason))
+            continue
+
+        channels[sid] = sorted(records, key=_component_key)
+
+    return channels, excluded
+
+
+def _warn_excluded(excluded: list) -> None:
+    """Warn about the stations left out."""
     if excluded:
         warn_external(
             "stations excluded from the array: "
             + "; ".join(f"{sid} ({reason})" for sid, reason in excluded),
             ArrayDataWarning,
         )
-
-    if not stations:
-        raise ValueError("no station covers the time window")
-
-    frame = None
-
-    if coordinates is not None:
-        missing = sorted(set(stations) - set(coordinates))
-
-        if missing:
-            raise ValueError(
-                "coordinates are missing for stations " + ", ".join(missing)
-            )
-
-        positions = {sid: coordinates[sid] for sid in stations}
-
-        if reference is not None:
-            frame = _frame(reference, [])
-
-    else:
-        locations = {
-            sid: _station_location(sid, records)
-            for sid, records in stations.items()
-        }
-        missing = sorted(sid for sid, point in locations.items()
-                         if point is None)
-
-        if missing:
-            raise ValueError(
-                "the location of stations " + ", ".join(missing)
-                + " is unknown: give metadata or coordinates"
-            )
-
-        frame = _frame(reference, list(locations.values()))
-        positions = {
-            sid: geo_to_enu(point, frame) for sid, point in locations.items()
-        }
-
-    return ArrayData(
-        stations=[
-            StationData(
-                sid=sid,
-                records=records,
-                coordinates=positions[sid],
-                orientation=_station_value(orientations, sid),
-                coordinate_covariance=_station_value(covariance, sid),
-            )
-            for sid, records in stations.items()
-        ],
-        frame=frame,
-        excluded=excluded,
-    )
