@@ -278,7 +278,7 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
   component in the array file, appended results and `--result`, maps
   of the power uncertainty (`plot_spectrum(quantity=
   "standard_error")`). The profiling suite of August (shell script and
-  configurations) became `examples/exploration/yarray_profiling.py`
+  configurations) became `examples/exploration/yarray_16_profiling.py`
   (block 6).
 - Block 6: the test data hold nine three-component SESAME stations;
   the maxima of the August code on them (vertical, radial,

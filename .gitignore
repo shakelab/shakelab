@@ -16,3 +16,6 @@ venv/
 
 # Mac stuff
 .DS_Store
+
+# Files written by the examples
+output/

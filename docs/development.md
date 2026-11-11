@@ -509,9 +509,9 @@ state. Separate deterministic calculations from external effects.
   `numpy.testing` or `pytest.approx` with explicit `rtol`/`atol`.
 - Tests needing network access or large data are marked and skipped by
   default.
-- Every script in `examples/` is run by `tests/test_examples.py` with a
-  non-interactive plotting backend, so that the examples stay in line
-  with the library.
+- The scripts in `examples/` are references for the user and are not
+  run by the test suite (some need a server or user data); they are
+  checked by hand when the API they use changes.
 - The complete suite (`python -m pytest -q`) passes before any merge
   into the main branches. GitHub Actions runs it automatically on
   every push and pull request, on Linux and macOS, for all supported

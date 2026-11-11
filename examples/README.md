@@ -11,9 +11,10 @@ python examples/signals/response_correction_esm.py
 ```
 
 They use the data in `tests/<subpackage>/data/` and require
-`matplotlib` for the figures. Every example is also run by the test
-suite (`tests/test_examples.py`, with a non-interactive backend), so
-that it stays in line with the library.
+`matplotlib` for the figures. They are references for the user, short
+and commented step by step; some need a server or data of the user
+and do not run as they are. Files written by the examples go to
+`output/` (ignored by git).
 
 ## Signals
 
@@ -23,11 +24,25 @@ that it stays in line with the library.
 
 ## Exploration
 
+Array processing (`shakelab.exploration.yarray`, guide in
+[`docs/yarray.md`](../docs/yarray.md)), on nine three-component
+stations of the SESAME simulation:
+
 | Example | Content |
 |---|---|
-| [`exploration/yarray_sesame.py`](exploration/yarray_sesame.py) | Quick tour of the array processing on nine three-component stations of the SESAME simulation: vertical Capon beamforming with the RFFT, Rayleigh three-component beamforming with signed ellipticity, the same analysis window by window with the real-time `ArrayMonitor`, density of the maxima |
-| [`exploration/yarray_processing.py`](exploration/yarray_processing.py) | The array processing as a library: three ways of building the array, configuration in Python and JSON, Bartlett/Capon/MUSIC, every component mode (radial, transverse, three components, RTBF), empirical and coordinate uncertainties, results (maxima, spectra, joining, files, density) |
-| [`exploration/yarray_command_line.py`](exploration/yarray_command_line.py) | The command `slab-yarray`: processing with a configuration file and its `graphics` section, options replacing the file, RTBF with `--write-config`, appended results, figures of saved results, `slab-yarray response` on the array and on a planned layout |
-| [`exploration/yarray_realtime.py`](exploration/yarray_realtime.py) | Real-time monitoring: an `ArrayMonitor` called by the client every 10 s of data, processing in its worker thread while the main thread queries it; replay of the SESAME records, or a live SeedLink server with `--server` |
-| [`exploration/yarray_planning.py`](exploration/yarray_planning.py) | Array design and survey planning: geometric response and velocity limits of two layouts, coordinate uncertainty, search domain, Monte Carlo performance of the estimators, SNR-windows sweep, frequency-velocity envelope with criteria and recommendations |
-| [`exploration/yarray_profiling.py`](exploration/yarray_profiling.py) | Processing times of the choices of a configuration (estimators, components, direct transform versus RFFT, RTBF, cache, planning); `--full` for realistic sizes |
+| [`exploration/yarray_01_array.py`](exploration/yarray_01_array.py) | Building the array data: array file, waveforms with a table of coordinates (channel and time selection), records in memory |
+| [`exploration/yarray_02_config.py`](exploration/yarray_02_config.py) | The configuration: `BeamformingConfig` from Python, other frequency, window and grid forms, `replace`, JSON |
+| [`exploration/yarray_03_beamforming.py`](exploration/yarray_03_beamforming.py) | A vertical Capon analysis: `beamform` and `Beamformer`, the maxima, dispersion and spectrum figures |
+| [`exploration/yarray_04_methods.py`](exploration/yarray_04_methods.py) | Bartlett, Capon and MUSIC on the same data, with their options |
+| [`exploration/yarray_05_components.py`](exploration/yarray_05_components.py) | Radial, transverse and the three components separately |
+| [`exploration/yarray_06_rtbf.py`](exploration/yarray_06_rtbf.py) | Rayleigh three-component beamforming with the signed ellipticity |
+| [`exploration/yarray_07_transforms.py`](exploration/yarray_07_transforms.py) | Direct transform and RFFT (nearest bins, interpolation, all the bins of a range), windows of cycles |
+| [`exploration/yarray_08_uncertainty.py`](exploration/yarray_08_uncertainty.py) | Empirical standard error of the power, uncertain station coordinates |
+| [`exploration/yarray_09_results.py`](exploration/yarray_09_results.py) | Results: maxima, spectra, joining consecutive results, files |
+| [`exploration/yarray_10_density.py`](exploration/yarray_10_density.py) | Density of the maxima: summary, peaks, figure |
+| [`exploration/yarray_11_command_line.sh`](exploration/yarray_11_command_line.sh) | `slab-yarray` and `slab-yarray response`, command by command (shell script) |
+| [`exploration/yarray_12_realtime.py`](exploration/yarray_12_realtime.py) | Real-time monitoring of an array with the SeedLink client and `ArrayMonitor` (needs a server) |
+| [`exploration/yarray_13_response.py`](exploration/yarray_13_response.py) | Geometric response of a planned layout and of the test array: limits, velocities, search domain, uncertain positions |
+| [`exploration/yarray_14_performance.py`](exploration/yarray_14_performance.py) | Monte Carlo performance of the estimators; SNR-windows sweep |
+| [`exploration/yarray_15_operational.py`](exploration/yarray_15_operational.py) | Frequency-velocity envelope with criteria, limiting factors and recommendations |
+| [`exploration/yarray_16_profiling.py`](exploration/yarray_16_profiling.py) | Processing times of the main choices of a configuration |

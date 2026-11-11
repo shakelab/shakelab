@@ -463,12 +463,17 @@ corrections. The format follows
 - `exploration.yarray.config.SearchGrid`: the scale defaults to linear
   for wavenumber grids (the only spacing allowed for them), log
   otherwise.
-- Example `examples/exploration/yarray_sesame.py`; examples of every
-  way of use of `exploration.yarray`: `yarray_processing.py`
-  (library), `yarray_command_line.py`, `yarray_realtime.py`
-  (`ArrayMonitor` with a SeedLink client), `yarray_planning.py`,
-  `yarray_profiling.py` (processing times). Guide `docs/yarray.md`
+- Examples of `exploration.yarray`, one per topic
+  (`examples/exploration/yarray_01_array.py` to `yarray_16_profiling.py`:
+  array data, configuration, beamforming, estimators, components, RTBF,
+  transforms, uncertainty, results, density, command line (shell
+  script), real time with a SeedLink client, response, performance,
+  operational assessment, processing times). Guide `docs/yarray.md`
   (theory, use, limits).
+- The examples are no longer run by the test suite
+  (`tests/test_examples.py` removed): they are references for the
+  user, some need a server or user data; files they write go to
+  `output/` (ignored by git).
 - Test data of `exploration.yarray`: nine three-component stations of
   the SESAME simulation (were three), with the maxima of the August
   2026 code for every component mode.

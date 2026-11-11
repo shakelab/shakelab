@@ -546,8 +546,9 @@ peaks = density.peaks(3, minimum_relative_density=0.1)
 Figures (`shakelab.graphics.yarray`, matplotlib imported on use):
 `plot_dispersion`, `plot_ellipticity`, `plot_spectrum` (power,
 standard error or ellipticity; wavenumber plane or azimuth and grid
-coordinates), `plot_density`. See
-[`yarray_processing.py`](../examples/exploration/yarray_processing.py).
+coordinates), `plot_density`. See the examples `yarray_01_array.py`
+to `yarray_10_density.py` in
+[`examples/exploration/`](../examples/README.md#exploration).
 
 ## 12. Command line
 
@@ -588,7 +589,7 @@ to check a search domain; figures `--plot-geometry`,
 `--plot-response`, `--plot-resolution`, `--plot-velocity`,
 `--plot-search-domain` or `--plot-all`. The Monte Carlo analysis
 needs too many choices for a command line and is used from Python.
-See [`yarray_command_line.py`](../examples/exploration/yarray_command_line.py).
+See [`yarray_11_command_line.sh`](../examples/exploration/yarray_11_command_line.sh).
 
 ## 13. Real time
 
@@ -624,7 +625,7 @@ to a file (`output`). `background=False` processes in the call;
 `monitor.process(collection, start, end)` processes given data. Any
 object with `get_data(select)` returning a `StreamCollection` can feed
 the monitor. See
-[`yarray_realtime.py`](../examples/exploration/yarray_realtime.py).
+[`yarray_12_realtime.py`](../examples/exploration/yarray_12_realtime.py).
 
 ## 14. Survey planning
 
@@ -658,7 +659,9 @@ experiments need a wavenumber search grid and are reproducible through
 derived seed). Figures: `plot_array_geometry`, `plot_array_response`,
 `plot_resolution`, `plot_search_domain`, `plot_velocity_limits`,
 `plot_performance`, `plot_performance_sweep`, `plot_operational`. See
-[`yarray_planning.py`](../examples/exploration/yarray_planning.py).
+[`yarray_13_response.py`](../examples/exploration/yarray_13_response.py),
+[`yarray_14_performance.py`](../examples/exploration/yarray_14_performance.py)
+and [`yarray_15_operational.py`](../examples/exploration/yarray_15_operational.py).
 
 ## 15. Practical guidance and processing times
 
@@ -680,8 +683,8 @@ derived seed). Figures: `plot_array_geometry`, `plot_array_response`,
    rather than repeating the processing.
 
 Times on the nine SESAME stations (three components, 60 s;
-[`yarray_profiling.py`](../examples/exploration/yarray_profiling.py)
-`--full`, one core of a laptop, indicative only): vertical Capon on
+[`yarray_16_profiling.py`](../examples/exploration/yarray_16_profiling.py),
+one core of a laptop, indicative only): vertical Capon on
 180 azimuths x 100 radial values, fixed 2 s windows, takes about
 0.5 s for 50 frequencies with the direct transform and 0.13 s with the
 nearest-bin RFFT (which keeps 15 distinct bins), and grows linearly
