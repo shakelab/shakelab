@@ -43,7 +43,11 @@ from shakelab.exploration.yarray.config import (  # noqa: E402
     WindowConfig,
 )
 from shakelab.exploration.yarray.io import read_array  # noqa: E402
+from shakelab.exploration.yarray.statistics import (  # noqa: E402
+    maximum_density,
+)
 from shakelab.graphics.yarray import (  # noqa: E402
+    plot_density,
     plot_dispersion,
     plot_ellipticity,
     plot_spectrum,
@@ -143,3 +147,29 @@ def test_plot_errors(results):
         plot_dispersion(vertical, component="radial")
     with pytest.raises(TypeError):
         plot_dispersion(vertical.maxima)
+
+
+@pytest.mark.parametrize("coordinate", ["log_slowness", "wavenumber"])
+def test_plot_density(results, coordinate):
+    """
+    Relative density with peaks and summary.
+
+    Logarithmic coordinates are shown as velocity on a log axis.
+    """
+    vertical, _ = results
+    density = maximum_density(vertical, coordinate=coordinate)
+    figure, axis = plot_density(density, peaks=density.peaks(2),
+                                summary=density.summary(), scale="log")
+
+    if coordinate == "log_slowness":
+        assert axis.get_yscale() == "log"
+        assert "velocity" in axis.get_ylabel()
+    else:
+        assert "wavenumber" in axis.get_ylabel()
+
+    assert np.nanmax(axis.collections[0].get_array()) == pytest.approx(1.0)
+
+    with pytest.raises(ValueError, match="scale"):
+        plot_density(density, scale="sqrt")
+    with pytest.raises(TypeError):
+        plot_density(vertical)

@@ -24,7 +24,8 @@ Frequency-wavenumber analysis of synchronized seismic arrays, usable
 from Python, from the command line and within the callbacks of the
 SeedLink client: array data (:mod:`.data`), configuration
 (:mod:`.config`), estimators (:mod:`.estimators`), beamforming
-(:mod:`.beamforming`), input and output (:mod:`.io`), real-time
+(:mod:`.beamforming`), statistics of the maxima (:mod:`.statistics`),
+input and output (:mod:`.io`), real-time
 monitor (:mod:`.monitor`) and command line (:mod:`.cli`, installed as
 ``slab-yarray``). Figures are in :mod:`shakelab.graphics.yarray`. See
 ``README.md`` in this folder.

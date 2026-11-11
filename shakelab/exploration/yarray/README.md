@@ -18,9 +18,10 @@ conventions and the state of the work.
 |---|---|---|
 | 1 | `signals.windowing`, `data` | done (commit `4574d38`) |
 | 2 | `fourier.dft`, `signals.crossspectral`, `config`, `estimators`, `beamforming` | done (commit `e7a8246`) |
-| 3 | `io` (array files, results), `monitor` (`ArrayMonitor`), `cli` (`slab-yarray`), `shakelab.graphics.yarray`, example | done |
-| 4 | `statistics` (density of maxima) | planned |
+| 3 | `io` (array files, results), `monitor` (`ArrayMonitor`), `cli` (`slab-yarray`), `shakelab.graphics.yarray`, example | done (commit `14ecf0b`) |
+| 4 | `statistics` (density of maxima), `plot_density`, `--plot-density` | done |
 | 5 | `response`, `performance`, `operational` (array design and survey planning) | planned |
+| 6 | Exhaustive examples of every way of use (library, command line, real time, planning), `docs/yarray.md` | planned |
 
 ## Modules
 
@@ -30,6 +31,7 @@ conventions and the state of the work.
 | `config` | `BeamformingConfig` and its sections (`FrequencyConfig`, `WindowConfig`, `SearchGrid`, `EllipticityGrid`), with `read`/`write` (JSON), `to_dict`/`from_dict`, `replace` |
 | `estimators` | Bartlett, Capon, MUSIC and their statistics, on matrices and steering vectors (shared with the future performance analysis) |
 | `beamforming` | `Beamformer` (`process`), `beamform`, results `BeamformingResult`, `FrequencySpectrum`, `SpectralMaximum` |
+| `statistics` | `maximum_density` (density of the maxima versus frequency in wavenumber, log-slowness or log-velocity; kernels of the grid resolution, Silverman or fixed width; uniform or power weights), `MaximumDensity.summary` (mode, median, quantiles), `MaximumDensity.peaks` (candidate modes, prominences of `scipy.signal`) |
 | `io` | `read_array` (array file: local coordinates, a waveform file per component, reader options), `write_result` (also `append`), `read_results`, `read_result` (pickle) |
 | `monitor` | `ArrayMonitor`: periodic processing of the data of the SeedLink client (`client.every(interval, monitor)`) in a worker thread, queryable while running |
 | `cli` | command line `slab-yarray` (`python -m shakelab.exploration.yarray`) |
@@ -37,7 +39,8 @@ conventions and the state of the work.
 Figures: `shakelab.graphics.yarray` (`plot_dispersion`,
 `plot_ellipticity`, `plot_spectrum` of power, standard error or
 ellipticity, in the wavenumber plane or in azimuth and grid
-coordinates); matplotlib is imported when a function is called.
+coordinates, `plot_density` with peaks or summary); matplotlib is
+imported when a function is called.
 
 Generic tools live in `shakelab.signals`, for reuse by FDD, SPAC and
 other methods: `windowing` (windows, blocks, tapers, effective number
@@ -200,8 +203,17 @@ configuration file (`dispersion`, `ellipticity`, `component`, `ranks`,
   overrides of the JSON (runner of 10 August), reader options per
   component in the array file, appended results and `--result`, maps
   of the power uncertainty (`plot_spectrum(quantity=
-  "standard_error")`). Still to do: `plot_density` (block 4, with
-  `statistics`), profiling suite as an example.
+  "standard_error")`). Still to do: profiling suite as an example
+  (block 6).
+- `statistics` (block 4) gives the same densities, summaries and peak
+  positions as August (1e-14); two fixes: `numpy.trapz` (removed in
+  NumPy 2.4) replaced by `trapezoid`, and the peak prominence, which
+  was measured from the lowest density on each side instead of the
+  saddle towards a higher peak (secondary modes on the flank of a
+  stronger one were overrated: 0.251 instead of 0.153 in the test
+  case), now computed by `scipy.signal.find_peaks`. The option
+  `use_uncertainty` was removed: maxima have no positional errors yet
+  (candidate extension).
 - The local SeedLink test server sends the stations one after the
   other: the integration test checks the call in the receiving thread
   and then the analysis of the complete buffer.

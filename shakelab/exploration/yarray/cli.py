@@ -26,8 +26,9 @@ their metadata (``--data``, ``--metadata``), or a saved result is only
 plotted (``--result``). The configuration is a JSON file (``--config``,
 see :mod:`.config`), whose values the processing options of the
 command line replace; without it the options must define at least the
-frequencies and the grid. The figures are chosen with the options or
-the section ``graphics`` of the configuration file.
+frequencies and the grid. The figures (dispersion, ellipticity, spectrum,
+density of the maxima) are chosen with the options or the section
+``graphics`` of the configuration file.
 
 Examples
 --------
@@ -267,6 +268,14 @@ def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
                          action=argparse.BooleanOptionalAction)
     figures.add_argument("--plot-spectrum",
                          action=argparse.BooleanOptionalAction)
+    figures.add_argument("--plot-density",
+                         action=argparse.BooleanOptionalAction,
+                         help="density of the maxima versus frequency")
+    figures.add_argument(
+        "--density-coordinate",
+        choices=("log_slowness", "log_velocity", "wavenumber"),
+        help="coordinate of the density (log_slowness)",
+    )
     figures.add_argument("--component", help="component of the figures")
     figures.add_argument("--ranks", type=int, nargs="+",
                          help="ranks of the maxima")
@@ -373,6 +382,10 @@ def _graphics_options(args: argparse.Namespace) -> dict:
     spectrum = {"enabled": spectrum} if isinstance(spectrum, bool) else dict(
         spectrum
     )
+    density = section.get("density", {})
+    density = {"enabled": density} if isinstance(density, bool) else dict(
+        density
+    )
     save = section.get("save", {})
     save = {"enabled": save} if isinstance(save, bool) else dict(save)
 
@@ -388,6 +401,10 @@ def _graphics_options(args: argparse.Namespace) -> dict:
                             bool(section.get("ellipticity", False))),
         "spectrum": pick(args.plot_spectrum,
                          bool(spectrum.get("enabled", False))),
+        "density": pick(args.plot_density,
+                        bool(density.get("enabled", False))),
+        "coordinate": pick(args.density_coordinate,
+                           density.get("coordinate", "log_slowness")),
         "component": pick(args.component, section.get("component")),
         "ranks": pick(args.ranks, section.get("ranks")),
         "frequency": pick(args.frequency, spectrum.get("frequency")),
@@ -407,8 +424,10 @@ def _graphics_options(args: argparse.Namespace) -> dict:
 
 def _figures(result: Any, options: dict) -> list:
     """Draw the requested figures; return the files written."""
-    wanted = [name for name in ("dispersion", "ellipticity", "spectrum")
-              if options[name]]
+    wanted = [
+        name for name in ("dispersion", "ellipticity", "spectrum", "density")
+        if options[name]
+    ]
 
     if not wanted:
         return []
@@ -446,6 +465,18 @@ def _figures(result: Any, options: dict) -> list:
             f"spectrum_f{options['frequency']:g}_b{options['block']}_"
             f"{options['view']}_{options['quantity']}",
         ))
+
+    if "density" in wanted:
+        from shakelab.exploration.yarray.statistics import maximum_density
+
+        density = maximum_density(
+            result, component=component, ranks=options["ranks"],
+            coordinate=options["coordinate"],
+        )
+        figure, _ = graphics.plot_density(
+            density, peaks=density.peaks(3, minimum_relative_density=0.2)
+        )
+        figures.append((figure, f"density_{density.component}"))
 
     written = []
 

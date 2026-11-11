@@ -26,7 +26,10 @@ Figures of array processing (:mod:`shakelab.exploration.yarray`).
   versus frequency;
 - :func:`plot_spectrum`: one beam-power spectrum (or its standard
   error, or the ellipticity of the joint processing) in wavenumber
-  space or in azimuth and radial grid coordinates.
+  space or in azimuth and radial grid coordinates;
+- :func:`plot_density`: density of the spectral maxima versus
+  frequency (:mod:`shakelab.exploration.yarray.statistics`), with its
+  peaks or summary.
 
 The functions draw on a given matplotlib axis or on a new figure and
 return ``(figure, axis)``; they never modify the results. matplotlib is
@@ -45,8 +48,15 @@ from shakelab.exploration.yarray.beamforming import (
     FrequencySpectrum,
 )
 from shakelab.exploration.yarray.config import GridQuantity
+from shakelab.exploration.yarray.statistics import (
+    DensityCoordinate,
+    DensityPeaks,
+    DensitySummary,
+    MaximumDensity,
+)
 
 __all__ = [
+    "plot_density",
     "plot_dispersion",
     "plot_ellipticity",
     "plot_spectrum",
@@ -127,13 +137,18 @@ def _maxima(
 
 
 def _plain_log_axis(axis: Any, which: str) -> None:
-    """Logarithmic axis with plain numbers as tick labels."""
-    from matplotlib.ticker import ScalarFormatter
+    """Logarithmic axis labelled 1, 2, 5 per decade as plain numbers."""
+    from matplotlib.ticker import FuncFormatter, LogLocator
+
+    def label(value: float, position: Any) -> str:
+        mantissa = value / 10.0 ** np.floor(np.log10(value) + 1e-9)
+        return f"{value:g}" if round(mantissa) in (1, 2, 5) else ""
 
     getattr(axis, f"set_{which}scale")("log")
-    formatter = ScalarFormatter()
-    formatter.set_scientific(False)
-    getattr(axis, f"{which}axis").set_major_formatter(formatter)
+    ticks = getattr(axis, f"{which}axis")
+    ticks.set_major_locator(LogLocator(subs=(1.0, 2.0, 5.0)))
+    ticks.set_major_formatter(FuncFormatter(label))
+    ticks.set_minor_formatter(FuncFormatter(lambda value, position: ""))
 
 
 def _is_geometric(values: np.ndarray) -> bool:
@@ -445,3 +460,123 @@ def _radial_value(maximum: Any, quantity: GridQuantity) -> float:
         return maximum.slowness
 
     return maximum.wavenumber
+
+
+def plot_density(
+    density: MaximumDensity,
+    peaks: Optional[DensityPeaks] = None,
+    summary: Optional[DensitySummary] = None,
+    scale: str = "linear",
+    floor: float = 0.01,
+    log_frequency: bool = True,
+    ax: Any = None,
+) -> tuple:
+    """
+    Plot the density of the spectral maxima versus frequency.
+
+    The density of each frequency is divided by its maximum, so that
+    weak modes stay visible. Logarithmic coordinates are shown as phase
+    velocity on a logarithmic axis.
+
+    Parameters
+    ----------
+    density : MaximumDensity
+        Density (:func:`~shakelab.exploration.yarray.statistics.
+        maximum_density`).
+    peaks : DensityPeaks, optional
+        Peaks to mark (circles sized by their relative height).
+    summary : DensitySummary, optional
+        Mode (line) and quantile interval (dashed lines) to draw.
+    scale : {"linear", "log"}, optional
+        Colour scale of the relative density. Default linear.
+    floor : float, optional
+        Lower limit of the logarithmic colour scale. Default 0.01.
+    log_frequency : bool, optional
+        Logarithmic frequency axis. Default True.
+    ax : matplotlib.axes.Axes, optional
+        Axis to draw on; a new figure otherwise.
+
+    Returns
+    -------
+    tuple
+        ``(figure, axis)``.
+
+    Raises
+    ------
+    TypeError
+        If ``density`` is not a MaximumDensity.
+    ValueError
+        If ``scale`` is unknown.
+    """
+    if not isinstance(density, MaximumDensity):
+        raise TypeError("density must be a MaximumDensity")
+
+    if scale not in ("linear", "log"):
+        raise ValueError("scale must be 'linear' or 'log'")
+
+    from matplotlib.colors import LogNorm, Normalize
+
+    logarithmic = density.coordinate is not DensityCoordinate.WAVENUMBER
+
+    def axis_values(values: np.ndarray) -> np.ndarray:
+        """Plotted coordinate of density values."""
+        if density.coordinate is DensityCoordinate.LOG_VELOCITY:
+            return np.exp(values)
+
+        if density.coordinate is DensityCoordinate.LOG_SLOWNESS:
+            return np.exp(-values)
+
+        return values
+
+    figure, axis = _axes(ax, (9.0, 5.5))
+    relative = density.relative_density(floor=floor if scale == "log"
+                                        else 0.0)
+    norm = (LogNorm(vmin=floor, vmax=1.0) if scale == "log"
+            else Normalize(vmin=0.0, vmax=1.0))
+    ordinate = axis_values(density.values)
+    order = np.argsort(ordinate)
+    image = axis.pcolormesh(
+        density.frequencies, ordinate[order], relative[:, order].T,
+        shading="nearest", norm=norm, cmap="magma_r",
+    )
+    figure.colorbar(image, ax=axis, label="Density / maximum")
+
+    if peaks is not None:
+        for column in range(peaks.values.shape[1]):
+            valid = np.isfinite(peaks.values[:, column])
+            axis.scatter(
+                peaks.frequencies[valid],
+                axis_values(peaks.values[valid, column]),
+                s=15.0 + 45.0 * peaks.relative_density[valid, column],
+                facecolors="none", edgecolors="tab:cyan",
+                linewidths=1.2, label="density peaks" if column == 0
+                else None,
+            )
+
+    if summary is not None:
+        axis.plot(summary.frequencies, axis_values(summary.mode),
+                  color="tab:green", label="mode")
+
+        for values in (summary.lower, summary.upper):
+            axis.plot(summary.frequencies, axis_values(values),
+                      color="tab:green", linestyle="--", linewidth=0.8)
+
+    if log_frequency:
+        _plain_log_axis(axis, "x")
+
+    if logarithmic:
+        _plain_log_axis(axis, "y")
+        axis.set_ylabel("Phase velocity (m/s)")
+    else:
+        axis.set_ylabel("Angular wavenumber (rad/m)")
+
+    if peaks is not None or summary is not None:
+        axis.legend(loc="best")
+
+    axis.set_xlabel("Frequency (Hz)")
+    axis.set_title(
+        f"Density of maxima, {density.component.replace('_', ' ')} "
+        f"({int(np.sum(density.counts))} maxima)"
+    )
+
+    return figure, axis

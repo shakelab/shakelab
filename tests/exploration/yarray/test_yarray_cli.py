@@ -106,6 +106,10 @@ def test_append_and_plot_saved_result(tmp_path):
                  str(tmp_path / "figures")]) == 0
     assert (tmp_path / "figures" / "spectrum_f5_b0_azimuth_power.png"
             ).is_file()
+    assert main(["--result", str(output), "--plot-density",
+                 "--density-coordinate", "log_velocity", "--save-figures",
+                 str(tmp_path / "figures")]) == 0
+    assert (tmp_path / "figures" / "density_vertical.png").is_file()
 
 
 def test_graphics_section(tmp_path):

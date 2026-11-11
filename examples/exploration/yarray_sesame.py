@@ -27,7 +27,8 @@ coordinates in an array file) are processed in two ways:
 
 The same configuration is then applied window by window as in real
 time, with an :class:`ArrayMonitor` fed directly (the SeedLink client
-calls it in the same way), and the results are joined.
+calls it in the same way); the results are joined and the density of
+their maxima shows the dispersion curve.
 
 Run from the root of the repository::
 
@@ -49,7 +50,9 @@ from shakelab.exploration.yarray import (
 )
 from shakelab.exploration.yarray.io import read_array
 from shakelab.exploration.yarray.monitor import ArrayMonitor
+from shakelab.exploration.yarray.statistics import maximum_density
 from shakelab.graphics.yarray import (
+    plot_density,
     plot_dispersion,
     plot_ellipticity,
     plot_spectrum,
@@ -114,6 +117,11 @@ for offset in (0.0, 20.0, 40.0):
     monitor.process(collection, start + offset, start + offset + 19.99)
 
 print(monitor.status())
-monitor.result().info()
+joined = monitor.result()
+joined.info()
+
+# 5. Density of the maxima of all the windows, with its peaks.
+density = maximum_density(joined, coordinate="log_slowness")
+plot_density(density, peaks=density.peaks(3, minimum_relative_density=0.2))
 
 plt.show()

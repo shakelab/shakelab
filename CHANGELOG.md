@@ -435,6 +435,13 @@ corrections. The format follows
 - `graphics.yarray`: `plot_dispersion`, `plot_ellipticity`,
   `plot_spectrum` (power, standard error or ellipticity; wavenumber
   plane or azimuth and grid coordinates); matplotlib imported on use.
+- `exploration.yarray.statistics`: density of the spectral maxima
+  versus frequency (`maximum_density`, in wavenumber, log-slowness or
+  log-velocity; kernel width from the grid resolution, Silverman's
+  rule or fixed; uniform or power weights), with mode, median and
+  quantiles (`summary`) and peaks with their prominence (`peaks`,
+  `scipy.signal.find_peaks`). `graphics.yarray.plot_density`;
+  `slab-yarray --plot-density`.
 - Example `examples/exploration/yarray_sesame.py`.
 - `exploration.yarray` (new subpackage, under development): seismic
   array processing. `exploration.yarray.data`: `StationData` and
