@@ -8,9 +8,11 @@ from Python, from the command line and within the callbacks of the
 SeedLink client (real-time monitoring), with the same components.
 
 The package derives from the YArray development code written in
-August 2026 outside the repository (project MODERN) and is being
-brought into ShakeLab in blocks. This file records its design, its
-conventions and the state of the work.
+August 2026 outside the repository (project MODERN), brought into
+ShakeLab in blocks. This file records its design, its conventions and
+the state of the work; the theory and the use are in the guide
+[`docs/yarray.md`](../../../docs/yarray.md), the runnable examples in
+[`examples/exploration/`](../../../examples/README.md#exploration).
 
 ## Status
 
@@ -20,8 +22,8 @@ conventions and the state of the work.
 | 2 | `fourier.dft`, `signals.crossspectral`, `config`, `estimators`, `beamforming` | done (commit `e7a8246`) |
 | 3 | `io` (array files, results), `monitor` (`ArrayMonitor`), `cli` (`slab-yarray`), `shakelab.graphics.yarray`, example | done (commit `14ecf0b`) |
 | 4 | `statistics` (density of maxima), `plot_density`, `--plot-density` | done (commit `d1c1f9c`) |
-| 5 | `response`, `performance`, `operational` (array design and survey planning), their figures, `slab-yarray response` | done |
-| 6 | Exhaustive examples of every way of use (library, command line, real time, planning), `docs/yarray.md` | planned |
+| 5 | `response`, `performance`, `operational` (array design and survey planning), their figures, `slab-yarray response` | done (commit `21b3c8e`) |
+| 6 | Nine-station three-component test data and references; examples of every way of use (library, command line, real time, planning, profiling); `docs/yarray.md` | done |
 
 ## Modules
 
@@ -275,8 +277,15 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
   overrides of the JSON (runner of 10 August), reader options per
   component in the array file, appended results and `--result`, maps
   of the power uncertainty (`plot_spectrum(quantity=
-  "standard_error")`). Still to do: profiling suite as an example
+  "standard_error")`). The profiling suite of August (shell script and
+  configurations) became `examples/exploration/yarray_profiling.py`
   (block 6).
+- Block 6: the test data hold nine three-component SESAME stations;
+  the maxima of the August code on them (vertical, radial,
+  transverse, three components, Rayleigh joint) are identical
+  (`reference_20260812_9.json`). `ArrayMonitor` skips, without
+  warnings about stations, a buffer shorter than the window (the
+  start of an acquisition).
 - `statistics` (block 4) gives the same densities, summaries and peak
   positions as August (1e-14); two fixes: `numpy.trapz` (removed in
   NumPy 2.4) replaced by `trapezoid`, and the peak prominence, which
@@ -302,13 +311,15 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
   is wider than the alias-free domain (0.057 rad/m): no wavenumber is
   both resolved and unambiguous at level 0.5, as `info()` reports.
 - Documentation: the four documents of August (theory, architecture,
-  user manual, array response) will become `docs/yarray.md`, updated.
+  user manual, array response) are merged and updated in
+  `docs/yarray.md`.
 
 ## Test data
 
 `tests/exploration/yarray/data/`: excerpt of the SESAME array
-simulation (3 stations, 60 s; see its README) and the maxima of the
-August implementation on it.
+simulation (9 three-component stations, 60 s; array files of the
+first three and of all nine; see its README) and the maxima of the
+August implementation on both.
 
 ## References
 

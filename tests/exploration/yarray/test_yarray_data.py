@@ -532,7 +532,7 @@ def test_from_records_equals_from_collection():
 
 def test_sesame_excerpt():
     """
-    Three stations of the SESAME simulation with local coordinates.
+    Nine stations of the SESAME simulation with local coordinates.
 
     The SAC files keep East and North (m) in USER7 and USER8; the
     vertical motion of the array is the Z record of each station.
@@ -551,7 +551,11 @@ def test_sesame_excerpt():
 
     array = ArrayData.from_collection(collection, coordinates=coordinates)
 
-    assert array.sids == (".S1001.", ".S1002.", ".S1003.")
+    assert array.sids == tuple(
+        f".S{number}." for number in (1001, 1002, 1003, 1006, 1017, 1019,
+                                       1021, 1023, 1028)
+    )
+    assert all(station.ncomp == 3 for station in array)
     assert array.nsamp == 6858
     assert array.rate == pytest.approx(1.0 / 0.00875, rel=1e-6)
     np.testing.assert_array_equal(array[".S1002."].coordinates,

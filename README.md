@@ -106,6 +106,8 @@ The documentation is available at [shakelab.org](http://shakelab.org)
   numerical representation adopted across the library;
 - [Development guidelines](docs/development.md): architecture and
   coding principles for contributors;
+- [YArray](docs/yarray.md): seismic-array processing (theory, use from
+  Python, the command line and real time, survey planning);
 - [Examples](examples/README.md): runnable scripts organized by
   subpackage;
 - [Changelog](CHANGELOG.md): notable changes, deprecations and

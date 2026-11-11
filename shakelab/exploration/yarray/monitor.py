@@ -272,6 +272,17 @@ class ArrayMonitor:
             self._skip("no data in the buffer")
             return
 
+        first = min(
+            stream.starttime for stream in collection if stream.records()
+        )
+
+        if first > window[0]:
+            self._skip(
+                f"the buffer covers {window[1] - first:.2f} s, the window "
+                f"is {self.window:g} s"
+            )
+            return
+
         if not self.background:
             self.process(collection, *window)
             return

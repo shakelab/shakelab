@@ -18,7 +18,7 @@
 """
 Frequency-wavenumber analysis of a small three-component array.
 
-Three stations of the SESAME ambient-vibration simulation (60 s, local
+Nine stations of the SESAME ambient-vibration simulation (60 s, local
 coordinates in an array file) are processed in two ways:
 
 1. vertical Capon beamforming, with fixed windows and the RFFT;
@@ -44,6 +44,7 @@ import matplotlib.pyplot as plt
 from shakelab.exploration.yarray import (
     Beamformer,
     BeamformingConfig,
+    EllipticityGrid,
     FrequencyConfig,
     SearchGrid,
     WindowConfig,
@@ -59,7 +60,7 @@ from shakelab.graphics.yarray import (
 )
 from shakelab.signals.base import StreamCollection
 
-ARRAY = "tests/exploration/yarray/data/sesame_array.json"
+ARRAY = "tests/exploration/yarray/data/sesame_array_9.json"
 
 # The SAC files keep the local coordinates also in STLA/STLO.
 warnings.filterwarnings("ignore", message="STLO")
@@ -81,8 +82,16 @@ vertical = BeamformingConfig(
 result = Beamformer(vertical).process(array)
 result.info()
 
-# 3. Rayleigh three-component beamforming (signed ellipticity).
-rtbf = vertical.replace(components="rayleigh_joint", maxima=1)
+# 3. Rayleigh three-component beamforming (signed ellipticity), on a
+#    coarser grid: each frequency, block and azimuth needs a matrix of
+#    dimension 18 and steering vectors for every ellipticity, the most
+#    expensive analysis (see yarray_profiling.py).
+rtbf = vertical.replace(
+    components="rayleigh_joint", maxima=1,
+    frequencies=FrequencyConfig(minimum=3.0, maximum=12.0, size=10),
+    grid=SearchGrid(100.0, 2000.0, 40, azimuth_size=48),
+    ellipticity_grid=EllipticityGrid(-85.0, 85.0, 31),
+)
 joint = Beamformer(rtbf).process(array)
 joint.info()
 

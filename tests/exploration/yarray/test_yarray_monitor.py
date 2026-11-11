@@ -170,18 +170,24 @@ def test_skipped_windows():
     assert monitor.latest() is None
 
 
-def test_too_short_window_is_skipped():
-    """A window without stations covering it is skipped, not raised."""
+def test_too_short_buffer_is_skipped():
+    """
+    A buffer shorter than the window is skipped, quietly.
+
+    At the start of the acquisition the buffer holds less than one
+    window: no array is built (no warnings about stations) and the
+    reason says how much data there is.
+    """
     monitor = _monitor(window=100.0)
     reasons = []
     monitor.on_skip(lambda monitor, reason: reasons.append(reason))
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("error")
         monitor(_Client(_records()))
 
     assert monitor.status()["skipped"] == 1
-    assert "no station covers" in reasons[0]
+    assert reasons[0] == "the buffer covers 59.99 s, the window is 100 s"
 
 
 def test_window_without_blocks_is_skipped():

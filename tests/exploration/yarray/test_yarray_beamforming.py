@@ -48,6 +48,7 @@ from shakelab.exploration.yarray.config import (
     WindowConfig,
 )
 from shakelab.exploration.yarray.data import ArrayData, StationData
+from shakelab.exploration.yarray.io import read_array
 from shakelab.signals import fourier
 from shakelab.signals.base import Record
 from shakelab.signals.crossspectral import coefficients
@@ -477,10 +478,13 @@ def test_result_access_and_summary(capsys):
 
 
 def _sesame_array():
-    """SESAME excerpt with the coordinates of USER7 and USER8."""
+    """First three SESAME stations, coordinates of USER7 and USER8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        collection = reader(str(DATA / "sesame" / "*.sac"))
+        collection = reader([
+            str(DATA / "sesame" / f"M02.1_3001_{code}_0000.*.sac")
+            for code in ("0491_0512", "0500_0507", "0502_0515")
+        ])
 
     coordinates = {
         stream.sid.rsplit(".", 1)[0]: (
@@ -493,17 +497,29 @@ def _sesame_array():
     return ArrayData.from_collection(collection, coordinates=coordinates)
 
 
+def _sesame_array_9():
+    """Nine SESAME stations, three components (array file)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return read_array(DATA / "sesame_array_9.json")
+
+
 @pytest.mark.parametrize(
-    "case",
-    ["vertical_capon", "radial_bartlett", "transverse_music",
-     "rayleigh_joint"],
+    "stations, case",
+    [(3, "vertical_capon"), (3, "radial_bartlett"),
+     (3, "transverse_music"), (3, "rayleigh_joint"),
+     (9, "vertical_capon"), (9, "radial_bartlett"),
+     (9, "transverse_music"), (9, "three_component_capon"),
+     (9, "rayleigh_joint")],
 )
-def test_reference_august_2026(case):
+def test_reference_august_2026(stations, case):
     """
     Maxima equal those of the YArray implementation of August 2026.
 
-    The reference (``data/reference_20260812.json``) was computed by
-    the original code on the same data. Wavevectors, ranks, blocks and
+    The references (``data/reference_20260812.json`` for the first
+    three stations, ``data/reference_20260812_9.json`` for the nine
+    stations with three components) were computed by the original code
+    on the same data. Wavevectors, ranks, blocks and
     ellipticities are identical; the power differs by the change of
     normalization: the old coefficients were ``2 / N * sum w x e``
     with the taper normalized to unit mean square, so that the new
@@ -512,11 +528,12 @@ def test_reference_august_2026(case):
     inverse, being a reciprocal of a projection without the matrix
     scale).
     """
+    name = "reference_20260812" + ("_9" if stations == 9 else "")
     reference = json.loads(
-        (DATA / "reference_20260812.json").read_text()
+        (DATA / f"{name}.json").read_text()
     )["cases"][case]
     config = BeamformingConfig.from_dict(reference["config"])
-    array = _sesame_array()
+    array = _sesame_array() if stations == 3 else _sesame_array_9()
     result = beamform(array, config)
 
     assert len(result.maxima) == len(reference["maxima"])
@@ -524,6 +541,7 @@ def test_reference_august_2026(case):
     for new, old in zip(result.maxima, reference["maxima"]):
         assert new.frequency == old["frequency"]
         assert (new.block, new.rank) == (old["block"], old["rank"])
+        assert new.component == old.get("component", new.component)
         assert new.wavenumber == pytest.approx(old["wavenumber"], rel=1e-12)
         assert new.azimuth == old["azimuth"]
 
