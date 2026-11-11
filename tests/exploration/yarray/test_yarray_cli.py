@@ -155,3 +155,35 @@ def test_existing_output(tmp_path, capsys):
     assert main(OPTIONS + ["-o", str(output)]) == 1
     assert "exists" in capsys.readouterr().err
     assert main(OPTIONS + ["-o", str(output), "--owrite"]) == 0
+
+
+def test_response_command(tmp_path, capsys):
+    """Response of a coordinate file, velocity limits and figures."""
+    pytest.importorskip("matplotlib").use("Agg")
+    stations = tmp_path / "stations.txt"
+    stations.write_text(
+        "# name x y\nA 0 0\nB 30 0\nC 0 40\nD 25 35 1\nE,-20,10\n"
+        "F 10 -30\nG -35 -20\n"
+    )
+    figures = tmp_path / "figures"
+
+    assert main(["response", "--coordinates", str(stations), "--fmin", "1",
+                 "--fmax", "10", "--nfreq", "3", "--search-max", "0.03",
+                 "--plot-all", "--save-figures", str(figures)]) == 0
+    output = capsys.readouterr().out
+    assert "usable wavenumbers" in output and "minimum velocity" in output
+    assert sorted(path.stem for path in figures.iterdir()) == [
+        "array_geometry", "array_response", "resolution", "search_domain",
+        "velocity_limits",
+    ]
+
+
+def test_response_command_from_array(capsys):
+    """Response of an array file; errors of the options."""
+    assert main(["response", "--input", ARRAY, "--grid-max", "0.3",
+                 "--grid-size", "61"]) == 0
+    assert "3 stations" in capsys.readouterr().out
+    assert main(["response", "--input", ARRAY, "--plot-search-domain"]) == 1
+    assert "--search-max" in capsys.readouterr().err
+    assert main(["response", "--input", ARRAY, "--grid-max", "0.3"]) == 1
+    assert "go together" in capsys.readouterr().err

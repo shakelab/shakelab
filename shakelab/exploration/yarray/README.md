@@ -19,8 +19,8 @@ conventions and the state of the work.
 | 1 | `signals.windowing`, `data` | done (commit `4574d38`) |
 | 2 | `fourier.dft`, `signals.crossspectral`, `config`, `estimators`, `beamforming` | done (commit `e7a8246`) |
 | 3 | `io` (array files, results), `monitor` (`ArrayMonitor`), `cli` (`slab-yarray`), `shakelab.graphics.yarray`, example | done (commit `14ecf0b`) |
-| 4 | `statistics` (density of maxima), `plot_density`, `--plot-density` | done |
-| 5 | `response`, `performance`, `operational` (array design and survey planning) | planned |
+| 4 | `statistics` (density of maxima), `plot_density`, `--plot-density` | done (commit `d1c1f9c`) |
+| 5 | `response`, `performance`, `operational` (array design and survey planning), their figures, `slab-yarray response` | done |
 | 6 | Exhaustive examples of every way of use (library, command line, real time, planning), `docs/yarray.md` | planned |
 
 ## Modules
@@ -32,6 +32,9 @@ conventions and the state of the work.
 | `estimators` | Bartlett, Capon, MUSIC and their statistics, on matrices and steering vectors (shared with the future performance analysis) |
 | `beamforming` | `Beamformer` (`process`), `beamform`, results `BeamformingResult`, `FrequencySpectrum`, `SpectralMaximum` |
 | `statistics` | `maximum_density` (density of the maxima versus frequency in wavenumber, log-slowness or log-velocity; kernels of the grid resolution, Silverman or fixed width; uniform or power weights), `MaximumDensity.summary` (mode, median, quantiles), `MaximumDensity.peaks` (candidate modes, prominences of `scipy.signal`) |
+| `response` | geometric response of the array (`array_response`, expected response under coordinate uncertainty), `analyze_response` (`ResponseAnalysis`: main lobe, ambiguities, limits), `analyze_search_domain`, `velocity_limits`; `ArrayGeometry`, `ResponseGrid` |
+| `performance` | Monte Carlo performance of Bartlett, Capon and MUSIC for one plane wave in white noise: LOCAL/ALIAS/OTHER/BOUNDARY outcomes, Wilson intervals, local errors, exact velocity statistics (`evaluate_performance`, `performance_sweep`) |
+| `operational` | frequency-velocity-azimuth envelope with explicit usability criteria, limiting factors and recommendations (`assess_array`) |
 | `io` | `read_array` (array file: local coordinates, a waveform file per component, reader options), `write_result` (also `append`), `read_results`, `read_result` (pickle) |
 | `monitor` | `ArrayMonitor`: periodic processing of the data of the SeedLink client (`client.every(interval, monitor)`) in a worker thread, queryable while running |
 | `cli` | command line `slab-yarray` (`python -m shakelab.exploration.yarray`) |
@@ -39,8 +42,11 @@ conventions and the state of the work.
 Figures: `shakelab.graphics.yarray` (`plot_dispersion`,
 `plot_ellipticity`, `plot_spectrum` of power, standard error or
 ellipticity, in the wavenumber plane or in azimuth and grid
-coordinates, `plot_density` with peaks or summary); matplotlib is
-imported when a function is called.
+coordinates, `plot_density` with peaks or summary;
+`plot_array_geometry`, `plot_array_response`, `plot_resolution`,
+`plot_search_domain`, `plot_velocity_limits`, `plot_performance`,
+`plot_performance_sweep`, `plot_operational`); matplotlib is imported
+when a function is called.
 
 Generic tools live in `shakelab.signals`, for reuse by FDD, SPAC and
 other methods: `windowing` (windows, blocks, tapers, effective number
@@ -117,6 +123,46 @@ configuration file (`dispersion`, `ellipticity`, `component`, `ranks`,
 `spectrum` {`enabled`, `frequency`, `block`, `view`, `quantity`},
 `show`, `save` {`directory`, `format`, `dpi`}), as in August.
 
+Array design and survey planning (geometry only, then estimator
+performance):
+
+```python
+from shakelab.exploration import yarray as ya
+
+array = ya.read_array("array.json")          # or plain coordinates
+response = ya.array_response(array)          # automatic grid
+analysis = ya.analyze_response(response)     # levels 0.5 by default
+analysis.info()                              # resolution, aliasing
+limits = analysis.velocity_limits([1, 2, 5, 10, 20])
+ya.analyze_search_domain(response, 0.05).info()
+
+config = ya.PerformanceConfig(
+    snr_db=0.0,
+    grid=ya.SearchGrid(0.0, 0.2, 41, quantity="wavenumber"),
+    estimator=ya.EstimatorConfig("capon"),
+    monte_carlo=ya.MonteCarloConfig(trials=500, realizations=40, seed=1),
+)
+source = ya.PlaneWaveSource.from_velocity(400.0, 8.0, azimuth=30.0)
+ya.evaluate_performance(response, source, config).info()
+ya.performance_sweep(response, source, config, snr_db=[-10, 0, 10],
+                     realizations=[10, 20, 40]).info()
+assessment = ya.assess_array(response, config, ya.OperationalConfig(
+    frequencies=[2, 4, 8, 16], velocities=[150, 300, 600, 1200]))
+assessment.info()                            # usable ranges, advice
+```
+
+From the command line, the geometric part only (the Monte Carlo
+analysis needs too many choices for a command line):
+
+```sh
+slab-yarray response --input array.json --plot-all --show
+slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
+    --search-max 0.05 --plot-all --save-figures figures
+```
+
+`--coordinates` reads a text file of lines `x y [z]` or
+`name x y [z]`, so that a layout can be checked before deployment.
+
 ## Conventions
 
 - Coordinates East, North, Up in metres; when computed from
@@ -186,6 +232,28 @@ configuration file (`dispersion`, `ellipticity`, `component`, `ranks`,
   `info`.
 - The SAC reader accepts the SESAME files (local coordinates in
   STLA/STLO).
+- Block 5 (`response`, `performance`, `operational`): same results as
+  August, identical to the last bit with the same seeds (responses,
+  limits, Monte Carlo draws and outcomes, envelopes; regression tests
+  in `test_yarray_performance.py` and `test_yarray_operational.py`).
+  `print_*_summary` and `*_summary` became `info()` methods;
+  `analyze_response` returns a `ResponseAnalysis` instead of a tuple
+  `(main_lobe, ambiguity, limits)`; `array_response` and
+  `ResponseGrid.from_geometry` also accept an `ArrayData` (with its
+  coordinate covariances) or an `ArrayGeometry`; `use_expected_response`
+  is `expected`; methods and outcomes accept strings;
+  `PlaneWaveSource.from_velocity`; the sample matrices use
+  `signals.crossspectral.cross_spectral_matrix`. The classification
+  maps and the steering vectors of the search grid are computed once
+  per sweep or assessment (about 30% faster). Fixes: the limiting
+  factor converted the velocity at 1 Hz instead of the frequency of the
+  point (no effect on the result, the relative RMSE does not depend on
+  it); the recommendation on grid quantization compared the error with
+  the Rayleigh proxy, the point criterion with the resolution radius
+  of the response: both use the resolution radius now.
+- `SearchGrid` scale defaults to linear for wavenumbers (the only
+  spacing allowed) and log otherwise; before, a wavenumber grid needed
+  `scale="linear"` explicitly.
 
 ## Notes and open points
 
@@ -193,10 +261,14 @@ configuration file (`dispersion`, `ellipticity`, `component`, `ranks`,
   of about `(L - n + 1) / L` for n stations (Capon and Goodman, 1970):
   -8% with 40 windows and 10 stations in the tests. A bias correction
   could be offered as an option.
-- RTBF is unstable for ellipticities near zero or very large with
-  incoherent noise; Wathelet (2024) solves it with the angular
-  ellipticity and an all-component steering matrix: candidate
-  extension.
+- RTBF follows Wathelet et al. (2018): steering vectors
+  `[-1j e a, a]` and objective `e**2 P**2`. Only the search grid is
+  angular (`e = tan(chi)`, `chi` within (-90, 90) degrees, zero
+  excluded), so vanishing and very large ellipticities cannot be
+  reached and are distorted by incoherent noise. Wathelet (2024)
+  reformulates the problem in the angular ellipticity, with a
+  different noise model and a new steering matrix: candidate
+  extension, not implemented (nor in the August code).
 - Empirical uncertainty: Bartlett and Capon on single components (not
   MUSIC, not RTBF); coordinate uncertainty: Bartlett only.
 - Recovered in block 3: processing options of the command line as
@@ -217,6 +289,18 @@ configuration file (`dispersion`, `ellipticity`, `component`, `ranks`,
 - The local SeedLink test server sends the stations one after the
   other: the integration test checks the call in the receiving thread
   and then the analysis of the complete buffer.
+- Planning (block 5): the experiments model one scalar plane wave in
+  white noise with independent realizations; correlated windows,
+  coloured noise, several sources, sampled coordinate errors and RTBF
+  are not modelled. The recommendation categories `ARRAY_APERTURE`,
+  `ARRAY_SPACING`, `AZIMUTH_SAMPLING` and the limiting factor
+  `INSUFFICIENT_REALIZATIONS` are defined but never assigned (as in
+  August): a low LOCAL probability is reported as `LOW_SNR`. A
+  geometry optimizer (constrained station placement) is a candidate
+  extension.
+- On the 3-station SESAME excerpt the main lobe (radius 0.060 rad/m)
+  is wider than the alias-free domain (0.057 rad/m): no wavenumber is
+  both resolved and unambiguous at level 0.5, as `info()` reports.
 - Documentation: the four documents of August (theory, architecture,
   user manual, array response) will become `docs/yarray.md`, updated.
 

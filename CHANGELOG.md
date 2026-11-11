@@ -442,6 +442,27 @@ corrections. The format follows
   quantiles (`summary`) and peaks with their prominence (`peaks`,
   `scipy.signal.find_peaks`). `graphics.yarray.plot_density`;
   `slab-yarray --plot-density`.
+- `exploration.yarray.response`: geometric response of an array
+  (`array_response`, also expected under Gaussian coordinate
+  uncertainty), main lobe, ambiguities and resolution/aliasing limits
+  (`analyze_response` returning a `ResponseAnalysis`), circular search
+  domains (`analyze_search_domain`) and velocity limits
+  (`velocity_limits`). `exploration.yarray.performance`: Monte Carlo
+  performance of Bartlett, Capon and MUSIC for a plane wave in white
+  noise (`evaluate_performance`, `performance_sweep`; LOCAL, ALIAS,
+  OTHER and BOUNDARY outcomes with Wilson intervals, local errors,
+  exact velocity statistics). `exploration.yarray.operational`:
+  frequency-velocity-azimuth envelope with explicit criteria, limiting
+  factors and recommendations (`assess_array`). Same results as the
+  YArray code of August 2026 with the same seeds. Figures
+  `plot_array_geometry`, `plot_array_response`, `plot_resolution`,
+  `plot_search_domain`, `plot_velocity_limits`, `plot_performance`,
+  `plot_performance_sweep`, `plot_operational`; command
+  `slab-yarray response` (array file, waveforms or a text file of
+  coordinates).
+- `exploration.yarray.config.SearchGrid`: the scale defaults to linear
+  for wavenumber grids (the only spacing allowed for them), log
+  otherwise.
 - Example `examples/exploration/yarray_sesame.py`.
 - `exploration.yarray` (new subpackage, under development): seismic
   array processing. `exploration.yarray.data`: `StationData` and

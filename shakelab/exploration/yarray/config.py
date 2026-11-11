@@ -512,8 +512,9 @@ class SearchGrid(_Replace):
     quantity : GridQuantity or str, optional
         ``"velocity"`` (default), ``"slowness"`` or ``"wavenumber"``.
     scale : GridScale or str, optional
-        ``"log"`` (default) or ``"linear"`` spacing (wavenumbers only
-        linear).
+        ``"log"`` or ``"linear"`` spacing. Default: log for velocities
+        and slownesses, linear for wavenumbers (the only spacing
+        allowed for them).
     azimuth_size : int, optional
         Number of propagation azimuths, uniform in ``[0, 360)``.
         Default is 180.
@@ -531,13 +532,21 @@ class SearchGrid(_Replace):
     maximum: float
     size: int
     quantity: Any = GridQuantity.VELOCITY
-    scale: Any = GridScale.LOG
+    scale: Any = None
     azimuth_size: int = 180
     azimuths: Any = None
 
     def __post_init__(self) -> None:
         quantity = _enum(self.quantity, GridQuantity, "quantity")
-        scale = _enum(self.scale, GridScale, "scale")
+        scale = self.scale
+
+        if scale is None:
+            scale = (
+                GridScale.LINEAR if quantity is GridQuantity.WAVENUMBER
+                else GridScale.LOG
+            )
+
+        scale = _enum(scale, GridScale, "scale")
         minimum = _real(self.minimum, "minimum")
         maximum = _real(self.maximum, "maximum")
 

@@ -38,6 +38,7 @@ from shakelab.exploration.yarray.config import (
     EllipticityGrid,
     FrequencyConfig,
     GridQuantity,
+    GridScale,
     SearchGrid,
     TransformMethod,
     WindowConfig,
@@ -163,6 +164,16 @@ def test_search_grid_explicit_azimuths():
         SearchGrid(100.0, 2000.0, 5, azimuths=[10.0, 370.0])
     with pytest.raises(ValueError):
         SearchGrid(0.0, 2000.0, 5)
+
+
+def test_search_grid_default_scale():
+    """Default spacing: log for velocities, linear for wavenumbers."""
+    assert SearchGrid(100.0, 2000.0, 5).scale is GridScale.LOG
+    assert SearchGrid(0.001, 0.01, 5, quantity="slowness").scale is \
+        GridScale.LOG
+    grid = SearchGrid(0.0, 0.1, 5, quantity="wavenumber")
+    assert grid.scale is GridScale.LINEAR
+    assert grid.to_dict()["scale"] == "linear"
 
 
 def test_ellipticity_grid():

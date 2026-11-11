@@ -42,6 +42,19 @@ Examples
         --select "XX.*..HH?" --config rtbf.json -o rtbf.pkl
     slab-yarray --result rtbf.pkl --plot-spectrum --frequency 4.5 --show
 
+With the first argument ``response`` the command analyses the
+geometric response of the array instead (no waveforms are needed with
+``--coordinates``): it prints the resolution and aliasing limits and,
+with ``--frequencies`` or ``--fmin --fmax``, the corresponding phase
+velocities, and draws the geometry, the response, the directional
+resolution, the velocity limits and a search domain.
+
+.. code-block:: shell
+
+    slab-yarray response --input array.json --plot-response --show
+    slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \\
+        --search-max 0.2 --plot-all --save-figures figures
+
 The command ``slab-yarray`` is installed with ShakeLab; the same
 interface runs as ``python -m shakelab.exploration.yarray``.
 """
@@ -122,14 +135,20 @@ def main(argv: Optional[list] = None, prog: Optional[str] = None) -> int:
     int
         Exit status: 0 on success, 1 on errors, 130 when interrupted.
     """
-    parser = _parser(prog)
-    args = parser.parse_args(argv)
+    argv = sys.argv[1:] if argv is None else list(argv)
+
+    if argv[:1] == ["response"]:
+        args = _response_parser(prog).parse_args(argv[1:])
+        run = _run_response
+    else:
+        args = _parser(prog).parse_args(argv)
+        run = _run
 
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("always")
             warnings.showwarning = _show_warning
-            return _run(args)
+            return run(args)
     except KeyboardInterrupt:
         return 130
     except (OSError, ValueError, TypeError, np.linalg.LinAlgError) as error:
@@ -489,6 +508,254 @@ def _figures(result: Any, options: dict) -> list:
             written.append(path)
 
     if options["show"]:
+        plt.show()
+
+    for figure, _ in figures:
+        plt.close(figure)
+
+    return written
+
+
+# ----------------------------------------------------------------------------
+# Array response
+# ----------------------------------------------------------------------------
+
+
+_RESPONSE_FIGURES = ("geometry", "response", "resolution", "velocity",
+                     "search_domain")
+
+
+def _response_parser(prog: Optional[str]) -> argparse.ArgumentParser:
+    """Build the argument parser of the response analysis."""
+    parser = argparse.ArgumentParser(
+        prog=f"{prog or 'slab-yarray'} response",
+        description="Geometric response and limits of a seismic array.",
+    )
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--input", type=Path,
+                        help="array file (JSON) with coordinates and files")
+    source.add_argument("--data", nargs="+",
+                        help="waveform files, patterns or folders")
+    source.add_argument(
+        "--coordinates", type=Path,
+        help="text file of station coordinates: lines 'x y [z]' or "
+        "'name x y [z]' (comma or space separated, '#' comments)",
+    )
+
+    data = parser.add_argument_group("data (with --data)")
+    data.add_argument("--metadata", nargs="+",
+                      help="metadata files (positions, orientations)")
+    data.add_argument("--select", help="channel pattern NET.STA.LOC.CHA")
+    data.add_argument("--start", help="start time (ISO 8601)")
+    data.add_argument("--end", help="end time (ISO 8601)")
+
+    analysis = parser.add_argument_group("analysis")
+    analysis.add_argument("--resolution-level", type=float, default=0.5,
+                          help="relative power of the main lobe (0.5)")
+    analysis.add_argument("--ambiguity-level", type=float, default=0.5,
+                          help="relative power of the ambiguities (0.5)")
+    analysis.add_argument("--expected", action="store_true",
+                          help="response expected under the coordinate "
+                          "uncertainties of the array")
+    analysis.add_argument("--grid-max", type=float,
+                          help="extent of the wavenumber grid (automatic)")
+    analysis.add_argument("--grid-size", type=int,
+                          help="odd samples per axis of the grid")
+    analysis.add_argument("--frequencies", type=float, nargs="+",
+                          help="frequencies of the velocity limits (Hz)")
+    analysis.add_argument("--fmin", type=float, help="minimum frequency")
+    analysis.add_argument("--fmax", type=float, help="maximum frequency")
+    analysis.add_argument("--nfreq", type=int, default=30,
+                          help="number of log-spaced frequencies (30)")
+    analysis.add_argument("--search-max", type=float,
+                          help="radius of a circular search domain to check")
+
+    figures = parser.add_argument_group("figures")
+
+    for name in _RESPONSE_FIGURES:
+        flag = name.replace("_", "-")
+        figures.add_argument(f"--plot-{flag}", action="store_true",
+                             help=f"{name.replace('_', ' ')} figure")
+
+    figures.add_argument("--plot-all", action="store_true",
+                         help="all the figures available")
+    figures.add_argument("--show", action="store_true",
+                         help="show the figures")
+    figures.add_argument("--save-figures", type=Path,
+                         help="folder of the figure files")
+    figures.add_argument("--figure-format", default="png",
+                         help="image format (png)")
+    figures.add_argument("--dpi", type=int, default=150,
+                         help="resolution (150)")
+
+    return parser
+
+
+def _read_coordinates(path: Path) -> tuple:
+    """Return names (or None) and coordinates of a text file."""
+    names, rows = [], []
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        fields = line.split("#", 1)[0].replace(",", " ").split()
+
+        if not fields:
+            continue
+
+        try:
+            float(fields[0])
+        except ValueError:
+            names.append(fields[0])
+            fields = fields[1:]
+
+        if len(fields) not in (2, 3):
+            raise ValueError(f"{path}: invalid line {line.strip()!r}")
+
+        rows.append([float(value) for value in fields] + [0.0] * (
+            3 - len(fields)
+        ))
+
+    if names and len(names) != len(rows):
+        raise ValueError(f"{path}: names on some lines only")
+
+    return (names or None), np.array(rows)
+
+
+def _response_frequencies(args: argparse.Namespace) -> Optional[np.ndarray]:
+    """Frequencies of the velocity limits, if requested."""
+    if args.frequencies is not None:
+        return np.array(sorted(args.frequencies))
+
+    if args.fmin is None and args.fmax is None:
+        return None
+
+    if args.fmin is None or args.fmax is None:
+        raise ValueError("--fmin and --fmax go together")
+
+    return np.geomspace(args.fmin, args.fmax, args.nfreq)
+
+
+def _run_response(args: argparse.Namespace) -> int:
+    """Analyse the response of an array and draw the figures."""
+    from shakelab.exploration.yarray import response as yr
+
+    names = None
+
+    if args.coordinates is not None:
+        names, array = _read_coordinates(args.coordinates)
+        source = array
+    else:
+        source = _array(args)
+        names = list(source.sids)
+        print(source.summary())
+
+    grid = None
+
+    if args.grid_max is not None or args.grid_size is not None:
+        if args.grid_max is None or args.grid_size is None:
+            raise ValueError("--grid-max and --grid-size go together")
+
+        grid = yr.ResponseGrid(args.grid_max, args.grid_size)
+
+    response = yr.array_response(source, grid=grid)
+    response.info()
+    analysis = yr.analyze_response(
+        response, resolution_level=args.resolution_level,
+        ambiguity_level=args.ambiguity_level, expected=args.expected,
+    )
+    analysis.info()
+    frequencies = _response_frequencies(args)
+    limits = None
+
+    if frequencies is not None:
+        if analysis.limits.aliasing_radius is None:
+            print("no upper wavenumber limit: velocity limits not "
+                  "available")
+        else:
+            limits = analysis.velocity_limits(frequencies)
+            print("frequency (Hz)  minimum velocity  maximum velocity")
+
+            for f, low, high in zip(limits.frequencies, limits.minimum,
+                                    limits.maximum):
+                print(f"{f:14.4g}  {low:16.6g}  {high:16.6g}")
+
+    domain = None
+
+    if args.search_max is not None:
+        domain = yr.analyze_search_domain(
+            response, args.search_max, ambiguity_level=args.ambiguity_level,
+            expected=args.expected,
+        )
+        domain.info()
+
+    wanted = [
+        name for name in _RESPONSE_FIGURES
+        if args.plot_all or getattr(args, f"plot_{name}")
+    ]
+
+    if args.plot_all:
+        wanted = [
+            name for name in wanted
+            if (name != "velocity" or limits is not None)
+            and (name != "search_domain" or domain is not None)
+        ]
+    elif "velocity" in wanted and limits is None:
+        raise ValueError("the velocity figure needs frequencies and an "
+                         "upper wavenumber limit")
+    elif "search_domain" in wanted and domain is None:
+        raise ValueError("the search-domain figure needs --search-max")
+
+    for path in _response_figures(args, wanted, analysis, names, limits,
+                                  domain):
+        print(f"figure written to {path}")
+
+    return 0
+
+
+def _response_figures(args: argparse.Namespace, wanted: list,
+                      analysis: Any, names: Any, limits: Any,
+                      domain: Any) -> list:
+    """Draw the figures of the response; return the files written."""
+    if not wanted:
+        return []
+
+    from shakelab.graphics import yarray as graphics
+
+    plt = graphics._pyplot()
+    figures = []
+
+    if "geometry" in wanted:
+        figure, axis = graphics.plot_array_geometry(
+            analysis.response, labels=names
+        )
+        figures.append((figure, "array_geometry"))
+
+    if "response" in wanted:
+        figures.append((graphics.plot_array_response(analysis)[0],
+                        "array_response"))
+
+    if "resolution" in wanted:
+        figures.append((graphics.plot_resolution(analysis, polar=True)[0],
+                        "resolution"))
+
+    if "velocity" in wanted:
+        figures.append((graphics.plot_velocity_limits(limits)[0],
+                        "velocity_limits"))
+
+    if "search_domain" in wanted:
+        figures.append((graphics.plot_search_domain(analysis, domain)[0],
+                        "search_domain"))
+
+    written = []
+
+    if args.save_figures is not None:
+        args.save_figures.mkdir(parents=True, exist_ok=True)
+
+        for figure, stem in figures:
+            path = args.save_figures / f"{stem}.{args.figure_format}"
+            figure.savefig(path, dpi=args.dpi, bbox_inches="tight")
+            written.append(path)
+
+    if args.show:
         plt.show()
 
     for figure, _ in figures:
