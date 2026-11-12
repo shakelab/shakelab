@@ -25,7 +25,9 @@ the state of the work; the theory and the use are in the guide
 | 5 | `response`, `performance`, `operational` (array design and survey planning), their figures, `slab-yarray response` | done (commit `21b3c8e`) |
 | 6 | Nine-station three-component test data and references; examples of every way of use (library, command line, real time, planning, profiling); `docs/yarray.md` | done (commit `f711fb0`) |
 | A | Interface: `ArrayData` filled progressively (time window taken at processing, fixed ENU origin), `BeamformingConfig` with single parameters, `Beamformer(array, config).process(start, end)`, results with `read`/`write`/`append`, stations of each block, `dispersion`, `density`; shorter examples | done (commit `02dee03`) |
-| B | Interface of the survey planning: `ArrayResponse` with methods (`analyze`, `search_domain`, `performance`, `performance_sweep`, `assess`), flat `PerformanceConfig`, criteria as parameters; examples 13-15 | in progress |
+| B | Interface of the survey planning: `ArrayResponse` with methods (`analyze`, `search_domain`, `performance`, `performance_sweep`, `assess`), flat `PerformanceConfig`, criteria as parameters; examples 13-15 | done (commit `8c91249`) |
+| E | Sign convention of the Rayleigh ellipticity (positive prograde), density in ellipticity angle, selection of the maxima by velocity | done (commit `0aca18e`) |
+| 7a | Wathelet (2024): `rayleigh_angular` (ARTBF) and `rayleigh_direct` (ARDS), Capon or Bartlett, ellipticity angle in closed form; RTBF on the same quadratic forms | in progress |
 
 ## Modules
 
@@ -316,11 +318,15 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
   angular (`e = tan(chi)`, `chi` within (-90, 90) degrees, zero
   excluded), so vanishing and very large ellipticities cannot be
   reached and are distorted by incoherent noise. Wathelet (2024)
-  reformulates the problem in the angular ellipticity, with a
-  different noise model and a new steering matrix: candidate
-  extension, not implemented (nor in the August code).
+  reformulates the problem in the ellipticity angle:
+  `rayleigh_angular` (ARTBF) and `rayleigh_direct` (ARDS), Capon or
+  Bartlett, with the angle found exactly as the eigenvector of a real
+  2 x 2 quadratic form (no grid, no Newton search). The RTBF uses the
+  same quadratic forms (identical results, about ten times faster).
+  The noise correction of Section 3.6 is not implemented.
 - Empirical uncertainty: Bartlett and Capon on single components (not
-  MUSIC, not RTBF); coordinate uncertainty: Bartlett only.
+  MUSIC, not the Rayleigh processing); coordinate uncertainty:
+  Bartlett on single components only.
 - Recovered in block 3: processing options of the command line as
   overrides of the JSON (runner of 10 August), reader options per
   component in the array file, appended results and `--result`, maps

@@ -294,12 +294,13 @@ def plot_ellipticity(
     Parameters
     ----------
     result : BeamformingResult
-        Result of the Rayleigh joint processing.
+        Result of a Rayleigh processing (joint, angular or direct).
     ranks : iterable of int, optional
         Ranks to show. Default: all.
     angle : bool, optional
         Show the ellipticity angle ``atan(e)`` in degrees instead of
-        ``e``. Default False.
+        ``e`` (purely horizontal motion, an angle of 90 degrees, has no
+        finite ``e``). Default False.
     log_frequency : bool, optional
         Logarithmic frequency axis. Default True.
     ax : matplotlib.axes.Axes, optional
@@ -316,13 +317,19 @@ def plot_ellipticity(
         If the result has no ellipticity.
     """
     _check_result(result)
+    ranks = None if ranks is None else {int(rank) for rank in ranks}
     maxima = [
-        item for item in _maxima(result, "rayleigh_joint", ranks)
-        if item.ellipticity is not None
+        item for item in result.maxima
+        if item.ellipticity_angle is not None
+        and (ranks is None or item.rank in ranks)
+        and (angle or item.ellipticity is not None)
     ]
 
     if not maxima:
-        raise ValueError("the result has no ellipticity (rayleigh_joint)")
+        raise ValueError(
+            "the result has no ellipticity (rayleigh_joint, "
+            "rayleigh_angular, rayleigh_direct)"
+        )
 
     figure, axis = _axes(ax, (8.0, 5.5))
     _scatter_by_rank(

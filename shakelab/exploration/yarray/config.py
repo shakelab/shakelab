@@ -160,6 +160,8 @@ class ComponentMode(Enum):
     TRANSVERSE = "transverse"
     THREE_COMPONENT_SEPARATE = "three_component_separate"
     RAYLEIGH_JOINT = "rayleigh_joint"
+    RAYLEIGH_ANGULAR = "rayleigh_angular"
+    RAYLEIGH_DIRECT = "rayleigh_direct"
 
 
 class StatisticalUncertainty(Enum):
@@ -1203,11 +1205,13 @@ class BeamformingConfig(_FlatConfig):
       matrix (0.001); ``music_sources`` excluded from the MUSIC noise
       subspace (1).
     - ``components``: ``"vertical"`` (default), ``"radial"``,
-      ``"transverse"``, ``"three_component_separate"`` or
-      ``"rayleigh_joint"`` (Capon only); ellipticities of the joint
-      processing: ``ellipticity_grid``, or ``ellipticity_angle_min``
-      (-85), ``ellipticity_angle_max`` (85), ``ellipticity_angle_size``
-      (61).
+      ``"transverse"``, ``"three_component_separate"``,
+      ``"rayleigh_joint"`` (RTBF, Capon only), ``"rayleigh_angular"``
+      (ARTBF) or ``"rayleigh_direct"`` (ARDS) (Capon or Bartlett);
+      ellipticities of the joint processing: ``ellipticity_grid``, or
+      ``ellipticity_angle_min`` (-85), ``ellipticity_angle_max`` (85),
+      ``ellipticity_angle_size`` (61); the angular and direct
+      processing find the ellipticity angle exactly, without a grid.
     - output: the maxima are always kept; ``spectra`` keeps also the
       complete beam-power spectra of every block (False: they can
       take much memory); ``maxima`` kept for each block, frequency and
@@ -1405,6 +1409,9 @@ def _check_compatibility(state: dict) -> None:
     """Raise for combinations of options that are not supported."""
     method = state["method"]
     joint = state["components"] is ComponentMode.RAYLEIGH_JOINT
+    angular = state["components"] in (
+        ComponentMode.RAYLEIGH_ANGULAR, ComponentMode.RAYLEIGH_DIRECT,
+    )
     frequencies = state["frequencies"]
 
     if state["transform"] is TransformMethod.RFFT:
@@ -1419,17 +1426,24 @@ def _check_compatibility(state: dict) -> None:
     if joint and method is not BeamformingMethod.CAPON:
         raise ValueError("the Rayleigh joint processing needs Capon")
 
+    if angular and method is BeamformingMethod.MUSIC:
+        raise ValueError(
+            "the Rayleigh angular and direct processing need Capon or "
+            "Bartlett"
+        )
+
     if state["statistical_uncertainty"] is StatisticalUncertainty.EMPIRICAL:
-        if method is BeamformingMethod.MUSIC or joint:
+        if method is BeamformingMethod.MUSIC or joint or angular:
             raise ValueError(
                 "the empirical uncertainty is available for Bartlett and "
                 "Capon on single components"
             )
 
     if state["geometric_uncertainty"] is not GeometricUncertainty.NONE:
-        if method is not BeamformingMethod.BARTLETT:
+        if method is not BeamformingMethod.BARTLETT or angular:
             raise ValueError(
-                "the coordinate uncertainty is available for Bartlett"
+                "the coordinate uncertainty is available for Bartlett "
+                "on single components"
             )
 
 

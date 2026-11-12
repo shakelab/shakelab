@@ -125,6 +125,27 @@ def test_plot_ellipticity(results):
         plot_ellipticity(vertical)
 
 
+def test_plot_ellipticity_angular():
+    """The angular processing (here with Bartlett) is shown too."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        array = ArrayData(ARRAY)
+
+    config = BeamformingConfig(
+        frequencies=[3.0, 5.0], method="bartlett",
+        components="rayleigh_angular",
+        grid=SearchGrid(100.0, 2000.0, 30, azimuth_size=36),
+        window=WindowConfig(length=10, windows_per_block=20),
+    )
+    result = Beamformer(array, config).process()
+    _, axis = plot_ellipticity(result, angle=True)
+
+    np.testing.assert_allclose(
+        sorted(axis.collections[0].get_offsets()[:, 1]),
+        sorted(item.ellipticity_angle for item in result.maxima_at(rank=1)),
+    )
+
+
 @pytest.mark.parametrize("view", ["kxky", "azimuth"])
 @pytest.mark.parametrize("quantity", ["power", "standard_error"])
 def test_plot_spectrum(results, view, quantity):

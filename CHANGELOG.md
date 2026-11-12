@@ -9,6 +9,16 @@ corrections. The format follows
 
 ### Changed
 
+- `exploration.yarray`: new component modes `"rayleigh_angular"`
+  (ARTBF) and `"rayleigh_direct"` (ARDS, one matrix of the three
+  components per block) of Wathelet (2024), with Capon or Bartlett:
+  normalized steering in the ellipticity angle, power of the radial
+  and vertical motion maximized over the angle exactly (eigenvector
+  of a real 2 x 2 quadratic form; no grid, no Newton search), angles
+  in (-90, 90] (ellipticity None for purely horizontal motion);
+  `slab-yarray --components`; `plot_ellipticity` and the ellipticity
+  density accept them. The RTBF (`"rayleigh_joint"`) uses the same
+  quadratic forms: identical results, about ten times faster.
 - `exploration.yarray`: the sign convention of the Rayleigh ellipticity
   is documented and tested on physical particle motion (positive for
   prograde, negative for retrograde motion, as Wathelet et al., 2018;

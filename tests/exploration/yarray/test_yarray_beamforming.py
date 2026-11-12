@@ -42,12 +42,17 @@ from shakelab.exploration.yarray.beamforming import (
     BeamformingResult,
     BeamformingWarning,
 )
+from shakelab.exploration.yarray import beamforming
 from shakelab.exploration.yarray.config import (
     BeamformingConfig,
     SearchGrid,
     WindowConfig,
 )
 from shakelab.exploration.yarray.data import ArrayData, StationData
+from shakelab.exploration.yarray.estimators import (
+    BeamformingMethod,
+    capon_power,
+)
 from shakelab.signals import fourier
 from shakelab.signals.base import Record
 from shakelab.signals.crossspectral import coefficients
@@ -220,14 +225,23 @@ def _halfspace_rayleigh(beta=300.0):
 
 
 @pytest.mark.parametrize("prograde", [False, True])
-def test_rayleigh_joint_halfspace_retrograde(prograde):
+@pytest.mark.parametrize("components, method, tolerance", [
+    ("rayleigh_joint", "capon", 3.0),
+    ("rayleigh_angular", "capon", 1.0),
+    ("rayleigh_angular", "bartlett", 1.0),
+    ("rayleigh_direct", "capon", 1.0),
+    ("rayleigh_direct", "bartlett", 1.0),
+])
+def test_rayleigh_joint_halfspace_retrograde(prograde, components, method,
+                                             tolerance):
     """
     Sign of the ellipticity on physical particle motion.
 
     The fundamental mode of a homogeneous half-space is retrograde at
-    the surface, with |e| = 0.681 for a Poisson solid: the joint
-    processing gives a negative ellipticity, and a positive one when
-    the radial motion is reversed (prograde).
+    the surface, with |e| = 0.681 for a Poisson solid: the Rayleigh
+    processing (joint on a grid of ellipticities, angular and direct
+    in closed form) gives a negative ellipticity, and a positive one
+    when the radial motion is reversed (prograde).
     """
     velocity, radial, vertical = _halfspace_rayleigh()
     assert velocity / 300.0 == pytest.approx(0.9194, abs=1e-4)
@@ -252,16 +266,154 @@ def test_rayleigh_joint_halfspace_retrograde(prograde):
                                 ("E", h * math.sin(angle)))
         })
 
-    config = _config(components="rayleigh_joint", frequencies=[frequency],
+    config = _config(components=components, method=method,
+                     frequencies=[frequency],
                      grid=SearchGrid(150.0, 450.0, 61, scale="linear",
                                      azimuth_size=72))
     best = beamform(_array(motion, coordinates), config).maxima_at(rank=1)[0]
 
+    assert best.component == components
     assert best.velocity == pytest.approx(velocity, abs=10.0)
     assert best.azimuth == pytest.approx(AZIMUTH)
     assert best.ellipticity_angle == pytest.approx(
-        (1 if prograde else -1) * math.degrees(math.atan(0.681)), abs=3.0
+        (1 if prograde else -1) * math.degrees(math.atan(0.681)),
+        abs=tolerance,
     )
+    assert best.ellipticity == pytest.approx(
+        math.tan(math.radians(best.ellipticity_angle))
+    )
+
+
+@pytest.mark.parametrize("components", ["rayleigh_angular",
+                                        "rayleigh_direct"])
+@pytest.mark.parametrize("ellipticity, angle", [(0.0, 0.0), (1e9, 90.0)])
+def test_rayleigh_angular_vertical_and_horizontal(components, ellipticity,
+                                                  angle):
+    """
+    Vanishing and infinite ellipticities, which the joint processing
+    cannot reach (Wathelet, 2024): purely vertical motion gives an
+    angle of 0, purely radial motion an angle of +-90 degrees.
+    """
+    array = _harmonic_array(freqs=(5.0,), ellipticity=ellipticity)
+
+    if angle == 90.0:
+        # Radial motion only: the vertical records hold noise.
+        rng = np.random.default_rng(6)
+        stations = []
+
+        for station in _harmonic_array(freqs=(5.0,), ellipticity=1.0):
+            z, n, e = station.records
+            noise = z.copy()
+            noise.data = 0.3 * rng.standard_normal(z.nsamp)
+            stations.append(
+                StationData(station.sid, [noise, n, e], station.coordinates)
+            )
+
+        array = ArrayData(stations)
+
+    result = beamform(array, _config(components=components,
+                                     frequencies=[5.0]))
+    best = result.maxima_at(rank=1)[0]
+
+    assert best.velocity == pytest.approx(VELOCITY, abs=10.0)
+    assert best.azimuth == pytest.approx(AZIMUTH)
+    assert abs(best.ellipticity_angle) == pytest.approx(angle, abs=2.0)
+
+
+@pytest.mark.parametrize("method", ["capon", "bartlett"])
+def test_angular_maximum_closed_form(method):
+    """
+    The closed form agrees with a fine search of the angle: quadratic
+    forms of random matrices against the explicit steering vectors.
+    """
+    rng = np.random.default_rng(5)
+    nsta = 6
+    noise = rng.standard_normal((3 * nsta, 50)) + 1j * rng.standard_normal(
+        (3 * nsta, 50))
+    matrix = noise @ noise.conj().T / 50
+    steering = np.exp(1j * rng.uniform(0, 2 * np.pi, (4, 3, nsta)))
+    weight = beamforming._weight_matrix(
+        matrix, BeamformingMethod(method), 0.0
+    )
+    forms = beamforming._block_forms(weight, steering, 3)
+    azimuths = np.radians([10.0, 100.0, 200.0, 300.0])[:, None]
+    sine, cosine = np.sin(azimuths), np.cos(azimuths)
+    q_hh = np.real(sine ** 2 * forms[0, 0] + cosine ** 2 * forms[1, 1]
+                   + 2.0 * sine * cosine * forms[0, 1])
+    q_hz = -np.imag(sine * forms[0, 2] + cosine * forms[1, 2])
+    fields = beamforming._angular_maximum(
+        q_hh, np.real(forms[2, 2]), q_hz, BeamformingMethod(method), nsta
+    )
+    angles = np.radians(np.linspace(-90.0, 90.0, 18001))
+
+    for row in range(4):
+        for column in range(3):
+            a = steering[row, column]
+            vectors = np.stack([
+                np.concatenate((-1j * np.sin(xi) * sine[row, 0] * a,
+                                -1j * np.sin(xi) * cosine[row, 0] * a,
+                                np.cos(xi) * a))
+                for xi in angles
+            ])
+            if method == "capon":
+                power = capon_power(matrix, vectors, 0.0)
+            else:
+                # Steering vectors of squared norm nsta.
+                power = np.real(np.einsum(
+                    "gi,ij,gj->g", vectors.conj(), matrix, vectors
+                )) / nsta ** 2
+            best = np.argmax(power)
+            assert fields["power"][row, column] == pytest.approx(
+                power[best], rel=1e-6
+            )
+            difference = (fields["ellipticity_angle"][row, column]
+                          - np.degrees(angles[best]) + 90.0) % 180.0 - 90.0
+            assert abs(difference) < 0.02
+
+
+def test_rayleigh_angular_and_direct_options():
+    """Estimators, realizations, uncertainties and units."""
+    array = _harmonic_array(freqs=(5.0,))
+
+    with pytest.raises(ValueError, match="Capon or Bartlett"):
+        _config(components="rayleigh_angular", method="music")
+    with pytest.raises(ValueError, match="empirical"):
+        _config(components="rayleigh_direct",
+                statistical_uncertainty="empirical")
+    with pytest.raises(ValueError, match="coordinate uncertainty"):
+        _config(components="rayleigh_direct", method="bartlett",
+                geometric_uncertainty="expected_coherence")
+    # 3 x 10 stations: 25 windows are too few for the direct matrix.
+    with pytest.raises(ValueError, match="30 x 30"):
+        beamform(array, _config(
+            components="rayleigh_direct", frequencies=[5.0],
+            window=WindowConfig(type="fixed", length=4.0,
+                                windows_per_block=25),
+        ))
+
+    config = _config(components="rayleigh_direct", frequencies=[5.0],
+                     window=WindowConfig(type="fixed", length=2.0,
+                                         windows_per_block=60))
+    direct = beamform(array, config)
+    angular = beamform(array, config.copy(components="rayleigh_angular"))
+    assert direct.power_units == angular.power_units == "(unit)**2/Hz"
+
+    for item in (direct, angular):
+        best = item.maxima_at(rank=1)[0]
+        assert best.ellipticity_angle == pytest.approx(
+            math.degrees(math.atan(0.5)), abs=1.0
+        )
+
+    # Power of the radial and vertical motion together, 1 + 0.5**2
+    # times the vertical one (Bartlett: Capon is biased by the few
+    # realizations, differently for matrices of different dimension).
+    bartlett = config.copy(method="bartlett")
+    reference = beamform(array, bartlett.copy(components="vertical"))
+    for components in ("rayleigh_angular", "rayleigh_direct"):
+        best = beamform(array, bartlett.copy(components=components))
+        assert best.maxima_at(rank=1)[0].power == pytest.approx(
+            1.25 * reference.maxima_at(rank=1)[0].power, rel=0.02
+        )
 
 
 @pytest.mark.parametrize("ellipticity", [0.5, -1.5])

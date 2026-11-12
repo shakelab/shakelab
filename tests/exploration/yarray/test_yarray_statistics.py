@@ -242,6 +242,30 @@ def test_ellipticity_angle_density():
         maximum_density(_result(maxima)).ellipticity
 
 
+def test_ellipticity_angle_bandwidth_of_exact_angles():
+    """
+    The angular processing finds the angle without a grid: the kernels
+    take the step of the default ellipticity grid, whatever the
+    configuration holds.
+    """
+    config = BeamformingConfig(
+        frequencies=[4.0], grid=GRID, components="rayleigh_angular",
+        ellipticity_angle_size=11,
+    )
+    maxima = [_maximum(300.0, component="rayleigh_angular", angle=-20.0)]
+    density = maximum_density(_result(maxima, config),
+                              coordinate="ellipticity_angle")
+
+    assert density.bandwidths[0] == pytest.approx(170.0 / 60.0)
+    joint = maximum_density(
+        _result([_rayleigh(300.0, -20.0)],
+                CONFIG.copy(components="rayleigh_joint",
+                            ellipticity_angle_size=11)),
+        coordinate="ellipticity_angle",
+    )
+    assert joint.bandwidths[0] == pytest.approx(17.0)
+
+
 def test_ellipticity_angle_is_periodic():
     """-90 and 90 degrees are the same motion: the kernels wrap."""
     density = maximum_density(_result([_rayleigh(300.0, 88.0)]),

@@ -224,7 +224,7 @@ def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
                             choices=("bartlett", "capon", "music"))
     processing.add_argument("--components", choices=(
         "vertical", "radial", "transverse", "three_component_separate",
-        "rayleigh_joint",
+        "rayleigh_joint", "rayleigh_angular", "rayleigh_direct",
     ))
     processing.add_argument("--diagonal-loading", type=float)
     processing.add_argument("--music-sources", type=int)

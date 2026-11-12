@@ -178,8 +178,8 @@ R = E sin(theta) + N cos(theta),    T = E cos(theta) - N sin(theta)
 
 (transverse: radial rotated by +90 degrees, clockwise). The component
 modes are: `vertical`, `radial`, `transverse`,
-`three_component_separate` (the three spectra on the same grid) and
-`rayleigh_joint`.
+`three_component_separate` (the three spectra on the same grid),
+`rayleigh_joint`, `rayleigh_angular` and `rayleigh_direct`.
 
 **Rayleigh three-component beamforming** (RTBF, Wathelet et al.,
 2018) combines, for each azimuth, the radial and vertical coefficients
@@ -213,12 +213,45 @@ power.
 
 Wathelet (2024) shows that the 2018 formulation is distorted by
 incoherent noise for vanishing or very large ellipticities and
-proposes a normalized steering in the angular ellipticity,
-`[-i sin(xi) a, cos(xi) a]`, with the Capon power maximized directly
-over `xi` (ARTBF, and ARDS on the raw three components), a fast Newton
-search of `xi` and the correction of the bias due to the difference of
-incoherent noise between vertical and horizontal components. These are
-not implemented yet (Section 16).
+proposes a normalized steering in the ellipticity angle
+`xi = arctan(e)`, with the power itself maximized over `xi`:
+
+- **ARTBF** (`rayleigh_angular`): the radial-vertical matrix of
+  dimension `2N` of each azimuth, steered by
+  `[-i sin(xi) a, cos(xi) a]`;
+- **ARDS** (`rayleigh_direct`): one matrix of dimension `3N` of the
+  east, north and vertical motion per block (inverted once for
+  Capon), steered by
+  `[-i sin(xi) sin(theta) a, -i sin(xi) cos(theta) a, cos(xi) a]`.
+
+Both work with Capon and Bartlett. The steering vector is `s = A u`
+with `u = (sin xi, cos xi)` real and of unit length, so that
+
+```
+s^H W s = u^T Re(A^H W A) u = m + d cos(2 xi - phi)
+```
+
+with `W` the inverse matrix (Capon) or the matrix (Bartlett) and
+`m`, `d`, `phi` given by the three entries of the real 2 x 2 matrix
+`Q = Re(A^H W A)`. The maximum over `xi` is therefore found exactly,
+by the eigenvector of `Q` (Capon: `P = 1 / (m - d)`; Bartlett:
+`P = (m + d) / N**2`), with no grid of ellipticities and without the
+Newton search proposed by Wathelet (2024). The angle covers
+(-90, 90] degrees: purely vertical (`xi = 0`) and purely horizontal
+motion (`xi = 90`, no finite `e`, stored as None) are reached. The
+power is the density of the radial and vertical motion together,
+`|R|**2 + |Z|**2`, in the units of the power. The joint processing
+uses the same quadratic forms on its ellipticity grid (identical
+results, about ten times faster than solving one system per
+ellipticity).
+
+Capon underestimates the power by about `(L - n + 1) / L` for a
+matrix of dimension `n` and `L` windows (Section 16): more for the
+matrices of dimension `2N` and `3N` than for single components, so
+compare powers of different modes with Bartlett or with many windows.
+The correction of the noise difference between vertical and
+horizontal components (Wathelet, 2024, Section 3.6) is not
+implemented yet (Section 16).
 
 ## 5. Uncertainty of the power
 
@@ -485,7 +518,7 @@ config.write("radial.json")
 | `grid` | required | `SearchGrid` or dictionary; or `grid_min`, `grid_max`, `grid_size`, `grid_quantity`, `grid_scale`, `azimuth_size`, `azimuths` |
 | `window` | `WindowConfig()` | windows and covariance blocks; or `window_type`, `window_length`, `window_taper`, `window_overlap`, `windows_per_block`, `block_overlap` |
 | `method` | `capon` | `bartlett`, `capon`, `music` |
-| `components` | `vertical` | `vertical`, `radial`, `transverse`, `three_component_separate`, `rayleigh_joint` |
+| `components` | `vertical` | `vertical`, `radial`, `transverse`, `three_component_separate`, `rayleigh_joint`, `rayleigh_angular`, `rayleigh_direct` |
 | `diagonal_loading` | 0.001 | relative loading of Capon |
 | `music_sources` | 1 | sources excluded from the MUSIC noise subspace |
 | `ellipticity_grid` | -85 to 85 degrees, 61 | `EllipticityGrid` of RTBF; or `ellipticity_angle_min`, `ellipticity_angle_max`, `ellipticity_angle_size` |
@@ -799,9 +832,8 @@ measurements were of the order of 15 s (Bartlett, 80 spectra) to
 - Uncertainty of the position of the maxima (wavenumber, azimuth,
   velocity, ellipticity), to be used also as kernel widths of the
   density; uncertainty of RTBF.
-- Wathelet (2024) formulation of the three-component beamforming
-  (ARTBF, ARDS, Newton search of the ellipticity, correction of the
-  vertical-horizontal noise difference).
+- Correction of the vertical-horizontal noise difference of the
+  angular processing (Wathelet, 2024, Section 3.6).
 - Bias correction of Capon, `(L - N + 1) / L`.
 - Multitaper spectral estimates with a rigorous number of degrees of
   freedom; a `CrossSpectra` class shared with frequency domain

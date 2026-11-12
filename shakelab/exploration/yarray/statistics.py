@@ -38,7 +38,8 @@ reflects the resolving power of the analysis and does not widen when
 several modes coexist at one frequency, as a bandwidth from the spread
 of the samples would. ``"adaptive"`` (weighted Silverman rule) and
 ``"fixed"`` are alternatives. For the ellipticity angle the
-resolution is the step of the ellipticity grid, and the kernels are
+resolution is the step of the ellipticity grid (of the default grid
+when the angle is found exactly), and the kernels are
 periodic with period 180 degrees: -90 and 90 degrees are the same
 motion (horizontal only, sign undefined).
 
@@ -66,6 +67,7 @@ from shakelab.exploration.yarray.beamforming import (
     BeamformingResult,
     SpectralMaximum,
 )
+from shakelab.exploration.yarray.config import ComponentMode, EllipticityGrid
 
 __all__ = [
     "BandwidthMode",
@@ -392,7 +394,7 @@ def maximum_density(
     coordinate : DensityCoordinate or str, optional
         ``"wavenumber"`` (default), ``"log_slowness"``,
         ``"log_velocity"`` (natural logarithms), or
-        ``"ellipticity_angle"`` (degrees, maxima of the Rayleigh joint
+        ``"ellipticity_angle"`` (degrees, maxima of a Rayleigh
         processing only; periodic grid from -90 to 90).
     weighting : DensityWeighting or str, optional
         ``"uniform"`` (default), ``"power"``, or ``"relative_power"``
@@ -406,7 +408,8 @@ def maximum_density(
         Number of values of the common grid (at least 16). Default 256.
     bandwidth_mode : BandwidthMode or str, optional
         ``"resolution"`` (default): local spacing of the search grid in
-        the coordinate (step of the ellipticity grid for the angle);
+        the coordinate (for the angle, step of the ellipticity grid of
+        the joint processing, 170 / 60 degrees for the others);
         ``"adaptive"``: weighted Silverman rule;
         ``"fixed"``: ``bandwidth``.
     bandwidth : float, optional
@@ -469,8 +472,8 @@ def maximum_density(
     if periodic and any(item.ellipticity_angle is None
                         for item in selected):
         raise ValueError(
-            "the ellipticity angle needs maxima of the Rayleigh joint "
-            "processing (rayleigh_joint)"
+            "the ellipticity angle needs maxima of a Rayleigh processing "
+            "(rayleigh_joint, rayleigh_angular, rayleigh_direct)"
         )
 
     frequencies = np.unique([item.frequency for item in selected])
@@ -778,6 +781,10 @@ def _grid_spacing(
 ) -> float:
     """Median local spacing of the search grid at the samples."""
     if coordinate is DensityCoordinate.ELLIPTICITY_ANGLE:
+        if result.config.components is not ComponentMode.RAYLEIGH_JOINT:
+            # Angle found exactly: the resolution of the default grid.
+            return float(np.median(np.diff(EllipticityGrid().angles)))
+
         return float(np.median(np.diff(
             result.config.ellipticity_grid.angles
         )))

@@ -49,7 +49,25 @@ evaluated on the polar search grid by the estimators of
   Rayleigh waves (RTBF, Wathelet et al., 2018): radial and vertical
   motion in one matrix of dimension 2n, steering vectors
   ``[-1j * e * a, a]`` with the signed ellipticity ``e``, objective
-  ``e**2 * P**2`` maximized over the ellipticity grid (Capon only).
+  ``e**2 * P**2`` maximized over the ellipticity grid (Capon only);
+- ``rayleigh_angular`` (ARTBF, Wathelet, 2024): the same matrix of
+  dimension 2n with the normalized steering vectors
+  ``[-1j * sin(xi) * a, cos(xi) * a]`` of the ellipticity angle
+  ``xi = atan(e)``; the power itself is maximized over ``xi``;
+- ``rayleigh_direct`` (ARDS, Wathelet, 2024): one matrix of dimension
+  3n of the east, north and vertical motion per block, with steering
+  vectors ``[-1j sin(xi) sin(t) a, -1j sin(xi) cos(t) a, cos(xi) a]``
+  for the propagation azimuth ``t``.
+
+For the angular and direct processing the steering vector is
+``s = A u`` with ``u = (sin(xi), cos(xi))`` real and of unit length,
+so that ``s^H W s = u^T Re(A^H W A) u``: Capon (``W`` the inverse
+matrix, minimum of the form) and Bartlett (``W`` the matrix,
+maximum) are maximized over ``xi`` exactly, by the eigenvector of a
+real 2 x 2 matrix, with no grid of ellipticities and no iterative
+search. Their power is the density of the radial and vertical motion
+together, ``|R|**2 + |Z|**2``. The joint processing uses the same
+quadratic forms on its grid of ellipticities.
 
 Signed ellipticity
 ------------------
@@ -81,6 +99,10 @@ Wathelet, M., Guillier, B., Roux, P., Cornou, C., and Ohrnberger, M.
 assessment from high-resolution frequency-wavenumber processing of
 ambient vibration arrays. Geophysical Journal International, 215(1),
 507-523.
+
+Wathelet, M. (2024). Incoherent noise-induced distortions of Rayleigh
+wave ellipticity measurements obtained with three-component
+beamforming. Geophysical Journal International, 236(3), 1804-1827.
 """
 
 from __future__ import annotations
@@ -147,6 +169,8 @@ _MODE_INPUTS = {
     ComponentMode.TRANSVERSE: ("east", "north"),
     ComponentMode.THREE_COMPONENT_SEPARATE: ("east", "north", "vertical"),
     ComponentMode.RAYLEIGH_JOINT: ("east", "north", "vertical"),
+    ComponentMode.RAYLEIGH_ANGULAR: ("east", "north", "vertical"),
+    ComponentMode.RAYLEIGH_DIRECT: ("east", "north", "vertical"),
 }
 
 _MODE_OUTPUTS = {
@@ -157,6 +181,15 @@ _MODE_OUTPUTS = {
         "vertical", "radial", "transverse",
     ),
     ComponentMode.RAYLEIGH_JOINT: ("rayleigh_joint",),
+    ComponentMode.RAYLEIGH_ANGULAR: ("rayleigh_angular",),
+    ComponentMode.RAYLEIGH_DIRECT: ("rayleigh_direct",),
+}
+
+# Dimension of the matrices, in stations, of the Rayleigh processing.
+_MATRIX_FACTOR = {
+    ComponentMode.RAYLEIGH_JOINT: 2,
+    ComponentMode.RAYLEIGH_ANGULAR: 2,
+    ComponentMode.RAYLEIGH_DIRECT: 3,
 }
 
 
@@ -197,7 +230,8 @@ class SpectralMaximum:
         Standard error of the power.
     ellipticity : float, optional
         Signed Rayleigh ellipticity, radial over vertical amplitude
-        (joint processing; positive prograde, negative retrograde).
+        (Rayleigh processing; positive prograde, negative retrograde;
+        None for purely horizontal motion, angle of 90 degrees).
     ellipticity_angle : float, optional
         Ellipticity angle ``atan(ellipticity)`` in degrees.
     """
@@ -1262,9 +1296,7 @@ def _beamform(
             )
 
     if config.method is not BeamformingMethod.BARTLETT:
-        dimension = array.nsta * (
-            2 if config.components is ComponentMode.RAYLEIGH_JOINT else 1
-        )
+        dimension = array.nsta * _MATRIX_FACTOR.get(config.components, 1)
         check_realizations(
             config.window.windows_per_block, dimension, config.method,
             config.strict,
@@ -1484,6 +1516,12 @@ class _Context:
         if name == "rayleigh_joint":
             return _rayleigh_joint(values, block, steering, config)
 
+        if name == "rayleigh_angular":
+            return _rayleigh_angular(values, block, steering, config)
+
+        if name == "rayleigh_direct":
+            return _rayleigh_direct(values, block, steering, config)
+
         if name == "vertical":
             series = values["vertical"][block]
             power = beam_power(
@@ -1565,6 +1603,12 @@ class _Context:
                             "ellipticity_angle")
                 if key in fields
             }
+
+            # Purely horizontal motion: no finite ellipticity.
+            if "ellipticity" in extra and not np.isfinite(
+                extra["ellipticity"]
+            ):
+                extra["ellipticity"] = None
             self.maxima.append(SpectralMaximum(
                 block=block,
                 time=time,
@@ -1655,7 +1699,8 @@ def _rayleigh_joint(
     of dimension 2n; the Capon power ``P`` of the steering vectors
     ``[-1j * e * a, a]`` is evaluated for every signed ellipticity
     ``e`` and the objective ``e**2 * P**2`` is maximized over ``e``
-    (Wathelet et al., 2018).
+    (Wathelet et al., 2018). With the quadratic forms ``Q`` of
+    :func:`_radial_forms`, ``1 / P = e**2 Q_hh + 2 e Q_hz + Q_zz``.
     """
     grid = config.ellipticity_grid
     angles = grid.angles
@@ -1663,32 +1708,24 @@ def _rayleigh_joint(
     keep = np.abs(ellipticity) > np.finfo(float).eps
     angles = angles[keep]
     ellipticity = ellipticity[keep]
-    nazimuth, nvalue, nsta = steering.shape
-    power = np.empty((nazimuth, nvalue))
-    best = np.empty((nazimuth, nvalue))
-    best_angle = np.empty((nazimuth, nvalue))
-    east = values["east"][block]
-    north = values["north"][block]
-    vertical = values["vertical"][block]
-    columns = np.arange(nvalue)
+    blocks = _motion_blocks(values, block)
+    shape = steering.shape[:-1]
+    power = np.empty(shape)
+    best = np.empty(shape)
+    best_angle = np.empty(shape)
+    columns = np.arange(shape[1])
+    e = ellipticity[:, None]
 
     for row, angle in enumerate(np.radians(config.grid.azimuth_values)):
-        radial = math.sin(angle) * east + math.cos(angle) * north
-        matrix = regularized_matrix(
-            cross_spectral_matrix(np.concatenate((radial, vertical), axis=1)),
+        q_hh, q_zz, q_hz = _radial_forms(
+            blocks, angle, steering[row], BeamformingMethod.CAPON,
             config.diagonal_loading,
         )
-        a = steering[row]
-        joint = np.concatenate((
-            -1j * ellipticity[:, None, None] * a[None],
-            np.broadcast_to(a[None], (ellipticity.size,) + a.shape),
-        ), axis=2).reshape(-1, 2 * nsta)
-        solved = np.linalg.solve(matrix, joint.T)
-        denominator = np.real(np.einsum("gi,ig->g", joint.conj(), solved))
+        denominator = e ** 2 * q_hh + 2.0 * e * q_hz + q_zz
         capon = np.full(denominator.shape, np.nan)
         positive = denominator > 0.0
         capon[positive] = 1.0 / denominator[positive]
-        objective = ellipticity[:, None] ** 2 * capon.reshape(-1, nvalue) ** 2
+        objective = e ** 2 * capon ** 2
         winner = np.argmax(np.where(np.isfinite(objective), objective,
                                     -np.inf), axis=0)
         power[row] = objective[winner, columns]
@@ -1699,6 +1736,210 @@ def _rayleigh_joint(
         "power": power,
         "ellipticity": best,
         "ellipticity_angle": best_angle,
+    }
+
+
+def _rayleigh_angular(
+    values: dict,
+    block: slice,
+    steering: np.ndarray,
+    config: BeamformingConfig,
+) -> dict:
+    """
+    Angular Rayleigh three-component beamforming (ARTBF) of one block.
+
+    For each azimuth the radial and vertical coefficients form a matrix
+    of dimension 2n; the power of the steering vectors
+    ``[-1j sin(xi) a, cos(xi) a]`` is maximized over the ellipticity
+    angle ``xi`` exactly (Wathelet, 2024).
+    """
+    blocks = _motion_blocks(values, block)
+    shape = steering.shape[:-1]
+    forms = [np.empty(shape) for _ in range(3)]
+
+    for row, angle in enumerate(np.radians(config.grid.azimuth_values)):
+        for target, value in zip(forms, _radial_forms(
+            blocks, angle, steering[row], config.method,
+            config.diagonal_loading,
+        )):
+            target[row] = value
+
+    return _angular_maximum(*forms, config.method, steering.shape[-1])
+
+
+def _rayleigh_direct(
+    values: dict,
+    block: slice,
+    steering: np.ndarray,
+    config: BeamformingConfig,
+) -> dict:
+    """
+    Direct Rayleigh steering (ARDS) of one block.
+
+    The east, north and vertical coefficients form one matrix of
+    dimension 3n (inverted once for Capon); the power of the steering
+    vectors ``[-1j sin(xi) sin(t) a, -1j sin(xi) cos(t) a, cos(xi) a]``
+    is maximized over the ellipticity angle ``xi`` exactly (Wathelet,
+    2024).
+    """
+    nsta = steering.shape[-1]
+    series = np.concatenate(
+        [values[name][block] for name in ("east", "north", "vertical")],
+        axis=1,
+    )
+    weight = _weight_matrix(cross_spectral_matrix(series), config.method,
+                            config.diagonal_loading)
+    forms = _block_forms(weight, steering, 3)
+    angles = np.radians(config.grid.azimuth_values)[:, None]
+    sine, cosine = np.sin(angles), np.cos(angles)
+    q_hh = np.real(
+        sine ** 2 * forms[0, 0] + cosine ** 2 * forms[1, 1]
+        + 2.0 * sine * cosine * forms[0, 1]
+    )
+    q_hz = -np.imag(sine * forms[0, 2] + cosine * forms[1, 2])
+    return _angular_maximum(q_hh, np.real(forms[2, 2]), q_hz,
+                            config.method, nsta)
+
+
+def _motion_blocks(values: dict, block: slice) -> dict:
+    """
+    Cross-spectral blocks of the east, north and vertical motion of one
+    block of windows: ``(first, second) -> matrix``.
+    """
+    names = ("east", "north", "vertical")
+    matrix = cross_spectral_matrix(
+        np.concatenate([values[name][block] for name in names], axis=1)
+    )
+    nsta = values["east"].shape[1]
+    return {
+        (first, second): matrix[i * nsta:(i + 1) * nsta,
+                                j * nsta:(j + 1) * nsta]
+        for i, first in enumerate(names)
+        for j, second in enumerate(names)
+    }
+
+
+def _radial_forms(
+    blocks: dict,
+    angle: float,
+    steering: np.ndarray,
+    method: BeamformingMethod,
+    loading: float,
+) -> tuple:
+    """
+    Quadratic forms of the radial and vertical matrix of one azimuth.
+
+    The matrix ``[[RR, RZ], [ZR, ZZ]]`` of the radial motion
+    ``sin(t) E + cos(t) N`` and of the vertical one is built from the
+    blocks of the three components; ``W`` is its inverse (Capon, with
+    diagonal loading) or the matrix itself (Bartlett). Returns
+    ``Q_hh = Re(a^H W_RR a)``, ``Q_zz = Re(a^H W_ZZ a)`` and
+    ``Q_hz = -Im(a^H W_RZ a)``, the real quadratic form of the
+    steering ``[-1j u_h a, u_z a]`` being ``u_h**2 Q_hh + 2 u_h u_z
+    Q_hz + u_z**2 Q_zz``.
+    """
+    sine, cosine = math.sin(angle), math.cos(angle)
+    east_north = blocks["east", "north"]
+    radial = (
+        sine ** 2 * blocks["east", "east"]
+        + cosine ** 2 * blocks["north", "north"]
+        + sine * cosine * (east_north + east_north.conj().T)
+    )
+    mixed = sine * blocks["east", "vertical"] + cosine * blocks[
+        "north", "vertical"
+    ]
+    matrix = np.block([[radial, mixed],
+                       [mixed.conj().T, blocks["vertical", "vertical"]]])
+    weight = _weight_matrix(matrix, method, loading)
+    forms = _block_forms(weight, steering, 2)
+    return (np.real(forms[0, 0]), np.real(forms[1, 1]),
+            -np.imag(forms[0, 1]))
+
+
+def _weight_matrix(
+    matrix: np.ndarray,
+    method: BeamformingMethod,
+    loading: float,
+) -> np.ndarray:
+    """
+    Matrix of the quadratic forms: inverse of the loaded matrix for
+    Capon, Hermitian part of the matrix for Bartlett.
+    """
+    if method is BeamformingMethod.BARTLETT:
+        return 0.5 * (matrix + matrix.conj().T)
+
+    inverse = np.linalg.inv(regularized_matrix(matrix, loading))
+    return 0.5 * (inverse + inverse.conj().T)
+
+
+def _block_forms(
+    weight: np.ndarray,
+    steering: np.ndarray,
+    count: int,
+) -> np.ndarray:
+    """
+    Quadratic forms ``a^H W_pq a`` of the blocks of a matrix of
+    dimension ``count * n``, shape ``(count, count) + steering.shape[:-1]``
+    (upper triangle; the lower one is not computed).
+    """
+    nsta = steering.shape[-1]
+    forms = np.zeros((count, count) + steering.shape[:-1], dtype=complex)
+
+    for p in range(count):
+        rows = steering.conj() @ weight[p * nsta:(p + 1) * nsta]
+
+        for q in range(p, count):
+            forms[p, q] = np.einsum(
+                "...i,...i->...", rows[..., q * nsta:(q + 1) * nsta],
+                steering,
+            )
+
+    return forms
+
+
+def _angular_maximum(
+    q_hh: np.ndarray,
+    q_zz: np.ndarray,
+    q_hz: np.ndarray,
+    method: BeamformingMethod,
+    nsta: int,
+) -> dict:
+    """
+    Power maximized over the ellipticity angle, in closed form.
+
+    With ``u = (sin(xi), cos(xi))`` the quadratic form is
+    ``m + d cos(2 xi - phi)``, ``m = (Q_hh + Q_zz) / 2``,
+    ``d = hypot((Q_zz - Q_hh) / 2, Q_hz)``,
+    ``phi = atan2(Q_hz, (Q_zz - Q_hh) / 2)``: Capon takes its minimum
+    ``m - d`` (power ``1 / (m - d)``, NaN if not positive), Bartlett
+    its maximum ``m + d`` (power ``(m + d) / n**2``, as for steering
+    vectors of squared norm ``n``). The angle is returned in
+    (-90, 90] degrees; the ellipticity ``tan(xi)`` is NaN at 90 degrees
+    (purely horizontal motion).
+    """
+    mean = 0.5 * (q_hh + q_zz)
+    half = 0.5 * (q_zz - q_hh)
+    spread = np.hypot(half, q_hz)
+    phase = np.degrees(np.arctan2(q_hz, half))
+
+    if method is BeamformingMethod.BARTLETT:
+        power = (mean + spread) / nsta ** 2
+        doubled = phase
+    else:
+        denominator = mean - spread
+        power = np.full(denominator.shape, np.nan)
+        positive = denominator > 0.0
+        power[positive] = 1.0 / denominator[positive]
+        doubled = phase + 180.0
+
+    angle = 90.0 - np.mod(90.0 - 0.5 * doubled, 180.0)
+    ellipticity = np.tan(np.radians(angle))
+    ellipticity[angle == 90.0] = np.nan
+
+    return {
+        "power": power,
+        "ellipticity": ellipticity,
+        "ellipticity_angle": angle,
     }
 
 

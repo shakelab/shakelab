@@ -21,7 +21,9 @@ Rayleigh three-component beamforming (RTBF).
 Radial and vertical motion processed together give the phase velocity
 of Rayleigh waves and their signed ellipticity (radial over vertical
 amplitude; positive for prograde, negative for retrograde particle
-motion). Wathelet et al. (2018).
+motion). Wathelet et al. (2018); the angular formulations of Wathelet
+(2024) find the ellipticity angle exactly, also for purely vertical or
+horizontal motion.
 """
 
 import matplotlib.pyplot as plt
@@ -38,8 +40,10 @@ config = BeamformingConfig(
     grid_min=100.0, grid_max=1500.0, grid_size=40, azimuth_size=48,
     window_type="fixed", window_length=2.0,
     windows_per_block=40,                 # more than 2 x stations
-    components="rayleigh_joint",          # Capon only
-    ellipticity_angle_size=35,            # atan(e) from -85 to 85 degrees
+    components="rayleigh_joint",          # RTBF, Capon only; or
+                                          # "rayleigh_angular" (ARTBF),
+                                          # "rayleigh_direct" (ARDS)
+    ellipticity_angle_size=35,            # grid of the RTBF only
 )
 result = Beamformer(ArrayData("array.json"), config).process()
 result.dispersion().info()
