@@ -144,7 +144,7 @@ def test_plot_spectrum_ellipticity_and_units(results):
     """Ellipticity of the joint processing; power in units."""
     vertical, joint = results
     figure, _ = plot_spectrum(joint, 3.0, quantity="ellipticity")
-    assert figure.axes[1].get_ylabel() == "Signed ellipticity"
+    assert figure.axes[1].get_ylabel() == "Ellipticity R/Z (> 0 prograde)"
 
     figure, _ = plot_spectrum(vertical, 3.0, normalize=False)
     assert "(unit)**2/Hz" in figure.axes[1].get_ylabel()
@@ -190,6 +190,22 @@ def test_plot_density(results, coordinate):
         plot_density(density, scale="sqrt")
     with pytest.raises(TypeError):
         plot_density(vertical)
+
+
+def test_plot_density_of_ellipticity(results):
+    """Ellipticity angle in degrees, signed ellipticity on the right."""
+    _, joint = results
+    density = maximum_density(joint, coordinate="ellipticity_angle",
+                              weighting="relative_power")
+    figure, axis = plot_density(density, summary=density.summary())
+
+    assert axis.get_ylim() == (-90.0, 90.0)
+    assert "prograde" in axis.get_ylabel()
+    right = [other for other in figure.axes
+             if other is not axis and other.get_ylabel() == "Ellipticity R/Z"]
+    assert len(right) == 1
+    labels = [label.get_text() for label in right[0].get_yticklabels()]
+    assert "-1" in labels and "1" in labels
 
 
 # ----------------------------------------------------------------------------

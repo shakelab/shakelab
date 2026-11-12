@@ -51,13 +51,21 @@ START = Date("2026-01-01T00:00:00")
 
 
 def _maximum(velocity, frequency=4.0, block=0, rank=1, power=1.0,
-             component="vertical"):
-    """Spectral maximum of a velocity."""
+             component="vertical", angle=None):
+    """Spectral maximum of a velocity (and ellipticity angle)."""
     return SpectralMaximum(
         block=block, time=START, frequency=frequency, component=component,
         rank=rank, wavenumber=2 * math.pi * frequency / velocity,
         azimuth=0.0, power=power,
+        ellipticity=None if angle is None else math.tan(math.radians(angle)),
+        ellipticity_angle=angle,
     )
+
+
+def _rayleigh(velocity, angle, **kwargs):
+    """Maximum of the Rayleigh joint processing."""
+    return _maximum(velocity, component="rayleigh_joint", angle=angle,
+                    **kwargs)
 
 
 def _result(maxima, config=CONFIG):
@@ -203,6 +211,83 @@ def test_relative_density_and_info(capsys):
 
     with pytest.raises(ValueError):
         density.relative_density(floor=1.0)
+
+
+def test_ellipticity_angle_density():
+    """
+    Density of the ellipticity angle: kernels of the step of the
+    ellipticity grid (170 / 60 degrees by default), grid from -90 to
+    90 degrees, signed ellipticity of the grid.
+    """
+    maxima = [_rayleigh(300.0, -30.0, block=b) for b in range(3)]
+    maxima.append(_rayleigh(300.0, 40.0, block=3))
+    density = maximum_density(_result(maxima), coordinate="ellipticity_angle",
+                              size=721)
+
+    assert density.coordinate is DensityCoordinate.ELLIPTICITY_ANGLE
+    assert density.values[[0, -1]].tolist() == [-90.0, 90.0]
+    assert density.bandwidths[0] == pytest.approx(170.0 / 60.0)
+    assert np.trapezoid(density.density[0], density.values) == (
+        pytest.approx(1.0)
+    )
+    assert density.summary().mode[0] == pytest.approx(-30.0, abs=0.3)
+    peaks = density.peaks(2)
+    np.testing.assert_allclose(peaks.values[0], [-30.0, 40.0], atol=0.3)
+    np.testing.assert_allclose(density.ellipticity,
+                               np.tan(np.radians(density.values)))
+
+    with pytest.raises(ValueError, match="ellipticity angle"):
+        density.velocity
+    with pytest.raises(ValueError, match="not an ellipticity"):
+        maximum_density(_result(maxima)).ellipticity
+
+
+def test_ellipticity_angle_is_periodic():
+    """-90 and 90 degrees are the same motion: the kernels wrap."""
+    density = maximum_density(_result([_rayleigh(300.0, 88.0)]),
+                              coordinate="ellipticity_angle", size=361)
+    row = density.density[0]
+
+    assert row[0] == pytest.approx(row[-1])
+    # The mass beyond 90 degrees reappears above -90 degrees.
+    assert row[density.values < -85.0].max() > 0.1 * row.max()
+    assert np.trapezoid(row, density.values) == pytest.approx(1.0, abs=1e-3)
+
+
+def test_ellipticity_angle_needs_rayleigh_maxima():
+    """Maxima without ellipticity cannot give an angle density."""
+    with pytest.raises(ValueError, match="rayleigh_joint"):
+        maximum_density(_result([_maximum(400.0)]),
+                        coordinate="ellipticity_angle")
+
+
+def test_velocity_selection(capsys):
+    """Maxima selected by phase velocity, e.g. one mode."""
+    maxima = [_rayleigh(200.0, -40.0), _rayleigh(210.0, -42.0, block=1),
+              _rayleigh(600.0, 20.0, block=2)]
+    result = _result(maxima)
+
+    slow = maximum_density(result, coordinate="ellipticity_angle",
+                           velocity=(None, 300.0))
+    assert slow.counts.tolist() == [2]
+    assert slow.velocity_range == (None, 300.0)
+    assert slow.summary().mode[0] < 0.0
+    fast = result.density(coordinate="ellipticity_angle",
+                          velocity=(500, None))
+    assert fast.counts.tolist() == [1]
+    assert fast.summary().mode[0] == pytest.approx(20.0, abs=1.0)
+    assert maximum_density(result).velocity_range is None
+    fast.info()
+    assert "velocity 500 to - m/s" in capsys.readouterr().out
+
+    with pytest.raises(ValueError, match="no maximum"):
+        maximum_density(result, velocity=(300.0, 500.0))
+    with pytest.raises(ValueError, match="below"):
+        maximum_density(result, velocity=(300.0, 200.0))
+    with pytest.raises(ValueError, match="positive"):
+        maximum_density(result, velocity=(0.0, 200.0))
+    with pytest.raises(TypeError, match="pair"):
+        maximum_density(result, velocity=300.0)
 
 
 @pytest.mark.parametrize(

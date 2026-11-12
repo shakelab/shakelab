@@ -35,7 +35,7 @@ the state of the work; the theory and the use are in the guide
 | `config` | `BeamformingConfig` (single parameters named as the command-line options, or the objects `FrequencyConfig`, `WindowConfig`, `SearchGrid`, `EllipticityGrid`; JSON file in the constructor, `read`, `write`, `update`, `copy`), `PerformanceConfig` (same mechanics: SNR, estimator, wavenumber grid, trials, realizations, seed, classification levels) |
 | `estimators` | Bartlett, Capon, MUSIC and their statistics, on matrices and steering vectors (shared with the future performance analysis) |
 | `beamforming` | `Beamformer(array, config)` (`process(starttime, endtime)`), results `BeamformingResult` (`append`, `read`, `write`, `dispersion`, `density`, `stations_at`), `FrequencySpectrum`, `SpectralMaximum`, `DispersionCurve` |
-| `statistics` | `maximum_density` (density of the maxima versus frequency in wavenumber, log-slowness or log-velocity; kernels of the grid resolution, Silverman or fixed width; uniform or power weights), `MaximumDensity.summary` (mode, median, quantiles), `MaximumDensity.peaks` (candidate modes, prominences of `scipy.signal`) |
+| `statistics` | `maximum_density` (density of the maxima versus frequency in wavenumber, log-slowness, log-velocity or ellipticity angle (RTBF, periodic); kernels of the grid resolution, Silverman or fixed width; uniform or power weights; selection by rank and velocity interval), `MaximumDensity.summary` (mode, median, quantiles), `MaximumDensity.peaks` (candidate modes, prominences of `scipy.signal`) |
 | `response` | `ArrayResponse(array or coordinates)`: geometric response (also expected under coordinate uncertainty) and entry point of survey planning: `analyze` (`ResponseAnalysis`: main lobe, ambiguities, limits, `velocity_limits`), `search_domain`, `performance`, `performance_sweep`, `assess`; `ArrayGeometry`, `ResponseGrid` |
 | `performance` | Monte Carlo performance of Bartlett, Capon and MUSIC for one plane wave in white noise: LOCAL/ALIAS/OTHER/BOUNDARY outcomes, Wilson intervals, local errors, exact velocity statistics (`PerformanceResult`, `PerformanceSweepResult`, `PlaneWaveSource`) |
 | `operational` | frequency-velocity-azimuth envelope with explicit usability criteria, limiting factors and recommendations (`OperationalAssessment`) |
@@ -179,7 +179,12 @@ slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \
   transverse = radial rotated by +90 degrees (clockwise).
 - Signed ellipticity (RTBF, Wathelet et al., 2018): radial coefficient
   `-1j e` times the vertical one; `e > 0` for radial motion
-  `e sin(wt)` with vertical `cos(wt)`.
+  `e sin(wt)` with vertical `cos(wt)`, that is prograde motion (radial
+  positive along the propagation, vertical positive upwards); `e < 0`
+  retrograde. Checked on the fundamental mode of a homogeneous
+  half-space (retrograde, `e = -0.68` for a Poisson solid; test
+  `test_rayleigh_joint_halfspace_retrograde`). Data with the vertical
+  positive downwards give the opposite sign.
 - Units: the cross-spectral matrices are one-sided cross power
   spectral densities, so that Bartlett and Capon give the density of a
   plane wave in the units of the data squared per Hz. Data not

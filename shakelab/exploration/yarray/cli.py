@@ -273,7 +273,8 @@ def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
                          help="density of the maxima versus frequency")
     figures.add_argument(
         "--density-coordinate",
-        choices=("log_slowness", "log_velocity", "wavenumber"),
+        choices=("log_slowness", "log_velocity", "wavenumber",
+                 "ellipticity_angle"),
         help="coordinate of the density (log_slowness)",
     )
     figures.add_argument("--component", help="component of the figures")

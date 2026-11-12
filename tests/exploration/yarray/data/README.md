@@ -25,6 +25,15 @@ The station coordinates are local, in metres: East in
 also written in `STLO` and `STLA`, which therefore do not contain
 geographic coordinates (the SAC reader ignores them with a warning).
 
+The polarity of the components is not documented (no `CMPAZ` or
+`CMPINC`). The signed Rayleigh ellipticity of the joint processing
+(positive for prograde motion with the vertical positive upwards) has
+the opposite of the expected sequence of a soft layer over a stiff
+half-space on the 38 stations of the simulation (retrograde between
+the H/V peak and the trough near 4 Hz, prograde above): the vertical
+component is probably positive downwards (or the horizontal ones
+reversed). The tests do not depend on it.
+
 The simulation was produced within the European project SESAME (Site
 EffectS assessment using AMbient Excitations, 2001-2004) and
 distributed with the array-processing material of ETH Zurich

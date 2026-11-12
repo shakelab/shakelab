@@ -35,6 +35,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from scipy.optimize import brentq
 
 from shakelab.exploration.yarray.beamforming import (
     Beamformer,
@@ -188,6 +189,79 @@ def test_radial_and_transverse():
         assert best.velocity == pytest.approx(VELOCITY, abs=10.0)
         assert best.power > 2 * weak.power
         assert weak.azimuth != AZIMUTH
+
+
+def _halfspace_rayleigh(beta=300.0):
+    """
+    Phase velocity and surface displacement (radial along the
+    propagation, vertical upwards) of the Rayleigh wave of a Poisson
+    half-space, for ``exp(1j * (k * x - w * t))`` and ``k = 1``.
+
+    Potentials ``A exp(q z)`` and ``B exp(s z)`` (z upwards, medium at
+    z < 0), free surface (Aki and Richards, 2002, Section 5.3).
+    """
+    alpha = beta * math.sqrt(3.0)
+    mu, lam = beta ** 2, beta ** 2   # Poisson solid, unit density
+
+    def roots(c):
+        q = math.sqrt(1.0 - c ** 2 / alpha ** 2)
+        s = math.sqrt(1.0 - c ** 2 / beta ** 2)
+        return q, s
+
+    def secular(c):
+        q, s = roots(c)
+        return (-4.0 * mu * q * s
+                + (s ** 2 + 1.0) * (lam * (q ** 2 - 1.0) + 2.0 * mu * q ** 2))
+
+    velocity = brentq(secular, 0.85 * beta, 0.99 * beta)
+    q, s = roots(velocity)
+    b = 2j * q / (s ** 2 + 1.0)   # shear stress zero, A = 1
+    return velocity, 1j - s * b, q + 1j * b
+
+
+@pytest.mark.parametrize("prograde", [False, True])
+def test_rayleigh_joint_halfspace_retrograde(prograde):
+    """
+    Sign of the ellipticity on physical particle motion.
+
+    The fundamental mode of a homogeneous half-space is retrograde at
+    the surface, with |e| = 0.681 for a Poisson solid: the joint
+    processing gives a negative ellipticity, and a positive one when
+    the radial motion is reversed (prograde).
+    """
+    velocity, radial, vertical = _halfspace_rayleigh()
+    assert velocity / 300.0 == pytest.approx(0.9194, abs=1e-4)
+    assert abs(radial / vertical) == pytest.approx(0.681, abs=1e-3)
+    if prograde:
+        radial = -radial
+
+    frequency = 5.0
+    omega = 2.0 * math.pi * frequency
+    time = np.arange(12000) * DELTA
+    coordinates = _coordinates()
+    angle = math.radians(AZIMUTH)
+    rng = np.random.default_rng(4)
+    motion = []
+
+    for tau in _delays(coordinates, velocity=velocity):
+        phase = np.exp(-1j * omega * (time - tau))
+        h, z = np.real(radial * phase), np.real(vertical * phase)
+        motion.append({
+            code: value + 0.05 * rng.standard_normal(time.size)
+            for code, value in (("Z", z), ("N", h * math.cos(angle)),
+                                ("E", h * math.sin(angle)))
+        })
+
+    config = _config(components="rayleigh_joint", frequencies=[frequency],
+                     grid=SearchGrid(150.0, 450.0, 61, scale="linear",
+                                     azimuth_size=72))
+    best = beamform(_array(motion, coordinates), config).maxima_at(rank=1)[0]
+
+    assert best.velocity == pytest.approx(velocity, abs=10.0)
+    assert best.azimuth == pytest.approx(AZIMUTH)
+    assert best.ellipticity_angle == pytest.approx(
+        (1 if prograde else -1) * math.degrees(math.atan(0.681)), abs=3.0
+    )
 
 
 @pytest.mark.parametrize("ellipticity", [0.5, -1.5])

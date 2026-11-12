@@ -20,8 +20,8 @@ Rayleigh three-component beamforming (RTBF).
 
 Radial and vertical motion processed together give the phase velocity
 of Rayleigh waves and their signed ellipticity (radial over vertical
-amplitude; the sign gives the sense of the particle motion).
-Wathelet et al. (2018).
+amplitude; positive for prograde, negative for retrograde particle
+motion). Wathelet et al. (2018).
 """
 
 import matplotlib.pyplot as plt
@@ -43,6 +43,14 @@ config = BeamformingConfig(
 )
 result = Beamformer(ArrayData("array.json"), config).process()
 result.dispersion().info()
+
+# Density of the maxima in ellipticity angle, e.g. of one mode
+density = result.density(
+    coordinate="ellipticity_angle",
+    weighting="relative_power",
+    velocity=(150.0, 400.0),              # default: all the maxima
+)
+density.info()
 
 figure, axes = plt.subplots(1, 2, figsize=(13, 5))
 plot_dispersion(result, ax=axes[0])

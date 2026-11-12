@@ -690,8 +690,10 @@ class EllipticityGrid(_Replace):
     """
     Signed Rayleigh ellipticities searched by the joint processing.
 
-    The ellipticity ``e = tan(chi)`` is sampled uniformly in the angle
-    ``chi``, strictly inside (-90, 90) degrees.
+    The ellipticity ``e = tan(chi)`` (radial over vertical amplitude,
+    positive for prograde and negative for retrograde motion) is
+    sampled uniformly in the angle ``chi``, strictly inside (-90, 90)
+    degrees.
 
     Parameters
     ----------

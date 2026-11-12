@@ -191,6 +191,17 @@ E = [-i e a, a]
 
 where `e` is the signed ellipticity (radial over vertical amplitude,
 positive for radial motion `e sin(wt)` with vertical `cos(wt)`). The
+radial component is positive in the direction of propagation and the
+vertical one upwards, so that **`e > 0` is prograde and `e < 0`
+retrograde** particle motion, the convention of Wathelet et al.
+(2018) (other authors use the opposite sign). The fundamental mode
+of a homogeneous half-space, retrograde at the surface, gives
+`e = -0.68` for a Poisson solid; for a soft layer over a stiff
+half-space the fundamental mode is retrograde below the peak of the
+H/V ratio, prograde between the peak and the following trough, and
+retrograde again above it. Data whose vertical component is positive
+downwards (or whose horizontal components are reversed) give the
+opposite sign: check the polarity of the sensors. The
 Capon power `P` of `E` is computed for every trial ellipticity and the
 objective `e**2 P**2` is maximized: the spectrum is that maximum, and
 the ellipticity at the maximum is kept with each spectral maximum. The
@@ -245,7 +256,8 @@ RTBF, the ellipticity.
 The maxima of many blocks (a long record, or the analyses of the
 monitor joined) scatter around the dispersion curves. Their density at
 each frequency is estimated as a weighted mixture of Gaussian kernels
-in wavenumber, log-slowness or log-velocity:
+in wavenumber, log-slowness, log-velocity or, for RTBF, ellipticity
+angle `atan(e)`:
 
 ```
 D(x | f) = sum_i w_i N(x; x_i, sigma_i)
@@ -255,7 +267,12 @@ with uniform, power or relative-power weights and kernels as wide as
 the resolution of the search grid (default), Silverman's rule or a
 fixed width. Its summary gives mode, median and a quantile interval;
 its local maxima, with their prominence, are candidate modes at each
-frequency (not yet connected across frequencies).
+frequency (not yet connected across frequencies). For the ellipticity
+angle the resolution is the step of the ellipticity grid and the
+kernels are periodic with period 180 degrees (-90 and 90 degrees are
+the same, purely horizontal motion). The maxima can be selected by
+rank and by a phase-velocity interval (`velocity=(minimum, maximum)`),
+for instance to follow the ellipticity of one mode.
 
 ## 7. Geometric array response
 
@@ -592,6 +609,9 @@ density = result.density(coordinate="log_velocity",
                           weighting="relative_power")
 summary = density.summary()              # mode, median, quantiles
 peaks = density.peaks(3, minimum_relative_density=0.1)
+ellipticity = result.density(coordinate="ellipticity_angle",
+                             weighting="relative_power",
+                             velocity=(150, 400))     # one mode (RTBF)
 ```
 
 Figures (`shakelab.graphics.yarray`, matplotlib imported on use):

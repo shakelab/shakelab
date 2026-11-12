@@ -9,6 +9,19 @@ corrections. The format follows
 
 ### Changed
 
+- `exploration.yarray`: the sign convention of the Rayleigh ellipticity
+  is documented and tested on physical particle motion (positive for
+  prograde, negative for retrograde motion, as Wathelet et al., 2018;
+  fundamental mode of a homogeneous half-space: `e = -0.68`); the
+  ellipticity labels of `graphics.yarray` say so ("> 0 prograde").
+- `exploration.yarray.maximum_density` (and `BeamformingResult.density`):
+  new coordinate `"ellipticity_angle"` for the Rayleigh joint
+  processing (degrees, periodic kernels of the ellipticity-grid step),
+  new selection `velocity=(minimum, maximum)` of the maxima (e.g. one
+  mode), `MaximumDensity.velocity_range` and `MaximumDensity.ellipticity`;
+  `graphics.yarray.plot_density` shows the angle with the signed
+  ellipticity on a right axis; `slab-yarray --density-coordinate
+  ellipticity_angle`.
 - `signals.seedlink.Client.get_data` returns standard streams with the
   contiguous records of each channel joined, also for a circular buffer
   (`set_buffer(max_duration=...)`, which keeps every packet as a

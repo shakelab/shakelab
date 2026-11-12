@@ -97,6 +97,13 @@ __all__ = [
 # Quantities shown by :func:`plot_spectrum`.
 _QUANTITIES = ("power", "standard_error", "ellipticity")
 
+# Labels of the signed Rayleigh ellipticity (positive: prograde).
+_ELLIPTICITY_LABEL = "Ellipticity R/Z (> 0 prograde)"
+_ELLIPTICITY_ANGLE_LABEL = "Ellipticity angle (degrees, > 0 prograde)"
+
+# Signed ellipticities marked on the right axis of an angle density.
+_ELLIPTICITY_TICKS = (-5.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 5.0)
+
 _RADIAL_LABELS = {
     GridQuantity.VELOCITY: "Phase velocity (m/s)",
     GridQuantity.SLOWNESS: "Slowness (s/m)",
@@ -330,8 +337,7 @@ def plot_ellipticity(
 
     axis.set_xlabel("Frequency (Hz)")
     axis.set_ylabel(
-        "Ellipticity angle (degrees)" if angle
-        else "Signed ellipticity (radial / vertical)"
+        _ELLIPTICITY_ANGLE_LABEL if angle else _ELLIPTICITY_LABEL
     )
     axis.set_title("Rayleigh ellipticity")
     axis.grid(True, which="both", alpha=0.25)
@@ -461,7 +467,7 @@ def _spectrum_values(
         if spectrum.ellipticity is None:
             raise ValueError("the spectrum has no ellipticity")
 
-        return spectrum.ellipticity[block], "Signed ellipticity"
+        return spectrum.ellipticity[block], _ELLIPTICITY_LABEL
 
     if quantity == "standard_error":
         if spectrum.power_standard_error is None:
@@ -508,7 +514,8 @@ def plot_density(
 
     The density of each frequency is divided by its maximum, so that
     weak modes stay visible. Logarithmic coordinates are shown as phase
-    velocity on a logarithmic axis.
+    velocity on a logarithmic axis; the ellipticity angle in degrees,
+    with the signed ellipticity on a right axis.
 
     Parameters
     ----------
@@ -548,7 +555,10 @@ def plot_density(
 
     from matplotlib.colors import LogNorm, Normalize
 
-    logarithmic = density.coordinate is not DensityCoordinate.WAVENUMBER
+    logarithmic = density.coordinate in (
+        DensityCoordinate.LOG_SLOWNESS, DensityCoordinate.LOG_VELOCITY,
+    )
+    angle = density.coordinate is DensityCoordinate.ELLIPTICITY_ANGLE
 
     def axis_values(values: np.ndarray) -> np.ndarray:
         """Plotted coordinate of density values."""
@@ -571,7 +581,9 @@ def plot_density(
         density.frequencies, ordinate[order], relative[:, order].T,
         shading="nearest", norm=norm, cmap="magma_r",
     )
-    figure.colorbar(image, ax=axis, label="Density / maximum")
+    # Room for the right axis of the signed ellipticity.
+    figure.colorbar(image, ax=axis, label="Density / maximum",
+                    pad=0.12 if angle else 0.05)
 
     if peaks is not None:
         for column in range(peaks.values.shape[1]):
@@ -599,6 +611,16 @@ def plot_density(
     if logarithmic:
         _plain_log_axis(axis, "y")
         axis.set_ylabel("Phase velocity (m/s)")
+    elif angle:
+        axis.axhline(0.0, color="0.5", linewidth=0.8)
+        axis.set_ylim(-90.0, 90.0)
+        axis.set_yticks([-90, -60, -30, 0, 30, 60, 90])
+        axis.set_ylabel(_ELLIPTICITY_ANGLE_LABEL)
+        right = axis.twinx()
+        right.set_ylim(-90.0, 90.0)
+        right.set_yticks(np.degrees(np.arctan(_ELLIPTICITY_TICKS)))
+        right.set_yticklabels([f"{value:g}" for value in _ELLIPTICITY_TICKS])
+        right.set_ylabel("Ellipticity R/Z")
     else:
         axis.set_ylabel("Angular wavenumber (rad/m)")
 

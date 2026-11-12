@@ -51,6 +51,19 @@ evaluated on the polar search grid by the estimators of
   ``[-1j * e * a, a]`` with the signed ellipticity ``e``, objective
   ``e**2 * P**2`` maximized over the ellipticity grid (Capon only).
 
+Signed ellipticity
+------------------
+``e`` is the ratio of the radial to the vertical amplitude, with the
+radial component positive in the direction of propagation and the
+vertical one positive upwards. With the Fourier kernel
+``exp(-2j pi f t)``, ``e > 0`` is radial motion ``e sin(wt)`` with
+vertical ``cos(wt)``: **positive for prograde, negative for
+retrograde** particle motion, as in Wathelet et al. (2018). Checked on
+the fundamental mode of a homogeneous half-space (retrograde at the
+surface, ``e = -0.68`` for a Poisson solid). Data whose vertical
+component is positive downwards, or whose horizontal components are
+reversed, give the opposite sign.
+
 Units
 -----
 The matrices are cross power spectral densities (one-sided), so that
@@ -183,7 +196,8 @@ class SpectralMaximum:
     power_standard_error : float, optional
         Standard error of the power.
     ellipticity : float, optional
-        Signed Rayleigh ellipticity (joint processing).
+        Signed Rayleigh ellipticity, radial over vertical amplitude
+        (joint processing; positive prograde, negative retrograde).
     ellipticity_angle : float, optional
         Ellipticity angle ``atan(ellipticity)`` in degrees.
     """
@@ -328,7 +342,8 @@ class DispersionCurve:
     count : numpy.ndarray
         Number of maxima (blocks) at each frequency.
     ellipticity : numpy.ndarray, optional
-        Median signed ellipticity (Rayleigh joint processing).
+        Median signed ellipticity (Rayleigh joint processing;
+        positive prograde, negative retrograde).
     """
 
     component: str

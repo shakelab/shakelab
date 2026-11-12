@@ -24,7 +24,8 @@ The maxima of many covariance blocks (long recordings, or the results
 of the real-time monitor joined) scatter around the dispersion curves
 of the waves crossing the array. :func:`maximum_density` estimates, at
 each frequency, the density of the maxima along the radial coordinate
-(wavenumber, log-slowness or log-velocity) as a weighted mixture of
+(wavenumber, log-slowness or log-velocity) or, for the Rayleigh joint
+processing, along the ellipticity angle, as a weighted mixture of
 Gaussian kernels; :meth:`MaximumDensity.summary` gives mode, median
 and a quantile interval, :meth:`MaximumDensity.peaks` the local maxima
 of the density (candidate modes).
@@ -36,7 +37,10 @@ local spacing of the radial search grid in the chosen coordinate: it
 reflects the resolving power of the analysis and does not widen when
 several modes coexist at one frequency, as a bandwidth from the spread
 of the samples would. ``"adaptive"`` (weighted Silverman rule) and
-``"fixed"`` are alternatives.
+``"fixed"`` are alternatives. For the ellipticity angle the
+resolution is the step of the ellipticity grid, and the kernels are
+periodic with period 180 degrees: -90 and 90 degrees are the same
+motion (horizontal only, sign undefined).
 
 The density is an empirical conditional density of the maxima at each
 frequency, not a probability of the true dispersion curve. Peaks are
@@ -75,6 +79,9 @@ __all__ = [
     "maximum_density",
 ]
 
+# Period of the ellipticity angle (degrees).
+_HALF_TURN = 180.0
+
 
 class BandwidthMode(Enum):
     """Width of the density kernels."""
@@ -85,11 +92,12 @@ class BandwidthMode(Enum):
 
 
 class DensityCoordinate(Enum):
-    """Radial coordinate of the density."""
+    """Coordinate of the density."""
 
     WAVENUMBER = "wavenumber"
     LOG_SLOWNESS = "log_slowness"
     LOG_VELOCITY = "log_velocity"
+    ELLIPTICITY_ANGLE = "ellipticity_angle"
 
 
 class DensityWeighting(Enum):
@@ -136,7 +144,9 @@ class DensitySummary:
     Notes
     -----
     Median and interval describe the whole density: with several modes
-    they may fall between them, where the mode does not.
+    they may fall between them, where the mode does not. For the
+    ellipticity angle they are computed from -90 degrees, without
+    taking the period into account.
     """
 
     frequencies: np.ndarray
@@ -200,12 +210,16 @@ class MaximumDensity:
     component : str
         Component of the maxima.
     coordinate : DensityCoordinate
-        Coordinate of ``values``: wavenumber (rad per distance unit),
-        natural logarithm of slowness or of velocity.
+        Coordinate of ``values``: wavenumber (rad/m), natural logarithm
+        of slowness or of velocity, or ellipticity angle
+        ``atan(ellipticity)`` in degrees (positive: prograde).
     weighting : DensityWeighting
         Weight of the maxima.
     ranks : tuple of int or None
         Ranks of the maxima used (None for all).
+    velocity_range : tuple or None
+        Phase velocities of the maxima used, ``(minimum, maximum)`` in
+        m/s with None for an open bound (None for all).
     """
 
     frequencies: np.ndarray
@@ -217,6 +231,7 @@ class MaximumDensity:
     coordinate: DensityCoordinate
     weighting: DensityWeighting
     ranks: Optional[tuple]
+    velocity_range: Optional[tuple] = None
 
     @property
     def velocity(self) -> np.ndarray:
@@ -227,7 +242,7 @@ class MaximumDensity:
         ------
         ValueError
             For the wavenumber coordinate, whose velocity depends on
-            the frequency.
+            the frequency, and for the ellipticity angle.
         """
         if self.coordinate is DensityCoordinate.LOG_VELOCITY:
             return np.exp(self.values)
@@ -235,7 +250,26 @@ class MaximumDensity:
         if self.coordinate is DensityCoordinate.LOG_SLOWNESS:
             return np.exp(-self.values)
 
+        if self.coordinate is DensityCoordinate.ELLIPTICITY_ANGLE:
+            raise ValueError("the grid is an ellipticity angle")
+
         raise ValueError("the velocity of a wavenumber grid depends on f")
+
+    @property
+    def ellipticity(self) -> np.ndarray:
+        """
+        Signed ellipticity ``tan(angle)`` of the grid (ellipticity
+        angle only).
+
+        Raises
+        ------
+        ValueError
+            For the other coordinates.
+        """
+        if self.coordinate is not DensityCoordinate.ELLIPTICITY_ANGLE:
+            raise ValueError("the grid is not an ellipticity angle")
+
+        return np.tan(np.radians(self.values))
 
     def relative_density(self, floor: float = 0.0) -> np.ndarray:
         """
@@ -311,11 +345,18 @@ class MaximumDensity:
 
     def info(self) -> None:
         """Print a summary of the density."""
+        selection = ""
+
+        if self.velocity_range is not None:
+            low, high = ("-" if value is None else f"{value:g}"
+                         for value in self.velocity_range)
+            selection = f", velocity {low} to {high} m/s"
+
         print(
             f"MaximumDensity: {self.component}, {self.coordinate.value}, "
             f"{self.weighting.value}, {len(self.frequencies)} "
-            f"frequencies, {int(np.sum(self.counts))} maxima, grid of "
-            f"{len(self.values)} values"
+            f"frequencies, {int(np.sum(self.counts))} maxima{selection}, "
+            f"grid of {len(self.values)} values"
         )
 
 
@@ -330,6 +371,7 @@ def maximum_density(
     ranks: Optional[Iterable] = None,
     coordinate: Any = DensityCoordinate.WAVENUMBER,
     weighting: Any = DensityWeighting.UNIFORM,
+    velocity: Optional[tuple] = None,
     size: int = 256,
     bandwidth_mode: Any = BandwidthMode.RESOLUTION,
     bandwidth: Optional[float] = None,
@@ -348,17 +390,24 @@ def maximum_density(
         Ranks of the maxima used (a selection, not a weight). Default:
         all.
     coordinate : DensityCoordinate or str, optional
-        ``"wavenumber"`` (default), ``"log_slowness"`` or
-        ``"log_velocity"`` (natural logarithms).
+        ``"wavenumber"`` (default), ``"log_slowness"``,
+        ``"log_velocity"`` (natural logarithms), or
+        ``"ellipticity_angle"`` (degrees, maxima of the Rayleigh joint
+        processing only; periodic grid from -90 to 90).
     weighting : DensityWeighting or str, optional
         ``"uniform"`` (default), ``"power"``, or ``"relative_power"``
         (power divided by that of the strongest maximum of the same
         block, frequency and component).
+    velocity : tuple, optional
+        ``(minimum, maximum)`` phase velocity of the maxima used, in
+        m/s (a selection, e.g. of one mode); None for an open bound.
+        Default: all.
     size : int, optional
         Number of values of the common grid (at least 16). Default 256.
     bandwidth_mode : BandwidthMode or str, optional
         ``"resolution"`` (default): local spacing of the search grid in
-        the coordinate; ``"adaptive"``: weighted Silverman rule;
+        the coordinate (step of the ellipticity grid for the angle);
+        ``"adaptive"``: weighted Silverman rule;
         ``"fixed"``: ``bandwidth``.
     bandwidth : float, optional
         Kernel width with ``"fixed"``, in the coordinate.
@@ -375,7 +424,8 @@ def maximum_density(
     TypeError
         If ``result`` is not a BeamformingResult.
     ValueError
-        If no maximum is selected, the component is ambiguous, or an
+        If no maximum is selected, the component is ambiguous, the
+        maxima have no ellipticity for ``"ellipticity_angle"``, or an
         option is invalid.
     """
     if not isinstance(result, BeamformingResult):
@@ -402,15 +452,26 @@ def maximum_density(
     if ranks is not None and (not ranks or ranks[0] < 1):
         raise ValueError("ranks must be positive integers")
 
+    velocity = _velocity_range(velocity)
     component = _component(result, component)
     selected = [
         item for item in result.maxima
         if item.component == component
         and (ranks is None or item.rank in ranks)
+        and (velocity is None or _in_range(item.velocity, velocity))
     ]
 
     if not selected:
         raise ValueError("no maximum matches the selection")
+
+    periodic = coordinate is DensityCoordinate.ELLIPTICITY_ANGLE
+
+    if periodic and any(item.ellipticity_angle is None
+                        for item in selected):
+        raise ValueError(
+            "the ellipticity angle needs maxima of the Rayleigh joint "
+            "processing (rayleigh_joint)"
+        )
 
     frequencies = np.unique([item.frequency for item in selected])
     reference = _reference_powers(result.maxima)
@@ -433,11 +494,17 @@ def maximum_density(
             ))
 
     widths = np.array(widths)
-    lower = min(np.min(v) - 4.0 * w for v, w in zip(samples, widths))
-    upper = max(np.max(v) + 4.0 * w for v, w in zip(samples, widths))
-    grid = np.linspace(lower, upper, int(size))
+
+    if periodic:
+        grid = np.linspace(-_HALF_TURN / 2.0, _HALF_TURN / 2.0, int(size))
+    else:
+        lower = min(np.min(v) - 4.0 * w for v, w in zip(samples, widths))
+        upper = max(np.max(v) + 4.0 * w for v, w in zip(samples, widths))
+        grid = np.linspace(lower, upper, int(size))
+
     density = np.array([
-        _mixture(grid, values, weight, width)
+        _mixture(grid, values, weight, width,
+                 _HALF_TURN if periodic else None)
         for values, weight, width in zip(samples, weights, widths)
     ])
     density /= np.trapezoid(density, grid, axis=1)[:, None]
@@ -452,6 +519,7 @@ def maximum_density(
         coordinate=coordinate,
         weighting=weighting,
         ranks=ranks,
+        velocity_range=velocity,
     )
 
 
@@ -619,11 +687,44 @@ def _component(result: BeamformingResult, component: Optional[str]) -> str:
     return component
 
 
+def _velocity_range(velocity: Any) -> Optional[tuple]:
+    """Validated ``(minimum, maximum)`` velocities, or None."""
+    if velocity is None:
+        return None
+
+    try:
+        low, high = velocity
+    except (TypeError, ValueError):
+        raise TypeError(
+            "velocity must be a (minimum, maximum) pair"
+        ) from None
+
+    bounds = tuple(None if value is None else float(value)
+                   for value in (low, high))
+
+    if any(value is not None and not value > 0.0 for value in bounds):
+        raise ValueError("velocity bounds must be positive")
+
+    if None not in bounds and bounds[0] >= bounds[1]:
+        raise ValueError("velocity minimum must be below the maximum")
+
+    return bounds
+
+
+def _in_range(value: float, bounds: tuple) -> bool:
+    """Whether a value lies within bounds (None: open)."""
+    low, high = bounds
+    return (low is None or value >= low) and (high is None or value <= high)
+
+
 def _coordinate(maximum: SpectralMaximum, coordinate: DensityCoordinate
                 ) -> float:
     """Value of a maximum in the density coordinate."""
     if coordinate is DensityCoordinate.WAVENUMBER:
         return maximum.wavenumber
+
+    if coordinate is DensityCoordinate.ELLIPTICITY_ANGLE:
+        return float(maximum.ellipticity_angle)
 
     if maximum.wavenumber <= 0.0:
         raise ValueError("logarithmic coordinates need positive wavenumbers")
@@ -676,6 +777,11 @@ def _grid_spacing(
     coordinate: DensityCoordinate,
 ) -> float:
     """Median local spacing of the search grid at the samples."""
+    if coordinate is DensityCoordinate.ELLIPTICITY_ANGLE:
+        return float(np.median(np.diff(
+            result.config.ellipticity_grid.angles
+        )))
+
     k = result.config.grid.wavenumbers(frequency)
 
     if coordinate is DensityCoordinate.WAVENUMBER:
@@ -711,8 +817,20 @@ def _silverman(values: np.ndarray, weights: np.ndarray) -> float:
 
 
 def _mixture(grid: np.ndarray, samples: np.ndarray, weights: np.ndarray,
-             width: float) -> np.ndarray:
-    """Weighted mixture of Gaussian kernels on a grid."""
-    offset = (grid[:, None] - samples[None, :]) / width
-    kernels = np.exp(-0.5 * offset ** 2) / (np.sqrt(2.0 * np.pi) * width)
+             width: float, period: Optional[float] = None) -> np.ndarray:
+    """
+    Weighted mixture of Gaussian kernels on a grid (wrapped around the
+    period, if given).
+    """
+    offset = grid[:, None] - samples[None, :]
+
+    if period is not None:
+        offset = (offset + period / 2.0) % period - period / 2.0
+        offset = offset[..., None] + period * np.arange(-1, 2)
+    else:
+        offset = offset[..., None]
+
+    kernels = np.exp(-0.5 * (offset / width) ** 2).sum(axis=-1) / (
+        np.sqrt(2.0 * np.pi) * width
+    )
     return kernels @ weights
