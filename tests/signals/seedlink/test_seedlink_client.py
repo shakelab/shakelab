@@ -232,6 +232,100 @@ def test_circular_buffer(make_server, mode):
     assert (end - stream.record[0].time) <= 10.0 + 4.0
 
 
+def test_get_data_joins_circular_buffer(make_server, mode):
+    records, station = mode
+    server = make_server([station])
+    client = _client(server)
+    client.select("IV.MODE")
+    client.set_buffer(max_duration=120.0)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        client.run(fetch=True, duration=10)
+        data = client.get_data()
+
+    # The buffer keeps the packets; the copy joins them.
+    assert all(len(stream.records()) > 1 for stream in client.buffer)
+    assert data.max_duration is None
+    for stream in data:
+        assert type(stream).__name__ == "Stream"
+        assert len(stream.records()) == 1
+    _assert_same(data, records)
+    data["IV.MODE..HNZ"].record[0].data[:] = 0
+    assert client.buffer["IV.MODE..HNZ"].record[0].data.any()
+
+    window = client.get_data("*.*.*.*Z", start=START + 1.0, end=START + 2.0)
+    assert window["IV.MODE..HNZ"].nsamp == 101
+
+
+def test_get_data_after_trimming(make_server, mode):
+    records, station = mode
+    server = make_server([station], interleave=True)
+    client = _client(server)
+    client.select("IV.MODE")
+    client.set_buffer(max_duration=10.0)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        client.run(fetch=True, duration=10)
+    data = client.get_data()
+
+    for record in records:
+        stream = data[record.sid]
+        assert len(stream.records()) == 1
+        joined = stream.record[0]
+        assert joined.endtime == record.endtime
+        assert 10.0 <= joined.endtime - joined.time <= 14.0
+        first = round((joined.time - record.time) * RATE)
+        np.testing.assert_array_equal(joined.data, record.data[first:])
+
+
+@pytest.mark.parametrize("version", VERSIONS)
+def test_past_window_of_several_stations(make_server, mode, other, version):
+    """Dial-up: the run waits for the server, which sends one station
+    (and one channel) after the other."""
+    server = make_server([mode[1], other[1]], version=version)
+    client = _client(server)
+    client.select(["IV.MODE", "OX.ABC"])
+    collection = client.run(start=START, end=START + 25.0)
+
+    assert sorted(collection.sid) == [
+        "IV.MODE..HNE", "IV.MODE..HNN", "IV.MODE..HNZ", "OX.ABC.00.HHZ",
+    ]
+    for stream in collection:
+        assert stream.endtime >= START + 25.0
+
+
+@pytest.mark.parametrize("interleave", [False, True])
+def test_interleaved_data_clock(make_server, mode, interleave):
+    """With the packets in time order, the channels of the stations
+    are aligned at every tick of the data clock."""
+    records = [
+        waveform(f"OX.ABC..HN{component}", NSAMP, seed=10 + index)
+        for index, component in enumerate("ZNE")
+    ]
+    stations = [mode[1], Station("OX", "ABC", records)]
+    server = make_server(stations, interleave=interleave)
+    client = _client(server)
+    client.select(["IV.MODE", "OX.ABC"])
+    client.set_buffer()
+    spreads = []
+
+    def tick(client):
+        ends = [stream.endtime for stream in client.buffer]
+        spreads.append((len(ends), max(ends) - min(ends)))
+
+    client.every(10.0, tick, clock="data")
+    client.run(fetch=True, duration=10)
+
+    assert len(spreads) == 5
+    if interleave:
+        assert all(count == 6 and spread < 5.0 for count, spread in spreads)
+    else:
+        # One station after the other: the second one is missing.
+        assert all(count == 3 for count, _ in spreads)
+
+
 @pytest.mark.parametrize("version", VERSIONS)
 def test_reconnection_resumes(make_server, mode, version, monkeypatch):
     monkeypatch.setattr(client_module, "RECONNECT_DELAY", (0.05, 0.1))
@@ -264,10 +358,13 @@ def test_repeated_packets_skipped(make_server, mode):
     client._sequence["IV_MODE"] -= 3
     client.set_buffer()
     collection = client.run(fetch=True, duration=10)
-    assert collection.sid == ["IV.MODE..HNE"]
-    assert collection.nsamp == sum(
-        mseed.MSRecord.from_bytes(packet[3]).nsamp
+    last = [
+        mseed.MSRecord.from_bytes(packet[3])
         for packet in station.packets[-3:]
+    ]
+    assert sorted(collection.sid) == sorted({msr.sid for msr in last})
+    assert sum(stream.nsamp for stream in collection) == sum(
+        msr.nsamp for msr in last
     )
 
 

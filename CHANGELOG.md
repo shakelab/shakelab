@@ -9,6 +9,14 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.seedlink.Client.get_data` returns standard streams with the
+  contiguous records of each channel joined, also for a circular buffer
+  (`set_buffer(max_duration=...)`, which keeps every packet as a
+  separate record): the copy can be processed and used by
+  `exploration.yarray.ArrayMonitor`.
+- `exploration.yarray.ArrayData` joins contiguous segments of a channel
+  that together cover the time window (only the part in the window is
+  copied).
 - Requires `cymseed3>=0.2.1`, published with binary wheels for Linux,
   macOS and Windows: ShakeLab installs on Windows without a C compiler
   (cymseed3 0.2.0 was a source distribution only and did not build
@@ -704,6 +712,23 @@ corrections. The format follows
   GitHub Actions on Linux and macOS, Python 3.10 to 3.14.
 
 ### Fixed
+
+- `exploration.yarray.ArrayMonitor` skipped every window of the
+  circular buffer of the SeedLink client ("no station covers the time
+  window"): the packets were never joined (see `Client.get_data` and
+  `ArrayData` above).
+- `signals.seedlink.Client.run` with a past `end` (dial-up) stopped as
+  soon as the channels received so far had reached the end, losing the
+  stations or channels that a server sends later; it now waits for the
+  end of the transfer (or 10 s without packets).
+- `signals.libio.mseed`: a sampling interval stored in single
+  precision (e.g. the SAC `DELTA` 0.00875 of 800/7 Hz) could not be
+  written; rates within a relative 1e-7 of a 16-bit fraction are
+  written as that fraction.
+- `graphics.yarray`: axis labels in metres (rad/m, m/s, East/North in
+  m) instead of "rad per unit" and labels without units.
+- Example `yarray_12_realtime.py`: reports the skipped windows
+  (`on_skip`) and the connection events.
 
 - `signals.libio.sac`: a file whose STLA/STLO are not geographic
   coordinates (e.g. local coordinates in metres) could not be read

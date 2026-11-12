@@ -23,7 +23,10 @@ Local SeedLink server for the tests of :mod:`shakelab.signals.seedlink`
 port, with a fixed set of MiniSEED packets per station. It records the
 commands received, honours sequence numbers and time windows, ignores
 ``SELECT`` (the client filters the records), and can drop the first
-connection after some packets to test reconnection.
+connection after some packets to test reconnection. The packets of a
+station are numbered in time order; those of different stations are
+sent one station after the other, or in time order with
+``interleave=True`` (as a real-time server).
 """
 
 from __future__ import annotations
@@ -99,19 +102,30 @@ def log_records(text):
 
 
 class Station:
-    """Packets of one station: (sequence, start_ns, end_ns, bytes)."""
+    """
+    Packets of one station: (sequence, start_ns, end_ns, bytes).
+
+    The packets of the channels are numbered in time order (end time,
+    then start time), as a real server numbers them in order of
+    arrival.
+    """
 
     def __init__(self, network, station, records, first_sequence=100):
         self.network = network
         self.station = station
-        self.packets = []
-        sequence = first_sequence
+        spans = []
         for block in mseed_packets(records):
             msr = mseed.MSRecord.from_bytes(block)
             start = msr.start_ns
             end = start + int(msr.nsamp * 1e9 / msr.rate)
-            self.packets.append((sequence, start, end, block))
-            sequence += 1
+            spans.append((end, start, block))
+        spans.sort(key=lambda item: item[:2])
+        self.packets = [
+            (sequence, start, end, block)
+            for sequence, (end, start, block) in enumerate(
+                spans, first_sequence
+            )
+        ]
 
     @property
     def key(self):
@@ -139,10 +153,16 @@ class FakeServer:
         Command prefix answered with an error.
     info_error : bool, optional
         Answer the INFO requests with an error.
+    interleave : bool, optional
+        Send the packets of all the stations in time order (end time),
+        as a real-time server does, instead of one station after the
+        other.
     """
 
     def __init__(self, stations, version="3.1", hello=None,
-                 drop_after=None, reject=None, info_error=False):
+                 drop_after=None, reject=None, info_error=False,
+                 interleave=False):
+        self.interleave = interleave
         self.stations = {item.key: item for item in stations}
         self.version = version
         self.hello = hello or (HELLO_V4 if version == "4.0" else HELLO_V3)
@@ -254,7 +274,7 @@ class FakeServer:
                 conn.sendall(b"ERROR UNSUPPORTED\r\n")
 
     def _transfer(self, conn, reader, requests, fetch, number):
-        sent = 0
+        queue = []
         done = set()
         for request in requests:
             for key, station in self.stations.items():
@@ -281,14 +301,18 @@ class FakeServer:
                         request["end"]
                     ):
                         continue
-                    if (
-                        number == 1
-                        and self.drop_after is not None
-                        and sent >= self.drop_after
-                    ):
-                        return
-                    conn.sendall(self._packet(station, sequence, block))
-                    sent += 1
+                    queue.append((end, start, station, sequence, block))
+        if self.interleave:
+            queue.sort(key=lambda item: item[:2])
+
+        for sent, (_, _, station, sequence, block) in enumerate(queue):
+            if (
+                number == 1
+                and self.drop_after is not None
+                and sent >= self.drop_after
+            ):
+                return
+            conn.sendall(self._packet(station, sequence, block))
 
         if fetch:
             conn.sendall(b"END")

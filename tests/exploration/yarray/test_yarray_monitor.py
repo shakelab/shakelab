@@ -361,3 +361,55 @@ def test_within_the_seedlink_client():
     best = monitor.latest().maxima_at(rank=1)[0]
     assert best.velocity == pytest.approx(VELOCITY, abs=20.0)
     assert best.azimuth == pytest.approx(AZIMUTH)
+
+
+def test_circular_buffer_of_the_seedlink_client():
+    """
+    The monitor processes the circular buffer of the client.
+
+    The test server sends the packets of the six stations in time order,
+    as a real-time server; the buffer keeps the last 40 s, as separate
+    packets. Every 15 s of data the monitor processes the last 30 s:
+    the first call is skipped (15 s of data), the others are analysed.
+    """
+    from shakelab.signals.seedlink import Client
+
+    server_module = _seedlink_test_server()
+    records = _records(scale=1000.0, integer=True)
+    stations = [
+        server_module.Station("XX", sid.split(".")[1], [record])
+        for sid, record in zip(SIDS, records)
+    ]
+    server = server_module.FakeServer(stations, interleave=True)
+    reasons = []
+
+    try:
+        client = Client("127.0.0.1", port=server.port, timeout=5.0)
+        client.select("XX.*..HHZ")
+        client.set_buffer(max_duration=40.0)
+        monitor = ArrayMonitor(
+            CONFIG, window=30.0, background=False,
+            coordinates=dict(zip(SIDS, COORDINATES)),
+        )
+        monitor.on_skip(lambda monitor, reason: reasons.append(reason))
+        client.every(15.0, monitor, clock="data")
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            client.run(fetch=True, duration=20)
+
+        assert all(
+            len(stream.records()) > 1 for stream in client.buffer
+        )
+
+    finally:
+        server.close()
+
+    status = monitor.status()
+    assert status["calls"] == 3
+    assert status["analyses"] == 2
+    assert len(reasons) == 1 and "the buffer covers" in reasons[0]
+    for result in monitor.results():
+        best = result.maxima_at(rank=1)[0]
+        assert best.velocity == pytest.approx(VELOCITY, abs=20.0)
+        assert best.azimuth == pytest.approx(AZIMUTH)

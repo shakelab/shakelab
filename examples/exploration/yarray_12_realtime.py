@@ -46,7 +46,13 @@ def show(monitor, result):
     print(result.maxima_at(rank=1, frequency=5.0))
 
 
+@monitor.on_skip
+def skipped(monitor, reason):           # windows that cannot be processed
+    print("skipped:", reason)
+
+
 client.every(60, monitor)               # clock="data" to replay an archive
+client.on_event(monitor.on_event)       # connection events in the log
 client.start()
 
 # From any thread, while it runs:

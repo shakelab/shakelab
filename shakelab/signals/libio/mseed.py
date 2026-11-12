@@ -118,6 +118,11 @@ SUPPORTED_ENCODINGS = tuple(SIMPLE_ENCODINGS) + STEIM_ENCODINGS
 # Record lengths: powers of two from 128 to 65536 bytes.
 RECORD_LENGTHS = tuple(2 ** k for k in range(7, 17))
 
+# Largest relative difference between a sampling rate and the fraction
+# written in the header (factor and multiplier): above the precision of
+# a rate computed from a single-precision interval (2**-24 ~ 6e-8).
+RATE_TOLERANCE = 1e-7
+
 # Fixed section of the data header (48 bytes).
 HEADER_SIZE = 48
 
@@ -1616,6 +1621,11 @@ def _sampling_rate_factors(delta: float) -> tuple:
     """
     Rate factor and multiplier of a sampling interval.
 
+    The rate is the nearest fraction with terms of 16 bits, accepted
+    within a relative difference of :data:`RATE_TOLERANCE`: a sampling
+    interval stored in single precision (e.g. the SAC ``DELTA``
+    0.00875 for 800/7 Hz) is written as the exact fraction.
+
     Raises
     ------
     ValueError
@@ -1637,7 +1647,7 @@ def _sampling_rate_factors(delta: float) -> tuple:
 
     multiplier = 1 if denominator == 1 else -denominator
     if abs(_nominal_rate(numerator, multiplier) - rate) > max(
-        rate * 1e-12, 1e-15
+        rate * RATE_TOLERANCE, 1e-15
     ):
         raise ValueError(
             "Sampling rate cannot be represented accurately by MiniSEED "

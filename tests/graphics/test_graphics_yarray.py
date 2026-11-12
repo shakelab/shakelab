@@ -240,6 +240,8 @@ def test_plot_array_geometry(analysis):
 
     _, axis = plot_array_geometry(array, labels=True)
     assert len(axis.collections[0].get_offsets()) == 9
+    assert (axis.get_xlabel(), axis.get_ylabel()) == ("East (m)",
+                                                      "North (m)")
     assert [text.get_text() for text in axis.texts] == list(array.sids)
     _, axis = plot_array_geometry(analysis.response, principal_axes=False,
                                   centered=True)
@@ -260,6 +262,7 @@ def test_plot_array_response(analysis):
     assert image.max() == pytest.approx(0.0) and image.min() >= -40.0
     assert len([line for line in axis.lines if line.get_marker() == "x"]) \
         == 3
+    assert axis.get_xlabel() == "$k_x$ (rad/m)"
     _, axis = plot_array_response(analysis.response, scale="linear")
     assert axis.collections[0].get_array().max() == pytest.approx(1.0)
 
@@ -280,6 +283,7 @@ def test_plot_resolution_and_limits(analysis):
     limits = analysis.velocity_limits([1.0, 2.0, 5.0])
     _, axis = plot_velocity_limits(limits)
     np.testing.assert_allclose(axis.lines[0].get_ydata(), limits.minimum)
+    assert axis.get_ylabel() == "Phase velocity (m/s)"
     domain = analysis.response.search_domain(0.03)
     _, axis = plot_search_domain(analysis, domain)
     assert "safe" in axis.get_title()
@@ -308,6 +312,7 @@ def test_plot_performance(performance):
         axis.collections[0].get_array(),
         assessment.conservative_local_probability.T,
     )
+    assert axis.get_ylabel() == "Phase velocity (m/s)"
 
     with pytest.raises(ValueError, match="quantity"):
         plot_performance_sweep(sweep, "power")

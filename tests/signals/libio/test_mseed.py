@@ -533,6 +533,21 @@ class TestMiniSeed(unittest.TestCase):
             sampling_rate,
         )
 
+    def test_sampling_rate_factors_single_precision(self):
+        """A single-precision interval (SAC DELTA) gives the fraction."""
+        delta = float(np.float32(0.00875))
+
+        factor, multiplier = _sampling_rate_factors(delta)
+
+        self.assertEqual((factor, multiplier), (800, -7))
+
+    def test_sampling_rate_factors_inaccurate(self):
+        """Rates far from any 16-bit fraction are rejected."""
+        delta = 1.0 / (800.0 / 7.0 * (1.0 + 1e-6))
+
+        with self.assertRaises(ValueError):
+            _sampling_rate_factors(delta)
+
     def test_mswrite_rejects_mseed3(self):
         """Test rejection of unsupported MiniSEED 3 output."""
         collection = StreamCollection()

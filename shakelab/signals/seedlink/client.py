@@ -76,6 +76,7 @@ from shakelab.signals import metadata as _metadata
 from shakelab.signals.base import (
     MERGE_TOLERANCE,
     Record,
+    Stream,
     StreamCollection,
     _compatible_meta,
     _set_metadata,
@@ -715,9 +716,10 @@ class Client:
             received in an earlier run).
         end : Date or str, optional
             End of the data requested. A past end time implies
-            ``fetch=True``. The run stops when the wall clock and every
-            channel received have passed it, or when no packet arrives
-            for 10 s after it.
+            ``fetch=True``: the run stops when the server has sent the
+            data. In real time it stops when the wall clock and every
+            channel received have passed it. In both modes it also
+            stops when no packet arrives for 10 s after it.
         fetch : bool, optional
             Dial-up mode: the server sends the data it holds and then
             ends the session. Default is False (real time).
@@ -844,7 +846,10 @@ class Client:
         Returns
         -------
         StreamCollection
-            Independent copy of the selected data.
+            Independent copy of the selected data, with the contiguous
+            records of each channel joined. The streams are standard
+            streams also for a circular buffer, so that the copy can be
+            processed.
 
         Raises
         ------
@@ -856,11 +861,9 @@ class Client:
             self._flush()
             if self._buffer is None:
                 raise RuntimeError("no buffer is set")
-            collection = StreamCollection(
-                max_duration=self._buffer.max_duration
-            )
+            collection = StreamCollection()
             collection.stream = [
-                stream.copy()
+                _joined_copy(stream)
                 for stream in self._buffer
                 if any(pattern.matches(stream.sid) for pattern in patterns)
             ]
@@ -1235,7 +1238,7 @@ class Client:
             if deadline is not None and now >= deadline:
                 return True
             if settings.end_ns is not None and self._window_complete(
-                settings.end_ns, now - last_packet
+                settings.end_ns, now - last_packet, settings.fetch
             ):
                 return True
             self._run_wall_timers(now)
@@ -1274,18 +1277,29 @@ class Client:
                 return True
             self._handle_packet(packet, connection.version)
 
-    def _window_complete(self, end_ns: int, idle: float) -> bool:
+    def _window_complete(
+        self,
+        end_ns: int,
+        idle: float,
+        fetch: bool,
+    ) -> bool:
         """
         Whether the requested data up to ``end_ns`` have arrived.
 
-        True when the wall clock has passed the end and every channel
-        received in this run has reached it, or no packet has arrived
-        for :data:`WINDOW_IDLE` seconds (the server has no more data).
+        True when the wall clock has passed the end and no packet has
+        arrived for :data:`WINDOW_IDLE` seconds (the server has no more
+        data). In real time, also when every channel received in this
+        run has reached the end. In dial-up mode the server ends the
+        session after the data (``END``): a server may send the
+        stations or the channels one after the other, so the channels
+        received so far do not tell that the transfer is complete.
         """
         if Date.now().to_unix_ns() < end_ns:
             return False
         if idle >= min(WINDOW_IDLE, self.timeout):
             return True
+        if fetch:
+            return False
         with self._lock:
             reached = list(self._run_end.values())
         return bool(reached) and min(reached) >= end_ns
@@ -1935,16 +1949,24 @@ def _ms2_station(payload: bytes) -> Optional[str]:
     return f"{network}_{station}"
 
 
-def _join_contiguous(records: list) -> Iterator[Record]:
-    """Join runs of contiguous records into single records."""
+def _join_contiguous(
+    records: list,
+    copy: bool = False,
+) -> Iterator[Record]:
+    """
+    Join runs of contiguous records into single records.
+
+    A run of one record is yielded as it is, or copied if ``copy`` is
+    True (joined runs are always new records).
+    """
     group = [records[0]]
     for record in records[1:]:
         if _contiguous(group[-1], record):
             group.append(record)
         else:
-            yield _concatenate(group)
+            yield _concatenate(group, copy)
             group = [record]
-    yield _concatenate(group)
+    yield _concatenate(group, copy)
 
 
 def _contiguous(first: Record, second: Record) -> bool:
@@ -1961,10 +1983,23 @@ def _contiguous(first: Record, second: Record) -> bool:
     return abs(offset) <= MERGE_TOLERANCE
 
 
-def _concatenate(group: list) -> Record:
+def _joined_copy(stream: Stream) -> Stream:
+    """
+    Standard stream with independent copies of the records of a
+    stream, the contiguous ones joined (a circular buffer keeps every
+    packet as a separate record).
+    """
+    copy = Stream(sid=stream.sid)
+    records = list(stream.records())
+    if records:
+        copy._replace_records(_join_contiguous(records, copy=True))
+    return copy
+
+
+def _concatenate(group: list, copy: bool = False) -> Record:
     """Single record with the samples of contiguous records."""
     if len(group) == 1:
-        return group[0]
+        return group[0].copy() if copy else group[0]
     record = group[0].copy()
     record.data = np.concatenate([item.data for item in group])
     return record

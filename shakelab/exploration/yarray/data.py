@@ -96,10 +96,12 @@ from shakelab.libutils.geodeticN import (
 from shakelab.libutils.timeN import Date
 from shakelab.libutils.utils import warn_external
 from shakelab.signals.base import (
+    MERGE_TOLERANCE,
     SNAP_TOLERANCE,
     Record,
     Stream,
     StreamCollection,
+    _compatible_meta,
 )
 from shakelab.signals.codes import match_sid
 
@@ -1651,20 +1653,65 @@ def _cut_channel(
     end: Date,
     snap_tolerance: float,
 ) -> Optional[Record]:
-    """Return the channel cut to the window, or None if incomplete."""
+    """
+    Return the channel cut to the window, or None if incomplete.
+
+    ``segments`` are sorted by start time. Contiguous segments that
+    together cover the window are joined (e.g. the packets of a
+    real-time buffer): only those overlapping the window are copied.
+    """
+    run: list[Record] = []
+
     for record in segments:
         if record.nsamp == 0 or record.delta is None or record.time is None:
             continue
 
         tolerance = snap_tolerance * record.delta
 
-        if (
-            record.starttime - start <= tolerance
-            and end - record.endtime <= tolerance
-        ):
-            return record.extract(start, end, snap_tolerance=snap_tolerance)
+        if record.endtime - start < -tolerance:
+            continue
+
+        if record.starttime - end > tolerance:
+            break
+
+        if run and not _continues(run[-1], record):
+            run = []
+
+        if not run and record.starttime - start > tolerance:
+            return None
+
+        run.append(record)
+
+        if end - record.endtime <= tolerance:
+            return _joined(run).extract(
+                start, end, snap_tolerance=snap_tolerance
+            )
 
     return None
+
+
+def _continues(first: Record, second: Record) -> bool:
+    """Whether ``second`` follows ``first`` without gap or overlap."""
+    delta = first.delta
+
+    if (
+        not math.isclose(delta, second.delta, rel_tol=1e-9, abs_tol=0.0)
+        or not _compatible_meta(first.head.meta, second.head.meta)
+    ):
+        return False
+
+    offset = (second.starttime - first.starttime) / delta - first.nsamp
+    return abs(offset) <= MERGE_TOLERANCE
+
+
+def _joined(records: list) -> Record:
+    """Single record with the samples of contiguous records."""
+    if len(records) == 1:
+        return records[0]
+
+    record = records[0].copy()
+    record.data = np.concatenate([item.data for item in records])
+    return record
 
 
 def _frame(reference: Any, locations: list) -> MetricFrame:

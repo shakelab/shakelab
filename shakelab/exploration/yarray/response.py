@@ -22,8 +22,8 @@ Geometric response and ambiguity of two-dimensional arrays.
 
 The response depends on the station positions only: no data, estimator
 or processing configuration is involved. Coordinates are east (x) and
-north (y); azimuths are clockwise from north; wavenumbers are angular
-(radians per unit of the coordinates).
+north (y) in metres; azimuths are clockwise from north; wavenumbers
+are angular (rad/m).
 
 For stations at ``r_n`` the normalized array factor and the power
 response (geometric ambiguity function) are::

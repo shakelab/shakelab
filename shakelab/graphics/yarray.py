@@ -718,8 +718,8 @@ def plot_array_geometry(
                       color="gray", linestyle="--", linewidth=1.0)
 
     axis.set_aspect("equal", adjustable="datalim")
-    axis.set_xlabel("East")
-    axis.set_ylabel("North")
+    axis.set_xlabel("East (m)")
+    axis.set_ylabel("North (m)")
     axis.set_title(f"Array geometry ({geometry.n_stations} stations)")
     axis.grid(True, alpha=0.25)
     axis.legend(loc="best")
@@ -796,8 +796,8 @@ def plot_array_response(
 
     axis.axhline(0.0, color="w", linewidth=0.5, alpha=0.5)
     axis.axvline(0.0, color="w", linewidth=0.5, alpha=0.5)
-    axis.set_xlabel("$k_x$ (rad per unit)")
-    axis.set_ylabel("$k_y$ (rad per unit)")
+    axis.set_xlabel("$k_x$ (rad/m)")
+    axis.set_ylabel("$k_y$ (rad/m)")
     axis.set_title("Expected array response" if expected
                    else "Array response")
 
@@ -865,7 +865,7 @@ def plot_resolution(
                   np.append(values, values[0]))
         axis.set_xlim(0.0, 180.0)
         axis.set_xlabel("Axis azimuth (degrees)")
-        axis.set_ylabel(f"{label} (rad per unit)")
+        axis.set_ylabel(f"{label} (rad/m)")
         axis.grid(True, alpha=0.25)
 
     axis.set_title(f"{label} at level {lobe.level:g}")
@@ -930,8 +930,8 @@ def plot_search_domain(
     for peak in domain.ambiguity_peaks:
         axis.plot(peak.kx, peak.ky, "x", color="tab:red", markersize=8)
 
-    axis.set_xlabel("$\\Delta k_x$ (rad per unit)")
-    axis.set_ylabel("$\\Delta k_y$ (rad per unit)")
+    axis.set_xlabel("$\\Delta k_x$ (rad/m)")
+    axis.set_ylabel("$\\Delta k_y$ (rad/m)")
     axis.set_title("Search domain: "
                    + ("safe" if domain.is_safe else "ambiguous"))
     axis.legend(loc="upper right")
@@ -986,7 +986,7 @@ def plot_velocity_limits(
         _plain_log_axis(axis, "y")
 
     axis.set_xlabel("Frequency (Hz)")
-    axis.set_ylabel("Phase velocity")
+    axis.set_ylabel("Phase velocity (m/s)")
     axis.set_title("Geometric velocity limits")
     axis.grid(True, which="both", alpha=0.25)
     axis.legend(loc="best")
@@ -1057,8 +1057,8 @@ def plot_performance(result: PerformanceResult, ax: Any = None) -> tuple:
     axis.set_xlim(-1.05 * limit, 1.05 * limit)
     axis.set_ylim(-1.05 * limit, 1.05 * limit)
     axis.set_aspect("equal", adjustable="box")
-    axis.set_xlabel("$k_x$ (rad per unit)")
-    axis.set_ylabel("$k_y$ (rad per unit)")
+    axis.set_xlabel("$k_x$ (rad/m)")
+    axis.set_ylabel("$k_y$ (rad/m)")
     config = result.config
     axis.set_title(
         f"{config.method.value}, SNR {config.snr_db:g} dB, "
@@ -1208,7 +1208,7 @@ def plot_operational(
 
     config = assessment.config
     axis.set_xlabel("Frequency (Hz)")
-    axis.set_ylabel("Phase velocity")
+    axis.set_ylabel("Phase velocity (m/s)")
     axis.set_title(
         f"Operational envelope: {config.method.value}, SNR "
         f"{config.snr_db:g} dB, {config.realizations} realizations"

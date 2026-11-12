@@ -562,6 +562,63 @@ def test_from_collection_raises_on_gaps():
         ArrayData(_gap_collection(), gaps="fill")
 
 
+def _packets(record, size=37, gap_at=None):
+    """Contiguous pieces of a record (a missing sample at ``gap_at``)."""
+    pieces = []
+
+    for first in range(0, record.nsamp, size):
+        start = first + (first == gap_at)
+        piece = record.extract(record.time + start * DELTA,
+                               record.time + (first + size - 1) * DELTA)
+        pieces.append(piece)
+
+    return pieces
+
+
+def test_contiguous_segments_are_joined():
+    """Packets of a real-time buffer give the same array as records."""
+    records = (
+        _station_records("A01", location=LOCATIONS["A01"])
+        + _station_records("A02", location=LOCATIONS["A02"])
+    )
+    window = (Date(START) + 0.505, Date(START) + 4.0)
+    whole = ArrayData(records, starttime=window[0], endtime=window[1])
+    buffer = StreamCollection(max_duration=600.0)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+
+        for record in records:
+            for piece in _packets(record):
+                buffer.append(piece)
+
+    assert len(buffer.records()) > len(records)
+    array = ArrayData(buffer, starttime=window[0], endtime=window[1])
+
+    assert array.sids == whole.sids
+    for station, expected in zip(array, whole):
+        for record, reference in zip(station.records, expected.records):
+            assert record.time == reference.time
+            np.testing.assert_array_equal(record.data, reference.data)
+
+
+def test_gap_between_segments():
+    """A missing sample inside the window excludes the station."""
+    records = _station_records("A01", location=LOCATIONS["A01"])
+    others = _station_records("A02", location=LOCATIONS["A02"])
+    pieces = _packets(records[1], gap_at=148) + [records[0], records[2]]
+
+    with pytest.warns(ArrayDataWarning, match="XX.A01..HHN"):
+        array = ArrayData(pieces + others, starttime=Date(START) + 1.0,
+                          endtime=Date(START) + 4.0)
+
+    assert array.sids == ("XX.A02.",)
+    # Outside the window the gap does not matter.
+    array = ArrayData(pieces + others, starttime=Date(START) + 2.0,
+                      endtime=Date(START) + 4.0)
+    assert array.sids == ("XX.A01.", "XX.A02.")
+
+
 def test_from_collection_selection():
     """Channels of different instruments must be selected."""
     records = _station_records("A01", location=LOCATIONS["A01"])
