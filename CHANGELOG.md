@@ -440,6 +440,27 @@ corrections. The format follows
 
 ### Added
 
+- `exploration.yarray`: frequency domain decomposition (FDD), new
+  module `fdd`. `FDDConfig` (same frequencies and windows as
+  `BeamformingConfig`, plus `subfrequencies`, `bandwidth`,
+  `normalization` "none" or "coherence", `components` "vertical",
+  "north", "east", "radial", "transverse" with `azimuth`,
+  "horizontal", "three_component", and `vectors`);
+  `FDD(array, config).process(starttime, endtime, gaps)` decomposes
+  the cross-spectral matrices of every block into singular values and
+  vectors (phase and sign normalized) and returns an `FDDResult`:
+  `singular_values()` (geometric mean and logarithmic standard
+  deviation over the blocks), `peaks(fmin, fmax, index, prominence,
+  count)` (prominent maxima of a singular value), `mode(frequency,
+  index)` (a `Mode`: real shape with unit norm, spread among the
+  blocks, singular value, mean MAC, channels and coordinates),
+  `append`, `read`, `write(append)`, `copy`, `summary`, `info`;
+  `mac(a, b)` (modal assurance criterion); `FDDWarning` for
+  frequencies without complete blocks. Result files hold beamforming
+  or FDD results: `BeamformingResult` refuses FDD results and
+  `FDDResult` beamforming results. README, guide (new Section 9,
+  usage in Section 12; later sections renumbered) and example
+  `17_fdd.py`.
 - `signals.crossspectral.CrossSpectra`: cross-spectral matrices of a
   set of channels by frequency and block, the common input of the
   frequency domain decomposition (FDD) and of future coherence-based
@@ -450,7 +471,8 @@ corrections. The format follows
   windows or a fixed number of cycles of each frequency, so the blocks
   may change with the frequency) and optionally over sub-frequencies
   equally spaced in logarithm around each frequency; `matrices(k)`,
-  `times(k)` (block centres), `realizations(k)`, `mean()`,
+  `times(k)` (block centres: midpoint between the first and the last
+  sample, as in the beamforming), `realizations(k)`, `mean()`,
   `coherence()` (Pearson coherence scaled to the mean power of the
   channels), `decompose(k)` (eigenvalues in decreasing order and
   eigenvectors of every block), `copy`, `summary`, `info`.

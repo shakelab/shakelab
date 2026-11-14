@@ -352,7 +352,7 @@ def write_result_state(
     owrite: bool = False,
 ) -> None:
     """
-    Write the state of a beamforming result to a pickle file.
+    Write the state of a result (beamforming or FDD) to a pickle file.
 
     Parameters
     ----------

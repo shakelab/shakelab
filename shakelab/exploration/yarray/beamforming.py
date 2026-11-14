@@ -946,6 +946,9 @@ class BeamformingResult:
     @classmethod
     def _from_state(cls, state: dict) -> BeamformingResult:
         """Result from the state of a file."""
+        if state.get("kind", "beamforming") != "beamforming":
+            raise ValueError("not a beamforming result")
+
         result = cls()
         result.maxima = list(state["maxima"])
         result.spectra = (

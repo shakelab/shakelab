@@ -39,3 +39,4 @@ Array processing (`shakelab.exploration.yarray`, guide in
 | [`exploration/yarray/14_performance.py`](exploration/yarray/14_performance.py) | Monte Carlo performance of the estimators; SNR-windows sweep |
 | [`exploration/yarray/15_operational.py`](exploration/yarray/15_operational.py) | Frequency-velocity envelope with criteria, limiting factors and recommendations |
 | [`exploration/yarray/16_profiling.py`](exploration/yarray/16_profiling.py) | Processing times of the main choices of a configuration |
+| [`exploration/yarray/17_fdd.py`](exploration/yarray/17_fdd.py) | Frequency domain decomposition: singular values, resonance peaks, mode shapes, MAC, files |

@@ -22,6 +22,8 @@ with its main uses and modules, is in the
 [package README](../../shakelab/exploration/yarray/README.md); scripts
 illustrating every way of use are in
 [`examples/exploration/yarray/`](../../examples/README.md#exploration).
+The frequency domain decomposition (Sections 9 and 12) uses the same
+cross-spectral matrices to identify resonances and their shapes.
 The guide derives from the four documents of the YARRAY development code
 (August 2026: theoretical background, software architecture, user
 manual, array response theory), updated to the implementation in
@@ -39,23 +41,24 @@ Part I. Theory
 6. [Spectral maxima and their density](#6-spectral-maxima-and-their-density)
 7. [Geometric array response](#7-geometric-array-response)
 8. [Statistical performance and operational limits](#8-statistical-performance-and-operational-limits)
+9. [Frequency domain decomposition](#9-frequency-domain-decomposition)
 
 Part II. Use
 
-9. [Data](#9-data)
-10. [Configuration](#10-configuration)
-11. [Processing and results](#11-processing-and-results)
-12. [Command line](#12-command-line)
-13. [Real time](#13-real-time)
-14. [Survey planning](#14-survey-planning)
-15. [Practical guidance and processing times](#15-practical-guidance-and-processing-times)
+10. [Data](#10-data)
+11. [Configuration](#11-configuration)
+12. [Processing and results](#12-processing-and-results)
+13. [Command line](#13-command-line)
+14. [Real time](#14-real-time)
+15. [Survey planning](#15-survey-planning)
+16. [Practical guidance and processing times](#16-practical-guidance-and-processing-times)
 
 Part III. Design, validation and limits
 
-16. [Design choices](#16-design-choices)
-17. [Validation](#17-validation)
-18. [Current limitations and planned extensions](#18-current-limitations-and-planned-extensions)
-19. [References](#19-references)
+17. [Design choices](#17-design-choices)
+18. [Validation](#18-validation)
+19. [Current limitations and planned extensions](#19-current-limitations-and-planned-extensions)
+20. [References](#20-references)
 
 # Part I. Theory
 
@@ -281,12 +284,12 @@ ellipticity grid (identical results, more than ten times faster than
 solving one system per ellipticity).
 
 Capon underestimates the power by about $`(L - n + 1) / L`$ for a
-matrix of dimension $`n`$ and $`L`$ windows (Section 18): more for the
+matrix of dimension $`n`$ and $`L`$ windows (Section 19): more for the
 matrices of dimension $`2N`$ and $`3N`$ than for single components,
 so compare powers of different modes with Bartlett or with many
 windows. The correction of the noise difference between vertical and
 horizontal components (Wathelet, 2024, Section 3.6) is not
-implemented yet (Section 18).
+implemented yet (Section 19).
 
 ## 5. Uncertainty of the power
 
@@ -499,6 +502,78 @@ grid quantization, aliasing, other failures, low SNR, resolution).
 There is no opaque quality score. Recommendations explain the limits
 and suggest processing changes; the geometry itself is not optimized.
 
+## 9. Frequency domain decomposition
+
+The frequency domain decomposition (FDD; Brincker et al., 2001)
+identifies the resonances of a system from its response alone, without
+knowing the excitation: the modes of a structure, or the
+two-dimensional resonances of a sediment-filled valley recorded by a
+linear array (Ermert et al., 2014). It uses the same cross-spectral
+matrices as the beamforming (Section 1), with each component of each
+station as a channel, but no wave model: no coordinates enter the
+computation, and the shapes are read on the geometry of the array.
+
+**Decomposition.** At each frequency the Hermitian, positive
+semi-definite CSM of a block is decomposed into its singular values
+$`s_1 \geq s_2 \geq \dots \geq s_N`$ and singular vectors
+$`𝐮_1, \dots, 𝐮_N`$ (for such a matrix the singular value
+decomposition coincides with the eigendecomposition):
+
+```math
+𝐂(f) = 𝐔(f)\, 𝐒(f)\, 𝐔^H(f),
+\qquad 𝐒 = \mathrm{diag}(s_1, \dots, s_N)
+```
+
+For a lightly damped system excited by broadband noise, close to a
+natural frequency the response is dominated by one mode: the CSM has
+rank close to one, $`s_1`$ peaks and $`𝐮_1`$ is proportional to the
+mode shape. The following singular values show closely spaced modes
+and the level of the noise. Away from resonances, or for a wavefield
+of travelling waves (as in most f-k analyses), several sources
+contribute and the vectors are complex and change from block to
+block.
+
+**Statistics over blocks.** Each block gives one decomposition. The
+singular values are summarized by their geometric mean and the
+standard deviation of their natural logarithm, which give the band
+$`\bar{s}\, e^{\pm \sigma_{\ln s}}`$. A singular vector is defined up
+to a complex factor of unit modulus: each is rotated by
+$`-\frac{1}{2} \arg(𝐮^T 𝐮)`$, the angle that maximizes the norm of its
+real part, and given the sign that agrees with the previous blocks.
+The shape of a mode is the mean of the real parts, with unit norm and
+its largest component positive, and its stability is the mean
+modal assurance criterion (MAC; Allemang and Brown, 1982) between the
+shape and the vectors of the blocks:
+
+```math
+\mathrm{MAC}(𝐚, 𝐛) = \frac{|𝐚^H 𝐛|^2}{(𝐚^H 𝐚)(𝐛^H 𝐛)}
+```
+
+which is 1 for proportional vectors and 0 for orthogonal ones.
+
+**Peaks.** The candidate resonances are the local maxima of the
+geometric mean of $`s_1`$ over the analysis frequencies whose
+prominence, the ratio between the peak and the higher of the minima
+that separate it from larger peaks, exceeds a threshold (2 by
+default): the small fluctuations of the estimate have prominences
+close to 1.
+
+**Options.** The windows have a fixed duration (constant resolution,
+as in the classical FDD) or a fixed number of cycles (resolution
+proportional to the frequency). The matrix can average, besides the
+windows of a block, a few sub-frequencies equally spaced in logarithm
+around each frequency (`subfrequencies`, relative `bandwidth`), which
+adds realizations at the cost of resolution. With
+`normalization="coherence"` each matrix is replaced by its coherence,
+$`C_{ij} / \sqrt{C_{ii} C_{jj}}`$, multiplied by the mean power
+$`\mathrm{tr}(𝐂) / N`$: the differences of gain between the channels
+(uncorrected data, different sensors) no longer weigh on the vectors.
+
+The frequency of a peak is limited by the frequency step of the
+analysis and by the resolution of the windows; the FDD gives no
+damping. Both are improved by the enhanced FDD (Brincker, Ventura and
+Andersen, 2001), planned (Section 19).
+
 # Part II. Use
 
 ```python
@@ -512,7 +587,7 @@ the figures `shakelab.graphics.yarray`. Options with fixed values are
 enumerations whose string values are accepted everywhere
 (`method="capon"`).
 
-## 9. Data
+## 10. Data
 
 An `ArrayData` holds the stations (`StationData`: records, ENU
 coordinates, orientation of the components, optional coordinate
@@ -599,7 +674,7 @@ one record; the components of a station are cut to their common time
 window. An array file takes no reader options in `ArrayData` (they are
 written in the file).
 
-## 10. Configuration
+## 11. Configuration
 
 `BeamformingConfig` collects every parameter. Each one can be given
 singly, with the name of the corresponding command-line option
@@ -697,7 +772,7 @@ Missing fields take the defaults; unknown sections are ignored by the
 processing, so the section `graphics` of the command line can live in
 the same file.
 
-## 11. Processing and results
+## 12. Processing and results
 
 ```python
 from shakelab.exploration.yarray import ArrayData, Beamformer
@@ -764,7 +839,50 @@ coordinates), `plot_density`. See the examples `01_array.py` to
 `10_density.py` in
 [`examples/exploration/yarray/`](../../examples/README.md#exploration).
 
-## 12. Command line
+### Frequency domain decomposition
+
+```python
+from shakelab.exploration.yarray import ArrayData, FDD, FDDConfig
+
+array = ArrayData("array.json")
+config = FDDConfig(fmin=0.1, fmax=1.0, nfreq=100,
+                   frequency_scale="linear", window_length=20,
+                   windows_per_block=20, components="transverse",
+                   azimuth=30.0, normalization="coherence")
+result = FDD(array, config).process()
+result.info()
+
+frequency, mean, log_std = result.singular_values()
+peaks = result.peaks(fmin=0.2, fmax=0.8)
+mode = result.mode(peaks[0])
+mode.info()
+```
+
+`FDDConfig` has the frequencies and windows of `BeamformingConfig`
+(same names; with fixed windows and no `nfreq`, the FFT frequencies of
+the window between `fmin` and `fmax`), plus `subfrequencies`,
+`bandwidth`, `normalization` (`"none"` or `"coherence"`),
+`components` (`"vertical"`, `"north"`, `"east"`, `"radial"` and
+`"transverse"` with `azimuth`, `"horizontal"`, `"three_component"`)
+and `vectors`, the number of singular vectors kept for each block (3).
+`FDD(array, config)` keeps the array by reference and a copy of the
+configuration, like the `Beamformer`; frequencies without complete
+blocks give an `FDDWarning`.
+
+`FDDResult` holds, by frequency, the block times, all the singular
+values and the first singular vectors of every block (with normalized
+phase and sign), the channels (`stations`, `components`, `channels`),
+their coordinates and the units (`power_units`).
+`singular_values()` returns the geometric mean and the logarithmic
+standard deviation; `peaks(fmin, fmax, index, prominence, count)` the
+frequencies of the peaks; `mode(frequency, index)` a `Mode` with the
+shape, its standard deviation among the blocks, the singular value,
+the mean MAC and the channels. `mac(a, b)` compares two shapes. Files
+work as for the beamforming: `write(..., append=True)` accumulates
+results with the same configuration and channels, read back joined by
+`FDDResult(file)`.
+
+## 13. Command line
 
 `slab-yarray` (installed with ShakeLab; `python -m
 shakelab.exploration.yarray` is equivalent):
@@ -806,7 +924,7 @@ needs too many choices for a command line and is used from Python.
 See
 [`11_command_line.sh`](../../examples/exploration/yarray/11_command_line.sh).
 
-## 13. Real time
+## 14. Real time
 
 ```python
 from shakelab.exploration.yarray import ArrayMonitor
@@ -843,7 +961,7 @@ object with `get_data(select)` returning a `StreamCollection` can feed
 the monitor. See
 [`12_realtime.py`](../../examples/exploration/yarray/12_realtime.py).
 
-## 14. Survey planning
+## 15. Survey planning
 
 ```python
 from shakelab.exploration.yarray import (
@@ -904,7 +1022,7 @@ parameters: `min_local` (0.9), `max_alias` (0.05), `max_other`
 [`14_performance.py`](../../examples/exploration/yarray/14_performance.py)
 and [`15_operational.py`](../../examples/exploration/yarray/15_operational.py).
 
-## 15. Practical guidance and processing times
+## 16. Practical guidance and processing times
 
 1. Check the array first (`slab-yarray response`): the velocity limits
    tell which frequencies and velocities the grid should cover.
@@ -943,7 +1061,7 @@ much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
 
 # Part III. Design, validation and limits
 
-## 16. Design choices
+## 17. Design choices
 
 - **Layers.** Generic primitives in `shakelab.signals` (no array
   concepts) < `data` < `estimators` < `config` < `beamforming` <
@@ -985,8 +1103,19 @@ much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
   is not derived from it: the Monte Carlo grid is of wavenumbers,
   independent of the frequency, and overlapping windows are fewer
   independent realizations than `windows_per_block`.
+- **FDD on the shared matrices.** The cross-spectral matrices by
+  frequency and block are a generic object of `shakelab.signals`
+  (`crossspectral.CrossSpectra`), with windows in cycles (blocks that
+  change with the frequency) and sub-frequency averaging; the FDD
+  adds the decomposition, the alignment of the vectors and the
+  statistics. `FDD` and `FDDResult` follow `Beamformer` and
+  `BeamformingResult` (array by reference, copy of the configuration,
+  files with `append`); FDD results join only with the same channels,
+  since their statistics combine the blocks channel by channel. The
+  result files hold beamforming or FDD results, each class reading
+  only its own.
 
-## 17. Validation
+## 18. Validation
 
 YARRAY derives from development code written in August 2026 for the
 MODERN project, brought into ShakeLab with tests against the original
@@ -1009,6 +1138,17 @@ results:
   the closed-form ellipticity angle of ARTBF and ARDS against a fine
   grid search.
 
+The frequency domain decomposition is checked on a four-storey shear
+frame excited by white noise at every floor, simulated exactly by modal
+superposition (2 % damping, natural frequencies from 1.5 to 8.1 Hz, 20
+minutes): with 20 s windows (FFT lines every 0.05 Hz) the peaks of the
+first singular value fall within 1.5 lines of the natural frequencies,
+the shapes have MAC above 0.999 with the exact modes and the first
+singular value exceeds the second by more than 20 times at every mode,
+with several noise realizations. The cross-spectral matrices agree with
+the theoretical matrix of mixed white noise, and the coherence
+normalization makes the vectors independent of the channel gains.
+
 Differences from the August code that change numbers: the power is in
 physical units (power spectral density), $`N \Delta / 2`$ times the old
 value (squared for the RTBF objective), with maxima and relative
@@ -1017,7 +1157,7 @@ August JSON files (overlap 0.5, 40 windows per block, block overlap
 0.5), not those of the August Python classes (0, 20, 0); the default
 estimator of the planning is Capon (Bartlett before).
 
-## 18. Current limitations and planned extensions
+## 19. Current limitations and planned extensions
 
 Current limitations:
 
@@ -1041,6 +1181,10 @@ Current limitations:
   processing are not modelled.
 - Results are stored with pickle, which can run arbitrary code when
   read: read only result files of trusted origin.
+- The FDD gives frequencies limited by the analysis step and the
+  window resolution, and no damping; it needs the position of every
+  station (as the rest of YARRAY), and it has no real-time monitor
+  yet.
 
 Planned extensions:
 
@@ -1050,9 +1194,13 @@ Planned extensions:
 - Correction of the vertical-horizontal noise difference of the
   angular processing (Wathelet, 2024, Section 3.6).
 - Bias correction of Capon, $`(L - n + 1) / L`$, as an option.
+- Enhanced FDD (Brincker, Ventura and Andersen, 2001): damping and
+  frequency from the single-degree-of-freedom bell of each mode, on a
+  local spectrum with fixed windows; figures of the FDD; a real-time
+  monitor for the FDD; positions optional for the FDD.
 - Multitaper spectral estimates with a rigorous number of degrees of
-  freedom; a `CrossSpectra` class shared with frequency domain
-  decomposition (FDD) and spatial autocorrelation (SPAC).
+  freedom; the `CrossSpectra` of the FDD used also by the beamforming
+  and by spatial autocorrelation (SPAC).
 - Results in `.npz` and JSON instead of pickle.
 - Mode tracking across frequencies (manual, automatic, hybrid) from
   the density peaks.
@@ -1061,8 +1209,19 @@ Planned extensions:
   spacing; a constrained geometry optimizer.
 - Interactive graphics.
 
-## 19. References
+## 20. References
 
+Allemang, R. J., and Brown, D. L. (1982). A correlation coefficient for
+modal vector analysis. Proceedings of the 1st International Modal
+Analysis Conference, 110-116.
+
+Brincker, R., Ventura, C. E., and Andersen, P. (2001). Damping
+estimation by frequency domain decomposition. Proceedings of the 19th
+International Modal Analysis Conference, 698-703.
+
+Brincker, R., Zhang, L., and Andersen, P. (2001). Modal identification
+of output-only systems using frequency domain decomposition. Smart
+Materials and Structures, 10(3), 441-445.
 
 Capon, J. (1969). High-resolution frequency-wavenumber spectrum
 analysis. Proceedings of the IEEE, 57(8), 1408-1418.
@@ -1070,6 +1229,10 @@ analysis. Proceedings of the IEEE, 57(8), 1408-1418.
 Capon, J., and Goodman, N. R. (1970). Probability distributions for
 estimators of the frequency-wavenumber spectrum. Proceedings of the
 IEEE, 58(10), 1785-1786.
+
+Ermert, L., Poggi, V., Burjánek, J., and Fäh, D. (2014). Fundamental
+and higher two-dimensional resonance modes of an Alpine valley.
+Geophysical Journal International, 198(2), 795-811.
 
 Percival, D. B., and Walden, A. T. (1993). Spectral Analysis for
 Physical Applications. Cambridge University Press.

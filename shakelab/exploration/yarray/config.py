@@ -33,7 +33,9 @@ changes with :meth:`BeamformingConfig.update`. A configuration is read
 from and written to JSON: ``BeamformingConfig("capon.json")``,
 :meth:`BeamformingConfig.read`, :meth:`BeamformingConfig.write`.
 :class:`PerformanceConfig` collects in the same way the parameters of
-the Monte Carlo experiments of :mod:`.performance` (survey planning).
+the Monte Carlo experiments of :mod:`.performance` (survey planning),
+and :class:`FDDConfig` those of the frequency domain decomposition of
+:mod:`.fdd`.
 
 Options with a fixed set of values are enumerations; their string
 values are accepted everywhere (``method="capon"`` as
@@ -62,6 +64,11 @@ The JSON file of :class:`PerformanceConfig` (version 1) has
 above), ``strict``, ``monte_carlo`` (``trials``, ``realizations``,
 ``seed``) and ``classification`` (``resolution_level``,
 ``ambiguity_level``, ``boundary_margin``).
+
+The JSON file of :class:`FDDConfig` (version 1) has ``frequencies`` and
+``window`` (as above), ``spectral`` (``subfrequencies``,
+``bandwidth``, ``normalization``), ``components``, ``azimuth`` and
+``output`` (``vectors``).
 """
 
 from __future__ import annotations
@@ -86,6 +93,9 @@ __all__ = [
     "BeamformingMethod",
     "ComponentMode",
     "EllipticityGrid",
+    "FDDComponents",
+    "FDDConfig",
+    "FDDNormalization",
     "FFTSelection",
     "FrequencyConfig",
     "FrequencyScale",
@@ -162,6 +172,25 @@ class ComponentMode(Enum):
     RAYLEIGH_JOINT = "rayleigh_joint"
     RAYLEIGH_ANGULAR = "rayleigh_angular"
     RAYLEIGH_DIRECT = "rayleigh_direct"
+
+
+class FDDComponents(Enum):
+    """Components of the frequency domain decomposition."""
+
+    VERTICAL = "vertical"
+    NORTH = "north"
+    EAST = "east"
+    RADIAL = "radial"
+    TRANSVERSE = "transverse"
+    HORIZONTAL = "horizontal"
+    THREE_COMPONENT = "three_component"
+
+
+class FDDNormalization(Enum):
+    """Normalization of the cross-spectral matrices of the FDD."""
+
+    NONE = "none"
+    COHERENCE = "coherence"
 
 
 class StatisticalUncertainty(Enum):
@@ -1603,4 +1632,187 @@ class PerformanceConfig(_FlatConfig):
             raise ValueError("boundary_margin leaves no interior radial "
                              "samples")
 
+        return state
+
+
+# ----------------------------------------------------------------------------
+# Frequency domain decomposition
+# ----------------------------------------------------------------------------
+
+
+class FDDConfig(_FlatConfig):
+    """
+    Configuration of the frequency domain decomposition (FDD).
+
+    Same use as :class:`BeamformingConfig`: single parameters with the
+    same names, the frequencies and windows as objects or dictionaries,
+    a JSON file or its content in the constructor, :meth:`update`,
+    assignment of the attributes, :meth:`copy`, :meth:`read` and
+    :meth:`write`.
+
+    Parameters
+    ----------
+    source : str, path-like or mapping, optional
+        JSON file, or its content as a dictionary (see the module
+        notes). Default: the default values.
+    **parameters
+        Parameters (see Notes), replacing those of ``source``.
+
+    Raises
+    ------
+    TypeError
+        If a parameter is unknown or has the wrong type.
+    ValueError
+        If a value is invalid or the options are incompatible.
+
+    Notes
+    -----
+    Parameters and defaults:
+
+    - frequencies: ``frequencies`` (FrequencyConfig, dictionary or
+      explicit values in Hz), or ``fmin``, ``fmax``, ``nfreq``,
+      ``frequency_scale`` (``"log"``). Required. With fixed windows
+      and no ``nfreq``, the FFT frequencies of the window between
+      ``fmin`` and ``fmax``.
+    - windows: ``window`` (WindowConfig or dictionary), or
+      ``window_type`` (``"cycles"``), ``window_length`` (20),
+      ``window_taper`` (0.1), ``window_overlap`` (0.5),
+      ``windows_per_block`` (40), ``block_overlap`` (0.5), as in
+      :class:`BeamformingConfig`.
+    - sub-frequency averaging: ``subfrequencies`` (1: none) equally
+      spaced in logarithm over the relative ``bandwidth`` (0) around
+      each frequency (see
+      :meth:`shakelab.signals.crossspectral.CrossSpectra.from_data`).
+    - ``normalization``: ``"none"`` (default, cross power spectral
+      densities) or ``"coherence"`` (coherence scaled to the mean power
+      of the channels, which removes the differences of gain).
+    - ``components``: ``"vertical"`` (default), ``"north"``,
+      ``"east"``, ``"radial"`` and ``"transverse"`` (horizontal motion
+      along and normal to ``azimuth``, degrees clockwise from north,
+      e.g. the axis of a valley), ``"horizontal"`` (east and north) or
+      ``"three_component"`` (east, north and vertical): each component
+      of each station is a channel of the matrices.
+    - ``vectors``: singular vectors kept for each block (3).
+
+    Every parameter is also an attribute, and assigning it is the same
+    as :meth:`update`.
+
+    Examples
+    --------
+    >>> config = FDDConfig(fmin=0.1, fmax=1.0, nfreq=100,
+    ...                    frequency_scale="linear", windows_per_block=20)
+    >>> config = FDDConfig("fdd.json", normalization="coherence")
+    >>> config.update(components="transverse", azimuth=30.0)
+    """
+    _OBJECTS = {
+        "frequencies": (FrequencyConfig, "frequencies"),
+        "window": (WindowConfig, "window"),
+    }
+
+    _FIELDS = {
+        "fmin": ("frequencies", "minimum"),
+        "fmax": ("frequencies", "maximum"),
+        "nfreq": ("frequencies", "size"),
+        "frequency_scale": ("frequencies", "scale"),
+        "window_type": ("window", "type"),
+        "window_length": ("window", "length"),
+        "window_taper": ("window", "taper"),
+        "window_overlap": ("window", "overlap"),
+        "windows_per_block": ("window", "windows_per_block"),
+        "block_overlap": ("window", "block_overlap"),
+    }
+
+    _OPTIONS = {
+        "subfrequencies": (1, "spectral", "subfrequencies"),
+        "bandwidth": (0.0, "spectral", "bandwidth"),
+        "normalization": (FDDNormalization.NONE, "spectral",
+                          "normalization"),
+        "components": (FDDComponents.VERTICAL, None, "components"),
+        "azimuth": (None, None, "azimuth"),
+        "vectors": (3, "output", "vectors"),
+    }
+
+    _REQUIRED = ("frequencies",)
+    _EXAMPLE = "fmin, fmax and nfreq"
+
+    def __repr__(self) -> str:
+        state = self._state
+        return (
+            f"FDDConfig({state['components'].value}, "
+            f"{state['normalization'].value}, frequencies="
+            f"{'set' if state['frequencies'] else 'missing'})"
+        )
+
+    @classmethod
+    def _defaults(cls) -> dict:
+        """State with the default values."""
+        state = super()._defaults()
+        state["window"] = WindowConfig()
+        return state
+
+    @classmethod
+    def _as_object(cls, name: str, kind: type, value: Any) -> Any:
+        """Object of the configuration (also explicit frequencies)."""
+        if (
+            name == "frequencies" and value is not None
+            and not isinstance(value, (FrequencyConfig, Mapping))
+        ):
+            return FrequencyConfig(values=value)
+
+        return super()._as_object(name, kind, value)
+
+    @classmethod
+    def _replaced(cls, owner: str, values: dict) -> set:
+        """Fields dropped: explicit frequencies replaced by a range."""
+        names = super()._replaced(owner, values)
+
+        if owner == "frequencies" and set(values) & {
+            "minimum", "maximum", "size", "scale"
+        }:
+            names.add("values")
+
+        return names
+
+    @classmethod
+    def _validated(cls, state: dict) -> dict:
+        """Return a validated state."""
+        state = dict(state)
+        subfrequencies = _integer(state["subfrequencies"], "subfrequencies",
+                                  1)
+        bandwidth = _real(state["bandwidth"], "bandwidth")
+
+        if bandwidth < 0.0:
+            raise ValueError("bandwidth must be zero or positive")
+
+        if (subfrequencies > 1) != (bandwidth > 0.0):
+            raise ValueError(
+                "a positive bandwidth needs more than one sub-frequency, "
+                "and more sub-frequencies a positive bandwidth"
+            )
+
+        normalization = state["normalization"]
+
+        if normalization is None:
+            normalization = FDDNormalization.NONE
+
+        components = _enum(state["components"], FDDComponents, "components")
+        azimuth = state["azimuth"]
+
+        if azimuth is not None:
+            azimuth = _real(azimuth, "azimuth") % 360.0
+
+        elif components in (FDDComponents.RADIAL, FDDComponents.TRANSVERSE):
+            raise ValueError(
+                f"{components.value} components need the azimuth"
+            )
+
+        state.update(
+            subfrequencies=subfrequencies,
+            bandwidth=bandwidth,
+            normalization=_enum(normalization, FDDNormalization,
+                                "normalization"),
+            components=components,
+            azimuth=azimuth,
+            vectors=_integer(state["vectors"], "vectors", 1),
+        )
         return state

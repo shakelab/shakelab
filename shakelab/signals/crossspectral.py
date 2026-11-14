@@ -447,8 +447,9 @@ class CrossSpectra:
         ``(n_blocks, n_channels, n_channels)`` (``n_blocks`` may be
         zero).
     times : sequence of array-like
-        For each frequency, the centres of its blocks in seconds from
-        the first sample, ``(n_blocks,)``.
+        For each frequency, the centres of its blocks (midpoint between
+        their first and last samples) in seconds from the first sample,
+        ``(n_blocks,)``.
     realizations : sequence of array-like
         For each frequency, the number of products averaged in each
         block (windows times sub-frequencies), ``(n_blocks,)``.
@@ -707,8 +708,9 @@ class CrossSpectra:
             blocks = window_starts(
                 starts.size, per_block, overlap=block_overlap
             )
+            # Midpoint between the first and the last sample of a block.
             centres = (
-                (starts[blocks] + starts[blocks + per_block - 1] + size)
+                (starts[blocks] + starts[blocks + per_block - 1] + size - 1)
                 * 0.5 * float(delta)
             )
 

@@ -9,6 +9,12 @@ velocity and the propagation azimuth of these waves as functions of
 frequency and time. For Rayleigh waves recorded on three components it
 also measures the signed ellipticity of the particle motion.
 
+The same cross-spectral matrices give, through the frequency domain
+decomposition (FDD), the resonances of what the array records: the
+modes of a structure, or the two-dimensional resonances of a
+sediment-filled valley seen by a line of stations, with their shapes
+on the geometry of the array.
+
 These measurements are the basis of passive surface-wave methods
 (dispersion curves for site characterization, ambient-vibration
 arrays), of the monitoring of the wavefield in time, and of the study
@@ -32,6 +38,8 @@ the ShakeLab SeedLink client.
   (RTBF, ARTBF, ARDS).
 - Spectral maxima, dispersion curves and the density of the maxima,
   to identify the modes of propagation.
+- Frequency domain decomposition (FDD): singular values with their
+  statistics over time, resonance peaks and mode shapes.
 - Uncertainty of the beam power and of the station coordinates.
 - Real-time monitoring of an array with the SeedLink client.
 - Survey planning: array response, resolution and aliasing limits,
@@ -243,7 +251,46 @@ time, can be joined with `append`, also in the same file
 only on request (`spectra=True` in the configuration), since they can
 take much memory.
 
-### 3.5 Real-time monitoring
+### 3.5 Resonances and mode shapes (FDD)
+
+The frequency domain decomposition looks for resonances instead of
+travelling waves. At each frequency the cross-spectral matrix of all
+the channels (each component of each station) is decomposed into
+singular values and vectors: where one resonance dominates, the first
+singular value has a peak and the first singular vector is the shape
+of the mode. The processing follows the beamforming: a configuration,
+a processor and a result.
+
+```python
+from shakelab.exploration.yarray import FDD, FDDConfig
+
+config = FDDConfig(
+    fmin=0.1, fmax=1.0, nfreq=100, frequency_scale="linear",
+    window_length=20,                   # cycles of each frequency
+    windows_per_block=20,
+    components="transverse", azimuth=30.0,
+    normalization="coherence",          # remove the channel gains
+)
+
+result = FDD(array, config).process()
+result.info()
+
+peaks = result.peaks(fmin=0.2, fmax=0.8)
+mode = result.mode(peaks[0])
+mode.info()                             # shape of every channel
+```
+
+The singular values are summarized over the blocks by their geometric
+mean and logarithmic spread (`result.singular_values()`); the peaks
+are the prominent maxima of the first one. A `Mode` gives the shape
+(real, unit norm), its spread among the blocks and its stability, the
+mean modal assurance criterion (MAC) of the blocks; `mac(a, b)`
+compares any two shapes. The components can be vertical, north, east,
+radial or transverse to an azimuth (for instance the axis of a
+valley), horizontal or all three. Results are written and joined like
+those of the beamforming.
+
+### 3.6 Real-time monitoring
 
 During an acquisition, the SeedLink client receives the data in a
 background thread and calls an `ArrayMonitor` at regular intervals.
@@ -275,7 +322,7 @@ With `clock="data"` the calls follow the time of the data instead of
 the wall clock, which allows to replay an archive through a SeedLink
 server.
 
-### 3.6 Plan a survey
+### 3.7 Plan a survey
 
 The ability of an array to resolve waves of a given wavelength, and
 to tell them apart from aliases, depends only on the positions of the
@@ -336,9 +383,10 @@ has a single task:
 | Module | Main objects | Role |
 |---|---|---|
 | `data` | `ArrayData`, `StationData` | stations, coordinates, common time window |
-| `config` | `BeamformingConfig`, `PerformanceConfig` | processing and planning parameters |
+| `config` | `BeamformingConfig`, `FDDConfig`, `PerformanceConfig` | processing and planning parameters |
 | `estimators` | | Bartlett, Capon and MUSIC on cross-spectral matrices |
 | `beamforming` | `Beamformer`, `BeamformingResult`, `DispersionCurve` | f-k processing and its results |
+| `fdd` | `FDD`, `FDDResult`, `Mode` | frequency domain decomposition, resonances and shapes |
 | `statistics` | | density of the maxima, summaries, peaks |
 | `response` | `ArrayResponse`, `ResponseAnalysis` | array response and limits; entry point of planning |
 | `performance` | `PerformanceResult` | Monte Carlo performance of the estimators |
@@ -389,15 +437,23 @@ of ShakeLab are in [`docs/conventions.md`](../../../docs/conventions.md).
 - [`examples/exploration/yarray/`](../../../examples/README.md#exploration):
   one script per topic (array data, configuration, estimators,
   components, Rayleigh waves, transforms, uncertainty, results,
-  density, command line, real time, planning).
+  density, command line, real time, planning, FDD).
 - `shakelab.signals.io`, `shakelab.signals.fdsnws` and
   `shakelab.signals.seedlink`: reading, downloading and receiving the
   data in real time.
 
 ## 8. References
 
+Brincker, R., Zhang, L., and Andersen, P. (2001). Modal identification
+of output-only systems using frequency domain decomposition. Smart
+Materials and Structures, 10(3), 441-445.
+
 Capon, J. (1969). High-resolution frequency-wavenumber spectrum
 analysis. Proceedings of the IEEE, 57(8), 1408-1418.
+
+Ermert, L., Poggi, V., Burjánek, J., and Fäh, D. (2014). Fundamental
+and higher two-dimensional resonance modes of an Alpine valley.
+Geophysical Journal International, 198(2), 795-811.
 
 Wathelet, M. (2024). Incoherent noise-induced distortions of Rayleigh
 wave ellipticity measurements obtained with three-component

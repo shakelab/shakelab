@@ -24,7 +24,8 @@ Frequency-wavenumber analysis of synchronized seismic arrays, usable
 from Python, from the command line and within the callbacks of the
 SeedLink client: array data (:mod:`.data`), configuration
 (:mod:`.config`), estimators (:mod:`.estimators`), beamforming
-(:mod:`.beamforming`), statistics of the maxima (:mod:`.statistics`),
+(:mod:`.beamforming`), frequency domain decomposition (:mod:`.fdd`),
+statistics of the maxima (:mod:`.statistics`),
 geometric response and limits (:mod:`.response`), Monte Carlo
 performance of the estimators (:mod:`.performance`), operational
 assessment for survey planning (:mod:`.operational`), file formats
@@ -60,6 +61,7 @@ from shakelab.exploration.yarray.beamforming import (
 from shakelab.exploration.yarray.config import (
     BeamformingConfig,
     EllipticityGrid,
+    FDDConfig,
     FrequencyConfig,
     PerformanceConfig,
     SearchGrid,
@@ -69,6 +71,13 @@ from shakelab.exploration.yarray.data import (
     ArrayData,
     ArrayDataWarning,
     StationData,
+)
+from shakelab.exploration.yarray.fdd import (
+    FDD,
+    FDDResult,
+    FDDWarning,
+    Mode,
+    mac,
 )
 from shakelab.exploration.yarray.monitor import ArrayMonitor
 from shakelab.exploration.yarray.operational import OperationalAssessment
@@ -96,8 +105,13 @@ __all__ = [
     "BeamformingWarning",
     "DispersionCurve",
     "EllipticityGrid",
+    "FDD",
+    "FDDConfig",
+    "FDDResult",
+    "FDDWarning",
     "FrequencyConfig",
     "FrequencySpectrum",
+    "Mode",
     "OperationalAssessment",
     "PerformanceConfig",
     "PerformanceResult",
@@ -109,4 +123,5 @@ __all__ = [
     "SpectralMaximum",
     "StationData",
     "WindowConfig",
+    "mac",
 ]

@@ -237,7 +237,7 @@ def test_cross_spectra_blocks_match_cross_spectral_matrix():
             np.testing.assert_allclose(matrices[row], expected,
                                        rtol=1e-12)
 
-    centre = (starts[blocks[1]] + starts[blocks[1] + 9] + 400) / 2 * DELTA
+    centre = (starts[blocks[1]] + starts[blocks[1] + 9] + 399) / 2 * DELTA
     assert spectra.times(0)[1] == pytest.approx(centre)
 
 
