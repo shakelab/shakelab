@@ -1,5 +1,7 @@
 # ShakeLab conventions
 
+*Version 1.0, 14 November 2026*
+
 This document lists the scientific and technical conventions adopted
 across the ShakeLab library: how time, coordinates, units and numbers
 are represented. They apply to every module and to the values exchanged
@@ -117,13 +119,21 @@ gal) happen only in I/O and presentation.
 
 ## 5. Random numbers and reproducibility
 
-Stochastic functions (sampling, simulations, Monte Carlo, random
-meshes) accept a parameter named `rng`: a `numpy.random.Generator` or
-an integer seed, which make the result reproducible. With `None`, the
-global NumPy random state is used, for compatibility with scripts that
-call `numpy.random.seed`; reproducible work should always pass `rng`. Library code never depends on wall-clock time,
-environment variables or the iteration order of unordered containers
-in ways that change scientific results.
+Stochastic functions and configurations (sampling, simulations, Monte
+Carlo, random meshes) take a parameter named `seed`:
+
+- an integer makes the result reproducible;
+- `None` (the default) uses a new generator with fresh entropy
+  (`numpy.random.default_rng()`): the result is not reproducible;
+- functions may also accept a `numpy.random.Generator`, to continue
+  the stream of the caller.
+
+The global random states of NumPy (`numpy.random.seed`,
+`numpy.random.rand`) and of Python (`random`) are never used. In
+configurations stored as files (JSON) the seed is an integer or
+`null`. Library code never depends on wall-clock time, environment
+variables or the iteration order of unordered containers in ways that
+change scientific results.
 
 ## 6. Supported versions
 
@@ -132,7 +142,7 @@ in ways that change scientific results.
 | Python | >= 3.10 (tested on 3.10 to 3.14) |
 | NumPy | >= 1.24, compatible with NumPy 2.x |
 | SciPy | >= 1.10 |
-| Optional extras | `webui` (Flask), `dev` (pytest); `all` installs every run-time extra, including the wxPython GUI dependency |
+| Optional extras | `plot` (matplotlib >= 3.7, for the figures), `webui` (Flask), `dev` (pytest); `all` installs every run-time extra, including the wxPython GUI dependency |
 
 `pyproject.toml` is the single source of the version requirements and
 of the package version (`shakelab.__version__`).

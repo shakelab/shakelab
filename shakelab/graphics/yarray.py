@@ -122,7 +122,8 @@ def _pyplot() -> Any:
         import matplotlib.pyplot as plt
     except ImportError as error:
         raise ImportError(
-            "the figures need matplotlib: pip install matplotlib"
+            "the figures need matplotlib: pip install matplotlib, or "
+            "install ShakeLab with the extra plot (shakelab[plot])"
         ) from error
 
     return plt

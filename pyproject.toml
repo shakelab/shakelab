@@ -51,8 +51,9 @@ source = "https://github.com/shakelab/shakelab"
 issues = "https://github.com/shakelab/shakelab/issues"
 
 [project.optional-dependencies]
-all = ["wxPython>=4.0.7", "flask"]
+all = ["matplotlib>=3.7", "wxPython>=4.0.7", "flask"]
 dev = ["pytest>=6.0"]
+plot = ["matplotlib>=3.7"]
 webui = ["flask"]
 
 [project.scripts]

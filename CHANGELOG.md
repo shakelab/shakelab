@@ -9,6 +9,16 @@ corrections. The format follows
 
 ### Changed
 
+- Conventions (`docs/conventions.md` §5, version 1.0): stochastic
+  functions and configurations take a parameter `seed` (an integer,
+  None for a fresh non-reproducible generator, or a
+  `numpy.random.Generator`) and never use the global random state;
+  `docs/development.md` records the conventions of the API (argument
+  names, time windows, selection, enumerations, `info()`), of the
+  command-line tools (`slab-<name>`) and of the tests already in use.
+- Packaging: new optional extra `plot` (matplotlib, for the figures of
+  `shakelab.graphics`), also in `all`; the error raised by
+  `graphics.yarray` without matplotlib names it.
 - Documentation: folder READMEs are introductions for users, with a
   common model of numbered sections (`docs/development.md` §23,
   version 2.3); the README of `exploration.yarray` is the first one

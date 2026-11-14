@@ -292,9 +292,11 @@ measurable benefit.
 ### 13. Reproducibility
 
 Results must be reproducible. Stochastic methods (sampling,
-simulations, Monte Carlo, random meshes) accept an explicit
-`numpy.random.Generator` or a seed, through a parameter conventionally
-named `rng`. They never use the global NumPy or Python random state.
+simulations, Monte Carlo, random meshes) take an explicit seed,
+through a parameter named `seed` (an integer, `None` for a
+non-reproducible run, or a `numpy.random.Generator`), and never use
+the global NumPy or Python random state
+([conventions, Random numbers](conventions.md#5-random-numbers-and-reproducibility)).
 Library code does not depend on wall-clock time, environment variables
 or the iteration order of unordered containers in ways that change
 scientific results.
@@ -378,9 +380,9 @@ valid but the user should know something: an approximation, a
 deprecated call, a value outside the calibrated range of a model. Use
 the `logging` module, with per-module loggers, for operational
 information. Library code does not use `print` for debugging or error
-reporting; the only exception are methods whose purpose is to show a
-summary to the user, such as the `info()` methods of the waveform
-classes.
+reporting; the only exceptions are the methods whose purpose is to
+show a summary to the user (`info()`, see Section 17) and the
+command-line modules (`cli`).
 
 ### 17. Public API
 
@@ -395,7 +397,24 @@ API. Private helpers use the `_` prefix.
 Similar operations follow similar conventions (naming, argument order,
 optional parameters, mutation, metadata precedence, return values,
 exceptions) when their semantics are genuinely similar. Semantic
-correctness takes precedence over superficial uniformity.
+correctness takes precedence over superficial uniformity. The
+conventions adopted so far are:
+
+- reading and writing: `source` (path, pattern, content or open file)
+  and `target` (file or folder) as argument names, `format` for the
+  format, `owrite` to overwrite existing files (False by default); the
+  data are the first argument of a writer; the arguments after the
+  first (after `target` in writers) are keyword-only;
+- time windows: `starttime` and `endtime`, `Date` objects or ISO 8601
+  strings, bounds included;
+- channel selection: `select`, with the patterns of
+  `shakelab.signals.codes` (`NET.STA.LOC.CHA`, `*`, `?`, `[...]`);
+- options with a fixed set of values are enumerations, and their
+  string values are accepted wherever the enumeration is;
+- objects that can describe themselves have `summary()`, returning
+  the text, and `info()`, printing it;
+- an argument of the wrong type raises `TypeError`, a value out of its
+  domain `ValueError`.
 
 ShakeLab is a library used outside this repository. A public name is
 never removed because it is unused inside the repository: it is fixed,
@@ -461,6 +480,13 @@ implementations, orchestrate, expose services, manage jobs and
 persistence, communicate with external systems and present results.
 They do not duplicate algorithms provided by the core.
 
+Command-line tools are named `slab-<name>` (`slab-seedlink`,
+`slab-fdsn`, `slab-yarray`), live in the `cli` module of their
+subpackage, also run as `python -m shakelab.<subpackage>`, and only
+parse options and call the library. Where a command mirrors a Python
+interface, its options have the names of the parameters (`--grid-max`
+for `grid_max`).
+
 Configuration determines how components are assembled and deployed,
 never the scientific meaning of core objects. File-system locations,
 host names, endpoints, credentials and operational defaults stay out
@@ -498,7 +524,9 @@ state. Separate deterministic calculations from external effects.
 
 - Tests use pytest and live under `tests/`, mirroring the package
   structure. They follow the coding style of the library (file header,
-  a docstring on every test).
+  a docstring on every test). The test folders are not packages, so
+  file names are unique across `tests/` (for example
+  `test_yarray_data.py` in `tests/exploration/yarray/`).
 - Every corrected defect gets a regression test that fails before the
   fix.
 - Scientific tests compare against published reference values,
@@ -507,8 +535,13 @@ state. Separate deterministic calculations from external effects.
 - Tolerances are justified by the method (numerical precision,
   published rounding), never chosen merely to make a test pass. Use
   `numpy.testing` or `pytest.approx` with explicit `rtol`/`atol`.
-- Tests needing network access or large data are marked and skipped by
+- Tests do not need network access: services are replaced by local
+  fake servers (SeedLink and FDSN in `tests/signals/`). A test that
+  truly needs network access or large data is marked and skipped by
   default.
+- Tests are also run with `-W error::UserWarning`, and those using
+  sockets or files with `python -X dev -W error::ResourceWarning`, to
+  find unexpected warnings and resources left open.
 - The scripts in `examples/` are references for the user and are not
   run by the test suite (some need a server or user data); they are
   checked by hand when the API they use changes.
@@ -621,8 +654,12 @@ The model README is `shakelab/exploration/yarray/README.md`.
 
 ShakeLab is written in Python and follows PEP 8. English is used for
 identifiers, comments, docstrings, documentation, commit messages and
-all repository-facing text. The reference style is that of
-`engineering/impact.py`:
+all repository-facing text. The style below was set on
+`engineering/impact.py`; for structure, names and sections, a new or
+revised module is compared with the most recently revised module of
+the same kind (`signals/libio/sac.py` for formats, `signals/seedlink`
+for network clients, `signals/spectrum.py` for data derived from a
+record):
 
 - the standard ShakeLab license header at the top of every file,
   followed by the module docstring (see below);

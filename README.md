@@ -91,11 +91,16 @@ Required packages, installed automatically:
 
 Optional extras:
 
+- `plot`: [matplotlib](https://matplotlib.org/), for the figures
+  (`shakelab.graphics`);
 - `webui`: [Flask](https://flask.palletsprojects.com/), for the
   ShakeScenario web interface (`pip install "shakelab[webui] @ git+https://github.com/shakelab/shakelab.git"`);
-- `all`: Flask and [wxPython](https://wxpython.org/), for the
-  graphical tools;
+- `all`: matplotlib, Flask and [wxPython](https://wxpython.org/), for
+  the figures and the graphical tools;
 - `dev`: [pytest](https://pytest.org/), for development.
+
+Several extras are given together, separated by commas
+(`pip install -e ".[dev,plot]"`).
 
 ## Documentation
 
