@@ -22,7 +22,10 @@ The coefficients are checked against the power spectral density of
 white noise (``2 * sigma**2 * delta``, one-sided), against
 ``wft_transform(scaling="psd")`` of :mod:`shakelab.signals.spectrogram`,
 between the direct and RFFT transforms, and the cross-spectral matrix
-against the phase delay of a shifted sinusoid.
+against the phase delay of a shifted sinusoid. :class:`CrossSpectra` is
+checked against the matrix of mixed white noise (``A diag(2 sigma**2
+delta) A^T``), against :func:`cross_spectral_matrix` block by block,
+and against a rank-one wavefield for the decomposition.
 """
 
 from __future__ import annotations
@@ -31,11 +34,12 @@ import numpy as np
 import pytest
 
 from shakelab.signals.crossspectral import (
+    CrossSpectra,
     coefficients,
     cross_spectral_matrix,
 )
 from shakelab.signals.spectrogram import wft_transform
-from shakelab.signals.windowing import window_starts
+from shakelab.signals.windowing import window_size, window_starts
 
 DELTA = 0.01
 
@@ -203,3 +207,191 @@ def test_invalid_data_and_matrices():
         cross_spectral_matrix(np.ones((1, 2)), variance=True)
     with pytest.raises(ValueError):
         cross_spectral_matrix(np.ones((3, 2)), np.ones((4, 2)))
+
+
+# ----------------------------------------------------------------------------
+# CrossSpectra
+# ----------------------------------------------------------------------------
+
+
+def test_cross_spectra_blocks_match_cross_spectral_matrix():
+    """Each block is the matrix of its windows; times are block centres."""
+    data = _noise((3, 6000), seed=1)
+    spectra = CrossSpectra.from_data(
+        data, DELTA, [2.0, 5.0], duration=4.0, overlap=0.5,
+        windows_per_block=10, block_overlap=0.5,
+    )
+    starts = window_starts(6000, 400, overlap=0.5)
+    blocks = window_starts(starts.size, 10, overlap=0.5)
+    _, values = coefficients(data, DELTA, [2.0, 5.0], 400, overlap=0.5)
+
+    assert spectra.nchannels == 3
+    np.testing.assert_array_equal(spectra.nblocks, [blocks.size] * 2)
+    np.testing.assert_array_equal(spectra.realizations(1), 10)
+
+    for k in range(2):
+        matrices = spectra.matrices(k)
+
+        for row, first in enumerate(blocks):
+            expected = cross_spectral_matrix(values[k, first:first + 10])
+            np.testing.assert_allclose(matrices[row], expected,
+                                       rtol=1e-12)
+
+    centre = (starts[blocks[1]] + starts[blocks[1] + 9] + 400) / 2 * DELTA
+    assert spectra.times(0)[1] == pytest.approx(centre)
+
+
+def test_cross_spectra_mixed_white_noise():
+    """The mean matrix of mixed white noise is A diag(2 s**2 dt) A^T."""
+    sigma = np.array([1.0, 2.0, 0.5])
+    mixing = np.array([[1.0, 0.5, 0.0], [0.2, 1.0, 0.3], [0.0, -0.4, 1.0]])
+    sources = sigma[:, None] * np.random.default_rng(2).standard_normal(
+        (3, 200000)
+    )
+    spectra = CrossSpectra.from_data(
+        mixing @ sources, DELTA, np.linspace(2.0, 40.0, 20), duration=5.0,
+        overlap=0.5, window="hann",
+    )
+    expected = mixing @ np.diag(2.0 * sigma ** 2 * DELTA) @ mixing.T
+    scale = np.abs(expected).max()
+
+    # About 4% scatter at each frequency: compare the frequency mean.
+    np.testing.assert_allclose(spectra.mean().mean(axis=0), expected,
+                               atol=0.03 * scale)
+
+
+def test_cross_spectra_cycles_and_subfrequencies():
+    """Windows in cycles change with frequency; sub-frequencies average."""
+    data = _noise((2, 8000), seed=3)
+    spectra = CrossSpectra.from_data(
+        data, DELTA, [1.0, 4.0], cycles=10, overlap=0.5,
+        windows_per_block=5, subfrequencies=3, bandwidth=0.2,
+    )
+    sizes = [window_size(DELTA, cycles=10, frequency=f) for f in (1.0, 4.0)]
+    counts = [
+        window_starts(window_starts(8000, n, 0.5).size, 5).size
+        for n in sizes
+    ]
+
+    np.testing.assert_array_equal(spectra.nblocks, counts)
+    np.testing.assert_array_equal(spectra.realizations(0), 15)
+
+    targets = 4.0 * np.exp(np.array([-0.1, 0.0, 0.1]))
+    _, values = coefficients(data, DELTA, targets, sizes[1], overlap=0.5)
+    series = values[:, :5, :].reshape(-1, 2)
+    np.testing.assert_allclose(spectra.matrices(1)[0],
+                               cross_spectral_matrix(series), rtol=1e-12)
+
+
+def test_cross_spectra_window_longer_than_data():
+    """A frequency whose window does not fit has no blocks."""
+    spectra = CrossSpectra.from_data(
+        _noise((2, 1000), seed=4), DELTA, [0.5, 5.0], cycles=10,
+    )
+
+    np.testing.assert_array_equal(spectra.nblocks, [0, 1])
+    assert spectra.matrices(0).shape == (0, 2, 2)
+    assert np.all(np.isnan(spectra.mean()[0]))
+
+
+def test_cross_spectra_coherence():
+    """Unit coherence of scaled copies, times the mean power."""
+    base = _noise(4000, seed=5)
+    data = np.vstack([base, 3.0 * base, _noise(4000, seed=6)])
+    spectra = CrossSpectra.from_data(data, DELTA, [2.0, 6.0], duration=2.0)
+    coherence = spectra.coherence()
+    original = spectra.matrices(0)[0]
+    result = coherence.matrices(0)[0]
+    mean_power = np.real(np.trace(original)) / 3
+
+    np.testing.assert_allclose(np.real(np.diag(result)), mean_power)
+    assert abs(result[0, 1]) == pytest.approx(mean_power)
+    assert abs(result[0, 2]) < mean_power
+    np.testing.assert_array_equal(coherence.times(1), spectra.times(1))
+
+    with pytest.raises(ValueError):
+        CrossSpectra.from_data(
+            np.vstack([base, np.zeros(4000)]), DELTA, 2.0, duration=2.0
+        ).coherence()
+
+
+def test_cross_spectra_decompose_rank_one():
+    """A rank-one wavefield gives one dominant eigenvalue and its shape."""
+    shape = np.array([0.2, 0.6, 1.0, 0.7])
+    signal = _noise(20000, seed=7)
+    noise = 0.05 * _noise((4, 20000), seed=8)
+    spectra = CrossSpectra.from_data(
+        shape[:, None] * signal + noise, DELTA, [2.0, 8.0], duration=5.0,
+        overlap=0.5, windows_per_block=20,
+    )
+    values, vectors = spectra.decompose(1)
+    matrices = spectra.matrices(1)
+
+    assert values.shape == (spectra.nblocks[1], 4)
+    assert np.all(np.diff(values, axis=1) <= 0.0)
+    assert np.all(values[:, 1] < 0.01 * values[:, 0])
+
+    first = vectors[:, :, 0]
+    mac = np.abs(first @ shape) ** 2 / (shape @ shape)
+    assert np.all(mac > 0.999)
+
+    rebuilt = np.einsum("bij,bj,bkj->bik", vectors, values, vectors.conj())
+    np.testing.assert_allclose(rebuilt, matrices,
+                               atol=1e-10 * np.abs(matrices).max())
+
+
+def test_cross_spectra_summary_and_copy(capsys):
+    """Summary, info, labels and independent copies."""
+    spectra = CrossSpectra.from_data(
+        _noise((2, 2000), seed=9), DELTA, [2.0, 3.0], duration=2.0,
+        channels=["XX.A01..HHZ", "XX.A02..HHZ"],
+    )
+    copy = spectra.copy()
+
+    assert "2 channels" in spectra.summary()
+    spectra.info()
+    assert "XX.A01..HHZ" in capsys.readouterr().out
+    assert copy.channels == spectra.channels
+    np.testing.assert_array_equal(copy.matrices(0), spectra.matrices(0))
+    assert spectra.matrices(-1).shape == spectra.matrices(1).shape
+
+    with pytest.raises(IndexError):
+        spectra.matrices(2)
+    with pytest.raises(TypeError):
+        spectra.times(1.0)
+
+
+@pytest.mark.parametrize(
+    "kwargs, error",
+    [
+        ({}, ValueError),
+        ({"duration": 2.0, "cycles": 5}, ValueError),
+        ({"duration": 2.0, "subfrequencies": 3}, ValueError),
+        ({"duration": 2.0, "bandwidth": 0.1}, ValueError),
+        ({"duration": 2.0, "subfrequencies": 2.0, "bandwidth": 0.1},
+         TypeError),
+        ({"duration": 2.0, "windows_per_block": 0}, ValueError),
+        ({"duration": 2.0, "windows_per_block": 2.5}, TypeError),
+        ({"duration": 2.0, "block_overlap": 1.0}, ValueError),
+        ({"duration": 2.0, "channels": ["a"]}, ValueError),
+        ({"duration": 2.0, "channels": "ab"}, TypeError),
+    ],
+)
+def test_cross_spectra_invalid_arguments(kwargs, error):
+    """Inconsistent windows, blocks, sub-frequencies and labels fail."""
+    with pytest.raises(error):
+        CrossSpectra.from_data(_noise((2, 2000)), DELTA, 2.0, **kwargs)
+
+
+def test_cross_spectra_invalid_construction():
+    """Wrong data and inconsistent shapes fail."""
+    with pytest.raises(ValueError):
+        CrossSpectra.from_data(_noise(2000), DELTA, 2.0, duration=2.0)
+    with pytest.raises(ValueError):
+        CrossSpectra([1.0], [np.zeros((1, 2, 2))], [[0.0, 1.0]], [[1]])
+    with pytest.raises(ValueError):
+        CrossSpectra([1.0, 2.0], [np.zeros((1, 2, 2))], [[0.0]], [[1]])
+    with pytest.raises(ValueError):
+        CrossSpectra([1.0], [np.zeros((1, 2, 3))], [[0.0]], [[1]])
+    with pytest.raises(ValueError):
+        CrossSpectra([1.0], [np.zeros((1, 2, 2))], [[0.0]], [[0]])

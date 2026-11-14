@@ -440,6 +440,20 @@ corrections. The format follows
 
 ### Added
 
+- `signals.crossspectral.CrossSpectra`: cross-spectral matrices of a
+  set of channels by frequency and block, the common input of the
+  frequency domain decomposition (FDD) and of future coherence-based
+  methods. `CrossSpectra.from_data(data, delta, freq, *, duration= |
+  cycles=, overlap, window, windows_per_block, block_overlap,
+  subfrequencies, bandwidth, scaling, channels)` averages the products
+  of the Fourier coefficients over blocks of consecutive windows (fixed
+  windows or a fixed number of cycles of each frequency, so the blocks
+  may change with the frequency) and optionally over sub-frequencies
+  equally spaced in logarithm around each frequency; `matrices(k)`,
+  `times(k)` (block centres), `realizations(k)`, `mean()`,
+  `coherence()` (Pearson coherence scaled to the mean power of the
+  channels), `decompose(k)` (eigenvalues in decreasing order and
+  eigenvectors of every block), `copy`, `summary`, `info`.
 - `signals.windowing` (new): division of time series into windows,
   shared by spectral averaging, spectral ratios and array processing.
   `window_size(delta, duration=... | cycles=..., frequency=...)`,
