@@ -44,8 +44,8 @@ result = Beamformer(ArrayData("array.json"), config).process()
 best = result.maxima_at(rank=1)[0]
 print(best.power, best.power_standard_error)
 
-# Coordinates with a variance of 1 m**2 (one value, or a 3 x 3
-# covariance, per station).
+# Coordinates with a variance of 1 m**2 (one value, or a 2 x 2 or
+# 3 x 3 covariance matrix, also per station).
 collection = reader("data/*.mseed", metadata=metadata_reader("array.xml"))
 uncertain = ArrayData(collection, coordinate_covariance=1.0)
 config.update(method="bartlett", statistical_uncertainty="none",

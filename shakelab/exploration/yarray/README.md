@@ -146,7 +146,7 @@ the array file). Components named Z, N and E need no orientation;
 other names take an explicit one. Optional fields give the geographic
 position of the origin (`reference`), the reader options of each file
 and the uncertainty of the coordinates; the complete format is
-described in the [guide](../../../docs/yarray.md#array-file).
+described in the [guide](../../../docs/exploration/yarray.md#array-file).
 
 An `ArrayData` can also be filled one station at a time (`add`,
 `remove`), mixing different sources. The stations keep their own time
@@ -382,10 +382,11 @@ of ShakeLab are in [`docs/conventions.md`](../../../docs/conventions.md).
 
 ## 7. See also
 
-- [`docs/yarray.md`](../../../docs/yarray.md): theory of the methods,
-  complete description of the options and of the file formats,
-  practical guidance and current limitations.
-- [`examples/exploration/`](../../../examples/README.md#exploration):
+- The [guide](../../../docs/exploration/yarray.md)
+  (`docs/exploration/yarray.md`): theory of the methods, complete
+  description of the options and of the file formats, practical
+  guidance and current limitations.
+- [`examples/exploration/yarray/`](../../../examples/README.md#exploration):
   one script per topic (array data, configuration, estimators,
   components, Rayleigh waves, transforms, uncertainty, results,
   density, command line, real time, planning).

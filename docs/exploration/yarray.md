@@ -19,10 +19,10 @@ The same components are used in three ways:
 This guide gives the theory (Part I), the use (Part II) and the
 design, validation and limits (Part III). An overview of the package,
 with its main uses and modules, is in the
-[package README](../shakelab/exploration/yarray/README.md); scripts
+[package README](../../shakelab/exploration/yarray/README.md); scripts
 illustrating every way of use are in
-[`examples/exploration/`](../examples/README.md#exploration). The guide
-derives from the four documents of the YArray development code
+[`examples/exploration/yarray/`](../../examples/README.md#exploration).
+The guide derives from the four documents of the YArray development code
 (August 2026: theoretical background, software architecture, user
 manual, array response theory), updated to the implementation in
 ShakeLab.
@@ -700,9 +700,9 @@ ellipticity = result.density(coordinate="ellipticity_angle",
 Figures (`shakelab.graphics.yarray`, matplotlib imported on use):
 `plot_dispersion`, `plot_ellipticity`, `plot_spectrum` (power,
 standard error or ellipticity; wavenumber plane or azimuth and grid
-coordinates), `plot_density`. See the examples `yarray_01_array.py`
-to `yarray_10_density.py` in
-[`examples/exploration/`](../examples/README.md#exploration).
+coordinates), `plot_density`. See the examples `01_array.py` to
+`10_density.py` in
+[`examples/exploration/yarray/`](../../examples/README.md#exploration).
 
 ## 12. Command line
 
@@ -743,7 +743,8 @@ to check a search domain; figures `--plot-geometry`,
 `--plot-response`, `--plot-resolution`, `--plot-velocity`,
 `--plot-search-domain` or `--plot-all`. The Monte Carlo analysis
 needs too many choices for a command line and is used from Python.
-See [`yarray_11_command_line.sh`](../examples/exploration/yarray_11_command_line.sh).
+See
+[`11_command_line.sh`](../../examples/exploration/yarray/11_command_line.sh).
 
 ## 13. Real time
 
@@ -780,7 +781,7 @@ to a file (`output`). `background=False` processes in the call;
 `monitor.process(collection, start, end)` processes given data. Any
 object with `get_data(select)` returning a `StreamCollection` can feed
 the monitor. See
-[`yarray_12_realtime.py`](../examples/exploration/yarray_12_realtime.py).
+[`12_realtime.py`](../../examples/exploration/yarray/12_realtime.py).
 
 ## 14. Survey planning
 
@@ -839,9 +840,9 @@ parameters: `min_local` (0.9), `max_alias` (0.05), `max_other`
 `plot_array_geometry`, `plot_array_response`, `plot_resolution`,
 `plot_search_domain`, `plot_velocity_limits`, `plot_performance`,
 `plot_performance_sweep`, `plot_operational`. See
-[`yarray_13_response.py`](../examples/exploration/yarray_13_response.py),
-[`yarray_14_performance.py`](../examples/exploration/yarray_14_performance.py)
-and [`yarray_15_operational.py`](../examples/exploration/yarray_15_operational.py).
+[`13_response.py`](../../examples/exploration/yarray/13_response.py),
+[`14_performance.py`](../../examples/exploration/yarray/14_performance.py)
+and [`15_operational.py`](../../examples/exploration/yarray/15_operational.py).
 
 ## 15. Practical guidance and processing times
 
@@ -865,7 +866,7 @@ and [`yarray_15_operational.py`](../examples/exploration/yarray_15_operational.p
    rather than repeating the processing.
 
 Times on the nine SESAME stations (three components, 60 s;
-[`yarray_16_profiling.py`](../examples/exploration/yarray_16_profiling.py),
+[`16_profiling.py`](../../examples/exploration/yarray/16_profiling.py),
 one core of a laptop, indicative only): vertical Capon on
 180 azimuths x 100 radial values, fixed 2 s windows, takes about
 0.5 s for 50 frequencies with the direct transform and 0.13 s with the

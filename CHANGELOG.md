@@ -12,9 +12,13 @@ corrections. The format follows
 - Documentation: folder READMEs are introductions for users, with a
   common model of numbered sections (`docs/development.md` §23,
   version 2.3); the README of `exploration.yarray` is the first one
-  written to it. `docs/yarray.md` gains the format of the array file
-  (§9), the design choices (§16) and the validation against the
+  written to it. The guide of YArray gains the format of the array
+  file (§9), the design choices (§16) and the validation against the
   August 2026 code (§17), and updated processing times.
+- Documentation and examples follow the structure of the package: the
+  guide of YArray moves to `docs/exploration/yarray.md`, its examples
+  to `examples/exploration/yarray/`, without the prefix `yarray_`
+  (`01_array.py` to `16_profiling.py`).
 - `exploration.yarray`: new component modes `"rayleigh_angular"`
   (ARTBF) and `"rayleigh_direct"` (ARDS, one matrix of the three
   components per block) of Wathelet (2024), with Capon or Bartlett:
