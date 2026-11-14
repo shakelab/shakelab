@@ -1,6 +1,6 @@
 # ShakeLab development and architecture guidelines
 
-*Version 2.2, 6 November 2026*
+*Version 2.3, 14 November 2026*
 
 This document defines the design philosophy of ShakeLab and the
 principles that all contributions follow. Parts I to III state
@@ -534,17 +534,88 @@ information between places:
 
 - `README.md` (repository root): overview, installation, license, and
   links to the documents below;
-- `docs/`: user-facing guides by topic, the library-wide
-  [conventions](conventions.md) and these guidelines;
-- `examples/` (repository root): runnable scripts, organized by
-  subpackage as the package and the tests (`examples/signals/`, ...),
-  using the data in `tests/<subpackage>/data/`, with an index in
-  `examples/README.md`;
-- `README.md` in each subpackage: its modules, design choices,
-  supported formats and specific conventions, with links to the
-  guides in `docs/` and the scripts in `examples/`;
+- `README.md` in every folder of the package: an introduction to that
+  part of ShakeLab for its users (model below);
+- `docs/`: user-facing guides, organized by subpackage as the package
+  (`docs/exploration/yarray.md`, ...), with the library-wide
+  [conventions](conventions.md) and these guidelines at the top level;
+- `examples/` (repository root): short scripts organized by subpackage
+  as the package, with an index in `examples/README.md`. They
+  illustrate interfaces, configurations and functionality, with
+  generic file and server names (`array.json`, `data/*.mseed`,
+  `rtserve.example.org`): they do not run on the test data and are
+  not run by the test suite. Demonstrations on real data live outside
+  the repository;
+- `tests/`: organized by subpackage as the package;
 - [`CHANGELOG.md`](../CHANGELOG.md) (repository root), recording
   user-visible changes, deprecations and scientific corrections.
+
+The development history and the state of the work (blocks, commits,
+open points) belong to the changelog and to the project notes, never
+to READMEs or guides.
+
+#### Folder READMEs
+
+The README of a folder introduces its functionality to a user who
+meets it for the first time: what it is for, how it is used, how it is
+organized and where to read more. It is informative and didactic, in
+plain descriptive prose, with a short paragraph of explanation before
+and after each example; complete descriptions of options, theory and
+formats belong to the guide in `docs/`. Every README has the same
+sections, in the same order, numbered consecutively: the sections
+marked optional are left out when they do not apply, and the
+following ones take the next number.
+
+```markdown
+# Name: function in a few words
+
+Introduction (two or three paragraphs): what the package does, for
+whom and for which problems, where it fits in ShakeLab, and the ways
+it is used (library, command line, real time...).
+
+## 1. Features
+One line per capability, five to ten items.
+
+## 2. Quick start
+The main objects, one complete minimal example (15-25 lines) and what
+its result contains.
+
+## 3. Common tasks
+### 3.1 ... (a task as title: "Build the array data", "Plan a survey")
+Three to six tasks, each with an explanation, a short example (5-15
+lines) and the essential options.
+
+## 4. Command line            (optional: packages with a command)
+## 5. Format                  (optional: packages defining a format)
+## 6. Structure
+Table "Module | Main objects | Role", and a few lines on layers,
+data flow and generic tools used from other packages.
+
+## 7. Conventions             (optional: only those of the package)
+## 8. See also
+The guide in docs/, the examples, related packages.
+
+## 9. References              (optional: scientific packages)
+```
+
+Rules of style:
+
+- Present tense, no dates, versions, commit references, development
+  states or comparisons with earlier implementations; numbers that
+  change with the code (processing times) belong to the guide.
+- The examples follow the rules of `examples/` (generic names, one
+  object per step, `info()`, short comments on the options) and use
+  only the public API; every example is checked against the code
+  before it is committed.
+- Lines of at most 79 characters, except table rows; code blocks with
+  their language (`python`, `sh`, `json`); relative links to the
+  guides and examples.
+- Library-wide conventions are not repeated: link to
+  [conventions](conventions.md).
+- When a folder contains subfolders with their own README, its README
+  presents them in "Structure" and links to them.
+
+The model README is `shakelab/exploration/yarray/README.md`.
 
 ### 24. Coding conventions and naming
 

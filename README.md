@@ -108,8 +108,8 @@ The documentation is available at [shakelab.org](http://shakelab.org)
   coding principles for contributors;
 - [YArray](docs/yarray.md): seismic-array processing (theory, use from
   Python, the command line and real time, survey planning);
-- [Examples](examples/README.md): runnable scripts organized by
-  subpackage;
+- [Examples](examples/README.md): short scripts illustrating the use
+  of each subpackage;
 - [Changelog](CHANGELOG.md): notable changes, deprecations and
   scientific corrections.
 

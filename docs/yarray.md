@@ -10,16 +10,17 @@ domain where the analysis is reliable.
 
 The same components are used in three ways:
 
-- as a **library** from Python (`beamform`, `Beamformer`, results,
-  statistics, planning);
+- as a **library** from Python (`ArrayData`, `Beamformer`, results,
+  statistics, `ArrayResponse` for planning);
 - from the **command line** (`slab-yarray`);
 - in **real time**, as a function of the SeedLink client
   (`ArrayMonitor`).
 
 This guide gives the theory (Part I), the use (Part II) and the
-limits (Part III). The modules, the design choices and the state of
-the work are in the [package README](../shakelab/exploration/yarray/README.md);
-runnable scripts of every way of use are in
+design, validation and limits (Part III). An overview of the package,
+with its main uses and modules, is in the
+[package README](../shakelab/exploration/yarray/README.md); scripts
+illustrating every way of use are in
 [`examples/exploration/`](../examples/README.md#exploration). The guide
 derives from the four documents of the YArray development code
 (August 2026: theoretical background, software architecture, user
@@ -49,10 +50,12 @@ Part II. Use
 14. [Survey planning](#14-survey-planning)
 15. [Practical guidance and processing times](#15-practical-guidance-and-processing-times)
 
-Part III. Limits
+Part III. Design, validation and limits
 
-16. [Current limitations and planned extensions](#16-current-limitations-and-planned-extensions)
-17. [References](#17-references)
+16. [Design choices](#16-design-choices)
+17. [Validation](#17-validation)
+18. [Current limitations and planned extensions](#18-current-limitations-and-planned-extensions)
+19. [References](#19-references)
 
 # Part I. Theory
 
@@ -242,16 +245,16 @@ motion (`xi = 90`, no finite `e`, stored as None) are reached. The
 power is the density of the radial and vertical motion together,
 `|R|**2 + |Z|**2`, in the units of the power. The joint processing
 uses the same quadratic forms on its ellipticity grid (identical
-results, about ten times faster than solving one system per
+results, more than ten times faster than solving one system per
 ellipticity).
 
 Capon underestimates the power by about `(L - n + 1) / L` for a
-matrix of dimension `n` and `L` windows (Section 16): more for the
+matrix of dimension `n` and `L` windows (Section 18): more for the
 matrices of dimension `2N` and `3N` than for single components, so
 compare powers of different modes with Bartlett or with many windows.
 The correction of the noise difference between vertical and
 horizontal components (Wathelet, 2024, Section 3.6) is not
-implemented yet (Section 16).
+implemented yet (Section 18).
 
 ## 5. Uncertainty of the power
 
@@ -488,6 +491,53 @@ the `reference` given to `ArrayData` or written in the array file
 first station added; adding stations does not move it.
 `set_reference(point)` (or `set_reference()`, the mean of the current
 stations) changes it and recomputes the coordinates.
+
+### Array file
+
+An array file describes an array whose recordings have no usable
+metadata (for example SAC files of a temporary survey): the stations,
+their local coordinates and the waveform file of each component. It is
+a JSON object (version 1):
+
+```json
+{
+  "version": 1,
+  "coordinate_system": {"type": "local_cartesian", "unit": "m"},
+  "reference": [13.25, 46.06, 120.0],
+  "data_root": "sac",
+  "reader": {"format": "sac", "options": {}},
+  "stations": [
+    {"id": "S1001",
+     "coordinates": {"x": 2048.0, "y": 1964.0, "z": 0.0},
+     "coordinate_covariance": [[0.01, 0.0], [0.0, 0.01]],
+     "components": {"Z": "S1001.Z.sac", "N": "S1001.N.sac",
+                    "H1": {"file": "S1001.1.sac",
+                           "orientation": [0.7, 0.7, 0.0],
+                           "reader": {"format": "sac"}}}}
+  ]
+}
+```
+
+| Field | Content |
+|---|---|
+| `version` | format version, 1 (required) |
+| `coordinate_system` | `local_cartesian`, unit `m` |
+| `reference` | optional geographic position (longitude, latitude[, elevation in m]) of the origin of the coordinates |
+| `data_root` | folder of the waveform files (default: the folder of the array file) |
+| `reader` | optional arguments of `shakelab.signals.io.reader` (`format`, `byte_order`, `options`) for all the files |
+| `stations` | list of stations (required) |
+| `id` | station name |
+| `coordinates` | East, North[, Up] in metres, as an object `x`, `y`, `z` or a list |
+| `coordinate_covariance` | optional covariance of the horizontal coordinates, in square metres |
+| `components` | waveform file of each component: a file name, or an object with `file`, `orientation` and `reader` |
+
+Components named Z, N and E (also UP, VERTICAL, NORTH, EAST, X, Y, and
+1, 2, 3 for E, N, Z as in the ArrayTool3C file lists) imply their
+orientation; other names need an explicit `orientation` (direction of
+the sensor axis as east, north, up components). Each file must contain
+one record; the components of a station are cut to their common time
+window. An array file takes no reader options in `ArrayData` (they are
+written in the file).
 
 ## 10. Configuration
 
@@ -807,8 +857,10 @@ and [`yarray_15_operational.py`](../examples/exploration/yarray_15_operational.p
    fixed windows (the frequencies become the bins); the interpolated
    RFFT keeps the frequencies but is not faster than the direct
    transform when beamforming dominates.
-5. RTBF is the most expensive analysis (a `2N` system for every
-   frequency, block, azimuth and ellipticity): use moderate grids.
+5. The Rayleigh processing works on matrices of dimension `2N`
+   (`3N` for ARDS) and needs more windows per block; the RTBF also
+   scans an ellipticity grid, while ARTBF and ARDS find the angle
+   exactly and are the cheapest of the three.
 6. Save the results and plot or post-process them from the file,
    rather than repeating the processing.
 
@@ -819,22 +871,124 @@ one core of a laptop, indicative only): vertical Capon on
 0.5 s for 50 frequencies with the direct transform and 0.13 s with the
 nearest-bin RFFT (which keeps 15 distinct bins), and grows linearly
 with the frequencies for the direct and the interpolated transforms;
-RTBF with 61 ellipticities takes about 5.5 s for 10 frequencies; the
-cache of the steering vectors halves the time of repeated analyses of
-the same array. With the 38 stations of the full simulation the August
-measurements were of the order of 15 s (Bartlett, 80 spectra) to
-1000 s (RTBF, 60 spectra), equivalent in ShakeLab.
+for 10 frequencies, RTBF with 61 ellipticities takes about 0.4 s, ARTBF
+and ARDS about 0.25 s; the cache of the steering vectors halves the
+time of repeated analyses of the same array. With the 38 stations of
+the full simulation the August measurements were of the order of 15 s
+(Bartlett, 80 spectra) to 1000 s (RTBF, 60 spectra); single-component
+processing takes the same time in ShakeLab, the Rayleigh processing
+much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
+4 frequencies with 130 windows per block).
 
-# Part III. Limits
+# Part III. Design, validation and limits
 
-## 16. Current limitations and planned extensions
+## 16. Design choices
+
+- **Layers.** Generic primitives in `shakelab.signals` (no array
+  concepts) < `data` < `estimators` < `config` < `beamforming` <
+  applications (command line, monitor, graphics). The numerical
+  modules do no file input/output, no plotting and keep no global
+  state.
+- **Array data filled progressively.** The stations keep their own
+  time axis and the common window is taken when processing
+  (`ArrayData.window`, used by `Beamformer`), so that stations from
+  different sources can be added one at a time. `StationData` is
+  immutable and the builders create new records: later changes of the
+  input (for example a SeedLink buffer) do not affect the array.
+- **Fixed origin.** The origin of the ENU frame is the first station
+  added with a geographic position, or the given `reference`; adding
+  stations does not move it, `set_reference` recomputes the
+  coordinates.
+- **No implicit corrections.** Stations not covering the window
+  without gaps are excluded with a warning (`gaps="drop"`) or raise an
+  error (`gaps="raise"`); samples not simultaneous between stations are
+  an error (no implicit resampling).
+- **One name per parameter.** The parameters of `BeamformingConfig`
+  have the names of the command-line options; the grouped objects
+  (`WindowConfig`...) are immutable and the configuration changes with
+  `update`, validated as a whole. `Beamformer`, `ArrayMonitor` and the
+  results keep their own copy. Options with fixed values are
+  enumerations, whose string values are accepted everywhere.
+- **Results for real time.** A result file holds one result, possibly
+  written in pieces (`append=True`, with the same configuration); the
+  stations and coordinates are recorded for each block, so that
+  results of windows with different stations join correctly.
+  Frequencies whose windows do not fill a covariance block give no
+  result and a warning instead of an error, as needed for short
+  windows; `Beamformer(cache=True)` keeps the steering vectors while
+  coordinates and grid do not change.
+- **Planning from a snapshot.** `ArrayResponse` is computed once from
+  the coordinates of the moment (an `ArrayData` changed later does not
+  change it) and is the entry point of every planning analysis.
+  `PerformanceConfig` shares the mechanics of `BeamformingConfig` but
+  is not derived from it: the Monte Carlo grid is of wavenumbers,
+  independent of the frequency, and overlapping windows are fewer
+  independent realizations than `windows_per_block`.
+
+## 17. Validation
+
+YArray derives from development code written in August 2026 for the
+MODERN project, brought into ShakeLab with tests against the original
+results:
+
+- On the SESAME simulation (nine three-component stations, 60 s) the
+  maxima (wavenumber, azimuth, rank, block, ellipticity) are identical
+  to those of the August code for every estimator and component mode
+  (`tests/exploration/yarray/data/reference.json`).
+- Densities, summaries and peaks of the maxima agree within 1e-14,
+  except for two corrections: the peak prominence is measured from the
+  saddle towards a higher peak (`scipy.signal.find_peaks`), not from
+  the lowest density on each side, which overrated secondary modes on
+  the flank of a stronger one.
+- The planning results (responses, limits, Monte Carlo draws and
+  outcomes, envelopes) are identical bit for bit with the same seeds.
+- The sign of the ellipticity is checked on the fundamental Rayleigh
+  mode of a homogeneous half-space (retrograde, `e = -0.68` for a
+  Poisson solid, with the theoretical `c / beta` and H/V ratio), and
+  the closed-form ellipticity angle of ARTBF and ARDS against a fine
+  grid search.
+
+Differences from the August code that change numbers: the power is in
+physical units (power spectral density), `N delta / 2` times the old
+value (squared for the RTBF objective), with maxima and relative
+thresholds unchanged; the defaults of the windows are those of the
+August JSON files (overlap 0.5, 40 windows per block, block overlap
+0.5), not those of the August Python classes (0, 20, 0); the default
+estimator of the planning is Capon (Bartlett before).
+
+## 18. Current limitations and planned extensions
+
+Current limitations:
+
+- Capon estimated from `L` windows underestimates the power by about
+  `(L - n + 1) / L` for a matrix of dimension `n` (Capon and Goodman,
+  1970): -8 % with 40 windows and 10 stations in the tests, and more
+  for the Rayleigh processing (factors measured with 60 windows and 10
+  stations: 0.81 for the vertical component, 0.76 for ARTBF and 0.61
+  for ARDS). Compare
+  powers with Bartlett or with many windows.
+- The ellipticity of the angular processing is distorted when the
+  incoherent noise differs between vertical and horizontal components;
+  the correction of Wathelet (2024, Section 3.6) is not implemented.
+- The empirical uncertainty of the power is available for Bartlett and
+  Capon on single components (not MUSIC, not the Rayleigh processing);
+  the coordinate uncertainty for Bartlett on single components only.
+  The maxima have no uncertainty of their position yet.
+- The planning experiments model one plane wave in white noise with
+  independent realizations; correlated windows, coloured noise,
+  several sources, sampled coordinate errors and the Rayleigh
+  processing are not modelled.
+- Results are stored with pickle, which can run arbitrary code when
+  read: read only result files of trusted origin.
+
+Planned extensions:
 
 - Uncertainty of the position of the maxima (wavenumber, azimuth,
   velocity, ellipticity), to be used also as kernel widths of the
   density; uncertainty of RTBF.
 - Correction of the vertical-horizontal noise difference of the
   angular processing (Wathelet, 2024, Section 3.6).
-- Bias correction of Capon, `(L - N + 1) / L`.
+- Bias correction of Capon, `(L - n + 1) / L`, as an option.
 - Multitaper spectral estimates with a rigorous number of degrees of
   freedom; a `CrossSpectra` class shared with frequency domain
   decomposition (FDD) and spatial autocorrelation (SPAC).
@@ -846,7 +1000,8 @@ measurements were of the order of 15 s (Bartlett, 80 spectra) to
   spacing; a constrained geometry optimizer.
 - Interactive graphics.
 
-## 17. References
+## 19. References
+
 
 Capon, J. (1969). High-resolution frequency-wavenumber spectrum
 analysis. Proceedings of the IEEE, 57(8), 1408-1418.
