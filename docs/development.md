@@ -593,9 +593,15 @@ Equations in the guides (and in READMEs, where needed) are written in
 LaTeX, which GitHub renders with MathJax: displayed equations in a
 fenced block with the language `math`, symbols in the text between
 `` $` `` and `` `$ `` (for example `` $`L_{\mathrm{eff}}`$ ``), a form
-protected from the Markdown syntax. Vectors and matrices are bold
-(`\mathbf`); long expressions go in a displayed block rather than in
-the text, so that lines stay within 79 characters. Names of the code
+protected from the Markdown syntax. Vectors and matrices are bold,
+written with the Unicode mathematical bold characters (𝐚, 𝐂, 𝐤):
+GitHub does not show `\mathbf` or `\boldsymbol` in bold. Some macros
+are refused by GitHub (`\operatorname`: use `\mathrm{tr}`) or do not
+exist in MathJax (`\bm`); matrices (`bmatrix`) work in `math` blocks.
+A formula is checked in the preview of a GitHub issue before it is
+committed when it uses a construct not already in the guides. Long
+expressions go in a displayed block rather than in the text, so that
+lines stay within 79 characters. Names of the code
 (parameters, functions, classes) stay in backticks, next to the symbol
 they correspond to (`` $`k_R`$ (`resolution_radius`) ``). Docstrings
 stay in plain text.

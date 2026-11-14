@@ -76,12 +76,12 @@ estimate of the cross-spectral matrix (CSM) and therefore one
 spectrum, so that a long record gives a time series of results.
 
 For window $`m`$ the coefficients of the $`N`$ channels at frequency
-$`f`$ form a vector $`\mathbf{x}_m(f)`$. The CSM of a block of $`L`$
+$`f`$ form a vector $`𝐱_m(f)`$. The CSM of a block of $`L`$
 windows is
 
 ```math
-\mathbf{C}(f) = \frac{1}{L} \sum_{m=1}^{L}
-    \mathbf{x}_m(f)\, \mathbf{x}_m^H(f)
+𝐂(f) = \frac{1}{L} \sum_{m=1}^{L}
+    𝐱_m(f)\, 𝐱_m^H(f)
 ```
 
 The coefficient of each channel is scaled as a one-sided power
@@ -93,7 +93,7 @@ x(f) = \sqrt{\frac{2 \Delta}{\sum_n w_n^2}}
 ```
 
 ($`w_n`$ taper, $`x_n`$ samples, $`\Delta`$ sampling interval), so
-that the diagonal of $`\mathbf{C}`$ is the PSD of each channel and
+that the diagonal of $`𝐂`$ is the PSD of each channel and
 Bartlett and Capon give the density of a plane wave in the units of
 the data squared per Hz. Data not corrected for the instrument work
 the same way: the power is then in counts squared per Hz, or
@@ -127,7 +127,7 @@ power.
 ## 2. Plane waves and steering vectors
 
 A plane wave of angular wavenumber $`k`$ and azimuth $`\theta`$ has
-the wavevector $`\mathbf{k} = (k_x, k_y)`$,
+the wavevector $`𝐤 = (k_x, k_y)`$,
 
 ```math
 k_x = k \sin\theta, \qquad k_y = k \cos\theta, \qquad
@@ -138,10 +138,10 @@ k = \frac{2 \pi f}{c} = 2 \pi f s
 $`(x_i, y_i)`$, the phase factor
 
 ```math
-a_i(\mathbf{k}) = e^{-i (k_x x_i + k_y y_i)}
+a_i(𝐤) = e^{-i (k_x x_i + k_y y_i)}
 ```
 
-The steering vectors $`\mathbf{a}`$ are evaluated on a polar **search
+The steering vectors $`𝐚`$ are evaluated on a polar **search
 grid**, whose radial coordinate is velocity, slowness or wavenumber,
 sampled linearly or logarithmically, with uniform or explicit
 azimuths.
@@ -151,7 +151,7 @@ azimuths.
 **Bartlett** (conventional beamforming):
 
 ```math
-P_B = \frac{\mathbf{a}^H \mathbf{C}\, \mathbf{a}}{N^2}
+P_B = \frac{𝐚^H 𝐂\, 𝐚}{N^2}
 ```
 
 robust and inexpensive; its resolution is that of the array response
@@ -161,10 +161,10 @@ robust and inexpensive; its resolution is that of the array response
 loading $`\lambda`$ (`diagonal_loading`) for numerical stability:
 
 ```math
-\mathbf{R} = \mathbf{C}
-    + \lambda\, \frac{\operatorname{tr}(\mathbf{C})}{N}\, \mathbf{I},
+𝐑 = 𝐂
+    + \lambda\, \frac{\mathrm{tr}(𝐂)}{N}\, 𝐈,
 \qquad
-P_C = \frac{1}{\mathbf{a}^H \mathbf{R}^{-1} \mathbf{a}}
+P_C = \frac{1}{𝐚^H 𝐑^{-1} 𝐚}
 ```
 
 It suppresses the power not coherent with the tested wave and resolves
@@ -174,11 +174,11 @@ the bias does not move the maxima. With `strict=True` (default) Capon
 and MUSIC require more windows per block than the dimension of the
 matrix.
 
-**MUSIC** (Schmidt, 1986): with $`\mathbf{E}_n`$ the eigenvectors of
+**MUSIC** (Schmidt, 1986): with $`𝐄_n`$ the eigenvectors of
 the noise subspace (all but `music_sources`),
 
 ```math
-P_M = \frac{1}{\mathbf{a}^H \mathbf{E}_n \mathbf{E}_n^H \mathbf{a}}
+P_M = \frac{1}{𝐚^H 𝐄_n 𝐄_n^H 𝐚}
 ```
 
 a pseudo-spectrum without physical units: very sharp when the
@@ -204,8 +204,8 @@ modes are: `vertical`, `radial`, `transverse`,
 in one matrix of dimension $`2N`$, steered by
 
 ```math
-\mathbf{s}(e) =
-    \begin{bmatrix} -i\, e\, \mathbf{a} \\ \mathbf{a} \end{bmatrix}
+𝐬(e) =
+    \begin{bmatrix} -i\, e\, 𝐚 \\ 𝐚 \end{bmatrix}
 ```
 
 where $`e`$ is the signed ellipticity (radial over vertical amplitude,
@@ -221,7 +221,7 @@ peak of the H/V ratio, prograde between the peak and the following
 trough, and retrograde again above it. Data whose vertical component
 is positive downwards (or whose horizontal components are reversed)
 give the opposite sign: check the polarity of the sensors. The Capon
-power $`P`$ of $`\mathbf{s}(e)`$ is computed for every trial
+power $`P`$ of $`𝐬(e)`$ is computed for every trial
 ellipticity and the objective $`e^2 P^2`$ is maximized: the spectrum
 is that maximum, and the ellipticity at the maximum is kept with each
 spectral maximum. The ellipticity is sampled uniformly in its angle
@@ -236,40 +236,40 @@ proposes a normalized steering in the ellipticity angle
 $`\xi = \arctan e`$, with the power itself maximized over $`\xi`$:
 
 - **ARTBF** (`rayleigh_angular`): the radial-vertical matrix of
-  dimension $`2N`$ of each azimuth, steered by $`\mathbf{s}_A(\xi)`$;
+  dimension $`2N`$ of each azimuth, steered by $`𝐬_A(\xi)`$;
 - **ARDS** (`rayleigh_direct`): one matrix of dimension $`3N`$ of the
   east, north and vertical motion per block (inverted once for
-  Capon), steered by $`\mathbf{s}_D(\xi)`$:
+  Capon), steered by $`𝐬_D(\xi)`$:
 
 ```math
-\mathbf{s}_A(\xi) =
-    \begin{bmatrix} -i \sin\xi\, \mathbf{a} \\
-                     \cos\xi\, \mathbf{a} \end{bmatrix},
+𝐬_A(\xi) =
+    \begin{bmatrix} -i \sin\xi\, 𝐚 \\
+                     \cos\xi\, 𝐚 \end{bmatrix},
 \qquad
-\mathbf{s}_D(\xi) =
-    \begin{bmatrix} -i \sin\xi \sin\theta\, \mathbf{a} \\
-                     -i \sin\xi \cos\theta\, \mathbf{a} \\
-                     \cos\xi\, \mathbf{a} \end{bmatrix}
+𝐬_D(\xi) =
+    \begin{bmatrix} -i \sin\xi \sin\theta\, 𝐚 \\
+                     -i \sin\xi \cos\theta\, 𝐚 \\
+                     \cos\xi\, 𝐚 \end{bmatrix}
 ```
 
 Both work with Capon and Bartlett. The steering vector is
-$`\mathbf{s} = \mathbf{A} \mathbf{u}`$ with
-$`\mathbf{u} = (\sin\xi, \cos\xi)^T`$ real and of unit length, so
+$`𝐬 = 𝐀 𝐮`$ with
+$`𝐮 = (\sin\xi, \cos\xi)^T`$ real and of unit length, so
 that
 
 ```math
-\mathbf{s}^H \mathbf{W} \mathbf{s}
-    = \mathbf{u}^T \operatorname{Re}(\mathbf{A}^H \mathbf{W} \mathbf{A})
-      \, \mathbf{u}
+𝐬^H 𝐖 𝐬
+    = 𝐮^T \mathrm{Re}(𝐀^H 𝐖 𝐀)
+      \, 𝐮
     = m + d \cos(2 \xi - \varphi)
 ```
 
-with $`\mathbf{W}`$ the inverse matrix (Capon) or the matrix
+with $`𝐖`$ the inverse matrix (Capon) or the matrix
 (Bartlett) and $`m`$, $`d`$, $`\varphi`$ given by the three entries of
 the real 2 x 2 matrix
-$`\mathbf{Q} = \operatorname{Re}(\mathbf{A}^H \mathbf{W} \mathbf{A})`$.
+$`𝐐 = \mathrm{Re}(𝐀^H 𝐖 𝐀)`$.
 The maximum over $`\xi`$ is therefore found exactly, by the
-eigenvector of $`\mathbf{Q}`$ (Capon: $`P = 1 / (m - d)`$; Bartlett:
+eigenvector of $`𝐐`$ (Capon: $`P = 1 / (m - d)`$; Bartlett:
 $`P = (m + d) / N^2`$), with no grid of ellipticities and without the
 Newton search proposed by Wathelet (2024). The angle covers
 (-90, 90] degrees: purely vertical ($`\xi = 0`$) and purely
@@ -297,19 +297,19 @@ power at every grid point (single components):
   variance of their mean is divided by $`L_{\mathrm{eff}}`$;
 - Capon: first-order propagation (delta method) of the variance of the
   windows through
-  $`\delta P = P^2\, \mathbf{b}^H \delta\mathbf{R}\, \mathbf{b}`$,
-  $`\mathbf{b} = \mathbf{R}^{-1} \mathbf{a}`$.
+  $`\delta P = P^2\, 𝐛^H \delta𝐑\, 𝐛`$,
+  $`𝐛 = 𝐑^{-1} 𝐚`$.
 
 `geometric_uncertainty="expected_coherence"` (Bartlett) gives the
 power expected over independent Gaussian errors of the station
-coordinates, with covariance $`\mathbf{S}_i`$: the steering
+coordinates, with covariance $`𝐒_i`$: the steering
 coefficients are damped by the expected coherence
-$`g_i = \exp(-\mathbf{k}^T \mathbf{S}_i \mathbf{k} / 2)`$ and the
+$`g_i = \exp(-𝐤^T 𝐒_i 𝐤 / 2)`$ and the
 diagonal is kept exactly,
 
 ```math
-P = \frac{(\mathbf{a} \circ \mathbf{g})^H\, \mathbf{C}\,
-          (\mathbf{a} \circ \mathbf{g})}{N^2}
+P = \frac{(𝐚 \circ 𝐠)^H\, 𝐂\,
+          (𝐚 \circ 𝐠)}{N^2}
     + \frac{1}{N^2} \sum_i \left(1 - g_i^2\right) C_{ii}
 ```
 
@@ -354,21 +354,21 @@ The response of an array depends only on the station positions. It
 tells which wavevectors the array resolves and which it confuses,
 independently of the data and of the estimator.
 
-**Array factor and ambiguity.** For stations at $`\mathbf{r}_n`$,
+**Array factor and ambiguity.** For stations at $`𝐫_n`$,
 
 ```math
-B(\Delta\mathbf{k}) = \frac{1}{N} \sum_n
-    e^{-i\, \Delta\mathbf{k} \cdot \mathbf{r}_n},
+B(\Delta𝐤) = \frac{1}{N} \sum_n
+    e^{-i\, \Delta𝐤 \cdot 𝐫_n},
 \qquad
-A(\Delta\mathbf{k}) = \left| B(\Delta\mathbf{k}) \right|^2
+A(\Delta𝐤) = \left| B(\Delta𝐤) \right|^2
 ```
 
-$`A(\mathbf{0}) = 1`$ and $`A`$ does not change with a translation of
-the array. With normalized steering vectors $`\mathbf{a}`$,
+$`A(𝟎) = 1`$ and $`A`$ does not change with a translation of
+the array. With normalized steering vectors $`𝐚`$,
 
 ```math
-\left| \mathbf{a}(\mathbf{k}_1)^H \mathbf{a}(\mathbf{k}_2) \right|^2
-    = A(\mathbf{k}_2 - \mathbf{k}_1)
+\left| 𝐚(𝐤_1)^H 𝐚(𝐤_2) \right|^2
+    = A(𝐤_2 - 𝐤_1)
 ```
 
 so $`A`$ is the similarity of two wavevectors as a function of their
@@ -389,8 +389,8 @@ largest radius, the resolution radius $`k_R`$ (`resolution_radius`):
 below it two waves are not resolved (a single wave can still be
 measured at smaller $`k`$, with a precision limited by noise and
 averaging; Section 8). Near the origin
-$`A(\mathbf{k}) \approx 1 - \mathbf{k}^T \mathbf{C}_r \mathbf{k}`$,
-with $`\mathbf{C}_r`$ the covariance of the centred coordinates: its
+$`A(𝐤) \approx 1 - 𝐤^T 𝐂_r 𝐤`$,
+with $`𝐂_r`$ the covariance of the centred coordinates: its
 principal directions and the anisotropy ratio describe the geometry.
 
 **Ambiguity.** For a level $`T_A`$ (default 0.5) the regions of
@@ -407,9 +407,9 @@ probability) summarize the strength of the ambiguities.
 
 **Search domains.** A search over a domain $`D`$ of wavevectors is
 free of ambiguity at level $`T_A`$ if no difference
-$`\mathbf{k}_2 - \mathbf{k}_1`$ of two of its wavevectors falls into a
-remote region. For a full-azimuth disk $`|\mathbf{k}| \leq K`$ the
-differences fill the disk $`|\Delta\mathbf{k}| \leq 2K`$, whence the
+$`𝐤_2 - 𝐤_1`$ of two of its wavevectors falls into a
+remote region. For a full-azimuth disk $`|𝐤| \leq K`$ the
+differences fill the disk $`|\Delta𝐤| \leq 2K`$, whence the
 conservative limit, the aliasing radius $`k_A`$
 (`aliasing_radius`),
 
@@ -434,13 +434,13 @@ the aliasing radius is smaller than the resolution radius no
 wavenumber is both resolved and unambiguous (e.g. three stations).
 
 **Coordinate uncertainty.** With independent Gaussian errors of
-covariance $`\mathbf{S}_n`$ and
-$`q_n(\mathbf{k}) = \exp(-\mathbf{k}^T \mathbf{S}_n \mathbf{k} / 2)`$,
+covariance $`𝐒_n`$ and
+$`q_n(𝐤) = \exp(-𝐤^T 𝐒_n 𝐤 / 2)`$,
 the expected response is
 
 ```math
-\operatorname{E}\left[A(\mathbf{k})\right]
-    = \frac{\left| \sum_n q_n\, e^{-i\, \mathbf{k} \cdot \mathbf{r}_n}
+\mathrm{E}\left[A(𝐤)\right]
+    = \frac{\left| \sum_n q_n\, e^{-i\, 𝐤 \cdot 𝐫_n}
             \right|^2
             + \sum_n \left(1 - q_n^2\right)}{N^2}
 ```
@@ -465,22 +465,22 @@ of aliasing. The performance of an estimator is therefore measured by
 Monte Carlo simulation with the estimators themselves:
 
 ```math
-\mathbf{x}_m = s_m\, \mathbf{a}(\mathbf{k}_0) + \mathbf{n}_m,
+𝐱_m = s_m\, 𝐚(𝐤_0) + 𝐧_m,
 \qquad s_m \sim \mathcal{CN}(0, P_s),
-\qquad \mathbf{n}_m \sim \mathcal{CN}(\mathbf{0}, P_n \mathbf{I})
+\qquad 𝐧_m \sim \mathcal{CN}(𝟎, P_n 𝐈)
 ```
 
 (independent realizations, SNR $`P_s / P_n`$ per station). Each trial
 builds a sample CSM from $`L`$ realizations, computes the spectrum on
 the search grid and classifies its maximum by the error
-$`\Delta\mathbf{k} = \hat{\mathbf{k}} - \mathbf{k}_0`$ with the
+$`\Delta𝐤 = \hat{𝐤} - 𝐤_0`$ with the
 geometric response:
 
 | Outcome | Meaning |
 |---|---|
 | `BOUNDARY` | maximum on the radial boundary of the search grid |
-| `LOCAL` | $`\Delta\mathbf{k}`$ in the main lobe (geometrically local, not "accurate") |
-| `ALIAS` | $`\Delta\mathbf{k}`$ in a remote ambiguity region (an alias family) |
+| `LOCAL` | $`\Delta𝐤`$ in the main lobe (geometrically local, not "accurate") |
+| `ALIAS` | $`\Delta𝐤`$ in a remote ambiguity region (an alias family) |
 | `OTHER` | anywhere else (noise-driven maxima) |
 
 The probabilities (with Wilson score intervals), the bias and

@@ -11,7 +11,8 @@ corrections. The format follows
 
 - Documentation: the equations of the YARRAY guide are written in
   LaTeX and rendered by GitHub (displayed `math` blocks and inline
-  symbols); package names written as words are in capitals (YARRAY).
+  symbols; vectors and matrices in Unicode bold, which GitHub shows
+  in bold); package names written as words are in capitals (YARRAY).
   The rule is in `docs/development.md` §23.
 - Conventions (`docs/conventions.md` §5, version 1.0): stochastic
   functions and configurations take a parameter `seed` (an integer,
