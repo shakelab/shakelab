@@ -587,6 +587,24 @@ The development history and the state of the work (blocks, commits,
 open points) belong to the changelog and to the project notes, never
 to READMEs or guides.
 
+#### Equations and names in the documentation
+
+Equations in the guides (and in READMEs, where needed) are written in
+LaTeX, which GitHub renders with MathJax: displayed equations in a
+fenced block with the language `math`, symbols in the text between
+`` $` `` and `` `$ `` (for example `` $`L_{\mathrm{eff}}`$ ``), a form
+protected from the Markdown syntax. Vectors and matrices are bold
+(`\mathbf`); long expressions go in a displayed block rather than in
+the text, so that lines stay within 79 characters. Names of the code
+(parameters, functions, classes) stay in backticks, next to the symbol
+they correspond to (`` $`k_R`$ (`resolution_radius`) ``). Docstrings
+stay in plain text.
+
+Package names written as words in the documentation (titles and text)
+are in capitals, for example YARRAY; in the code, in paths and in
+commands they keep the lower-case name of the module (`yarray`,
+`shakelab.exploration.yarray`, `slab-yarray`).
+
 #### Folder READMEs
 
 The README of a folder introduces its functionality to a user who

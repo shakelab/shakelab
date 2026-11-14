@@ -9,6 +9,10 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: the equations of the YARRAY guide are written in
+  LaTeX and rendered by GitHub (displayed `math` blocks and inline
+  symbols); package names written as words are in capitals (YARRAY).
+  The rule is in `docs/development.md` §23.
 - Conventions (`docs/conventions.md` §5, version 1.0): stochastic
   functions and configurations take a parameter `seed` (an integer,
   None for a fresh non-reproducible generator, or a
@@ -22,11 +26,11 @@ corrections. The format follows
 - Documentation: folder READMEs are introductions for users, with a
   common model of numbered sections (`docs/development.md` §23,
   version 2.3); the README of `exploration.yarray` is the first one
-  written to it. The guide of YArray gains the format of the array
+  written to it. The guide of YARRAY gains the format of the array
   file (§9), the design choices (§16) and the validation against the
   August 2026 code (§17), and updated processing times.
 - Documentation and examples follow the structure of the package: the
-  guide of YArray moves to `docs/exploration/yarray.md`, its examples
+  guide of YARRAY moves to `docs/exploration/yarray.md`, its examples
   to `examples/exploration/yarray/`, without the prefix `yarray_`
   (`01_array.py` to `16_profiling.py`).
 - `exploration.yarray`: new component modes `"rayleigh_angular"`
@@ -474,12 +478,12 @@ corrections. The format follows
   velocity, 16-84 % interval, mean azimuth by frequency:
   `DispersionCurve`), `density`, `info`, block times and units. The beam
   power is a power spectral density (units of the data squared per
-  Hz, also for uncorrected data). Ported from the YArray development
+  Hz, also for uncorrected data). Ported from the YARRAY development
   code of August 2026: same maxima on the SESAME simulation; see
   `shakelab/exploration/yarray/README.md`.
 - `exploration.yarray.io`: formats of the array files (JSON with
   local coordinates, a waveform file per component and reader options,
-  as the YArray files of August 2026; read by `ArrayData`) and of the
+  as the YARRAY files of August 2026; read by `ArrayData`) and of the
   result files (pickle; `BeamformingResult.read`/`write`).
 - `exploration.yarray.monitor.ArrayMonitor(config, window, ...)`:
   periodic array processing of the data of the SeedLink client
@@ -521,7 +525,7 @@ corrections. The format follows
   `method`, `grid_min`, `grid_max`, `grid_size`, `trials`,
   `realizations`, `seed`, levels of the classification...; JSON file,
   `update`, `copy`, `read`, `write`); `copy(**changes)` of both
-  configurations returns a modified copy. Same results as the YArray
+  configurations returns a modified copy. Same results as the YARRAY
   code of August 2026 with the same seeds. Figures
   `plot_array_geometry`, `plot_array_response`, `plot_resolution`,
   `plot_search_domain`, `plot_velocity_limits`, `plot_performance`,

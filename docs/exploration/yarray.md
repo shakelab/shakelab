@@ -1,4 +1,4 @@
-# YArray: seismic-array processing
+# YARRAY: seismic-array processing
 
 `shakelab.exploration.yarray` measures the waves crossing a seismic
 array by frequency-wavenumber (f-k) analysis: phase velocity and
@@ -22,7 +22,7 @@ with its main uses and modules, is in the
 [package README](../../shakelab/exploration/yarray/README.md); scripts
 illustrating every way of use are in
 [`examples/exploration/yarray/`](../../examples/README.md#exploration).
-The guide derives from the four documents of the YArray development code
+The guide derives from the four documents of the YARRAY development code
 (August 2026: theoretical background, software architecture, user
 manual, array response theory), updated to the implementation in
 ShakeLab.
@@ -60,8 +60,8 @@ Part III. Design, validation and limits
 # Part I. Theory
 
 The wavefield is assumed locally plane over the array and propagating
-horizontally. Coordinates are east (x), north (y) and up, in metres
-(or in any distance unit, consistently with velocities and
+horizontally. Coordinates are east ($`x`$), north ($`y`$) and up, in
+metres (or in any distance unit, consistently with velocities and
 wavenumbers); azimuths are clockwise from north and give the direction
 towards which the wave travels.
 
@@ -69,30 +69,35 @@ towards which the wave travels.
 
 Each record is cut into elementary **windows**, tapered (Tukey) and
 transformed at the analysis frequencies. The windows have a fixed
-duration, or a duration of `n_c` cycles of each frequency,
-`T_w = n_c / f`; they may overlap. Consecutive windows form
+duration, or a duration of $`n_c`$ cycles of each frequency,
+$`T_w = n_c / f`$; they may overlap. Consecutive windows form
 **covariance blocks**, which may also overlap: each block gives one
 estimate of the cross-spectral matrix (CSM) and therefore one
 spectrum, so that a long record gives a time series of results.
 
-For window `m` the coefficients of the `N` channels at frequency `f`
-form a vector `x_m(f)`. The CSM of a block of `L` windows is
+For window $`m`$ the coefficients of the $`N`$ channels at frequency
+$`f`$ form a vector $`\mathbf{x}_m(f)`$. The CSM of a block of $`L`$
+windows is
 
-```
-C(f) = (1 / L) sum_m x_m(f) x_m(f)^H
-```
-
-The coefficients are scaled as a one-sided power spectral density,
-
-```
-x(f) = sqrt(2 delta / sum_n w_n**2) sum_n w_n x_n exp(-2 pi i f n delta)
+```math
+\mathbf{C}(f) = \frac{1}{L} \sum_{m=1}^{L}
+    \mathbf{x}_m(f)\, \mathbf{x}_m^H(f)
 ```
 
-(`w` taper, `delta` sampling interval), so that the diagonal of `C` is
-the PSD of each channel and Bartlett and Capon give the density of a
-plane wave in the units of the data squared per Hz. Data not corrected
-for the instrument work the same way: the power is then in counts
-squared per Hz, or `(unit)**2/Hz` when the units are unknown.
+The coefficient of each channel is scaled as a one-sided power
+spectral density,
+
+```math
+x(f) = \sqrt{\frac{2 \Delta}{\sum_n w_n^2}}
+    \sum_n w_n\, x_n\, e^{-2 \pi i f n \Delta}
+```
+
+($`w_n`$ taper, $`x_n`$ samples, $`\Delta`$ sampling interval), so
+that the diagonal of $`\mathbf{C}`$ is the PSD of each channel and
+Bartlett and Capon give the density of a plane wave in the units of
+the data squared per Hz. Data not corrected for the instrument work
+the same way: the power is then in counts squared per Hz, or
+`(unit)**2/Hz` when the units are unknown.
 
 Two transforms give the coefficients
 (`shakelab.signals.crossspectral.coefficients`):
@@ -107,64 +112,73 @@ Two transforms give the coefficients
   but does not improve the resolution of the window.
 
 **Effective number of windows.** Overlapping tapered windows are
-correlated, so `L` windows carry the information of fewer independent
-ones (Percival and Walden, 1993, Section 6.17):
+correlated, so $`L`$ windows carry the information of fewer
+independent ones (Percival and Walden, 1993, Section 6.17):
 
-```
-L_eff = L / (1 + 2 sum_q (1 - q / L) rho_q**2)
+```math
+L_{\mathrm{eff}} = \frac{L}
+    {1 + 2 \sum_{q} \left(1 - \frac{q}{L}\right) \rho_q^2}
 ```
 
-with `rho_q` the overlap of the taper with itself shifted by `q`
-windows. `L_eff` is used by the standard errors of the power.
+with $`\rho_q`$ the overlap of the taper with itself shifted by $`q`$
+windows. $`L_{\mathrm{eff}}`$ is used by the standard errors of the
+power.
 
 ## 2. Plane waves and steering vectors
 
-A plane wave of angular wavenumber `k` and azimuth `theta` has the
-wavevector
+A plane wave of angular wavenumber $`k`$ and azimuth $`\theta`$ has
+the wavevector $`\mathbf{k} = (k_x, k_y)`$,
 
-```
-kx = k sin(theta),   ky = k cos(theta),   k = 2 pi f / c = 2 pi f s
-```
-
-(`c` phase velocity, `s` slowness), and at station `i` the phase factor
-
-```
-a_i(k) = exp(-i (kx x_i + ky y_i))
+```math
+k_x = k \sin\theta, \qquad k_y = k \cos\theta, \qquad
+k = \frac{2 \pi f}{c} = 2 \pi f s
 ```
 
-The steering vectors `a` are evaluated on a polar **search grid**,
-whose radial coordinate is velocity, slowness or wavenumber, sampled
-linearly or logarithmically, with uniform or explicit azimuths.
+($`c`$ phase velocity, $`s`$ slowness), and at station $`i`$, at
+$`(x_i, y_i)`$, the phase factor
+
+```math
+a_i(\mathbf{k}) = e^{-i (k_x x_i + k_y y_i)}
+```
+
+The steering vectors $`\mathbf{a}`$ are evaluated on a polar **search
+grid**, whose radial coordinate is velocity, slowness or wavenumber,
+sampled linearly or logarithmically, with uniform or explicit
+azimuths.
 
 ## 3. Estimators
 
 **Bartlett** (conventional beamforming):
 
-```
-P_B = a^H C a / N**2
+```math
+P_B = \frac{\mathbf{a}^H \mathbf{C}\, \mathbf{a}}{N^2}
 ```
 
 robust and inexpensive; its resolution is that of the array response
 (Section 7).
 
 **Capon** (minimum variance, Capon 1969), with trace-scaled diagonal
-loading `lambda` for numerical stability:
+loading $`\lambda`$ (`diagonal_loading`) for numerical stability:
 
-```
-R = C + lambda (tr(C) / N) I,      P_C = 1 / (a^H R^-1 a)
+```math
+\mathbf{R} = \mathbf{C}
+    + \lambda\, \frac{\operatorname{tr}(\mathbf{C})}{N}\, \mathbf{I},
+\qquad
+P_C = \frac{1}{\mathbf{a}^H \mathbf{R}^{-1} \mathbf{a}}
 ```
 
 It suppresses the power not coherent with the tested wave and resolves
-closer waves than Bartlett. A CSM of `L` windows underestimates the
-Capon power by about `(L - N + 1) / L` (Capon and Goodman, 1970): the
-bias does not move the maxima. With `strict=True` (default) Capon and
-MUSIC require more windows per block than the dimension of the matrix.
+closer waves than Bartlett. A CSM of $`L`$ windows underestimates the
+Capon power by about $`(L - N + 1) / L`$ (Capon and Goodman, 1970):
+the bias does not move the maxima. With `strict=True` (default) Capon
+and MUSIC require more windows per block than the dimension of the
+matrix.
 
-**MUSIC** (Schmidt, 1986): with `E_n` the eigenvectors of the noise
-subspace (all but `music_sources`),
+**MUSIC** (Schmidt, 1986): with $`\mathbf{E}_n`$ the eigenvectors of
+the noise subspace (all but `music_sources`),
 
-```
-P_M = 1 / (a^H E_n E_n^H a)
+```math
+P_M = \frac{1}{\mathbf{a}^H \mathbf{E}_n \mathbf{E}_n^H \mathbf{a}}
 ```
 
 a pseudo-spectrum without physical units: very sharp when the
@@ -172,11 +186,12 @@ subspace model holds, sensitive to the assumed number of sources.
 
 ## 4. Components and Rayleigh three-component beamforming
 
-For each tested azimuth the horizontal motion is projected on the
-radial and transverse directions,
+For each tested azimuth $`\theta`$ the horizontal motion (east $`E`$,
+north $`N`$) is projected on the radial and transverse directions,
 
-```
-R = E sin(theta) + N cos(theta),    T = E cos(theta) - N sin(theta)
+```math
+R = E \sin\theta + N \cos\theta, \qquad
+T = E \cos\theta - N \sin\theta
 ```
 
 (transverse: radial rotated by +90 degrees, clockwise). The component
@@ -186,73 +201,90 @@ modes are: `vertical`, `radial`, `transverse`,
 
 **Rayleigh three-component beamforming** (RTBF, Wathelet et al.,
 2018) combines, for each azimuth, the radial and vertical coefficients
-in one matrix of dimension `2N`, steered by
+in one matrix of dimension $`2N`$, steered by
 
-```
-E = [-i e a, a]
+```math
+\mathbf{s}(e) =
+    \begin{bmatrix} -i\, e\, \mathbf{a} \\ \mathbf{a} \end{bmatrix}
 ```
 
-where `e` is the signed ellipticity (radial over vertical amplitude,
-positive for radial motion `e sin(wt)` with vertical `cos(wt)`). The
-radial component is positive in the direction of propagation and the
-vertical one upwards, so that **`e > 0` is prograde and `e < 0`
-retrograde** particle motion, the convention of Wathelet et al.
-(2018) (other authors use the opposite sign). The fundamental mode
-of a homogeneous half-space, retrograde at the surface, gives
-`e = -0.68` for a Poisson solid; for a soft layer over a stiff
-half-space the fundamental mode is retrograde below the peak of the
-H/V ratio, prograde between the peak and the following trough, and
-retrograde again above it. Data whose vertical component is positive
-downwards (or whose horizontal components are reversed) give the
-opposite sign: check the polarity of the sensors. The
-Capon power `P` of `E` is computed for every trial ellipticity and the
-objective `e**2 P**2` is maximized: the spectrum is that maximum, and
-the ellipticity at the maximum is kept with each spectral maximum. The
-ellipticity is sampled uniformly in its angle `chi = arctan(e)`
-strictly inside (-90, 90) degrees (default -85 to 85, 61 values), so
-that large ellipticities are reached without an arbitrary bound on
-`e`; zero is excluded. Its power has the square of the units of the
-power.
+where $`e`$ is the signed ellipticity (radial over vertical amplitude,
+positive for radial motion $`e \sin(\omega t)`$ with vertical
+$`\cos(\omega t)`$). The radial component is positive in the direction
+of propagation and the vertical one upwards, so that **$`e > 0`$ is
+prograde and $`e < 0`$ retrograde** particle motion, the convention of
+Wathelet et al. (2018) (other authors use the opposite sign). The
+fundamental mode of a homogeneous half-space, retrograde at the
+surface, gives $`e = -0.68`$ for a Poisson solid; for a soft layer
+over a stiff half-space the fundamental mode is retrograde below the
+peak of the H/V ratio, prograde between the peak and the following
+trough, and retrograde again above it. Data whose vertical component
+is positive downwards (or whose horizontal components are reversed)
+give the opposite sign: check the polarity of the sensors. The Capon
+power $`P`$ of $`\mathbf{s}(e)`$ is computed for every trial
+ellipticity and the objective $`e^2 P^2`$ is maximized: the spectrum
+is that maximum, and the ellipticity at the maximum is kept with each
+spectral maximum. The ellipticity is sampled uniformly in its angle
+$`\chi = \arctan e`$ strictly inside (-90, 90) degrees (default -85
+to 85, 61 values), so that large ellipticities are reached without an
+arbitrary bound on $`e`$; zero is excluded. Its power has the square
+of the units of the power.
 
 Wathelet (2024) shows that the 2018 formulation is distorted by
 incoherent noise for vanishing or very large ellipticities and
 proposes a normalized steering in the ellipticity angle
-`xi = arctan(e)`, with the power itself maximized over `xi`:
+$`\xi = \arctan e`$, with the power itself maximized over $`\xi`$:
 
 - **ARTBF** (`rayleigh_angular`): the radial-vertical matrix of
-  dimension `2N` of each azimuth, steered by
-  `[-i sin(xi) a, cos(xi) a]`;
-- **ARDS** (`rayleigh_direct`): one matrix of dimension `3N` of the
+  dimension $`2N`$ of each azimuth, steered by $`\mathbf{s}_A(\xi)`$;
+- **ARDS** (`rayleigh_direct`): one matrix of dimension $`3N`$ of the
   east, north and vertical motion per block (inverted once for
-  Capon), steered by
-  `[-i sin(xi) sin(theta) a, -i sin(xi) cos(theta) a, cos(xi) a]`.
+  Capon), steered by $`\mathbf{s}_D(\xi)`$:
 
-Both work with Capon and Bartlett. The steering vector is `s = A u`
-with `u = (sin xi, cos xi)` real and of unit length, so that
-
+```math
+\mathbf{s}_A(\xi) =
+    \begin{bmatrix} -i \sin\xi\, \mathbf{a} \\
+                     \cos\xi\, \mathbf{a} \end{bmatrix},
+\qquad
+\mathbf{s}_D(\xi) =
+    \begin{bmatrix} -i \sin\xi \sin\theta\, \mathbf{a} \\
+                     -i \sin\xi \cos\theta\, \mathbf{a} \\
+                     \cos\xi\, \mathbf{a} \end{bmatrix}
 ```
-s^H W s = u^T Re(A^H W A) u = m + d cos(2 xi - phi)
+
+Both work with Capon and Bartlett. The steering vector is
+$`\mathbf{s} = \mathbf{A} \mathbf{u}`$ with
+$`\mathbf{u} = (\sin\xi, \cos\xi)^T`$ real and of unit length, so
+that
+
+```math
+\mathbf{s}^H \mathbf{W} \mathbf{s}
+    = \mathbf{u}^T \operatorname{Re}(\mathbf{A}^H \mathbf{W} \mathbf{A})
+      \, \mathbf{u}
+    = m + d \cos(2 \xi - \varphi)
 ```
 
-with `W` the inverse matrix (Capon) or the matrix (Bartlett) and
-`m`, `d`, `phi` given by the three entries of the real 2 x 2 matrix
-`Q = Re(A^H W A)`. The maximum over `xi` is therefore found exactly,
-by the eigenvector of `Q` (Capon: `P = 1 / (m - d)`; Bartlett:
-`P = (m + d) / N**2`), with no grid of ellipticities and without the
+with $`\mathbf{W}`$ the inverse matrix (Capon) or the matrix
+(Bartlett) and $`m`$, $`d`$, $`\varphi`$ given by the three entries of
+the real 2 x 2 matrix
+$`\mathbf{Q} = \operatorname{Re}(\mathbf{A}^H \mathbf{W} \mathbf{A})`$.
+The maximum over $`\xi`$ is therefore found exactly, by the
+eigenvector of $`\mathbf{Q}`$ (Capon: $`P = 1 / (m - d)`$; Bartlett:
+$`P = (m + d) / N^2`$), with no grid of ellipticities and without the
 Newton search proposed by Wathelet (2024). The angle covers
-(-90, 90] degrees: purely vertical (`xi = 0`) and purely horizontal
-motion (`xi = 90`, no finite `e`, stored as None) are reached. The
-power is the density of the radial and vertical motion together,
-`|R|**2 + |Z|**2`, in the units of the power. The joint processing
-uses the same quadratic forms on its ellipticity grid (identical
-results, more than ten times faster than solving one system per
-ellipticity).
+(-90, 90] degrees: purely vertical ($`\xi = 0`$) and purely
+horizontal motion ($`\xi = 90`$ degrees, no finite $`e`$, stored as
+None) are reached. The power is the density of the radial and
+vertical motion together, $`|R|^2 + |Z|^2`$, in the units of the
+power. The joint processing uses the same quadratic forms on its
+ellipticity grid (identical results, more than ten times faster than
+solving one system per ellipticity).
 
-Capon underestimates the power by about `(L - n + 1) / L` for a
-matrix of dimension `n` and `L` windows (Section 18): more for the
-matrices of dimension `2N` and `3N` than for single components, so
-compare powers of different modes with Bartlett or with many windows.
-The correction of the noise difference between vertical and
+Capon underestimates the power by about $`(L - n + 1) / L`$ for a
+matrix of dimension $`n`$ and $`L`$ windows (Section 18): more for the
+matrices of dimension $`2N`$ and $`3N`$ than for single components,
+so compare powers of different modes with Bartlett or with many
+windows. The correction of the noise difference between vertical and
 horizontal components (Wathelet, 2024, Section 3.6) is not
 implemented yet (Section 18).
 
@@ -262,22 +294,27 @@ implemented yet (Section 18).
 power at every grid point (single components):
 
 - Bartlett: the power of each window is computed separately and the
-  variance of their mean is divided by `L_eff`;
+  variance of their mean is divided by $`L_{\mathrm{eff}}`$;
 - Capon: first-order propagation (delta method) of the variance of the
-  windows through `dP = P**2 b^H dR b`, `b = R^-1 a`.
+  windows through
+  $`\delta P = P^2\, \mathbf{b}^H \delta\mathbf{R}\, \mathbf{b}`$,
+  $`\mathbf{b} = \mathbf{R}^{-1} \mathbf{a}`$.
 
 `geometric_uncertainty="expected_coherence"` (Bartlett) gives the
 power expected over independent Gaussian errors of the station
-coordinates, with covariance `S_i`: the steering coefficients are
-damped by the expected coherence `g_i = exp(-k^T S_i k / 2)` and the
+coordinates, with covariance $`\mathbf{S}_i`$: the steering
+coefficients are damped by the expected coherence
+$`g_i = \exp(-\mathbf{k}^T \mathbf{S}_i \mathbf{k} / 2)`$ and the
 diagonal is kept exactly,
 
-```
-P = (a g)^H C (a g) / N**2 + sum_i (1 - g_i**2) C_ii / N**2
+```math
+P = \frac{(\mathbf{a} \circ \mathbf{g})^H\, \mathbf{C}\,
+          (\mathbf{a} \circ \mathbf{g})}{N^2}
+    + \frac{1}{N^2} \sum_i \left(1 - g_i^2\right) C_{ii}
 ```
 
-These are uncertainties of the power, not of the position of a
-maximum.
+($`\circ`$ element-wise product). These are uncertainties of the
+power, not of the position of a maximum.
 
 ## 6. Spectral maxima and their density
 
@@ -286,29 +323,30 @@ spectrum (azimuth x radial neighbourhood, default 3 x 3, optional
 minimum power relative to the largest) are ranked by power; rank 1 is
 the strongest, not a mode. Each maximum keeps frequency, block and its
 time (centre of the block), wavenumber and azimuth (velocity,
-slowness, `kx`, `ky` derived), power, its standard error and, for
-RTBF, the ellipticity.
+slowness, $`k_x`$, $`k_y`$ derived), power, its standard error and,
+for RTBF, the ellipticity.
 
 The maxima of many blocks (a long record, or the analyses of the
 monitor joined) scatter around the dispersion curves. Their density at
 each frequency is estimated as a weighted mixture of Gaussian kernels
 in wavenumber, log-slowness, log-velocity or, for RTBF, ellipticity
-angle `atan(e)`:
+angle $`\arctan e`$:
 
-```
-D(x | f) = sum_i w_i N(x; x_i, sigma_i)
+```math
+D(x \mid f) = \sum_i w_i\, \mathcal{N}(x;\, x_i, \sigma_i)
 ```
 
-with uniform, power or relative-power weights and kernels as wide as
-the resolution of the search grid (default), Silverman's rule or a
-fixed width. Its summary gives mode, median and a quantile interval;
-its local maxima, with their prominence, are candidate modes at each
-frequency (not yet connected across frequencies). For the ellipticity
-angle the resolution is the step of the ellipticity grid and the
-kernels are periodic with period 180 degrees (-90 and 90 degrees are
-the same, purely horizontal motion). The maxima can be selected by
-rank and by a phase-velocity interval (`velocity=(minimum, maximum)`),
-for instance to follow the ellipticity of one mode.
+with uniform, power or relative-power weights $`w_i`$ and kernels
+as wide as the resolution of the search grid (default), Silverman's
+rule or a fixed width. Its summary gives mode, median and a quantile
+interval; its local maxima, with their prominence, are candidate modes
+at each frequency (not yet connected across frequencies). For the
+ellipticity angle the resolution is the step of the ellipticity grid
+and the kernels are periodic with period 180 degrees (-90 and 90
+degrees are the same, purely horizontal motion). The maxima can be
+selected by rank and by a phase-velocity interval
+(`velocity=(minimum, maximum)`), for instance to follow the
+ellipticity of one mode.
 
 ## 7. Geometric array response
 
@@ -316,64 +354,79 @@ The response of an array depends only on the station positions. It
 tells which wavevectors the array resolves and which it confuses,
 independently of the data and of the estimator.
 
-**Array factor and ambiguity.** For stations at `r_n`,
+**Array factor and ambiguity.** For stations at $`\mathbf{r}_n`$,
 
-```
-B(dk) = (1 / N) sum_n exp(-i dk . r_n),     A(dk) = |B(dk)|**2
+```math
+B(\Delta\mathbf{k}) = \frac{1}{N} \sum_n
+    e^{-i\, \Delta\mathbf{k} \cdot \mathbf{r}_n},
+\qquad
+A(\Delta\mathbf{k}) = \left| B(\Delta\mathbf{k}) \right|^2
 ```
 
-`A(0) = 1` and `A` does not change with a translation of the array.
-With normalized steering vectors `a`, `|a(k1)^H a(k2)|**2 = A(k2 - k1)`:
-`A` is the similarity of two wavevectors as a function of their
+$`A(\mathbf{0}) = 1`$ and $`A`$ does not change with a translation of
+the array. With normalized steering vectors $`\mathbf{a}`$,
+
+```math
+\left| \mathbf{a}(\mathbf{k}_1)^H \mathbf{a}(\mathbf{k}_2) \right|^2
+    = A(\mathbf{k}_2 - \mathbf{k}_1)
+```
+
+so $`A`$ is the similarity of two wavevectors as a function of their
 difference. Its central region describes the **resolution**; remote
 maxima, or connected regions of high response, are **ambiguities**
 (aliases, grating lobes of regular arrays, strong sidelobes of
 irregular ones). For an irregular array both depend on the direction,
 so the full two-dimensional response is the primary result; the
-classical rules `2 pi / d_max` (Rayleigh), `2 pi / d_min` (alias
-period) and `pi / d_min` (Nyquist) are diagnostic proxies only.
+classical rules $`2\pi / d_{\max}`$ (Rayleigh), $`2\pi / d_{\min}`$
+(alias period) and $`\pi / d_{\min}`$ (Nyquist) are diagnostic
+proxies only.
 
-**Main lobe.** For a level `T_R` (default 0.5) the main lobe is the
-connected region of `A >= T_R` containing the origin; its radius
-`r_R(theta)` is the first crossing of the level along each axis
-azimuth, `2 r_R` the full width. The conservative scalar is the
-largest radius, `resolution_radius`: below it two waves are not
-resolved (a single wave can still be measured at smaller `k`, with a
-precision limited by noise and averaging; Section 8). Near the origin
-`A(k) ~ 1 - k^T C_r k`, with `C_r` the covariance of the centred
-coordinates: its principal directions and the anisotropy ratio
-describe the geometry.
+**Main lobe.** For a level $`T_R`$ (default 0.5) the main lobe is the
+connected region of $`A \geq T_R`$ containing the origin; its radius
+$`r_R(\theta)`$ is the first crossing of the level along each axis
+azimuth, $`2 r_R`$ the full width. The conservative scalar is the
+largest radius, the resolution radius $`k_R`$ (`resolution_radius`):
+below it two waves are not resolved (a single wave can still be
+measured at smaller $`k`$, with a precision limited by noise and
+averaging; Section 8). Near the origin
+$`A(\mathbf{k}) \approx 1 - \mathbf{k}^T \mathbf{C}_r \mathbf{k}`$,
+with $`\mathbf{C}_r`$ the covariance of the centred coordinates: its
+principal directions and the anisotropy ratio describe the geometry.
 
-**Ambiguity.** For a level `T_A` (default 0.5) the regions of
-`A >= T_A` other than the central one are the remote ambiguity
+**Ambiguity.** For a level $`T_A`$ (default 0.5) the regions of
+$`A \geq T_A`$ other than the central one are the remote ambiguity
 regions; their local maxima are the ambiguity peaks (displacements,
 not propagation directions). Two distances must not be confused: the
 **peak distance**, from the origin to the nearest significant peak,
-and the **onset distance**, from the origin to the nearest point of a
-remote region; the onset is shorter, because a region crosses the
-level before its peak. The peak sidelobe level and the ambiguity
-margin `1 - max A_remote` (a squared correlation, not a probability)
-summarize the strength of the ambiguities.
+and the **onset distance** $`d_{\mathrm{onset}}`$
+(`onset_distance`), from the origin to the nearest point of a remote
+region; the onset is shorter, because a region crosses the level
+before its peak. The peak sidelobe level and the ambiguity margin
+$`1 - \max A_{\mathrm{remote}}`$ (a squared correlation, not a
+probability) summarize the strength of the ambiguities.
 
-**Search domains.** A search over a domain `D` of wavevectors is free
-of ambiguity at level `T_A` if no difference `k2 - k1` of two of its
-wavevectors falls into a remote region. For a full-azimuth disk
-`|k| <= K` the differences fill the disk `|dk| <= 2K`, whence the
-conservative limit
+**Search domains.** A search over a domain $`D`$ of wavevectors is
+free of ambiguity at level $`T_A`$ if no difference
+$`\mathbf{k}_2 - \mathbf{k}_1`$ of two of its wavevectors falls into a
+remote region. For a full-azimuth disk $`|\mathbf{k}| \leq K`$ the
+differences fill the disk $`|\Delta\mathbf{k}| \leq 2K`$, whence the
+conservative limit, the aliasing radius $`k_A`$
+(`aliasing_radius`),
 
-```
-aliasing_radius = onset_distance / 2
+```math
+k_A = \frac{d_{\mathrm{onset}}}{2}
 ```
 
 the rigorous form of the factor one half of the classical aliasing
-rules (for a regular 3 x 3 array of 10 m: peak at `2 pi / 10 =
-0.628` rad/m, onset 0.531 rad/m, aliasing radius 0.266 rad/m; the
-limit tends to `pi / d` as `T_A` tends to one).
+rules (for a regular 3 x 3 array of 10 m: peak at
+$`2\pi / 10 = 0.628`$ rad/m, onset 0.531 rad/m, aliasing radius
+0.266 rad/m; the limit tends to $`\pi / d`$ as $`T_A`$ tends to one).
 
-**Velocity limits.** At frequency `f` the wavenumber limits become
+**Velocity limits.** At frequency $`f`$ the wavenumber limits become
 
-```
-c_max(f) = 2 pi f / resolution_radius,   c_min(f) = 2 pi f / aliasing_radius
+```math
+c_{\max}(f) = \frac{2 \pi f}{k_R}, \qquad
+c_{\min}(f) = \frac{2 \pi f}{k_A}
 ```
 
 geometric bounds at the chosen levels, not confidence limits. When
@@ -381,11 +434,15 @@ the aliasing radius is smaller than the resolution radius no
 wavenumber is both resolved and unambiguous (e.g. three stations).
 
 **Coordinate uncertainty.** With independent Gaussian errors of
-covariance `S_n` and `q_n(k) = exp(-k^T S_n k / 2)`, the expected
-response is
+covariance $`\mathbf{S}_n`$ and
+$`q_n(\mathbf{k}) = \exp(-\mathbf{k}^T \mathbf{S}_n \mathbf{k} / 2)`$,
+the expected response is
 
-```
-E[A(k)] = (|sum_n q_n exp(-i k . r_n)|**2 + sum_n (1 - q_n**2)) / N**2
+```math
+\operatorname{E}\left[A(\mathbf{k})\right]
+    = \frac{\left| \sum_n q_n\, e^{-i\, \mathbf{k} \cdot \mathbf{r}_n}
+            \right|^2
+            + \sum_n \left(1 - q_n^2\right)}{N^2}
 ```
 
 where the second term keeps the auto terms, in which the same error
@@ -403,31 +460,34 @@ error, never silently coarsened.
 The geometric response is the point-spread function of Bartlett for a
 single coherent wave; it is not that of Capon, MUSIC or RTBF, whose
 behaviour depends on the SNR, on the number of windows, on the
-loading and on the subspace model. `A = 0.8` is not a probability of
-aliasing. The performance of an estimator is therefore measured by
+loading and on the subspace model. $`A = 0.8`$ is not a probability
+of aliasing. The performance of an estimator is therefore measured by
 Monte Carlo simulation with the estimators themselves:
 
-```
-x_m = s_m a(k0) + n_m,    s_m ~ CN(0, P_s),    n_m ~ CN(0, P_n I)
+```math
+\mathbf{x}_m = s_m\, \mathbf{a}(\mathbf{k}_0) + \mathbf{n}_m,
+\qquad s_m \sim \mathcal{CN}(0, P_s),
+\qquad \mathbf{n}_m \sim \mathcal{CN}(\mathbf{0}, P_n \mathbf{I})
 ```
 
-(independent realizations, SNR `P_s / P_n` per station). Each trial
-builds a sample CSM from `L` realizations, computes the spectrum on
+(independent realizations, SNR $`P_s / P_n`$ per station). Each trial
+builds a sample CSM from $`L`$ realizations, computes the spectrum on
 the search grid and classifies its maximum by the error
-`dk = k_hat - k0` with the geometric response:
+$`\Delta\mathbf{k} = \hat{\mathbf{k}} - \mathbf{k}_0`$ with the
+geometric response:
 
 | Outcome | Meaning |
 |---|---|
 | `BOUNDARY` | maximum on the radial boundary of the search grid |
-| `LOCAL` | `dk` in the main lobe (geometrically local, not "accurate") |
-| `ALIAS` | `dk` in a remote ambiguity region (an alias family) |
+| `LOCAL` | $`\Delta\mathbf{k}`$ in the main lobe (geometrically local, not "accurate") |
+| `ALIAS` | $`\Delta\mathbf{k}`$ in a remote ambiguity region (an alias family) |
 | `OTHER` | anywhere else (noise-driven maxima) |
 
 The probabilities (with Wilson score intervals), the bias and
 covariance of the local errors (radial and transverse) and the exact
-velocity statistics (each estimate converted, `c = 2 pi f / k`)
-quantify the performance; a sweep over SNR and windows tells how much
-data a survey needs.
+velocity statistics (each estimate converted,
+$`c = 2\pi f / \hat{k}`$) quantify the performance; a sweep over SNR
+and windows tells how much data a survey needs.
 
 The **operational assessment** repeats the experiment over a grid of
 frequencies, velocities and azimuths and marks a point usable when it
@@ -812,9 +872,9 @@ assessment.info()
 covariances, for the expected response: `analyze(expected=True)`), an
 `ArrayGeometry` or coordinates, and is computed once: the response does
 not follow later changes of the array. The wavenumber grid is chosen
-from the geometry (extent 1.25 times `2 pi / minimum_spacing`, 12
-samples per `2 pi / maximum_aperture`); `grid_max` and `grid_size`
-replace either choice.
+from the geometry (extent 1.25 times $`2\pi / d_{\min}`$, 12 samples
+per $`2\pi / D`$, with $`d_{\min}`$ the minimum spacing and $`D`$ the
+maximum aperture); `grid_max` and `grid_size` replace either choice.
 
 `PerformanceConfig` works as `BeamformingConfig` (single parameters,
 JSON file in the constructor, `update`, `copy(**changes)`, `read`,
@@ -928,7 +988,7 @@ much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
 
 ## 17. Validation
 
-YArray derives from development code written in August 2026 for the
+YARRAY derives from development code written in August 2026 for the
 MODERN project, brought into ShakeLab with tests against the original
 results:
 
@@ -944,13 +1004,13 @@ results:
 - The planning results (responses, limits, Monte Carlo draws and
   outcomes, envelopes) are identical bit for bit with the same seeds.
 - The sign of the ellipticity is checked on the fundamental Rayleigh
-  mode of a homogeneous half-space (retrograde, `e = -0.68` for a
-  Poisson solid, with the theoretical `c / beta` and H/V ratio), and
+  mode of a homogeneous half-space (retrograde, $`e = -0.68`$ for a
+  Poisson solid, with the theoretical $`c / \beta`$ and H/V ratio), and
   the closed-form ellipticity angle of ARTBF and ARDS against a fine
   grid search.
 
 Differences from the August code that change numbers: the power is in
-physical units (power spectral density), `N delta / 2` times the old
+physical units (power spectral density), $`N \Delta / 2`$ times the old
 value (squared for the RTBF objective), with maxima and relative
 thresholds unchanged; the defaults of the windows are those of the
 August JSON files (overlap 0.5, 40 windows per block, block overlap
@@ -961,8 +1021,8 @@ estimator of the planning is Capon (Bartlett before).
 
 Current limitations:
 
-- Capon estimated from `L` windows underestimates the power by about
-  `(L - n + 1) / L` for a matrix of dimension `n` (Capon and Goodman,
+- Capon estimated from $`L`$ windows underestimates the power by about
+  $`(L - n + 1) / L`$ for a matrix of dimension $`n`$ (Capon and Goodman,
   1970): -8 % with 40 windows and 10 stations in the tests, and more
   for the Rayleigh processing (factors measured with 60 windows and 10
   stations: 0.81 for the vertical component, 0.76 for ARTBF and 0.61
@@ -989,7 +1049,7 @@ Planned extensions:
   density; uncertainty of RTBF.
 - Correction of the vertical-horizontal noise difference of the
   angular processing (Wathelet, 2024, Section 3.6).
-- Bias correction of Capon, `(L - n + 1) / L`, as an option.
+- Bias correction of Capon, $`(L - n + 1) / L`$, as an option.
 - Multitaper spectral estimates with a rigorous number of degrees of
   freedom; a `CrossSpectra` class shared with frequency domain
   decomposition (FDD) and spatial autocorrelation (SPAC).

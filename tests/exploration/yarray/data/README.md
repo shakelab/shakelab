@@ -4,7 +4,7 @@
 |---|---|
 | `sesame/M02.1_3001_*_0000.{1,2,3}.sac` | Nine stations of a synthetic ambient-noise array simulation of the SESAME project (model `M2.1`), components Z, N, E (files `.1`, `.2`, `.3`), 114.29 Hz (`DELTA` 0.00875 s); excerpt of 60 s (samples 11429 to 18286 of the original 405 s records, `B` 100 s) |
 | `sesame_array.json` | Array file of the nine stations (local coordinates, one file per component) |
-| `reference.json` | Maxima of the YArray code of 12 August 2026 on the nine stations, for every component mode (vertical, radial, transverse, three components, Rayleigh joint), with their configurations |
+| `reference.json` | Maxima of the YARRAY code of 12 August 2026 on the nine stations, for every component mode (vertical, radial, transverse, three components, Rayleigh joint), with their configurations |
 
 The nine stations are a subset of the 38 of the simulation, chosen
 with `yarray.response` among random subsets containing the central

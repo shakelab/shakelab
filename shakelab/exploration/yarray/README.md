@@ -1,10 +1,10 @@
-# YArray: seismic array processing
+# YARRAY: seismic array processing
 
 `shakelab.exploration.yarray` analyses the wavefield recorded by a
 seismic array, that is a group of stations recording at the same time
 over an area. The waves that cross the array reach the stations with
 small delays, which depend on their speed and direction: by comparing
-the recordings in the frequency domain, YArray estimates the phase
+the recordings in the frequency domain, YARRAY estimates the phase
 velocity and the propagation azimuth of these waves as functions of
 frequency and time. For Rayleigh waves recorded on three components it
 also measures the signed ellipticity of the particle motion.
@@ -13,7 +13,7 @@ These measurements are the basis of passive surface-wave methods
 (dispersion curves for site characterization, ambient-vibration
 arrays), of the monitoring of the wavefield in time, and of the study
 of the sources of seismic noise. Since the quality of the results
-depends first of all on the geometry of the array, YArray also helps
+depends first of all on the geometry of the array, YARRAY also helps
 to design an array before a survey, from the station layout alone.
 
 The same objects are used in three ways: as a Python library, from the
@@ -369,7 +369,7 @@ of ShakeLab are in [`docs/conventions.md`](../../../docs/conventions.md).
   **transverse** is the radial direction rotated by +90 degrees.
 - **Ellipticity** (Wathelet et al., 2018) is the ratio of radial to
   vertical amplitude, with the radial positive along the propagation
-  and the vertical positive upwards: `e > 0` for prograde and `e < 0`
+  and the vertical positive upwards: $`e > 0`$ for prograde and $`e < 0`$
   for retrograde particle motion. The fundamental Rayleigh mode of a
   homogeneous half-space is retrograde. Data with the vertical
   positive downwards give the opposite sign.
