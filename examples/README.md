@@ -16,6 +16,11 @@ with your own data to run an example. The figures need `matplotlib`.
 |---|---|
 | [`signals/response_correction_esm.py`](signals/response_correction_esm.py) | Instrument response correction of the IV.MODE strong-motion records (StationXML), compared with the ESM processed accelerations (DYNA ASCII files, with the ESM filter band of each component) |
 
+## Location
+
+See [the location examples](location/README.md) for phase readers,
+earthquake location, first arrivals, reflections and velocity profiles.
+
 ## Exploration
 
 Array processing (`shakelab.exploration.yarray`, guide in

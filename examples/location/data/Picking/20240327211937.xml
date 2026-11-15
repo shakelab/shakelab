@@ -1,0 +1,3862 @@
+<?xml version='1.0' encoding='utf-8'?>
+<q:quakeml xmlns="http://quakeml.org/xmlns/bed/1.2" xmlns:q="http://quakeml.org/xmlns/quakeml/1.2">
+  <eventParameters publicID="smi:local/cac27f62-e999-46ab-b1ae-087dddd4535e">
+    <event publicID="smi:OGS/event/2024_00001">
+      <preferredOriginID>smi:OGS/origin/2024_00001</preferredOriginID>
+      <preferredMagnitudeID>smi:OGS/magnitude/2024_000001</preferredMagnitudeID>
+      <type>earthquake</type>
+      <description>
+        <text>AMPEZZO (FRIULI)</text>
+        <type>region name</type>
+      </description>
+      <origin publicID="smi:OGS/origin/2024_00001">
+        <time>
+          <value>2024-03-27T21:19:37.370000Z</value>
+          <uncertainty>0.27</uncertainty>
+        </time>
+        <latitude>
+          <value>46.35883333333334</value>
+        </latitude>
+        <longitude>
+          <value>12.807666666666666</value>
+        </longitude>
+        <depth>
+          <value>9390.0</value>
+          <uncertainty>800.0</uncertainty>
+        </depth>
+        <quality>
+          <associatedPhaseCount>168</associatedPhaseCount>
+          <usedPhaseCount>91</usedPhaseCount>
+          <usedStationCount>63</usedStationCount>
+          <standardError>0.27</standardError>
+          <azimuthalGap>22.0</azimuthalGap>
+          <minimumDistance>0.08093894453268574</minimumDistance>
+        </quality>
+        <originUncertainty>
+          <horizontalUncertainty>300.0</horizontalUncertainty>
+        </originUncertainty>
+        <arrival publicID="smi:OGS/arrival/2024_000001">
+          <pickID>smi:OGS/pick/2024_000001</pickID>
+          <phase>Pg</phase>
+          <azimuth>57.0</azimuth>
+          <distance>0.07734165810901082</distance>
+          <takeoffAngle>
+            <value>138.0</value>
+          </takeoffAngle>
+          <timeResidual>0.16</timeResidual>
+          <timeWeight>1.63</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000002">
+          <pickID>smi:OGS/pick/2024_000002</pickID>
+          <phase>Pg</phase>
+          <azimuth>323.0</azimuth>
+          <distance>0.08003962292676702</distance>
+          <takeoffAngle>
+            <value>137.0</value>
+          </takeoffAngle>
+          <timeResidual>0.12</timeResidual>
+          <timeWeight>1.91</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000003">
+          <pickID>smi:OGS/pick/2024_000003</pickID>
+          <phase>Sg</phase>
+          <azimuth>323.0</azimuth>
+          <distance>0.08003962292676702</distance>
+          <takeoffAngle>
+            <value>137.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.06</timeResidual>
+          <timeWeight>1.3</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000004">
+          <pickID>smi:OGS/pick/2024_000004</pickID>
+          <phase>Pg</phase>
+          <azimuth>28.0</azimuth>
+          <distance>0.11061655752800387</distance>
+          <takeoffAngle>
+            <value>127.0</value>
+          </takeoffAngle>
+          <timeResidual>0.03</timeResidual>
+          <timeWeight>1.63</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000005">
+          <pickID>smi:OGS/pick/2024_000005</pickID>
+          <phase>Sg</phase>
+          <azimuth>28.0</azimuth>
+          <distance>0.11061655752800387</distance>
+          <takeoffAngle>
+            <value>127.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.19</timeResidual>
+          <timeWeight>1.1</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000006">
+          <pickID>smi:OGS/pick/2024_000006</pickID>
+          <phase>Pg</phase>
+          <azimuth>205.0</azimuth>
+          <distance>0.11421384395167877</distance>
+          <takeoffAngle>
+            <value>127.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.08</timeResidual>
+          <timeWeight>1.3</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000007">
+          <pickID>smi:OGS/pick/2024_000007</pickID>
+          <phase>Pg</phase>
+          <azimuth>214.0</azimuth>
+          <distance>0.11960977358719117</distance>
+          <takeoffAngle>
+            <value>125.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.05</timeResidual>
+          <timeWeight>1.3</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000008">
+          <pickID>smi:OGS/pick/2024_000008</pickID>
+          <phase>Sg</phase>
+          <azimuth>214.0</azimuth>
+          <distance>0.11960977358719117</distance>
+          <takeoffAngle>
+            <value>125.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.27</timeResidual>
+          <timeWeight>0.9</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000009">
+          <pickID>smi:OGS/pick/2024_000009</pickID>
+          <phase>Pg</phase>
+          <azimuth>80.0</azimuth>
+          <distance>0.12410638161678482</distance>
+          <takeoffAngle>
+            <value>124.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.0</timeResidual>
+          <timeWeight>1.63</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000010">
+          <pickID>smi:OGS/pick/2024_000010</pickID>
+          <phase>Sg</phase>
+          <azimuth>80.0</azimuth>
+          <distance>0.12410638161678482</distance>
+          <takeoffAngle>
+            <value>124.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.02</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000011">
+          <pickID>smi:OGS/pick/2024_000011</pickID>
+          <phase>Pg</phase>
+          <azimuth>153.0</azimuth>
+          <distance>0.12410638161678482</distance>
+          <takeoffAngle>
+            <value>124.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.13</timeResidual>
+          <timeWeight>1.12</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000012">
+          <pickID>smi:OGS/pick/2024_000012</pickID>
+          <phase>Sg</phase>
+          <azimuth>153.0</azimuth>
+          <distance>0.12410638161678482</distance>
+          <takeoffAngle>
+            <value>124.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.14</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000013">
+          <pickID>smi:OGS/pick/2024_000013</pickID>
+          <phase>Pg</phase>
+          <azimuth>17.0</azimuth>
+          <distance>0.13220027607005339</distance>
+          <takeoffAngle>
+            <value>123.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.01</timeResidual>
+          <timeWeight>1.63</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000014">
+          <pickID>smi:OGS/pick/2024_000014</pickID>
+          <phase>Sg</phase>
+          <azimuth>17.0</azimuth>
+          <distance>0.13220027607005339</distance>
+          <takeoffAngle>
+            <value>123.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.07</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000015">
+          <pickID>smi:OGS/pick/2024_000015</pickID>
+          <phase>Pg</phase>
+          <azimuth>146.0</azimuth>
+          <distance>0.14209281373515942</distance>
+          <takeoffAngle>
+            <value>121.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.06</timeResidual>
+          <timeWeight>1.12</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000016">
+          <pickID>smi:OGS/pick/2024_000016</pickID>
+          <phase>Sg</phase>
+          <azimuth>146.0</azimuth>
+          <distance>0.14209281373515942</distance>
+          <takeoffAngle>
+            <value>121.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.22</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000017">
+          <pickID>smi:OGS/pick/2024_000017</pickID>
+          <phase>Pg</phase>
+          <azimuth>68.0</azimuth>
+          <distance>0.14479077855291564</distance>
+          <takeoffAngle>
+            <value>120.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.01</timeResidual>
+          <timeWeight>1.63</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000018">
+          <pickID>smi:OGS/pick/2024_000018</pickID>
+          <phase>Sg</phase>
+          <azimuth>68.0</azimuth>
+          <distance>0.14479077855291564</distance>
+          <takeoffAngle>
+            <value>120.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.02</timeResidual>
+          <timeWeight>1.1</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000019">
+          <pickID>smi:OGS/pick/2024_000019</pickID>
+          <phase>Pg</phase>
+          <azimuth>134.0</azimuth>
+          <distance>0.17177042673047754</distance>
+          <takeoffAngle>
+            <value>116.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.1</timeResidual>
+          <timeWeight>1.12</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000020">
+          <pickID>smi:OGS/pick/2024_000020</pickID>
+          <phase>Sg</phase>
+          <azimuth>134.0</azimuth>
+          <distance>0.17177042673047754</distance>
+          <takeoffAngle>
+            <value>116.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.39</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000021">
+          <pickID>smi:OGS/pick/2024_000021</pickID>
+          <phase>Pg</phase>
+          <azimuth>91.0</azimuth>
+          <distance>0.17266974833639626</distance>
+          <takeoffAngle>
+            <value>116.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.09</timeResidual>
+          <timeWeight>1.63</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000022">
+          <pickID>smi:OGS/pick/2024_000022</pickID>
+          <phase>Sg</phase>
+          <azimuth>91.0</azimuth>
+          <distance>0.17266974833639626</distance>
+          <takeoffAngle>
+            <value>116.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.24</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000023">
+          <pickID>smi:OGS/pick/2024_000023</pickID>
+          <phase>Pg</phase>
+          <azimuth>111.0</azimuth>
+          <distance>0.1798643211837461</distance>
+          <takeoffAngle>
+            <value>115.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.24</timeResidual>
+          <timeWeight>1.5</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000024">
+          <pickID>smi:OGS/pick/2024_000024</pickID>
+          <phase>Sg</phase>
+          <azimuth>111.0</azimuth>
+          <distance>0.1798643211837461</distance>
+          <takeoffAngle>
+            <value>115.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.22</timeResidual>
+          <timeWeight>0.7</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000025">
+          <pickID>smi:OGS/pick/2024_000025</pickID>
+          <phase>Pg</phase>
+          <azimuth>164.0</azimuth>
+          <distance>0.1798643211837461</distance>
+          <takeoffAngle>
+            <value>115.0</value>
+          </takeoffAngle>
+          <timeResidual>0.01</timeResidual>
+          <timeWeight>1.5</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000026">
+          <pickID>smi:OGS/pick/2024_000026</pickID>
+          <phase>Sg</phase>
+          <azimuth>164.0</azimuth>
+          <distance>0.1798643211837461</distance>
+          <takeoffAngle>
+            <value>115.0</value>
+          </takeoffAngle>
+          <timeResidual>1.32</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000027">
+          <pickID>smi:OGS/pick/2024_000027</pickID>
+          <phase>Pg</phase>
+          <azimuth>27.0</azimuth>
+          <distance>0.18346160760742103</distance>
+          <takeoffAngle>
+            <value>115.0</value>
+          </takeoffAngle>
+          <timeResidual>0.01</timeResidual>
+          <timeWeight>1.63</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000028">
+          <pickID>smi:OGS/pick/2024_000028</pickID>
+          <phase>Pg</phase>
+          <azimuth>325.0</azimuth>
+          <distance>0.18705889403109596</distance>
+          <takeoffAngle>
+            <value>114.0</value>
+          </takeoffAngle>
+          <timeResidual>0.14</timeResidual>
+          <timeWeight>1.91</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000029">
+          <pickID>smi:OGS/pick/2024_000029</pickID>
+          <phase>Sg</phase>
+          <azimuth>325.0</azimuth>
+          <distance>0.18705889403109596</distance>
+          <takeoffAngle>
+            <value>114.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.04</timeResidual>
+          <timeWeight>1.3</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000030">
+          <pickID>smi:OGS/pick/2024_000030</pickID>
+          <phase>Pg</phase>
+          <azimuth>299.0</azimuth>
+          <distance>0.19335414527252706</distance>
+          <takeoffAngle>
+            <value>114.0</value>
+          </takeoffAngle>
+          <timeResidual>0.15</timeResidual>
+          <timeWeight>1.91</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000031">
+          <pickID>smi:OGS/pick/2024_000031</pickID>
+          <phase>Sg</phase>
+          <azimuth>299.0</azimuth>
+          <distance>0.19335414527252706</distance>
+          <takeoffAngle>
+            <value>114.0</value>
+          </takeoffAngle>
+          <timeResidual>0.21</timeResidual>
+          <timeWeight>1.3</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000032">
+          <pickID>smi:OGS/pick/2024_000032</pickID>
+          <phase>Pg</phase>
+          <azimuth>101.0</azimuth>
+          <distance>0.20504532614947057</distance>
+          <takeoffAngle>
+            <value>112.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.21</timeResidual>
+          <timeWeight>1.12</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000033">
+          <pickID>smi:OGS/pick/2024_000033</pickID>
+          <phase>Sg</phase>
+          <azimuth>101.0</azimuth>
+          <distance>0.20504532614947057</distance>
+          <takeoffAngle>
+            <value>112.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.28</timeResidual>
+          <timeWeight>0.7</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000034">
+          <pickID>smi:OGS/pick/2024_000034</pickID>
+          <phase>Pg</phase>
+          <azimuth>247.0</azimuth>
+          <distance>0.22123311505600773</distance>
+          <takeoffAngle>
+            <value>111.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.19</timeResidual>
+          <timeWeight>1.3</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000035">
+          <pickID>smi:OGS/pick/2024_000035</pickID>
+          <phase>Sg</phase>
+          <azimuth>247.0</azimuth>
+          <distance>0.22123311505600773</distance>
+          <takeoffAngle>
+            <value>111.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.24</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000036">
+          <pickID>smi:OGS/pick/2024_000036</pickID>
+          <phase>Pg</phase>
+          <azimuth>40.0</azimuth>
+          <distance>0.2230317582678452</distance>
+          <takeoffAngle>
+            <value>111.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.0</timeResidual>
+          <timeWeight>1.63</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000037">
+          <pickID>smi:OGS/pick/2024_000037</pickID>
+          <phase>Sg</phase>
+          <azimuth>40.0</azimuth>
+          <distance>0.2230317582678452</distance>
+          <takeoffAngle>
+            <value>111.0</value>
+          </takeoffAngle>
+          <timeResidual>0.01</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000038">
+          <pickID>smi:OGS/pick/2024_000038</pickID>
+          <phase>Pg</phase>
+          <azimuth>342.0</azimuth>
+          <distance>0.2239310798737639</distance>
+          <takeoffAngle>
+            <value>111.0</value>
+          </takeoffAngle>
+          <timeResidual>0.17</timeResidual>
+          <timeWeight>1.28</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000039">
+          <pickID>smi:OGS/pick/2024_000039</pickID>
+          <phase>Sg</phase>
+          <azimuth>342.0</azimuth>
+          <distance>0.2239310798737639</distance>
+          <takeoffAngle>
+            <value>111.0</value>
+          </takeoffAngle>
+          <timeResidual>0.22</timeResidual>
+          <timeWeight>1.3</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000040">
+          <pickID>smi:OGS/pick/2024_000040</pickID>
+          <phase>Pg</phase>
+          <azimuth>30.0</azimuth>
+          <distance>0.2293270095092763</distance>
+          <takeoffAngle>
+            <value>110.0</value>
+          </takeoffAngle>
+          <timeResidual>0.18</timeResidual>
+          <timeWeight>1.63</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000041">
+          <pickID>smi:OGS/pick/2024_000041</pickID>
+          <phase>Sg</phase>
+          <azimuth>30.0</azimuth>
+          <distance>0.2293270095092763</distance>
+          <takeoffAngle>
+            <value>110.0</value>
+          </takeoffAngle>
+          <timeResidual>0.26</timeResidual>
+          <timeWeight>1.1</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000042">
+          <pickID>smi:OGS/pick/2024_000042</pickID>
+          <phase>Pg</phase>
+          <azimuth>207.0</azimuth>
+          <distance>0.2293270095092763</distance>
+          <takeoffAngle>
+            <value>110.0</value>
+          </takeoffAngle>
+          <timeResidual>0.01</timeResidual>
+          <timeWeight>0.87</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000043">
+          <pickID>smi:OGS/pick/2024_000043</pickID>
+          <phase>Sg</phase>
+          <azimuth>207.0</azimuth>
+          <distance>0.2293270095092763</distance>
+          <takeoffAngle>
+            <value>110.0</value>
+          </takeoffAngle>
+          <timeResidual>0.33</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000044">
+          <pickID>smi:OGS/pick/2024_000044</pickID>
+          <phase>Pg</phase>
+          <azimuth>144.0</azimuth>
+          <distance>0.23652158235662613</distance>
+          <takeoffAngle>
+            <value>110.0</value>
+          </takeoffAngle>
+          <timeResidual>0.61</timeResidual>
+          <timeWeight>0.75</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000045">
+          <pickID>smi:OGS/pick/2024_000045</pickID>
+          <phase>Sg</phase>
+          <azimuth>144.0</azimuth>
+          <distance>0.23652158235662613</distance>
+          <takeoffAngle>
+            <value>110.0</value>
+          </takeoffAngle>
+          <timeResidual>1.6</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000046">
+          <pickID>smi:OGS/pick/2024_000046</pickID>
+          <phase>Pg</phase>
+          <azimuth>355.0</azimuth>
+          <distance>0.2383202255684636</distance>
+          <takeoffAngle>
+            <value>110.0</value>
+          </takeoffAngle>
+          <timeResidual>0.09</timeResidual>
+          <timeWeight>1.28</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000047">
+          <pickID>smi:OGS/pick/2024_000047</pickID>
+          <phase>Sg</phase>
+          <azimuth>355.0</azimuth>
+          <distance>0.2383202255684636</distance>
+          <takeoffAngle>
+            <value>110.0</value>
+          </takeoffAngle>
+          <timeResidual>0.13</timeResidual>
+          <timeWeight>1.3</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000048">
+          <pickID>smi:OGS/pick/2024_000048</pickID>
+          <phase>Pg</phase>
+          <azimuth>108.0</azimuth>
+          <distance>0.24281683359805725</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.16</timeResidual>
+          <timeWeight>0.75</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000049">
+          <pickID>smi:OGS/pick/2024_000049</pickID>
+          <phase>Sg</phase>
+          <azimuth>108.0</azimuth>
+          <distance>0.24281683359805725</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>0.44</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000050">
+          <pickID>smi:OGS/pick/2024_000050</pickID>
+          <phase>Pg</phase>
+          <azimuth>116.0</azimuth>
+          <distance>0.24281683359805725</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.06</timeResidual>
+          <timeWeight>0.37</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000051">
+          <pickID>smi:OGS/pick/2024_000051</pickID>
+          <phase>Sg</phase>
+          <azimuth>116.0</azimuth>
+          <distance>0.24281683359805725</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>0.6</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000052">
+          <pickID>smi:OGS/pick/2024_000052</pickID>
+          <phase>Pg</phase>
+          <azimuth>111.0</azimuth>
+          <distance>0.24551479841581345</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.2</timeResidual>
+          <timeWeight>1.12</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000053">
+          <pickID>smi:OGS/pick/2024_000053</pickID>
+          <phase>Sg</phase>
+          <azimuth>111.0</azimuth>
+          <distance>0.24551479841581345</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>0.06</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000054">
+          <pickID>smi:OGS/pick/2024_000054</pickID>
+          <phase>Pg</phase>
+          <azimuth>226.0</azimuth>
+          <distance>0.24821276323356964</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.14</timeResidual>
+          <timeWeight>0.87</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000055">
+          <pickID>smi:OGS/pick/2024_000055</pickID>
+          <phase>Sg</phase>
+          <azimuth>226.0</azimuth>
+          <distance>0.24821276323356964</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>0.56</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000056">
+          <pickID>smi:OGS/pick/2024_000056</pickID>
+          <phase>Pg</phase>
+          <azimuth>213.0</azimuth>
+          <distance>0.24821276323356964</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.11</timeResidual>
+          <timeWeight>0.87</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000057">
+          <pickID>smi:OGS/pick/2024_000057</pickID>
+          <phase>Sg</phase>
+          <azimuth>213.0</azimuth>
+          <distance>0.24821276323356964</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.16</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000058">
+          <pickID>smi:OGS/pick/2024_000058</pickID>
+          <phase>Pg</phase>
+          <azimuth>134.0</azimuth>
+          <distance>0.2509107280513258</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>0.54</timeResidual>
+          <timeWeight>1.12</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000059">
+          <pickID>smi:OGS/pick/2024_000059</pickID>
+          <phase>Sg</phase>
+          <azimuth>134.0</azimuth>
+          <distance>0.2509107280513258</distance>
+          <takeoffAngle>
+            <value>109.0</value>
+          </takeoffAngle>
+          <timeResidual>1.5</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000060">
+          <pickID>smi:OGS/pick/2024_000060</pickID>
+          <phase>Pg</phase>
+          <azimuth>134.0</azimuth>
+          <distance>0.2527093712631633</distance>
+          <takeoffAngle>
+            <value>108.0</value>
+          </takeoffAngle>
+          <timeResidual>0.51</timeResidual>
+          <timeWeight>1.12</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000061">
+          <pickID>smi:OGS/pick/2024_000061</pickID>
+          <phase>Sg</phase>
+          <azimuth>134.0</azimuth>
+          <distance>0.2527093712631633</distance>
+          <takeoffAngle>
+            <value>108.0</value>
+          </takeoffAngle>
+          <timeResidual>1.19</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000062">
+          <pickID>smi:OGS/pick/2024_000062</pickID>
+          <phase>Pg</phase>
+          <azimuth>259.0</azimuth>
+          <distance>0.2554073360809195</distance>
+          <takeoffAngle>
+            <value>108.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.32</timeResidual>
+          <timeWeight>1.3</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000063">
+          <pickID>smi:OGS/pick/2024_000063</pickID>
+          <phase>Sg</phase>
+          <azimuth>259.0</azimuth>
+          <distance>0.2554073360809195</distance>
+          <takeoffAngle>
+            <value>108.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.42</timeResidual>
+          <timeWeight>0.9</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000064">
+          <pickID>smi:OGS/pick/2024_000064</pickID>
+          <phase>Pg</phase>
+          <azimuth>165.0</azimuth>
+          <distance>0.2599039441105131</distance>
+          <takeoffAngle>
+            <value>108.0</value>
+          </takeoffAngle>
+          <timeResidual>0.56</timeResidual>
+          <timeWeight>1.12</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000065">
+          <pickID>smi:OGS/pick/2024_000065</pickID>
+          <phase>Sg</phase>
+          <azimuth>165.0</azimuth>
+          <distance>0.2599039441105131</distance>
+          <takeoffAngle>
+            <value>108.0</value>
+          </takeoffAngle>
+          <timeResidual>1.37</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000066">
+          <pickID>smi:OGS/pick/2024_000066</pickID>
+          <phase>Pg</phase>
+          <azimuth>123.0</azimuth>
+          <distance>0.26080326571643186</distance>
+          <takeoffAngle>
+            <value>108.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.16</timeResidual>
+          <timeWeight>0.75</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000067">
+          <pickID>smi:OGS/pick/2024_000067</pickID>
+          <phase>Sg</phase>
+          <azimuth>123.0</azimuth>
+          <distance>0.26080326571643186</distance>
+          <takeoffAngle>
+            <value>108.0</value>
+          </takeoffAngle>
+          <timeResidual>0.49</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000068">
+          <pickID>smi:OGS/pick/2024_000068</pickID>
+          <phase>Pg</phase>
+          <azimuth>80.0</azimuth>
+          <distance>0.26799783856378173</distance>
+          <takeoffAngle>
+            <value>107.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.23</timeResidual>
+          <timeWeight>1.08</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000069">
+          <pickID>smi:OGS/pick/2024_000069</pickID>
+          <phase>Sg</phase>
+          <azimuth>80.0</azimuth>
+          <distance>0.26799783856378173</distance>
+          <takeoffAngle>
+            <value>107.0</value>
+          </takeoffAngle>
+          <timeResidual>0.52</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000070">
+          <pickID>smi:OGS/pick/2024_000070</pickID>
+          <phase>Pg</phase>
+          <azimuth>318.0</azimuth>
+          <distance>0.26889716016970044</distance>
+          <takeoffAngle>
+            <value>107.0</value>
+          </takeoffAngle>
+          <timeResidual>1.28</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000071">
+          <pickID>smi:OGS/pick/2024_000071</pickID>
+          <phase>Sg</phase>
+          <azimuth>318.0</azimuth>
+          <distance>0.26889716016970044</distance>
+          <takeoffAngle>
+            <value>107.0</value>
+          </takeoffAngle>
+          <timeResidual>1.12</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000072">
+          <pickID>smi:OGS/pick/2024_000072</pickID>
+          <phase>Pg</phase>
+          <azimuth>51.0</azimuth>
+          <distance>0.27339376819929406</distance>
+          <takeoffAngle>
+            <value>107.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.07</timeResidual>
+          <timeWeight>1.08</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000073">
+          <pickID>smi:OGS/pick/2024_000073</pickID>
+          <phase>Sg</phase>
+          <azimuth>51.0</azimuth>
+          <distance>0.27339376819929406</distance>
+          <takeoffAngle>
+            <value>107.0</value>
+          </takeoffAngle>
+          <timeResidual>0.11</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000074">
+          <pickID>smi:OGS/pick/2024_000074</pickID>
+          <phase>Pg</phase>
+          <azimuth>297.0</azimuth>
+          <distance>0.28058834104664393</distance>
+          <takeoffAngle>
+            <value>107.0</value>
+          </takeoffAngle>
+          <timeResidual>1.12</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000075">
+          <pickID>smi:OGS/pick/2024_000075</pickID>
+          <phase>Sg</phase>
+          <azimuth>297.0</azimuth>
+          <distance>0.28058834104664393</distance>
+          <takeoffAngle>
+            <value>107.0</value>
+          </takeoffAngle>
+          <timeResidual>1.23</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000076">
+          <pickID>smi:OGS/pick/2024_000076</pickID>
+          <phase>Pg</phase>
+          <azimuth>316.0</azimuth>
+          <distance>0.2877829138939938</distance>
+          <takeoffAngle>
+            <value>106.0</value>
+          </takeoffAngle>
+          <timeResidual>0.24</timeResidual>
+          <timeWeight>1.91</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000077">
+          <pickID>smi:OGS/pick/2024_000077</pickID>
+          <phase>Sg</phase>
+          <azimuth>316.0</azimuth>
+          <distance>0.2877829138939938</distance>
+          <takeoffAngle>
+            <value>106.0</value>
+          </takeoffAngle>
+          <timeResidual>0.41</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000078">
+          <pickID>smi:OGS/pick/2024_000078</pickID>
+          <phase>Pg</phase>
+          <azimuth>51.0</azimuth>
+          <distance>0.3021720595886935</distance>
+          <takeoffAngle>
+            <value>106.0</value>
+          </takeoffAngle>
+          <timeResidual>0.05</timeResidual>
+          <timeWeight>1.08</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000079">
+          <pickID>smi:OGS/pick/2024_000079</pickID>
+          <phase>Sg</phase>
+          <azimuth>51.0</azimuth>
+          <distance>0.3021720595886935</distance>
+          <takeoffAngle>
+            <value>106.0</value>
+          </takeoffAngle>
+          <timeResidual>0.19</timeResidual>
+          <timeWeight>0.5</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000080">
+          <pickID>smi:OGS/pick/2024_000080</pickID>
+          <phase>Pg</phase>
+          <azimuth>281.0</azimuth>
+          <distance>0.3057693460123684</distance>
+          <takeoffAngle>
+            <value>105.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.02</timeResidual>
+          <timeWeight>0.64</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000081">
+          <pickID>smi:OGS/pick/2024_000081</pickID>
+          <phase>Sg</phase>
+          <azimuth>281.0</azimuth>
+          <distance>0.3057693460123684</distance>
+          <takeoffAngle>
+            <value>105.0</value>
+          </takeoffAngle>
+          <timeResidual>0.23</timeResidual>
+          <timeWeight>0.6</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000082">
+          <pickID>smi:OGS/pick/2024_000082</pickID>
+          <phase>Pg</phase>
+          <azimuth>307.0</azimuth>
+          <distance>0.31566188367747444</distance>
+          <takeoffAngle>
+            <value>105.0</value>
+          </takeoffAngle>
+          <timeResidual>0.25</timeResidual>
+          <timeWeight>0.64</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000083">
+          <pickID>smi:OGS/pick/2024_000083</pickID>
+          <phase>Sg</phase>
+          <azimuth>307.0</azimuth>
+          <distance>0.31566188367747444</distance>
+          <takeoffAngle>
+            <value>105.0</value>
+          </takeoffAngle>
+          <timeResidual>0.16</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000084">
+          <pickID>smi:OGS/pick/2024_000084</pickID>
+          <phase>Pg</phase>
+          <azimuth>281.0</azimuth>
+          <distance>0.32105781331298683</distance>
+          <takeoffAngle>
+            <value>105.0</value>
+          </takeoffAngle>
+          <timeResidual>0.09</timeResidual>
+          <timeWeight>0.64</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000085">
+          <pickID>smi:OGS/pick/2024_000085</pickID>
+          <phase>Sg</phase>
+          <azimuth>281.0</azimuth>
+          <distance>0.32105781331298683</distance>
+          <takeoffAngle>
+            <value>105.0</value>
+          </takeoffAngle>
+          <timeResidual>0.29</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000086">
+          <pickID>smi:OGS/pick/2024_000086</pickID>
+          <phase>Pg</phase>
+          <azimuth>112.0</azimuth>
+          <distance>0.32645374294849916</distance>
+          <takeoffAngle>
+            <value>104.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.21</timeResidual>
+          <timeWeight>1.12</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000087">
+          <pickID>smi:OGS/pick/2024_000087</pickID>
+          <phase>Sg</phase>
+          <azimuth>112.0</azimuth>
+          <distance>0.32645374294849916</distance>
+          <takeoffAngle>
+            <value>104.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.08</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000088">
+          <pickID>smi:OGS/pick/2024_000088</pickID>
+          <phase>Pg</phase>
+          <azimuth>143.0</azimuth>
+          <distance>0.32645374294849916</distance>
+          <takeoffAngle>
+            <value>104.0</value>
+          </takeoffAngle>
+          <timeResidual>0.14</timeResidual>
+          <timeWeight>1.12</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000089">
+          <pickID>smi:OGS/pick/2024_000089</pickID>
+          <phase>Sg</phase>
+          <azimuth>143.0</azimuth>
+          <distance>0.32645374294849916</distance>
+          <takeoffAngle>
+            <value>104.0</value>
+          </takeoffAngle>
+          <timeResidual>0.72</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000090">
+          <pickID>smi:OGS/pick/2024_000090</pickID>
+          <phase>Pg</phase>
+          <azimuth>206.0</azimuth>
+          <distance>0.3273530645544179</distance>
+          <takeoffAngle>
+            <value>104.0</value>
+          </takeoffAngle>
+          <timeResidual>0.29</timeResidual>
+          <timeWeight>0.87</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000091">
+          <pickID>smi:OGS/pick/2024_000091</pickID>
+          <phase>Sg</phase>
+          <azimuth>206.0</azimuth>
+          <distance>0.3273530645544179</distance>
+          <takeoffAngle>
+            <value>104.0</value>
+          </takeoffAngle>
+          <timeResidual>1.01</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000092">
+          <pickID>smi:OGS/pick/2024_000092</pickID>
+          <phase>Pg</phase>
+          <azimuth>107.0</azimuth>
+          <distance>0.3435408534609551</distance>
+          <takeoffAngle>
+            <value>104.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.37</timeResidual>
+          <timeWeight>0.75</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000093">
+          <pickID>smi:OGS/pick/2024_000093</pickID>
+          <phase>Sg</phase>
+          <azimuth>107.0</azimuth>
+          <distance>0.3435408534609551</distance>
+          <takeoffAngle>
+            <value>104.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.16</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000094">
+          <pickID>smi:OGS/pick/2024_000094</pickID>
+          <phase>Pg</phase>
+          <azimuth>256.0</azimuth>
+          <distance>0.3462388182787113</distance>
+          <takeoffAngle>
+            <value>104.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.42</timeResidual>
+          <timeWeight>0.87</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000095">
+          <pickID>smi:OGS/pick/2024_000095</pickID>
+          <phase>Sg</phase>
+          <azimuth>256.0</azimuth>
+          <distance>0.3462388182787113</distance>
+          <takeoffAngle>
+            <value>104.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.18</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000096">
+          <pickID>smi:OGS/pick/2024_000096</pickID>
+          <phase>Pg</phase>
+          <azimuth>229.0</azimuth>
+          <distance>0.35163474791422367</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>1.29</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000097">
+          <pickID>smi:OGS/pick/2024_000097</pickID>
+          <phase>Sg</phase>
+          <azimuth>229.0</azimuth>
+          <distance>0.35163474791422367</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>1.34</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000098">
+          <pickID>smi:OGS/pick/2024_000098</pickID>
+          <phase>Pg</phase>
+          <azimuth>176.0</azimuth>
+          <distance>0.3597286423674922</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>0.16</timeResidual>
+          <timeWeight>0.75</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000099">
+          <pickID>smi:OGS/pick/2024_000099</pickID>
+          <phase>Sg</phase>
+          <azimuth>176.0</azimuth>
+          <distance>0.3597286423674922</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>0.91</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000100">
+          <pickID>smi:OGS/pick/2024_000100</pickID>
+          <phase>Pg</phase>
+          <azimuth>125.0</azimuth>
+          <distance>0.36782253682076077</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>0.32</timeResidual>
+          <timeWeight>0.75</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000101">
+          <pickID>smi:OGS/pick/2024_000101</pickID>
+          <phase>Sg</phase>
+          <azimuth>125.0</azimuth>
+          <distance>0.36782253682076077</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>1.3</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000102">
+          <pickID>smi:OGS/pick/2024_000102</pickID>
+          <phase>Pg</phase>
+          <azimuth>236.0</azimuth>
+          <distance>0.3714198232444357</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.26</timeResidual>
+          <timeWeight>0.87</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000103">
+          <pickID>smi:OGS/pick/2024_000103</pickID>
+          <phase>Sg</phase>
+          <azimuth>236.0</azimuth>
+          <distance>0.3714198232444357</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>0.17</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000104">
+          <pickID>smi:OGS/pick/2024_000104</pickID>
+          <phase>Pg</phase>
+          <azimuth>67.0</azimuth>
+          <distance>0.3741177880621919</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.11</timeResidual>
+          <timeWeight>1.08</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000105">
+          <pickID>smi:OGS/pick/2024_000105</pickID>
+          <phase>Sg</phase>
+          <azimuth>67.0</azimuth>
+          <distance>0.3741177880621919</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>0.28</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000106">
+          <pickID>smi:OGS/pick/2024_000106</pickID>
+          <phase>Pg</phase>
+          <azimuth>235.0</azimuth>
+          <distance>0.37681575287994806</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>1.04</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000107">
+          <pickID>smi:OGS/pick/2024_000107</pickID>
+          <phase>Sg</phase>
+          <azimuth>235.0</azimuth>
+          <distance>0.37681575287994806</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>1.13</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000108">
+          <pickID>smi:OGS/pick/2024_000108</pickID>
+          <phase>Pg</phase>
+          <azimuth>90.0</azimuth>
+          <distance>0.3795137176977043</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.53</timeResidual>
+          <timeWeight>1.08</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000109">
+          <pickID>smi:OGS/pick/2024_000109</pickID>
+          <phase>Pg</phase>
+          <azimuth>83.0</azimuth>
+          <distance>0.38041303930362297</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.41</timeResidual>
+          <timeWeight>1.08</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000110">
+          <pickID>smi:OGS/pick/2024_000110</pickID>
+          <phase>Sg</phase>
+          <azimuth>83.0</azimuth>
+          <distance>0.38041303930362297</distance>
+          <takeoffAngle>
+            <value>103.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.55</timeResidual>
+          <timeWeight>0.5</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000111">
+          <pickID>smi:OGS/pick/2024_000111</pickID>
+          <phase>Pg</phase>
+          <azimuth>213.0</azimuth>
+          <distance>0.3948021849983227</distance>
+          <takeoffAngle>
+            <value>102.0</value>
+          </takeoffAngle>
+          <timeResidual>0.2</timeResidual>
+          <timeWeight>1.3</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000112">
+          <pickID>smi:OGS/pick/2024_000112</pickID>
+          <phase>Pg</phase>
+          <azimuth>242.0</azimuth>
+          <distance>0.3966008282101602</distance>
+          <takeoffAngle>
+            <value>102.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.53</timeResidual>
+          <timeWeight>0.43</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000113">
+          <pickID>smi:OGS/pick/2024_000113</pickID>
+          <phase>Sg</phase>
+          <azimuth>242.0</azimuth>
+          <distance>0.3966008282101602</distance>
+          <takeoffAngle>
+            <value>102.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.3</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000114">
+          <pickID>smi:OGS/pick/2024_000114</pickID>
+          <phase>Pg</phase>
+          <azimuth>242.0</azimuth>
+          <distance>0.3992987930279163</distance>
+          <takeoffAngle>
+            <value>102.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.54</timeResidual>
+          <timeWeight>0.87</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000115">
+          <pickID>smi:OGS/pick/2024_000115</pickID>
+          <phase>Sg</phase>
+          <azimuth>242.0</azimuth>
+          <distance>0.3992987930279163</distance>
+          <takeoffAngle>
+            <value>102.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.26</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000116">
+          <pickID>smi:OGS/pick/2024_000116</pickID>
+          <phase>Pg</phase>
+          <azimuth>280.0</azimuth>
+          <distance>0.41098997390485986</distance>
+          <takeoffAngle>
+            <value>102.0</value>
+          </takeoffAngle>
+          <timeResidual>1.89</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000117">
+          <pickID>smi:OGS/pick/2024_000117</pickID>
+          <phase>Sg</phase>
+          <azimuth>280.0</azimuth>
+          <distance>0.41098997390485986</distance>
+          <takeoffAngle>
+            <value>102.0</value>
+          </takeoffAngle>
+          <timeResidual>1.99</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000118">
+          <pickID>smi:OGS/pick/2024_000118</pickID>
+          <phase>Pg</phase>
+          <azimuth>162.0</azimuth>
+          <distance>0.41458726032853477</distance>
+          <takeoffAngle>
+            <value>102.0</value>
+          </takeoffAngle>
+          <timeResidual>0.08</timeResidual>
+          <timeWeight>0.75</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000119">
+          <pickID>smi:OGS/pick/2024_000119</pickID>
+          <phase>Sg</phase>
+          <azimuth>162.0</azimuth>
+          <distance>0.41458726032853477</distance>
+          <takeoffAngle>
+            <value>102.0</value>
+          </takeoffAngle>
+          <timeResidual>1.02</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000120">
+          <pickID>smi:OGS/pick/2024_000120</pickID>
+          <phase>Pg</phase>
+          <azimuth>192.0</azimuth>
+          <distance>0.41548658193445354</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>0.26</timeResidual>
+          <timeWeight>0.87</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000121">
+          <pickID>smi:OGS/pick/2024_000121</pickID>
+          <phase>Sg</phase>
+          <azimuth>192.0</azimuth>
+          <distance>0.41548658193445354</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>1.78</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000122">
+          <pickID>smi:OGS/pick/2024_000122</pickID>
+          <phase>Pg</phase>
+          <azimuth>283.0</azimuth>
+          <distance>0.42807708441731573</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>2.24</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000123">
+          <pickID>smi:OGS/pick/2024_000123</pickID>
+          <phase>Sg</phase>
+          <azimuth>283.0</azimuth>
+          <distance>0.42807708441731573</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>1.91</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000124">
+          <pickID>smi:OGS/pick/2024_000124</pickID>
+          <phase>Pg</phase>
+          <azimuth>161.0</azimuth>
+          <distance>0.4334730140528281</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.02</timeResidual>
+          <timeWeight>0.37</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000125">
+          <pickID>smi:OGS/pick/2024_000125</pickID>
+          <phase>Sg</phase>
+          <azimuth>161.0</azimuth>
+          <distance>0.4334730140528281</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>0.92</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000126">
+          <pickID>smi:OGS/pick/2024_000126</pickID>
+          <phase>Pg</phase>
+          <azimuth>216.0</azimuth>
+          <distance>0.43437233565874683</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.25</timeResidual>
+          <timeWeight>0.43</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000127">
+          <pickID>smi:OGS/pick/2024_000127</pickID>
+          <phase>Sg</phase>
+          <azimuth>216.0</azimuth>
+          <distance>0.43437233565874683</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>0.29</timeResidual>
+          <timeWeight>0.4</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000128">
+          <pickID>smi:OGS/pick/2024_000128</pickID>
+          <phase>Pg</phase>
+          <azimuth>206.0</azimuth>
+          <distance>0.43527165726466555</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>0.27</timeResidual>
+          <timeWeight>0.87</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000129">
+          <pickID>smi:OGS/pick/2024_000129</pickID>
+          <phase>Sg</phase>
+          <azimuth>206.0</azimuth>
+          <distance>0.43527165726466555</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>1.9</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000130">
+          <pickID>smi:OGS/pick/2024_000130</pickID>
+          <phase>Pg</phase>
+          <azimuth>332.0</azimuth>
+          <distance>0.43886894368834045</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>0.22</timeResidual>
+          <timeWeight>1.28</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000131">
+          <pickID>smi:OGS/pick/2024_000131</pickID>
+          <phase>Sg</phase>
+          <azimuth>332.0</azimuth>
+          <distance>0.43886894368834045</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.33</timeResidual>
+          <timeWeight>0.6</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000132">
+          <pickID>smi:OGS/pick/2024_000132</pickID>
+          <phase>Pg</phase>
+          <azimuth>243.0</azimuth>
+          <distance>0.4433655517179341</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.57</timeResidual>
+          <timeWeight>0.87</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000133">
+          <pickID>smi:OGS/pick/2024_000133</pickID>
+          <phase>Sg</phase>
+          <azimuth>243.0</azimuth>
+          <distance>0.4433655517179341</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.11</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000134">
+          <pickID>smi:OGS/pick/2024_000134</pickID>
+          <phase>Pg</phase>
+          <azimuth>120.0</azimuth>
+          <distance>0.45505673259487767</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.21</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000135">
+          <pickID>smi:OGS/pick/2024_000135</pickID>
+          <phase>Sg</phase>
+          <azimuth>120.0</azimuth>
+          <distance>0.45505673259487767</distance>
+          <takeoffAngle>
+            <value>101.0</value>
+          </takeoffAngle>
+          <timeResidual>0.24</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000136">
+          <pickID>smi:OGS/pick/2024_000136</pickID>
+          <phase>Pg</phase>
+          <azimuth>291.0</azimuth>
+          <distance>0.46854655668365863</distance>
+          <takeoffAngle>
+            <value>100.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.09</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000137">
+          <pickID>smi:OGS/pick/2024_000137</pickID>
+          <phase>Sg</phase>
+          <azimuth>291.0</azimuth>
+          <distance>0.46854655668365863</distance>
+          <takeoffAngle>
+            <value>100.0</value>
+          </takeoffAngle>
+          <timeResidual>0.84</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000138">
+          <pickID>smi:OGS/pick/2024_000138</pickID>
+          <phase>Pg</phase>
+          <azimuth>155.0</azimuth>
+          <distance>0.483835023984277</distance>
+          <takeoffAngle>
+            <value>100.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.27</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000139">
+          <pickID>smi:OGS/pick/2024_000139</pickID>
+          <phase>Sg</phase>
+          <azimuth>155.0</azimuth>
+          <distance>0.483835023984277</distance>
+          <takeoffAngle>
+            <value>100.0</value>
+          </takeoffAngle>
+          <timeResidual>0.27</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000140">
+          <pickID>smi:OGS/pick/2024_000140</pickID>
+          <phase>Pg</phase>
+          <azimuth>225.0</azimuth>
+          <distance>0.48833163201387064</distance>
+          <takeoffAngle>
+            <value>100.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.55</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000141">
+          <pickID>smi:OGS/pick/2024_000141</pickID>
+          <phase>Pg</phase>
+          <azimuth>103.0</azimuth>
+          <distance>0.5000228128908142</distance>
+          <takeoffAngle>
+            <value>100.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.86</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000142">
+          <pickID>smi:OGS/pick/2024_000142</pickID>
+          <phase>Sg</phase>
+          <azimuth>103.0</azimuth>
+          <distance>0.5000228128908142</distance>
+          <takeoffAngle>
+            <value>100.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.79</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000143">
+          <pickID>smi:OGS/pick/2024_000143</pickID>
+          <phase>Pg</phase>
+          <azimuth>77.0</azimuth>
+          <distance>0.5117139937677576</distance>
+          <takeoffAngle>
+            <value>99.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.3</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000144">
+          <pickID>smi:OGS/pick/2024_000144</pickID>
+          <phase>Sg</phase>
+          <azimuth>77.0</azimuth>
+          <distance>0.5117139937677576</distance>
+          <takeoffAngle>
+            <value>99.0</value>
+          </takeoffAngle>
+          <timeResidual>0.23</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000145">
+          <pickID>smi:OGS/pick/2024_000145</pickID>
+          <phase>Pg</phase>
+          <azimuth>69.0</azimuth>
+          <distance>0.5243044962506199</distance>
+          <takeoffAngle>
+            <value>99.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.14</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000146">
+          <pickID>smi:OGS/pick/2024_000146</pickID>
+          <phase>Sg</phase>
+          <azimuth>69.0</azimuth>
+          <distance>0.5243044962506199</distance>
+          <takeoffAngle>
+            <value>99.0</value>
+          </takeoffAngle>
+          <timeResidual>0.2</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000147">
+          <pickID>smi:OGS/pick/2024_000147</pickID>
+          <phase>Pg</phase>
+          <azimuth>81.0</azimuth>
+          <distance>0.530599747492051</distance>
+          <takeoffAngle>
+            <value>99.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.72</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000148">
+          <pickID>smi:OGS/pick/2024_000148</pickID>
+          <phase>Sg</phase>
+          <azimuth>81.0</azimuth>
+          <distance>0.530599747492051</distance>
+          <takeoffAngle>
+            <value>99.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.61</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000149">
+          <pickID>smi:OGS/pick/2024_000149</pickID>
+          <phase>Pg</phase>
+          <azimuth>262.0</azimuth>
+          <distance>0.5323983907038885</distance>
+          <takeoffAngle>
+            <value>99.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.97</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000150">
+          <pickID>smi:OGS/pick/2024_000150</pickID>
+          <phase>Sg</phase>
+          <azimuth>262.0</azimuth>
+          <distance>0.5323983907038885</distance>
+          <takeoffAngle>
+            <value>99.0</value>
+          </takeoffAngle>
+          <timeResidual>0.11</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000151">
+          <pickID>smi:OGS/pick/2024_000151</pickID>
+          <phase>Pg</phase>
+          <azimuth>19.0</azimuth>
+          <distance>0.5827604006353374</distance>
+          <takeoffAngle>
+            <value>98.0</value>
+          </takeoffAngle>
+          <timeResidual>0.13</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000152">
+          <pickID>smi:OGS/pick/2024_000152</pickID>
+          <phase>Pg</phase>
+          <azimuth>158.0</azimuth>
+          <distance>0.5836597222412562</distance>
+          <takeoffAngle>
+            <value>98.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.2</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000153">
+          <pickID>smi:OGS/pick/2024_000153</pickID>
+          <phase>Pg</phase>
+          <azimuth>108.0</azimuth>
+          <distance>0.6097400488128992</distance>
+          <takeoffAngle>
+            <value>98.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.97</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000154">
+          <pickID>smi:OGS/pick/2024_000154</pickID>
+          <phase>Sg</phase>
+          <azimuth>108.0</azimuth>
+          <distance>0.6097400488128992</distance>
+          <takeoffAngle>
+            <value>98.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.61</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000155">
+          <pickID>smi:OGS/pick/2024_000155</pickID>
+          <phase>Pg</phase>
+          <azimuth>233.0</azimuth>
+          <distance>0.6097400488128992</distance>
+          <takeoffAngle>
+            <value>98.0</value>
+          </takeoffAngle>
+          <timeResidual>-1.04</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000156">
+          <pickID>smi:OGS/pick/2024_000156</pickID>
+          <phase>Sg</phase>
+          <azimuth>233.0</azimuth>
+          <distance>0.6097400488128992</distance>
+          <takeoffAngle>
+            <value>98.0</value>
+          </takeoffAngle>
+          <timeResidual>0.52</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000157">
+          <pickID>smi:OGS/pick/2024_000157</pickID>
+          <phase>Pg</phase>
+          <azimuth>65.0</azimuth>
+          <distance>0.6367196969904612</distance>
+          <takeoffAngle>
+            <value>98.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.23</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000158">
+          <pickID>smi:OGS/pick/2024_000158</pickID>
+          <phase>Sg</phase>
+          <azimuth>65.0</azimuth>
+          <distance>0.6367196969904612</distance>
+          <takeoffAngle>
+            <value>98.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.57</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000159">
+          <pickID>smi:OGS/pick/2024_000159</pickID>
+          <phase>Pg</phase>
+          <azimuth>220.0</azimuth>
+          <distance>0.6520081642910797</distance>
+          <takeoffAngle>
+            <value>97.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.34</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000160">
+          <pickID>smi:OGS/pick/2024_000160</pickID>
+          <phase>Pg</phase>
+          <azimuth>101.0</azimuth>
+          <distance>0.6574040939265919</distance>
+          <takeoffAngle>
+            <value>97.0</value>
+          </takeoffAngle>
+          <timeResidual>-1.24</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000161">
+          <pickID>smi:OGS/pick/2024_000161</pickID>
+          <phase>Pg</phase>
+          <azimuth>123.0</azimuth>
+          <distance>0.6834844204982352</distance>
+          <takeoffAngle>
+            <value>97.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.76</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000162">
+          <pickID>smi:OGS/pick/2024_000162</pickID>
+          <phase>Pg</phase>
+          <azimuth>222.0</azimuth>
+          <distance>0.7365443952474403</distance>
+          <takeoffAngle>
+            <value>97.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.48</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000163">
+          <pickID>smi:OGS/pick/2024_000163</pickID>
+          <phase>Pg</phase>
+          <azimuth>190.0</azimuth>
+          <distance>0.7500342193362213</distance>
+          <takeoffAngle>
+            <value>96.0</value>
+          </takeoffAngle>
+          <timeResidual>0.92</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000164">
+          <pickID>smi:OGS/pick/2024_000164</pickID>
+          <phase>Pg</phase>
+          <azimuth>227.0</azimuth>
+          <distance>0.7608260786072459</distance>
+          <takeoffAngle>
+            <value>96.0</value>
+          </takeoffAngle>
+          <timeResidual>-0.32</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000165">
+          <pickID>smi:OGS/pick/2024_000165</pickID>
+          <phase>Pg</phase>
+          <azimuth>27.0</azimuth>
+          <distance>0.8084901237209388</distance>
+          <takeoffAngle>
+            <value>96.0</value>
+          </takeoffAngle>
+          <timeResidual>0.05</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000166">
+          <pickID>smi:OGS/pick/2024_000166</pickID>
+          <phase>Pg</phase>
+          <azimuth>352.0</azimuth>
+          <distance>0.8093894453268575</distance>
+          <takeoffAngle>
+            <value>96.0</value>
+          </takeoffAngle>
+          <timeResidual>0.01</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000167">
+          <pickID>smi:OGS/pick/2024_000167</pickID>
+          <phase>Pg</phase>
+          <azimuth>114.0</azimuth>
+          <distance>0.8174833397801261</distance>
+          <takeoffAngle>
+            <value>96.0</value>
+          </takeoffAngle>
+          <timeResidual>-1.24</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+        <arrival publicID="smi:OGS/arrival/2024_000168">
+          <pickID>smi:OGS/pick/2024_000168</pickID>
+          <phase>Pg</phase>
+          <azimuth>93.0</azimuth>
+          <distance>0.8237785910215571</distance>
+          <takeoffAngle>
+            <value>96.0</value>
+          </takeoffAngle>
+          <timeResidual>-1.38</timeResidual>
+          <timeWeight>0.0</timeWeight>
+        </arrival>
+      </origin>
+      <magnitude publicID="smi:OGS/magnitude/2024_000001">
+        <mag>
+          <value>0.0</value>
+          <uncertainty>0.0</uncertainty>
+        </mag>
+        <type>Md</type>
+        <stationCount>3</stationCount>
+      </magnitude>
+      <stationMagnitude publicID="smi:OGS/stationmagnitude/2024_000001">
+        <originID>smi:OGS/origin/2024_00001</originID>
+        <mag>
+          <value>0.0</value>
+        </mag>
+        <type>Md</type>
+        <amplitudeID>smi:OGS/amplitude/2024_000000</amplitudeID>
+        <waveformID networkCode="" stationCode="RVST"></waveformID>
+      </stationMagnitude>
+      <pick publicID="smi:OGS/pick/2024_000001">
+        <time>
+          <value>2024-03-27T21:19:39.700000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="INVI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000002">
+        <time>
+          <value>2024-03-27T21:19:39.700000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PURA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000003">
+        <time>
+          <value>2024-03-27T21:19:41.240000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PURA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000004">
+        <time>
+          <value>2024-03-27T21:19:40.040000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CLUD"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000005">
+        <time>
+          <value>2024-03-27T21:19:41.880000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CLUD"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000006">
+        <time>
+          <value>2024-03-27T21:19:39.990000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CHIE"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000007">
+        <time>
+          <value>2024-03-27T21:19:40.100000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="STAL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000008">
+        <time>
+          <value>2024-03-27T21:19:42.050000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="STAL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000009">
+        <time>
+          <value>2024-03-27T21:19:40.220000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="TLM2"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000010">
+        <time>
+          <value>2024-03-27T21:19:42.430000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="TLM2"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000011">
+        <time>
+          <value>2024-03-27T21:19:40.100000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PRAD"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000012">
+        <time>
+          <value>2024-03-27T21:19:42.310000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PRAD"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000013">
+        <time>
+          <value>2024-03-27T21:19:40.340000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="OVAR"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000014">
+        <time>
+          <value>2024-03-27T21:19:42.600000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="OVAR"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000015">
+        <time>
+          <value>2024-03-27T21:19:40.450000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PALA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000016">
+        <time>
+          <value>2024-03-27T21:19:42.750000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PALA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000017">
+        <time>
+          <value>2024-03-27T21:19:40.550000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="FUSE"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000018">
+        <time>
+          <value>2024-03-27T21:19:43.020000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="FUSE"></waveformID>
+        <onset>questionable</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000019">
+        <time>
+          <value>2024-03-27T21:19:40.910000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MPRI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000020">
+        <time>
+          <value>2024-03-27T21:19:43.470000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MPRI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000021">
+        <time>
+          <value>2024-03-27T21:19:40.940000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CESC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000022">
+        <time>
+          <value>2024-03-27T21:19:43.640000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CESC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000023">
+        <time>
+          <value>2024-03-27T21:19:40.900000Z</value>
+          <uncertainty>0.005</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="AVS"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000024">
+        <time>
+          <value>2024-03-27T21:19:43.860000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="AVS"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000025">
+        <time>
+          <value>2024-03-27T21:19:41.150000Z</value>
+          <uncertainty>0.005</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="TRA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000026">
+        <time>
+          <value>2024-03-27T21:19:45.400000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="TRA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000027">
+        <time>
+          <value>2024-03-27T21:19:41.220000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="RVST"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000028">
+        <time>
+          <value>2024-03-27T21:19:41.410000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CSM"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000029">
+        <time>
+          <value>2024-03-27T21:19:44.280000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CSM"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000030">
+        <time>
+          <value>2024-03-27T21:19:41.520000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="FDS"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000031">
+        <time>
+          <value>2024-03-27T21:19:44.710000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="FDS"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000032">
+        <time>
+          <value>2024-03-27T21:19:41.380000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="BOO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000033">
+        <time>
+          <value>2024-03-27T21:19:44.590000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="BOO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000034">
+        <time>
+          <value>2024-03-27T21:19:41.680000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CLA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000035">
+        <time>
+          <value>2024-03-27T21:19:45.140000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CLA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000036">
+        <time>
+          <value>2024-03-27T21:19:41.900000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PLZA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000037">
+        <time>
+          <value>2024-03-27T21:19:45.450000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PLZA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000038">
+        <time>
+          <value>2024-03-27T21:19:42.090000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="SPP"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000039">
+        <time>
+          <value>2024-03-27T21:19:45.690000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="SPP"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000040">
+        <time>
+          <value>2024-03-27T21:19:42.200000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="ZOU"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000041">
+        <time>
+          <value>2024-03-27T21:19:45.900000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="ZOU"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000042">
+        <time>
+          <value>2024-03-27T21:19:42.030000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MOV"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000043">
+        <time>
+          <value>2024-03-27T21:19:45.970000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MOV"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000044">
+        <time>
+          <value>2024-03-27T21:19:42.760000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="SDF"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000045">
+        <time>
+          <value>2024-03-27T21:19:47.480000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="SDF"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000046">
+        <time>
+          <value>2024-03-27T21:19:42.270000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="FVI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000047">
+        <time>
+          <value>2024-03-27T21:19:46.060000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="FVI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000048">
+        <time>
+          <value>2024-03-27T21:19:42.100000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="GESC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000049">
+        <time>
+          <value>2024-03-27T21:19:46.510000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="GESC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000050">
+        <time>
+          <value>2024-03-27T21:19:42.200000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="GEDE"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000051">
+        <time>
+          <value>2024-03-27T21:19:46.680000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="GEDE"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000052">
+        <time>
+          <value>2024-03-27T21:19:42.100000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="GEPF"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000053">
+        <time>
+          <value>2024-03-27T21:19:46.210000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="GEPF"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000054">
+        <time>
+          <value>2024-03-27T21:19:42.210000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="BRC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000055">
+        <time>
+          <value>2024-03-27T21:19:46.790000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="BRC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000056">
+        <time>
+          <value>2024-03-27T21:19:42.240000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MLN"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000057">
+        <time>
+          <value>2024-03-27T21:19:46.070000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MLN"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000058">
+        <time>
+          <value>2024-03-27T21:19:42.940000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MAI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000059">
+        <time>
+          <value>2024-03-27T21:19:47.830000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MAI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000060">
+        <time>
+          <value>2024-03-27T21:19:42.950000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MAJ"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000061">
+        <time>
+          <value>2024-03-27T21:19:47.590000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MAJ"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000062">
+        <time>
+          <value>2024-03-27T21:19:42.160000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CIMO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000063">
+        <time>
+          <value>2024-03-27T21:19:46.050000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CIMO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000064">
+        <time>
+          <value>2024-03-27T21:19:43.120000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="SPI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000065">
+        <time>
+          <value>2024-03-27T21:19:47.980000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="SPI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000066">
+        <time>
+          <value>2024-03-27T21:19:42.420000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="BUA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000067">
+        <time>
+          <value>2024-03-27T21:19:47.140000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="BUA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000068">
+        <time>
+          <value>2024-03-27T21:19:42.490000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MOGG"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000069">
+        <time>
+          <value>2024-03-27T21:19:47.400000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MOGG"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000070">
+        <time>
+          <value>2024-03-27T21:19:44.010000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V255"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000071">
+        <time>
+          <value>2024-03-27T21:19:48.030000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V255"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000072">
+        <time>
+          <value>2024-03-27T21:19:42.740000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PAUL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000073">
+        <time>
+          <value>2024-03-27T21:19:47.170000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PAUL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000074">
+        <time>
+          <value>2024-03-27T21:19:44.060000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V388"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000075">
+        <time>
+          <value>2024-03-27T21:19:48.510000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V388"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000076">
+        <time>
+          <value>2024-03-27T21:19:43.320000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="DANT"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000077">
+        <time>
+          <value>2024-03-27T21:19:47.940000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="DANT"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000078">
+        <time>
+          <value>2024-03-27T21:19:43.390000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PLRO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000079">
+        <time>
+          <value>2024-03-27T21:19:48.180000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PLRO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000080">
+        <time>
+          <value>2024-03-27T21:19:43.380000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PVC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000081">
+        <time>
+          <value>2024-03-27T21:19:48.340000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PVC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000082">
+        <time>
+          <value>2024-03-27T21:19:43.830000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V026"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000083">
+        <time>
+          <value>2024-03-27T21:19:48.590000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V026"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000084">
+        <time>
+          <value>2024-03-27T21:19:43.770000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V090"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000085">
+        <time>
+          <value>2024-03-27T21:19:48.890000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V090"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000086">
+        <time>
+          <value>2024-03-27T21:19:43.570000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="BAD"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000087">
+        <time>
+          <value>2024-03-27T21:19:48.710000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="BAD"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000088">
+        <time>
+          <value>2024-03-27T21:19:43.930000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="FAG"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000089">
+        <time>
+          <value>2024-03-27T21:19:49.510000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="FAG"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000090">
+        <time>
+          <value>2024-03-27T21:19:44.080000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="AVI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000091">
+        <time>
+          <value>2024-03-27T21:19:49.810000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="AVI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000092">
+        <time>
+          <value>2024-03-27T21:19:43.730000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="VINO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000093">
+        <time>
+          <value>2024-03-27T21:19:49.190000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="VINO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000094">
+        <time>
+          <value>2024-03-27T21:19:43.720000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CSO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000095">
+        <time>
+          <value>2024-03-27T21:19:49.240000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CSO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000096">
+        <time>
+          <value>2024-03-27T21:19:45.540000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V389"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000097">
+        <time>
+          <value>2024-03-27T21:19:50.950000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V389"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000098">
+        <time>
+          <value>2024-03-27T21:19:44.560000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="VAV"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000099">
+        <time>
+          <value>2024-03-27T21:19:50.790000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="VAV"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000100">
+        <time>
+          <value>2024-03-27T21:19:44.860000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="REA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000101">
+        <time>
+          <value>2024-03-27T21:19:51.430000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="REA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000102">
+        <time>
+          <value>2024-03-27T21:19:44.350000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="APGO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000103">
+        <time>
+          <value>2024-03-27T21:19:50.430000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="APGO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000104">
+        <time>
+          <value>2024-03-27T21:19:44.550000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PON"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000105">
+        <time>
+          <value>2024-03-27T21:19:50.630000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PON"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000106">
+        <time>
+          <value>2024-03-27T21:19:45.750000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V286"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000107">
+        <time>
+          <value>2024-03-27T21:19:51.560000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V286"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000108">
+        <time>
+          <value>2024-03-27T21:19:44.220000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="STOL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000109">
+        <time>
+          <value>2024-03-27T21:19:44.360000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PTCC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000110">
+        <time>
+          <value>2024-03-27T21:19:50.000000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PTCC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000111">
+        <time>
+          <value>2024-03-27T21:19:45.240000Z</value>
+          <uncertainty>0.02</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="POLC"></waveformID>
+        <onset>questionable</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000112">
+        <time>
+          <value>2024-03-27T21:19:44.540000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V166"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000113">
+        <time>
+          <value>2024-03-27T21:19:50.780000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V166"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000114">
+        <time>
+          <value>2024-03-27T21:19:44.580000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PNAL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000115">
+        <time>
+          <value>2024-03-27T21:19:50.910000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PNAL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000116">
+        <time>
+          <value>2024-03-27T21:19:47.230000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V250"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000117">
+        <time>
+          <value>2024-03-27T21:19:53.550000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V250"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000118">
+        <time>
+          <value>2024-03-27T21:19:45.490000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CDN"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000119">
+        <time>
+          <value>2024-03-27T21:19:52.710000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CDN"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000120">
+        <time>
+          <value>2024-03-27T21:19:45.700000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="POR"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000121">
+        <time>
+          <value>2024-03-27T21:19:53.510000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="POR"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000122">
+        <time>
+          <value>2024-03-27T21:19:47.900000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V212"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000123">
+        <time>
+          <value>2024-03-27T21:19:54.030000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="V212"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000124">
+        <time>
+          <value>2024-03-27T21:19:45.750000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PSR"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000125">
+        <time>
+          <value>2024-03-27T21:19:53.240000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PSR"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000126">
+        <time>
+          <value>2024-03-27T21:19:45.530000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CAE"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000127">
+        <time>
+          <value>2024-03-27T21:19:52.630000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CAE"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000128">
+        <time>
+          <value>2024-03-27T21:19:46.070000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="SAC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000129">
+        <time>
+          <value>2024-03-27T21:19:54.270000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="SAC"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000130">
+        <time>
+          <value>2024-03-27T21:19:46.080000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="ABTA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000131">
+        <time>
+          <value>2024-03-27T21:19:52.150000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="ABTA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000132">
+        <time>
+          <value>2024-03-27T21:19:45.380000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="BLL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000133">
+        <time>
+          <value>2024-03-27T21:19:52.540000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="BLL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000134">
+        <time>
+          <value>2024-03-27T21:19:45.960000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="COLI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000135">
+        <time>
+          <value>2024-03-27T21:19:53.280000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="COLI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000136">
+        <time>
+          <value>2024-03-27T21:19:46.330000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="AFL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000137">
+        <time>
+          <value>2024-03-27T21:19:54.330000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="AFL"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000138">
+        <time>
+          <value>2024-03-27T21:19:46.430000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="TLI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000139">
+        <time>
+          <value>2024-03-27T21:19:54.250000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="TLI"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000140">
+        <time>
+          <value>2024-03-27T21:19:46.250000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="FREG"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000141">
+        <time>
+          <value>2024-03-27T21:19:46.140000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="ROBS"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000142">
+        <time>
+          <value>2024-03-27T21:19:53.720000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="ROBS"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000143">
+        <time>
+          <value>2024-03-27T21:19:46.930000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="LSR"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000144">
+        <time>
+          <value>2024-03-27T21:19:55.140000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="LSR"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000145">
+        <time>
+          <value>2024-03-27T21:19:47.320000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="ACOM"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000146">
+        <time>
+          <value>2024-03-27T21:19:55.530000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="ACOM"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000147">
+        <time>
+          <value>2024-03-27T21:19:46.860000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PRED"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000148">
+        <time>
+          <value>2024-03-27T21:19:54.940000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="PRED"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000149">
+        <time>
+          <value>2024-03-27T21:19:46.640000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="AGOR"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000150">
+        <time>
+          <value>2024-03-27T21:19:55.710000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="AGOR"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000151">
+        <time>
+          <value>2024-03-27T21:19:48.690000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="034A"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000152">
+        <time>
+          <value>2024-03-27T21:19:48.380000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="300A"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000153">
+        <time>
+          <value>2024-03-27T21:19:48.100000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="DRE"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000154">
+        <time>
+          <value>2024-03-27T21:19:57.580000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="DRE"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000155">
+        <time>
+          <value>2024-03-27T21:19:48.030000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="VARN"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000156">
+        <time>
+          <value>2024-03-27T21:19:58.720000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="VARN"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000157">
+        <time>
+          <value>2024-03-27T21:19:49.340000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MYKA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000158">
+        <time>
+          <value>2024-03-27T21:19:58.520000Z</value>
+          <uncertainty>2.0</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MYKA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>S</phaseHint>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000159">
+        <time>
+          <value>2024-03-27T21:19:49.530000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="ED06"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000160">
+        <time>
+          <value>2024-03-27T21:19:48.720000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CADS"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000161">
+        <time>
+          <value>2024-03-27T21:19:49.710000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="SABO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000162">
+        <time>
+          <value>2024-03-27T21:19:50.980000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="MTLO"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>positive</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000163">
+        <time>
+          <value>2024-03-27T21:19:52.640000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="301A"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000164">
+        <time>
+          <value>2024-03-27T21:19:51.590000Z</value>
+          <uncertainty>0.5</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="CRND"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>undecidable</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000165">
+        <time>
+          <value>2024-03-27T21:19:52.870000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="KBA"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000166">
+        <time>
+          <value>2024-03-27T21:19:52.850000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="035B"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000167">
+        <time>
+          <value>2024-03-27T21:19:51.760000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="VOJS"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <pick publicID="smi:OGS/pick/2024_000168">
+        <time>
+          <value>2024-03-27T21:19:51.730000Z</value>
+          <uncertainty>0.1</uncertainty>
+        </time>
+        <waveformID networkCode="" stationCode="GORS"></waveformID>
+        <onset>emergent</onset>
+        <phaseHint>P</phaseHint>
+        <polarity>negative</polarity>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </pick>
+      <amplitude publicID="smi:OGS/amplitude/2024_000000">
+        <genericAmplitude>
+          <value>3.1</value>
+        </genericAmplitude>
+        <type>Md</type>
+        <unit>s</unit>
+        <timeWindow>
+          <reference>2024-03-27T21:19:44.320000Z</reference>
+          <begin>0.0</begin>
+          <end>0.0</end>
+        </timeWindow>
+        <waveformID networkCode="" stationCode="RVST"></waveformID>
+        <evaluationMode>manual</evaluationMode>
+        <evaluationStatus>final</evaluationStatus>
+      </amplitude>
+    </event>
+  </eventParameters>
+</q:quakeml>

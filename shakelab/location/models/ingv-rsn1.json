@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "title": "INGV RSN1 reference model",
+    "region": "Italy",
+    "reference": "Peruzza et al. (2021), Solid Earth 12, Table 2, model 5.",
+    "source_url": "https://doi.org/10.5194/se-12-2021-2021",
+    "depth_reference": "Model surface (zero depth in the tabulated model).",
+    "notes": "Historical reference for comparison with Italian locations. Vs is derived from Vp using the published ratio of 1.73.",
+    "source_license": "CC BY 4.0"
+  },
+  "layers": [
+    {
+      "thickness_m": 10000,
+      "vp_m_s": 5000,
+      "vs_m_s": 2890.1734104046245
+    },
+    {
+      "thickness_m": 20000,
+      "vp_m_s": 6000,
+      "vs_m_s": 3468.208092485549
+    },
+    {
+      "thickness_m": null,
+      "vp_m_s": 8100,
+      "vs_m_s": 4682.0809248554915
+    }
+  ]
+}

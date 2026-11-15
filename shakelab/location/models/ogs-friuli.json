@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "title": "OGS Friuli Venezia Giulia bulletin model",
+    "region": "Friuli Venezia Giulia, northeastern Italy",
+    "reference": "Saraò et al. (2021), Earth Syst. Sci. Data 13, §3.2.",
+    "source_url": "https://doi.org/10.5194/essd-13-2245-2021",
+    "depth_reference": "Model surface (zero depth in the bulletin).",
+    "notes": "Published local and regional HYPO71 reference model. Vs is derived using the published Vp/Vs ratio of 1.78.",
+    "source_license": "CC BY 4.0"
+  },
+  "layers": [
+    {
+      "thickness_m": 22000.0,
+      "vp_m_s": 5850.0,
+      "vs_m_s": 3286.516853932584
+    },
+    {
+      "thickness_m": 17500.0,
+      "vp_m_s": 6800.0,
+      "vs_m_s": 3820.2247191011234
+    },
+    {
+      "thickness_m": null,
+      "vp_m_s": 8000.0,
+      "vs_m_s": 4494.38202247191
+    }
+  ]
+}

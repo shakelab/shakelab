@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "title": "IASP91 crust over a constant mantle half-space",
+    "region": "Global reference crust",
+    "reference": "Kennett and Engdahl (1991), Geophys. J. Int. 105, 429–465.",
+    "source_url": "https://doi.org/10.1111/j.1365-246X.1991.tb06724.x",
+    "depth_reference": "IASP91 surface mapped to zero flat depth.",
+    "notes": "Flat approximation for crustal comparisons. Velocities just below the 35 km Moho are held constant in the half-space. Use the full spherical IASP91 model for teleseismic travel times."
+  },
+  "layers": [
+    {
+      "thickness_m": 20000.0,
+      "vp_m_s": 5800.0,
+      "vs_m_s": 3360.0
+    },
+    {
+      "thickness_m": 15000.0,
+      "vp_m_s": 6500.0,
+      "vs_m_s": 3750.0
+    },
+    {
+      "thickness_m": null,
+      "vp_m_s": 8040.0,
+      "vs_m_s": 4470.0
+    }
+  ]
+}

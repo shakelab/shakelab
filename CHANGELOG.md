@@ -7,6 +7,13 @@ corrections. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `shakelab.location` computes travel times in homogeneous or flat
+  layered media and locates earthquakes from absolute or relative
+  arrivals. It reads phase picks and provides reference velocity
+  profiles and JSON/CSV model loading.
+
 ### Changed
 
 - Documentation: the equations of the YARRAY guide are written in
