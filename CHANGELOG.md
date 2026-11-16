@@ -9,6 +9,11 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: guide to the waveform containers of `signals`
+  (`docs/signals/waveforms.md`: time and sampling, records, streams and
+  collections, tolerances, views and copies, processing, workflows,
+  validation and limits); the README of `signals` states that a stream
+  keeps its records in insertion order.
 - Documentation: READMEs of `signals` (overview, quick start, common
   tasks, command line, formats, structure, conventions), of
   `signals/libio` (with the common scheme of the format modules and

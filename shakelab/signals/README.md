@@ -134,9 +134,9 @@ stream = collection["XX.TEST..HHZ"]
 part = record.extract("2026-01-01T00:00:02", "2026-01-01T00:00:05")
 ```
 
-Records of the same channel are kept in time order in their stream,
-and contiguous records are joined when they are appended (within half
-a sample); `extract` returns a new object with a time window, `cut`
+Records of the same channel are kept in their stream in the order
+they are appended, and a record contiguous with the last one is joined
+to it (within half a sample); `extract` returns a new object with a time window, `cut`
 trims in place. The time axis (`time_axis()`), peak value (`peak`),
 duration and end time are available on every record.
 
