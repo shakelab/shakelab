@@ -240,9 +240,16 @@ density = result.density(coordinate="log_velocity")
 density.summary()                       # mode, median, quantiles
 density.peaks(2)                        # candidate modes
 
-result.write("result.pkl")
-result = BeamformingResult("result.pkl")
+result.write("result.jsonl")
+result = BeamformingResult("result.jsonl")
 ```
+
+Results are written as JSON Lines, a text file with the configuration
+in its first line and one line per result written, so that successive
+analyses are appended without rewriting the file. The bulky arrays
+(the spectra of the beamforming, all the singular values and vectors
+of the FDD) go to `.npz` files next to it; `arrays=False` leaves them
+out, and `to_csv` exports the maxima as a table.
 
 With many blocks the maxima scatter around the dispersion curves of
 the different modes. Their density at each frequency, in velocity,
@@ -313,7 +320,7 @@ client = Client("rtserve.example.org", metadata=metadata_reader("array.xml"))
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=600)
 
-monitor = BeamformingMonitor(config, window=300, output="monitor.pkl")
+monitor = BeamformingMonitor(config, window=300, output="monitor.jsonl")
 client.every(60, monitor)
 client.start()
 
@@ -336,7 +343,7 @@ skips the windows in which one of them is missing or has gaps:
 ```python
 from shakelab.exploration.yarray import FDDMonitor
 
-monitor = FDDMonitor(fdd_config, window=1800, output="fdd.pkl")
+monitor = FDDMonitor(fdd_config, window=1800, output="fdd.jsonl")
 client.every(300, monitor)
 ```
 
@@ -378,11 +385,11 @@ line replaces the corresponding value of the file. Figures can be
 shown or saved, also from a result written before (`--result`):
 
 ```sh
-slab-yarray --input array.json --config capon.json -o result.pkl \
+slab-yarray --input array.json --config capon.json -o result.jsonl \
     --plot-dispersion --show
 slab-yarray --data "data/*.mseed" --metadata array.xml \
     --select "XX.*..HH?" --config capon.json --components rayleigh_angular
-slab-yarray --result result.pkl --plot-density
+slab-yarray --result result.jsonl --plot-density
 slab-yarray response --input array.json --plot-all --show
 ```
 

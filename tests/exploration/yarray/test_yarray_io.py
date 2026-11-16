@@ -41,9 +41,12 @@ from shakelab.exploration.yarray.config import BeamformingConfig
 from shakelab.exploration.yarray.data import ArrayData
 from shakelab.exploration.yarray.io import (
     read_array_file,
-    read_result_states,
-    write_result_state,
+    read_result,
+    read_result_header,
+    write_result,
+    write_table,
 )
+from shakelab.libutils.timeN import Date
 
 DATA = Path(__file__).parent / "data"
 ARRAY = DATA / "sesame_array.json"
@@ -190,45 +193,88 @@ def _result():
     return Beamformer(read_array(ARRAY), config).process()
 
 
-def test_result_states(tmp_path):
-    """States are written, appended and read back."""
-    path = tmp_path / "out" / "result.pkl"
-    state = _result()._state()
-    write_result_state(state, path)
+def test_result_lines(tmp_path):
+    """
+    Header and lines are written, appended and read back.
 
-    assert read_result_states(path)[0]["maxima"] == state["maxima"]
+    The header is checked when appending; arrays go to a .npz file per
+    line, with a number added when the name exists.
+    """
+    path = tmp_path / "out" / "result.jsonl"
+    header = {"kind": "test", "config": {"a": 1}, "units": None}
+    times = {1.0: (Date("2026-11-16T10:15:00.5"),)}
+    write_result(header, {"x": [1.0, np.nan]}, path,
+                 arrays={"v": np.arange(3)}, times=times)
 
     with pytest.raises(FileExistsError):
-        write_result_state(state, path)
+        write_result(header, {"x": []}, path)
 
-    write_result_state(state, path, append=True)
-    assert len(read_result_states(path)) == 2
-    assert len(read_result_states(path, first=True)) == 1
+    write_result(header, {"x": [np.inf]}, path, times=times,
+                 arrays={"v": np.ones(2)}, append=True)
+    read, entries = read_result(path)
 
-    joined = BeamformingResult(path)
-    assert joined.nblocks == 2 * BeamformingResult._from_state(state).nblocks
+    assert read == header
+    assert read_result_header(path) == header
+    assert [entry["x"] for entry in entries] == [[1.0, None], [None]]
+    np.testing.assert_array_equal(entries[0]["arrays"]["v"], np.arange(3))
+    assert entries[1]["arrays"]["v"].tolist() == [1.0, 1.0]
+    assert sorted(item.name for item in path.with_name(
+        "result_arrays").iterdir()) == ["20261116T101500.npz",
+                                        "20261116T101500_1.npz"]
+    assert read_result(path, arrays=False)[1][0]["arrays"] is None
 
-    write_result_state(state, path, owrite=True)
-    assert len(read_result_states(path)) == 1
+    with pytest.raises(ValueError, match="holds test results"):
+        write_result({**header, "kind": "other"}, {}, path, append=True)
+    with pytest.raises(ValueError, match="configuration"):
+        write_result({**header, "units": "m"}, {}, path, append=True)
+
+    write_result(header, {"x": []}, path, owrite=True)
+    assert len(read_result(path)[1]) == 1
+
+    joined = BeamformingResult()
+    joined.append([_result(), _result()])
+    joined.write(tmp_path / "bf.jsonl")
+    assert BeamformingResult(tmp_path / "bf.jsonl").nblocks == joined.nblocks
 
 
 def test_read_results_rejects_other_files(tmp_path):
-    """Files with other objects, other versions or empty are rejected."""
-    import pickle
+    """Other files, other versions, bad lines or no analysis."""
+    path = tmp_path / "other.jsonl"
 
-    path = tmp_path / "other.pkl"
-    path.write_bytes(pickle.dumps({"a": 1}))
+    with pytest.raises(ValueError, match="jsonl"):
+        write_result({}, {}, tmp_path / "result.JSON")
 
-    with pytest.raises(ValueError, match="not a YArray result"):
-        read_result_states(path)
+    path.write_text('{"a": 1}\n')
 
-    path.write_bytes(pickle.dumps({"format": "shakelab.yarray.result",
-                                   "version": 9}))
+    with pytest.raises(ValueError, match="not a YARRAY result"):
+        read_result(path)
+
+    path.write_text('{"format": "shakelab.yarray.result", "version": 9}\n')
 
     with pytest.raises(ValueError, match="version 9"):
-        read_result_states(path)
+        read_result(path)
 
-    path.write_bytes(b"")
+    path.write_text('{"format": "shakelab.yarray.result", "version": 2}\n')
 
-    with pytest.raises(ValueError, match="no result"):
-        read_result_states(path)
+    with pytest.raises(ValueError, match="no analysis"):
+        read_result(path)
+
+    with path.open("a") as stream:
+        stream.write("[1, 2\n")
+
+    with pytest.raises(ValueError, match="line 2"):
+        read_result(path)
+
+
+def test_tables(tmp_path):
+    """CSV tables: missing values empty, times in ISO 8601."""
+    path = tmp_path / "table.csv"
+    write_table(path, {"t": [Date("2026-01-01")], "v": [np.nan],
+                       "n": [3]})
+
+    assert path.read_text().splitlines() == [
+        "t,v,n", "2026-01-01T00:00:00.000000000Z,,3"
+    ]
+
+    with pytest.raises(FileExistsError):
+        write_table(path, {"a": []})

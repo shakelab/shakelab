@@ -75,6 +75,7 @@ skips the windows in which a station has gaps (``gaps="raise"``).
 
 from __future__ import annotations
 
+import json
 import logging
 import queue
 import threading
@@ -90,6 +91,7 @@ from shakelab.exploration.yarray.beamforming import (
 )
 from shakelab.exploration.yarray.data import ArrayData
 from shakelab.exploration.yarray.fdd import FDD, FDDResult
+from shakelab.exploration.yarray.io import result_path
 from shakelab.libutils.timeN import Date
 from shakelab.signals.base import StreamCollection
 
@@ -130,8 +132,17 @@ class ArrayMonitor:
     min_stations : int, optional
         Fewest stations for an analysis. Default is 3.
     output : str or path-like, optional
-        File to which each result is appended (see the ``write``
-        method of the results).
+        Result file (JSON Lines) to which each result is appended (see
+        the ``write`` method of the results; ``.json`` is refused).
+    arrays : bool, optional
+        Write also the arrays of each result to ``output`` (spectra of
+        the beamforming, all singular values and kept vectors of the
+        FDD). Default True.
+    log : str or path-like, optional
+        File (JSON Lines) to which a line is appended for each
+        analysis, skipped window or error: ``time`` (wall clock),
+        ``event`` (``"result"``, ``"skip"``, ``"error"``), ``window``,
+        and ``duration``, ``stations``, ``excluded`` or ``reason``.
     keep : int, optional
         Results kept in memory (the latest). Default: all.
     background : bool, optional
@@ -148,8 +159,9 @@ class ArrayMonitor:
         If the class is used directly, or ``config`` is neither a
         configuration nor a file.
     ValueError
-        If the configuration is incomplete, or ``window``,
-        ``min_stations``, ``keep`` or ``queue_size`` are not positive.
+        If the configuration is incomplete, ``window``,
+        ``min_stations``, ``keep`` or ``queue_size`` are not positive,
+        or ``output`` or ``log`` end in ``.json``.
     """
 
     # Class of the results (set by the derived classes).
@@ -163,6 +175,8 @@ class ArrayMonitor:
         gaps: str = "drop",
         min_stations: int = 3,
         output: Any = None,
+        arrays: bool = True,
+        log: Any = None,
         keep: Optional[int] = None,
         background: bool = True,
         queue_size: int = 1,
@@ -192,12 +206,17 @@ class ArrayMonitor:
         if gaps not in ("drop", "raise"):
             raise ValueError("gaps must be 'drop' or 'raise'")
 
+        output = None if output is None else result_path(output)
+        log = None if log is None else result_path(log)
+
         self._processor = processor
         self.window = float(window)
         self.select = select
         self.gaps = gaps
         self.min_stations = int(min_stations)
         self.output = output
+        self.arrays = bool(arrays)
+        self.log = log
         self.background = bool(background)
         self._array_options = {
             "coordinates": coordinates,
@@ -206,6 +225,7 @@ class ArrayMonitor:
             "coordinate_covariance": coordinate_covariance,
         }
         self._lock = threading.Lock()
+        self._log_lock = threading.Lock()
         self._results: deque = deque(maxlen=keep)
         self._queue: queue.Queue = queue.Queue(maxsize=int(queue_size))
         self._thread: Optional[threading.Thread] = None
@@ -311,7 +331,7 @@ class ArrayMonitor:
         if first > window[0]:
             self._skip(
                 f"the buffer covers {window[1] - first:.2f} s, the window "
-                f"is {self.window:g} s"
+                f"is {self.window:g} s", window,
             )
             return
 
@@ -333,7 +353,7 @@ class ArrayMonitor:
 
                 self._skip(
                     f"window {dropped[0]} - {dropped[1]} dropped: the "
-                    "processing is slower than the calls"
+                    "processing is slower than the calls", dropped,
                 )
 
     def process(
@@ -369,6 +389,7 @@ class ArrayMonitor:
 
         begin = time.perf_counter()
         label = f"window {starttime} - {endtime}"
+        window = (Date(starttime), Date(endtime))
 
         try:
             array = ArrayData(
@@ -380,42 +401,46 @@ class ArrayMonitor:
             if array.nsta < self.min_stations:
                 self._skip(
                     f"{label}: {array.nsta} stations (at least "
-                    f"{self.min_stations} required)"
+                    f"{self.min_stations} required)", window,
                 )
                 return None
 
             array, reason = self._prepare(array)
 
             if reason is not None:
-                self._skip(f"{label}: {reason}")
+                self._skip(f"{label}: {reason}", window)
                 return None
 
             self._processor.array = array
             result = self._processor.process(gaps=self.gaps)
 
         except _SKIPPED_ERRORS as error:
-            self._skip(f"{label}: {error}")
+            self._skip(f"{label}: {error}", window)
             return None
 
         reason = self._check(result)
 
         if reason is not None:
-            self._skip(f"{label}: {reason}")
+            self._skip(f"{label}: {reason}", window)
             return None
 
         if self.output is not None:
-            result.write(self.output, append=True)
+            result.write(self.output, append=True, arrays=self.arrays)
+
+        last = {
+            "window": window,
+            "duration": time.perf_counter() - begin,
+            "stations": array.nsta,
+            "excluded": array.excluded,
+        }
 
         with self._lock:
-            self._results.append((Date(starttime), Date(endtime), result))
+            self._results.append((*window, result))
             self._array = array
             self._counts["analyses"] += 1
-            self._last = {
-                "window": (Date(starttime), Date(endtime)),
-                "duration": time.perf_counter() - begin,
-                "stations": array.nsta,
-                "excluded": array.excluded,
-            }
+            self._last = last
+
+        self._log("result", **last)
 
         self._accepted(result)
 
@@ -604,12 +629,13 @@ class ArrayMonitor:
         end = min(ends)
         return end - self.window, end
 
-    def _skip(self, reason: str) -> None:
+    def _skip(self, reason: str, window: Optional[tuple] = None) -> None:
         """Count, log and report a skipped analysis."""
         with self._lock:
             self._counts["skipped"] += 1
 
         _LOGGER.warning("array analysis skipped: %s", reason)
+        self._log("skip", window=window, reason=reason)
 
         for func in self._on_skip:
             func(self, reason)
@@ -640,7 +666,31 @@ class ArrayMonitor:
                 with self._lock:
                     self._error = error
 
+                self._log("error", window=(start, end), reason=repr(error))
                 return
+
+    def _log(self, event: str, window: Any = None, **fields: Any) -> None:
+        """Append an event to the log file, if any."""
+        if self.log is None:
+            return
+
+        record = {
+            "time": Date.now().to_iso8601(precision=6),
+            "event": event,
+            "window": None if window is None else [
+                Date(value).to_iso8601(precision=9) for value in window
+            ],
+            **fields,
+        }
+
+        if "excluded" in record:
+            record["excluded"] = [list(item) for item in record["excluded"]]
+
+        with self._log_lock:
+            self.log.parent.mkdir(parents=True, exist_ok=True)
+
+            with self.log.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record) + "\n")
 
     def _raise_error(self) -> None:
         """Raise the error that stopped the worker, if any."""
@@ -674,8 +724,8 @@ class BeamformingMonitor(ArrayMonitor):
         Duration of the analysed data, in seconds.
     **options
         Options of :class:`ArrayMonitor` (``select``, ``gaps``, default
-        ``"drop"``, ``min_stations``, ``output``, ``keep``,
-        ``background``, ``queue_size``, ``coordinates``,
+        ``"drop"``, ``min_stations``, ``output``, ``arrays``, ``log``,
+        ``keep``, ``background``, ``queue_size``, ``coordinates``,
         ``reference``, ``orientations``, ``coordinate_covariance``).
 
     Raises
@@ -687,7 +737,7 @@ class BeamformingMonitor(ArrayMonitor):
 
     Examples
     --------
-    >>> monitor = BeamformingMonitor(config, window=600, output="bf.pkl")
+    >>> monitor = BeamformingMonitor(config, window=600, output="bf.jsonl")
     >>> client.every(600, monitor)
     """
 
@@ -742,9 +792,9 @@ class FDDMonitor(ArrayMonitor):
         anyway if they are among the stations processed).
     **options
         Other options of :class:`ArrayMonitor` (``select``,
-        ``min_stations``, ``output``, ``keep``, ``background``,
-        ``queue_size``, ``coordinates``, ``reference``,
-        ``orientations``, ``coordinate_covariance``).
+        ``min_stations``, ``output``, ``arrays``, ``log``, ``keep``,
+        ``background``, ``queue_size``, ``coordinates``,
+        ``reference``, ``orientations``, ``coordinate_covariance``).
 
     Raises
     ------
@@ -757,7 +807,7 @@ class FDDMonitor(ArrayMonitor):
 
     Examples
     --------
-    >>> monitor = FDDMonitor(config, window=1800, output="fdd.pkl")
+    >>> monitor = FDDMonitor(config, window=1800, output="fdd.jsonl")
     >>> client.every(300, monitor)
     >>> monitor.result().mode(1.2).info()
     """

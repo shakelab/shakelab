@@ -30,6 +30,7 @@ the stations it keeps, the gaps and the joined results.
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 import threading
 import time
@@ -42,7 +43,7 @@ import pytest
 from shakelab.exploration.yarray.beamforming import Beamformer
 from shakelab.exploration.yarray.config import BeamformingConfig, FDDConfig
 from shakelab.exploration.yarray.fdd import FDDResult
-from shakelab.exploration.yarray.io import read_result_states
+from shakelab.exploration.yarray.io import read_result
 from shakelab.exploration.yarray.monitor import (
     ArrayMonitor,
     BeamformingMonitor,
@@ -137,8 +138,9 @@ def test_synchronous_analysis():
 
 def test_callbacks_and_queries(tmp_path):
     """on_result, results in an interval, joined result, output."""
-    path = tmp_path / "monitor.pkl"
-    monitor = _monitor(output=path, keep=2)
+    path = tmp_path / "monitor.jsonl"
+    log = tmp_path / "log" / "monitor.jsonl"
+    monitor = _monitor(output=path, keep=2, log=log)
     seen = []
     monitor.on_result(lambda monitor, result: seen.append(result))
     client = _Client(_records())
@@ -148,7 +150,11 @@ def test_callbacks_and_queries(tmp_path):
 
     assert len(seen) == 3
     assert len(monitor.results()) == 2
-    assert len(read_result_states(path)) == 3
+    assert len(read_result(path)[1]) == 3
+    events = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [event["event"] for event in events] == ["result"] * 3
+    assert events[0]["stations"] == 6
+    assert Date(events[0]["window"][1]) == START + 59.99
     assert monitor.results(endtime=START + 10.0) == []
 
     joined = monitor.result()
@@ -161,10 +167,11 @@ def test_callbacks_and_queries(tmp_path):
     assert monitor.latest().maxima
 
 
-def test_skipped_windows():
+def test_skipped_windows(tmp_path):
     """Empty buffers and too few stations are skipped and reported."""
     reasons = []
-    monitor = _monitor(min_stations=7)
+    log = tmp_path / "monitor.jsonl"
+    monitor = _monitor(min_stations=7, log=log)
     monitor.on_skip(lambda monitor, reason: reasons.append(reason))
 
     monitor(_Client([]))
@@ -174,6 +181,12 @@ def test_skipped_windows():
     assert "no data" in reasons[0]
     assert "at least 7" in reasons[1]
     assert monitor.latest() is None
+
+    events = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [event["event"] for event in events] == ["skip", "skip"]
+    assert events[0]["window"] is None
+    assert events[1]["reason"] == reasons[1]
+    assert Date(events[1]["window"][0]) == START + 29.99
 
 
 def test_too_short_buffer_is_skipped():
@@ -302,6 +315,10 @@ def test_invalid_arguments():
         BeamformingMonitor(CONFIG, window=0.0)
     with pytest.raises(ValueError):
         BeamformingMonitor(CONFIG, window=10.0, keep=0)
+    with pytest.raises(ValueError, match="jsonl"):
+        BeamformingMonitor(CONFIG, window=10.0, output="result.json")
+    with pytest.raises(ValueError, match="jsonl"):
+        FDDMonitor(FDD_CONFIG, window=10.0, log="log.json")
 
     monitor = BeamformingMonitor(CONFIG, window=10.0)
     assert monitor.config == CONFIG and monitor.config is not CONFIG
@@ -459,9 +476,9 @@ def test_fdd_monitor_keeps_its_stations(tmp_path):
     one of the first stations is skipped. The results kept and the
     output file join into one FDDResult.
     """
-    output = tmp_path / "fdd.pkl"
+    output = tmp_path / "fdd.jsonl"
     monitor = FDDMonitor(FDD_CONFIG, window=30.0, background=False,
-                         output=output)
+                         output=output, arrays=False)
     reasons = []
     monitor.on_skip(lambda monitor, reason: reasons.append(reason))
     records = _records()
@@ -492,6 +509,7 @@ def test_fdd_monitor_keeps_its_stations(tmp_path):
     assert isinstance(joined, FDDResult)
     assert joined.nblocks == 2 * first.nblocks
     assert FDDResult(output).nblocks == joined.nblocks
+    assert not (tmp_path / "fdd_arrays").exists()
     assert np.isnan(joined.coordinates).all()
 
 

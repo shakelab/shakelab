@@ -9,6 +9,26 @@ corrections. The format follows
 
 ### Changed
 
+- `exploration.yarray`: result files are JSON Lines instead of pickle
+  (format version 2; no pickle is read or written). The first line is
+  a header with the kind (`"beamforming"`, `"fdd"`), the complete
+  configuration, the frequencies and the units (FDD: also the channels
+  and coordinates); each result written is one line, so that appending
+  (`append=True`, the `output` of the monitors, `slab-yarray
+  --append`) adds a line and checks the header. Beamforming lines hold
+  block times, stations and coordinates of the blocks and the table of
+  the maxima (with velocity and slowness); FDD lines the first
+  singular value and vector of every block. The spectra of the
+  beamforming and all the singular values and kept vectors of the FDD
+  go to compressed `.npz` files (folder `<name>_arrays`), written and
+  read by default (`write(..., arrays=False)`, `BeamformingResult(file,
+  arrays=False)`, `FDDResult(file, arrays=False)`; a result read
+  without arrays keeps only the first singular value and vector). A
+  name ending in `.json` is refused. `io.write_result`,
+  `io.read_result`, `io.read_result_header`, `io.result_path` and
+  `io.write_table` replace `write_result_state` and
+  `read_result_states`.
+
 - `exploration.yarray`: `ArrayMonitor` is now the base of the
   real-time monitors and is not used directly (TypeError);
   `BeamformingMonitor(config, window, ...)` is the former
@@ -457,6 +477,13 @@ corrections. The format follows
 
 ### Added
 
+- `exploration.yarray`: `BeamformingResult.to_csv` (table of the
+  maxima) and `FDDResult.to_csv` (first singular value and vector of
+  every block), optional exports for spreadsheets; `slab-yarray
+  --csv` (also of a `--result`) and `--no-arrays`. Monitors: `arrays`
+  (arrays of the results in `output`) and `log`, a JSON Lines file
+  with one line per analysis, skipped window or error (wall time,
+  event, window, duration and stations, or reason).
 - `exploration.yarray.FDDMonitor(config, window, stations=None,
   gaps="raise", ...)`: periodic frequency domain decomposition of the
   data of a SeedLink client, with the options and queries of the

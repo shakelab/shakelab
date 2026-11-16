@@ -820,15 +820,14 @@ results of later windows (blocks renumbered; results with the same
 configuration, frequencies and units).
 
 ```python
-result.write("daily.pkl")
-beamformer.process(start, end).write("daily.pkl", append=True)
-daily = BeamformingResult("daily.pkl")              # joined
+result.write("daily.jsonl")
+beamformer.process(start, end).write("daily.jsonl", append=True)
+daily = BeamformingResult("daily.jsonl")              # joined
 ```
 
 A result file holds one result, possibly written in several pieces:
-`write(append=True)` checks that the configuration is the same.
-Pickle is a provisional format for trusted local files: never open one
-from an untrusted source.
+`write(append=True)` checks that the configuration is the same (see
+"Result files" below for the format).
 
 The density of the maxima:
 
@@ -892,26 +891,67 @@ work as for the beamforming: `write(..., append=True)` accumulates
 results with the same configuration and channels, read back joined by
 `FDDResult(file)`.
 
+### Result files
+
+Results are written as JSON Lines (`.jsonl`): text, one JSON object per
+line, readable by any language. The first line is a header with the
+kind of result (`"beamforming"` or `"fdd"`), the complete
+configuration, the frequencies and the units (for the FDD also the
+channels and their coordinates); each result written adds one line.
+Appending (`write(file, append=True)`, the `output` of the monitors,
+`slab-yarray --append`) only adds a line, also over days of real-time
+processing, and is refused if the header differs. The name `.json` is
+refused, because the file is not one JSON document.
+
+| Result | In the `.jsonl` line | In the `.npz` file (`arrays=True`) |
+|---|---|---|
+| Beamforming | block times, stations and coordinates of each block, table of the maxima (block, time, frequency, component, rank, wavenumber, azimuth, velocity, slowness, power, standard error, ellipticity and its angle) | the spectra on the grid, if the configuration keeps them (`spectra=True`) |
+| FDD | block times, first singular value and first singular vector (real and imaginary parts) of every block | all the singular values and the kept singular vectors (`vectors` of the configuration) of every block |
+
+The arrays of each line go to a compressed `.npz` file in the folder
+`<name>_arrays` next to the result file, named after the first block
+time (`fdd_arrays/20261116T101500.npz`) and read without pickle. They
+are written by default (`write(..., arrays=False)` writes the line
+only) and read when every line of the file has them;
+`FDDResult(file, arrays=False)` reads only the lines. The line alone is
+enough for the usual work: the maxima, the dispersion curves and the
+density of the beamforming; the singular-value spectrum, its peaks and
+the first mode of the FDD. A result read without arrays keeps only the
+first singular value and vector, and is not joined with a complete
+one.
+
+```python
+result.write("fdd.jsonl")                    # line + fdd_arrays/*.npz
+result.write("fdd.jsonl", append=True)       # one more line
+light = FDDResult("fdd.jsonl", arrays=False)
+result.to_csv("fdd.csv")                     # optional table
+```
+
+`to_csv` writes an optional table for spreadsheets: the maxima of the
+beamforming, or the first singular value and vector of every block of
+the FDD (missing values empty, times in ISO 8601). The result file is
+the complete record.
+
 ## 13. Command line
 
 `slab-yarray` (installed with ShakeLab; `python -m
 shakelab.exploration.yarray` is equivalent):
 
 ```sh
-slab-yarray --input array.json --config capon.json -o result.pkl \
+slab-yarray --input array.json --config capon.json -o result.jsonl \
     --plot-dispersion --save-figures figures
 slab-yarray --input array.json --config capon.json --method music \
-    --fmin 2 --fmax 8 --nfreq 20 -o music.pkl     # options replace the JSON
+    --fmin 2 --fmax 8 --nfreq 20 -o music.jsonl     # options replace the JSON
 slab-yarray --data "data/*.mseed" --metadata array.xml \
-    --select "XX.*..HH?" --config rtbf.json -o rtbf.pkl --append
-slab-yarray --result rtbf.pkl --plot-spectrum --frequency 4.5 --show
+    --select "XX.*..HH?" --config rtbf.json -o rtbf.jsonl --append
+slab-yarray --result rtbf.jsonl --plot-spectrum --frequency 4.5 --show
 slab-yarray response --input array.json --fmin 1 --fmax 20 --plot-all
 ```
 
 | Group | Options |
 |---|---|
 | Input (one) | `--input` array file; `--data` waveform files with `--metadata`, `--select`, `--start`, `--end`; `--result` saved result to plot |
-| Configuration and output | `--config`, `--write-config`, `-o/--output`, `--append`, `--owrite` |
+| Configuration and output | `--config`, `--write-config`, `-o/--output` (result file, `.jsonl`), `--append`, `--no-arrays` (no `.npz` spectra), `--csv` (table of the maxima, also of a `--result`), `--owrite` |
 | Processing (replace the JSON) | `--frequencies` or `--fmin --fmax --nfreq`, `--frequency-scale`, `--method`, `--components`, `--diagonal-loading`, `--music-sources`, `--grid-quantity`, `--grid-scale`, `--grid-min`, `--grid-max`, `--grid-size`, `--azimuth-size`, `--window-type`, `--window-length`, `--window-taper`, `--window-overlap`, `--windows-per-block`, `--block-overlap`, `--ellipticity-angle-min/max/size`, `--spectra`, `--maxima`, `--minimum-relative-power`, `--statistical-uncertainty`, `--geometric-uncertainty`, `--strict`, `--transform`, `--fft-selection`, `--fft-padding` |
 | Figures | `--plot-dispersion`, `--plot-ellipticity`, `--plot-spectrum` (`--frequency`, `--block`, `--spectrum-view`, `--spectrum-quantity`), `--plot-density` (`--density-coordinate`), `--component`, `--ranks`, `--show`, `--save-figures`, `--figure-format`, `--dpi` |
 
@@ -944,7 +984,7 @@ from shakelab.signals.seedlink import Client
 client = Client("server", metadata=metadata_reader("array.xml"))
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=900)
-monitor = BeamformingMonitor(config, window=600, output="monitor.pkl")
+monitor = BeamformingMonitor(config, window=600, output="monitor.jsonl")
 monitor.on_result(lambda monitor, result: print(result.summary()))
 client.every(600, monitor)        # clock="data" to replay an archive
 client.start()
@@ -965,7 +1005,10 @@ error stops the worker and is raised by `close()`. `status()`,
 `latest()`, `results(start, end)`, `result(start, end)` (joined) and
 `array()` can be called at any time and return copies; each result can
 also be appended
-to a file (`output`). `background=False` processes in the call;
+to a file (`output`, with the arrays unless `arrays=False`), and every
+analysis, skipped window or error to a log (`log`, JSON Lines: wall
+time, event, window, duration and stations, or reason).
+`background=False` processes in the call;
 `monitor.process(collection, start, end)` processes given data. Any
 object with `get_data(select)` returning a `StreamCollection` can feed
 the monitor. See
@@ -980,7 +1023,7 @@ holds the common machinery and is not used directly.
 ```python
 from shakelab.exploration.yarray import FDDMonitor
 
-monitor = FDDMonitor(config, window=1800, output="fdd.pkl")
+monitor = FDDMonitor(config, window=1800, output="fdd.jsonl")
 client.every(300, monitor)
 ...
 monitor.stations                  # fixed by the first result
@@ -1124,9 +1167,14 @@ much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
   and the results keep their own copy. Options with fixed values are
   enumerations, whose string values are accepted everywhere.
 - **Results for real time.** A result file holds one result, possibly
-  written in pieces (`append=True`, with the same configuration); the
-  stations and coordinates are recorded for each block, so that
-  results of windows with different stations join correctly.
+  written in pieces (`append=True`, with the same configuration): JSON
+  Lines, so that appending adds one line without rewriting the file;
+  the configuration is in the header, so that every file is
+  self-contained. The bulky arrays (spectra, all the singular values
+  and vectors) go to separate `.npz` files, optional, so that the text
+  file stays light. The stations and coordinates are recorded for each
+  block, so that results of windows with different stations join
+  correctly.
   Frequencies whose windows do not fill a covariance block give no
   result and a warning instead of an error, as needed for short
   windows; `Beamformer(cache=True)` keeps the steering vectors while
@@ -1214,8 +1262,6 @@ Current limitations:
   independent realizations; correlated windows, coloured noise,
   several sources, sampled coordinate errors and the Rayleigh
   processing are not modelled.
-- Results are stored with pickle, which can run arbitrary code when
-  read: read only result files of trusted origin.
 - The FDD gives frequencies limited by the analysis step and the
   window resolution, and no damping.
 
@@ -1233,7 +1279,6 @@ Planned extensions:
 - Multitaper spectral estimates with a rigorous number of degrees of
   freedom; the `CrossSpectra` of the FDD used also by the beamforming
   and by spatial autocorrelation (SPAC).
-- Results in `.npz` and JSON instead of pickle.
 - Mode tracking across frequencies (manual, automatic, hybrid) from
   the density peaks.
 - Planning with correlated windows, coloured noise, several sources,

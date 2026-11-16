@@ -330,7 +330,7 @@ def test_without_positions():
 
 def test_result_files_and_append(tmp_path, frame_result):
     """Write, append, read back joined; incompatible results fail."""
-    path = tmp_path / "fdd.pkl"
+    path = tmp_path / "fdd.jsonl"
     frame_result.write(path)
     frame_result.write(path, append=True)
     joined = FDDResult(path)
@@ -358,7 +358,70 @@ def test_result_files_and_append(tmp_path, frame_result):
     with pytest.raises(ValueError):
         BeamformingResult(path)
     with pytest.raises(ValueError):
-        FDDResult().write(tmp_path / "empty.pkl")
+        FDDResult().write(tmp_path / "empty.jsonl")
+
+
+def test_light_result_files(tmp_path, frame_result):
+    """
+    Without its arrays a file gives the first value and vector.
+
+    The first singular value and vector of every block are in the
+    JSON Lines file, exactly; all the values and the kept vectors are
+    in the .npz files. Peaks and the first mode are the same; light
+    and complete results do not join.
+    """
+    path = tmp_path / "fdd.jsonl"
+    frame_result.write(path)
+    complete = FDDResult(path)
+    light = FDDResult(path, arrays=False)
+    frequency = frame_result.frequencies[20]
+
+    np.testing.assert_array_equal(complete.values[frequency],
+                                  frame_result.values[frequency])
+    np.testing.assert_array_equal(complete.vectors[frequency],
+                                  frame_result.vectors[frequency])
+    np.testing.assert_array_equal(light.values[frequency][:, 0],
+                                  frame_result.values[frequency][:, 0])
+    np.testing.assert_array_equal(light.vectors[frequency][:, :, 0],
+                                  frame_result.vectors[frequency][:, :, 0])
+    np.testing.assert_array_equal(light.peaks(), frame_result.peaks())
+    # Same vectors, stored in arrays of different layout: the sums of
+    # NumPy may differ in the last digit on some platforms.
+    assert light.mode(1.5).mac == pytest.approx(frame_result.mode(1.5).mac,
+                                                rel=1e-12)
+    assert light.singular_values()[1].shape[1] == 1
+    assert light.block_times == frame_result.block_times
+
+    with pytest.raises(ValueError):
+        light.mode(1.5, index=1)
+    with pytest.raises(ValueError):
+        light.peaks(index=1)
+    with pytest.raises(ValueError, match="numbers of singular"):
+        light.copy().append(complete)
+
+    frame_result.write(tmp_path / "only.jsonl", arrays=False)
+
+    assert not (tmp_path / "only_arrays").exists()
+    assert FDDResult(tmp_path / "only.jsonl").values[frequency].shape[1] == 1
+
+    for item in (tmp_path / "fdd_arrays").iterdir():
+        item.unlink()
+
+    with pytest.raises(FileNotFoundError, match="arrays=False"):
+        FDDResult(path)
+
+
+def test_csv_of_the_first_vector(tmp_path, frame_result):
+    """One row per frequency and block, real and imaginary parts."""
+    table = tmp_path / "fdd.csv"
+    frame_result.to_csv(table)
+    rows = table.read_text().splitlines()
+    header = rows[0].split(",")
+
+    assert header[:4] == ["frequency", "block", "time", "value"]
+    assert header[4:6] == ["XX.F00. east real", "XX.F00. east imag"]
+    assert len(header) == 4 + 2 * STOREYS
+    assert len(rows) == frame_result.nblocks + 1
 
 
 def test_peaks_options(frame_result):

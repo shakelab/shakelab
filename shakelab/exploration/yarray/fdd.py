@@ -69,7 +69,6 @@ import math
 import os
 import textwrap
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Optional, Sequence
 
 import numpy as np
@@ -81,6 +80,7 @@ from shakelab.exploration.yarray.config import (
     WindowType,
 )
 from shakelab.exploration.yarray.data import ArrayData
+from shakelab.libutils.timeN import Date
 from shakelab.libutils.utils import warn_external
 from shakelab.signals import fourier
 from shakelab.signals.crossspectral import CrossSpectra
@@ -298,6 +298,9 @@ class FDDResult:
     source : str or path-like, optional
         Result file to read (see :meth:`read`). Default: an empty
         result.
+    arrays : bool, optional
+        Read also all the singular values and the kept vectors of the
+        file, if it has them (see :meth:`read`). Default True.
 
     Attributes
     ----------
@@ -306,11 +309,13 @@ class FDDResult:
     block_times : dict
         Centres of the blocks (Date), by frequency.
     values : dict
-        Singular values ``(n_blocks, n_channels)`` in decreasing order,
-        by frequency.
+        Singular values ``(n_blocks, n_values)`` in decreasing order,
+        by frequency: all of them (``n_values`` = number of channels),
+        or only the first for a file read without its arrays.
     vectors : dict
         First singular vectors ``(n_blocks, n_channels, n_vectors)``
-        with normalized phase and sign, by frequency.
+        with normalized phase and sign, by frequency (only the first
+        for a file read without its arrays).
     stations : tuple of str
         Station of each channel.
     components : tuple of str
@@ -326,10 +331,10 @@ class FDDResult:
     >>> result = FDD(array, config).process()
     >>> result.peaks(fmin=0.2, fmax=0.8)
     >>> result.mode(0.32).info()
-    >>> result.write("fdd.pkl")
+    >>> result.write("fdd.jsonl")
     """
 
-    def __init__(self, source: Any = None) -> None:
+    def __init__(self, source: Any = None, arrays: bool = True) -> None:
         self.config: Optional[FDDConfig] = None
         self.block_times: dict = {}
         self.values: dict = {}
@@ -340,7 +345,7 @@ class FDDResult:
         self.units: Optional[str] = None
 
         if source is not None:
-            self.read(source)
+            self.read(source, arrays=arrays)
 
     def __repr__(self) -> str:
         if self.config is None:
@@ -396,15 +401,16 @@ class FDDResult:
         frequency : numpy.ndarray
             Frequencies in Hz, ``(n_freq,)``.
         mean : numpy.ndarray
-            Geometric mean among the blocks, ``(n_freq, n_channels)``
-            (NaN at frequencies without blocks).
+            Geometric mean among the blocks, ``(n_freq, n_values)``
+            (NaN at frequencies without blocks; ``n_values`` is 1 for a
+            file read without its arrays).
         log_std : numpy.ndarray
             Standard deviation of the natural logarithm among the
             blocks (NaN with fewer than two blocks): the band
             ``mean * exp(+/- log_std)``.
         """
         frequency = self.frequencies
-        shape = (frequency.size, self.nchannels)
+        shape = (frequency.size, self._nvalues())
         mean = np.full(shape, np.nan)
         spread = np.full(shape, np.nan)
 
@@ -466,9 +472,10 @@ class FDDResult:
         if self.config is None:
             raise ValueError("the result is empty")
 
-        if not 0 <= index < self.nchannels:
+        if not 0 <= index < self._nvalues():
             raise ValueError(
-                f"index must be in [0, {self.nchannels - 1}]"
+                f"index must be in [0, {self._nvalues() - 1}] (a file "
+                "read without its arrays holds only the first value)"
             )
 
         if not prominence >= 1.0:
@@ -624,26 +631,40 @@ class FDDResult:
 
     # -- files ----------------------------------------------------------
 
-    def read(self, source: Any) -> None:
+    def read(self, source: Any, arrays: bool = True) -> None:
         """
         Add the results of a file.
 
         Parameters
         ----------
         source : str or path-like
-            File written by :meth:`write` (trusted origin only: pickle).
+            Result file (JSON Lines) written by :meth:`write`.
+        arrays : bool, optional
+            Read also all the singular values and the kept vectors
+            (``.npz`` files of the analyses), when every analysis of
+            the file has them; otherwise only the first singular value
+            and vector of each block. Default True.
 
         Raises
         ------
         ValueError
             If the file does not hold FDD results or they are not
             compatible.
+        FileNotFoundError
+            If the arrays of an analysis are missing (read with
+            ``arrays=False``).
         """
-        from shakelab.exploration.yarray.io import read_result_states
+        from shakelab.exploration.yarray.io import read_result
 
+        header, entries = read_result(source, arrays=arrays)
+
+        if header.get("kind") != _KIND:
+            raise ValueError(f"{source}: not an FDD result file")
+
+        complete = all(entry["arrays"] is not None for entry in entries)
         self.append([
-            FDDResult._from_state(state)
-            for state in read_result_states(source)
+            FDDResult._from_entry(header, entry, complete)
+            for entry in entries
         ])
 
     def write(
@@ -651,14 +672,24 @@ class FDDResult:
         target: Any,
         append: bool = False,
         owrite: bool = False,
+        arrays: bool = True,
     ) -> None:
         """
-        Write the result to a file (pickle).
+        Write the result to a file (JSON Lines).
+
+        The first line of the file is a header (format, configuration,
+        frequencies, units, channels and their coordinates); each
+        result written is one more line, with the block times and the
+        first singular value and vector of every block (real and
+        imaginary parts). All the singular values and the kept vectors
+        go to a ``.npz`` file in the folder ``<name>_arrays`` next to
+        the file, referred to by the line.
 
         Parameters
         ----------
         target : str or path-like
-            File; folders are created.
+            File (suffix ``.jsonl`` suggested; ``.json`` is refused);
+            folders are created.
         append : bool, optional
             Add the result to the file (created if missing), to
             accumulate successive analyses; the file must hold results
@@ -666,33 +697,86 @@ class FDDResult:
         owrite : bool, optional
             Overwrite an existing file (ignored with ``append``).
             Default False.
+        arrays : bool, optional
+            Write the ``.npz`` file too. Default True.
 
         Raises
         ------
         ValueError
-            If the result is empty, or ``append`` and the file holds
-            results that are not compatible.
+            If the result is empty, the name ends in ``.json``, or
+            ``append`` and the file holds results that are not
+            compatible.
         FileExistsError
             If the file exists and neither ``append`` nor ``owrite`` is
             set.
         """
-        from shakelab.exploration.yarray.io import (
-            read_result_states,
-            write_result_state,
-        )
+        from shakelab.exploration.yarray.io import write_result
 
         if self.config is None:
             raise ValueError("an empty result cannot be written")
 
-        path = Path(target).expanduser()
+        frequencies = sorted(self.block_times)
+        write_result(
+            self._header(), self._entry(), target,
+            arrays={
+                **{f"values_{row}": self.values[value]
+                   for row, value in enumerate(frequencies)},
+                **{f"vectors_{row}": self.vectors[value]
+                   for row, value in enumerate(frequencies)},
+            } if arrays else None,
+            times=self.block_times, append=append, owrite=owrite,
+        )
 
-        if append and path.exists() and path.stat().st_size > 0:
-            first = FDDResult._from_state(
-                read_result_states(path, first=True)[0]
-            )
-            _check_compatible(first, self, context=f"{path}: ")
+    def to_csv(self, target: Any, owrite: bool = False) -> None:
+        """
+        Write the first singular value and vector of every block to CSV.
 
-        write_result_state(self._state(), path, append=append, owrite=owrite)
+        One row per frequency and block: frequency, block, time, first
+        singular value and, for each channel, the real and imaginary
+        parts of the first singular vector (columns ``"<station>
+        <component> real"`` and ``... imag``). The configuration is not
+        written: the result file (:meth:`write`) is the complete
+        record.
+
+        Parameters
+        ----------
+        target : str or path-like
+            CSV file; folders are created.
+        owrite : bool, optional
+            Overwrite an existing file. Default False.
+
+        Raises
+        ------
+        ValueError
+            If the result is empty.
+        FileExistsError
+            If the file exists and ``owrite`` is False.
+        """
+        from shakelab.exploration.yarray.io import write_table
+
+        if self.config is None:
+            raise ValueError("an empty result cannot be written")
+
+        frequencies = sorted(self.block_times)
+        rows = [(value, block) for value in frequencies
+                for block in range(len(self.block_times[value]))]
+        columns = {
+            "frequency": [value for value, _ in rows],
+            "block": [block for _, block in rows],
+            "time": [self.block_times[value][block]
+                     for value, block in rows],
+            "value": [self.values[value][block, 0]
+                      for value, block in rows],
+        }
+
+        for column, label in enumerate(self.channels):
+            for part in ("real", "imag"):
+                columns[f"{label} {part}"] = [
+                    getattr(self.vectors[value][block, column, 0], part)
+                    for value, block in rows
+                ]
+
+        write_table(target, columns, owrite=owrite)
 
     # -- summary --------------------------------------------------------
 
@@ -762,30 +846,74 @@ class FDDResult:
         return result
 
     @classmethod
-    def _from_state(cls, state: dict) -> FDDResult:
-        """Result from the state of a file."""
-        if state.get("kind") != _KIND:
-            raise ValueError("not an FDD result")
+    def _from_entry(
+        cls,
+        header: dict,
+        entry: dict,
+        complete: bool,
+    ) -> FDDResult:
+        """Result of one line of a file (with its arrays if complete)."""
+        frequencies = [float(value) for value in header["frequencies"]]
+        nchannels = len(header["stations"])
+        arrays = entry["arrays"] if complete else None
+        values, vectors = {}, {}
+
+        for row, value in enumerate(frequencies):
+            if arrays is not None:
+                values[value] = np.asarray(arrays[f"values_{row}"])
+                vectors[value] = np.asarray(arrays[f"vectors_{row}"])
+                continue
+
+            first = entry["values"][row]
+            values[value] = np.array(first, dtype=float).reshape(-1, 1)
+            vectors[value] = (
+                np.array(entry["vectors"]["real"][row], dtype=float)
+                + 1j * np.array(entry["vectors"]["imag"][row], dtype=float)
+            ).reshape(len(first), nchannels, 1)
 
         return cls._from_parts(
-            FDDConfig(state["config"]), state["block_times"],
-            state["values"], state["vectors"], state["stations"],
-            state["components"], state["coordinates"], state["units"],
+            FDDConfig(header["config"]),
+            {
+                value: [Date(time) for time in times]
+                for value, times in zip(frequencies, entry["block_times"])
+            },
+            values, vectors, header["stations"], header["components"],
+            np.array(header["coordinates"], dtype=float).reshape(-1, 3),
+            header["units"],
         )
 
-    def _state(self) -> dict:
-        """State written to a file."""
+    def _header(self) -> dict:
+        """Header of the result files."""
         return {
             "kind": _KIND,
             "config": self.config.to_dict(),
-            "block_times": dict(self.block_times),
-            "values": dict(self.values),
-            "vectors": dict(self.vectors),
-            "stations": self.stations,
-            "components": self.components,
-            "coordinates": np.array(self.coordinates),
+            "frequencies": [float(value) for value in self.frequencies],
             "units": self.units,
+            "stations": list(self.stations),
+            "components": list(self.components),
+            "coordinates": self.coordinates,
         }
+
+    def _entry(self) -> dict:
+        """Line of the result files: first value and vector per block."""
+        frequencies = sorted(self.block_times)
+        first = [self.vectors[value][:, :, 0] for value in frequencies]
+        return {
+            "block_times": [self.block_times[value]
+                            for value in frequencies],
+            "values": [self.values[value][:, 0] for value in frequencies],
+            "vectors": {
+                "real": [item.real for item in first],
+                "imag": [item.imag for item in first],
+            },
+        }
+
+    def _nvalues(self) -> int:
+        """Number of singular values kept for each block."""
+        for value in self.values.values():
+            return int(value.shape[1])
+
+        return self.nchannels
 
     def _adopt(self, other: FDDResult) -> None:
         """Take the content of a result (as a copy)."""
@@ -824,6 +952,22 @@ def _check_compatible(
 
     if first.units != other.units:
         raise ValueError(context + "the results have different units")
+
+    if (first._nvalues(), _nvectors(first)) != (other._nvalues(),
+                                               _nvectors(other)):
+        raise ValueError(
+            context + "the results keep different numbers of singular "
+            "values or vectors (a file read without its arrays keeps "
+            "only the first)"
+        )
+
+
+def _nvectors(result: FDDResult) -> int:
+    """Number of singular vectors kept for each block."""
+    for value in result.vectors.values():
+        return int(value.shape[2])
+
+    return 0
 
 
 def _readonly(value: Any) -> np.ndarray:

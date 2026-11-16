@@ -34,13 +34,13 @@ Examples
 --------
 .. code-block:: shell
 
-    slab-yarray --input array.json --config capon.json -o result.pkl \\
+    slab-yarray --input array.json --config capon.json -o result.jsonl \\
         --plot-dispersion --save-figures figures
     slab-yarray --input array.json --config capon.json \\
-        --fmin 2 --fmax 8 --nfreq 20 --method music -o music.pkl
+        --fmin 2 --fmax 8 --nfreq 20 --method music -o music.jsonl
     slab-yarray --data "data/*.mseed" --metadata array.xml \\
-        --select "XX.*..HH?" --config rtbf.json -o rtbf.pkl
-    slab-yarray --result rtbf.pkl --plot-spectrum --frequency 4.5 --show
+        --select "XX.*..HH?" --config rtbf.json -o rtbf.jsonl
+    slab-yarray --result rtbf.jsonl --plot-spectrum --frequency 4.5 --show
 
 With the first argument ``response`` the command analyses the
 geometric response of the array instead (no waveforms are needed with
@@ -158,8 +158,12 @@ def _run(args: argparse.Namespace) -> int:
 
         if args.output is not None:
             result.write(args.output, append=args.append,
-                         owrite=args.owrite)
+                         owrite=args.owrite, arrays=not args.no_arrays)
             print(f"result written to {args.output}")
+
+    if args.csv is not None:
+        result.to_csv(args.csv, owrite=args.owrite)
+        print(f"maxima written to {args.csv}")
 
     print(result.summary())
 
@@ -201,9 +205,15 @@ def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
     output.add_argument("--write-config", type=Path,
                         help="write the configuration used (JSON)")
     output.add_argument("-o", "--output", type=Path,
-                        help="result file (pickle)")
+                        help="result file (JSON Lines, .jsonl)")
     output.add_argument("--append", action="store_true",
                         help="append the result to the file")
+    output.add_argument("--no-arrays", action="store_true",
+                        help="do not write the spectra (.npz) of the "
+                        "result")
+    output.add_argument("--csv", type=Path,
+                        help="write the table of the maxima (CSV), also "
+                        "of a --result")
     output.add_argument("--owrite", action="store_true",
                         help="overwrite existing files")
 

@@ -32,7 +32,7 @@ import pytest
 
 from shakelab.exploration.yarray.cli import main
 from shakelab.exploration.yarray.config import BeamformingConfig
-from shakelab.exploration.yarray.io import read_result_states
+from shakelab.exploration.yarray.io import read_result
 
 DATA = Path(__file__).parent / "data"
 ARRAY = str(DATA / "sesame_array.json")
@@ -62,7 +62,7 @@ def _config_file(tmp_path, **extra):
 
 def test_process_from_options(tmp_path, capsys):
     """Options alone define the configuration; result written."""
-    output = tmp_path / "result.pkl"
+    output = tmp_path / "result.jsonl"
     written = tmp_path / "used.json"
 
     assert main(OPTIONS + ["-o", str(output), "--write-config",
@@ -71,7 +71,7 @@ def test_process_from_options(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "ArrayData: 9 stations" in out
     assert "BeamformingResult: capon, vertical" in out
-    assert len(read_result_states(output)) == 1
+    assert len(read_result(output)[1]) == 1
     assert BeamformingConfig(written).frequencies.size == 3
 
 
@@ -94,13 +94,13 @@ def test_append_and_plot_saved_result(tmp_path):
     """Results accumulate; a saved result is plotted without data."""
     pytest.importorskip("matplotlib").use("Agg")
     config = _config_file(tmp_path)
-    output = tmp_path / "result.pkl"
+    output = tmp_path / "result.jsonl"
 
     for _ in range(2):
         assert main(["--input", ARRAY, "--config", str(config), "-o",
                      str(output), "--append"]) == 0
 
-    assert len(read_result_states(output)) == 2
+    assert len(read_result(output)[1]) == 2
     assert main(["--result", str(output), "--plot-spectrum", "--frequency",
                  "5", "--spectrum-view", "azimuth", "--save-figures",
                  str(tmp_path / "figures")]) == 0
@@ -137,7 +137,7 @@ def test_graphics_section(tmp_path):
         (["--data", str(DATA / "sesame" / "*.sac"), "--frequencies", "3",
           "--grid-min", "100", "--grid-max", "200", "--grid-size", "5"],
          "unknown"),
-        (["--result", "r.pkl", "--output", "x.pkl"], "needs data"),
+        (["--result", "r.jsonl", "--output", "x.jsonl"], "needs data"),
         (OPTIONS + ["--plot-spectrum"], "--frequency"),
     ],
 )
@@ -147,9 +147,25 @@ def test_errors(arguments, message, capsys):
     assert message in capsys.readouterr().err
 
 
+def test_csv_and_light_output(tmp_path):
+    """--csv writes the maxima, also of a saved result; --no-arrays."""
+    config = _config_file(tmp_path)
+    output = tmp_path / "result.jsonl"
+    table = tmp_path / "maxima.csv"
+
+    assert main(["--input", ARRAY, "--config", str(config), "-o",
+                 str(output), "--no-arrays", "--csv", str(table)]) == 0
+    assert read_result(output)[1][0]["arrays"] is None
+    assert table.read_text().startswith("block,time,frequency")
+
+    again = tmp_path / "again.csv"
+    assert main(["--result", str(output), "--csv", str(again)]) == 0
+    assert again.read_text() == table.read_text()
+
+
 def test_existing_output(tmp_path, capsys):
     """Existing result files are protected unless --owrite."""
-    output = tmp_path / "result.pkl"
+    output = tmp_path / "result.jsonl"
     output.write_bytes(b"")
 
     assert main(OPTIONS + ["-o", str(output)]) == 1

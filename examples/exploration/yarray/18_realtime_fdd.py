@@ -39,7 +39,9 @@ client.select("XX.B*..HN?")
 client.set_buffer(max_duration=2400)
 
 monitor = FDDMonitor(
-    config, window=1800, output="fdd.pkl",
+    config, window=1800,
+    output="fdd.jsonl",                         # arrays=False: no .npz
+    log="monitor.jsonl",                        # analyses and skips
     stations=["XX.B01.", "XX.B02.", "XX.B03."],  # default: the first result
     # gaps="drop" to exclude stations with gaps, default "raise"
 )

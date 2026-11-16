@@ -62,7 +62,9 @@ second = result.mode(peaks[1])
 print(mac(first.shape, second.shape))         # 1: same shape, 0: orthogonal
 
 # Files: results of successive windows accumulated in one file.
-result.write("fdd.pkl")
+result.write("fdd.jsonl")
 fdd.process("2026-11-01T10:00", "2026-11-01T11:00").write(
-    "fdd.pkl", append=True)
-joined = FDDResult("fdd.pkl")
+    "fdd.jsonl", append=True)
+joined = FDDResult("fdd.jsonl")                # with fdd_arrays/*.npz
+light = FDDResult("fdd.jsonl", arrays=False)  # first value and vector
+joined.to_csv("fdd.csv")                      # optional table

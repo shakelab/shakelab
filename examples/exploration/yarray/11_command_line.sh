@@ -39,38 +39,40 @@ END
 # 2. Process an array file with the configuration; save the result and
 #    the figures of the section "graphics".
 slab-yarray --input array.json --config capon.json \
-    -o capon.pkl --save-figures figures --owrite
+    -o capon.jsonl --save-figures figures --owrite
 
 # 3. Options replace the values of the file: MUSIC on 5 frequencies.
 slab-yarray --input array.json --config capon.json \
-    --method music --fmin 4 --fmax 8 --nfreq 5 -o music.pkl --owrite
+    --method music --fmin 4 --fmax 8 --nfreq 5 -o music.jsonl --owrite
 
 # 4. Rayleigh three-component beamforming; write the configuration
 #    actually used (file plus options) for later runs.
 slab-yarray --input array.json --config capon.json \
     --components rayleigh_joint --windows-per-block 40 \
     --ellipticity-angle-size 35 --maxima 1 \
-    --write-config rtbf.json -o rtbf.pkl --owrite \
+    --write-config rtbf.json -o rtbf.jsonl --owrite \
     --plot-ellipticity --save-figures figures
 
-# 5. Successive analyses (e.g. one file per day) appended to one file.
-slab-yarray --input array.json --config capon.json -o daily.pkl \
-    --append
-slab-yarray --input array.json --config capon.json -o daily.pkl \
-    --append
+# 5. Successive analyses (e.g. one file per day) appended to one file;
+#    --no-arrays leaves out the spectra (.npz), --csv adds a table of
+#    the maxima.
+slab-yarray --input array.json --config capon.json -o daily.jsonl \
+    --append --no-arrays
+slab-yarray --input array.json --config capon.json -o daily.jsonl \
+    --append --no-arrays --csv maxima.csv --owrite
 
 # 6. Waveform files with their metadata (positions and orientations),
 #    selecting channels and a time window:
 #
 #    slab-yarray --data "data/*.mseed" --metadata array.xml \
 #        --select "XX.*..HH?" --start 2026-11-01T00:00 \
-#        --end 2026-11-01T01:00 --config capon.json -o hour.pkl
+#        --end 2026-11-01T01:00 --config capon.json -o hour.jsonl
 
 # 7. Plot a saved result without processing: one spectrum, then the
 #    density of the maxima; --show opens the figures on screen.
-slab-yarray --result capon.pkl --plot-spectrum --frequency 6 \
+slab-yarray --result capon.jsonl --plot-spectrum --frequency 6 \
     --spectrum-view azimuth --save-figures figures
-slab-yarray --result capon.pkl --plot-density \
+slab-yarray --result capon.jsonl --plot-density \
     --density-coordinate log_velocity --save-figures figures
 
 # 8. Geometric response of the array: resolution and aliasing limits,

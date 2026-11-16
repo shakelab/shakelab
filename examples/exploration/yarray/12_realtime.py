@@ -38,7 +38,7 @@ client = Client("rtserve.example.org", metadata=metadata_reader("array.xml"))
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=600)
 
-monitor = BeamformingMonitor(config, window=300, output="monitor.pkl")
+monitor = BeamformingMonitor(config, window=300, output="monitor.jsonl")
 
 
 @monitor.on_result

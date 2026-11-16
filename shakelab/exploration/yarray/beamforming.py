@@ -112,7 +112,6 @@ import math
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -440,6 +439,9 @@ class BeamformingResult:
     source : str or path-like, optional
         Result file to read (see :meth:`read`). Default: an empty
         result.
+    arrays : bool, optional
+        Read also the spectra of the file, if it has them (see
+        :meth:`read`). Default True.
 
     Attributes
     ----------
@@ -458,12 +460,12 @@ class BeamformingResult:
     Examples
     --------
     >>> result = beamformer.process()
-    >>> result.write("result.pkl")
-    >>> result = BeamformingResult("result.pkl")
+    >>> result.write("result.jsonl")
+    >>> result = BeamformingResult("result.jsonl")
     >>> result.append(beamformer.process(start, end))
     """
 
-    def __init__(self, source: Any = None) -> None:
+    def __init__(self, source: Any = None, arrays: bool = True) -> None:
         self.maxima: list = []
         self.spectra: Optional[list] = None
         self.config: Optional[BeamformingConfig] = None
@@ -473,7 +475,7 @@ class BeamformingResult:
         self._station_sets: list = []
 
         if source is not None:
-            self.read(source)
+            self.read(source, arrays=arrays)
 
     def __repr__(self) -> str:
         if self.config is None:
@@ -797,26 +799,39 @@ class BeamformingResult:
         new._join(self)
         return new
 
-    def read(self, source: Any) -> None:
+    def read(self, source: Any, arrays: bool = True) -> None:
         """
         Add the results of a file.
 
         Parameters
         ----------
         source : str or path-like
-            File written by :meth:`write` (trusted origin only: pickle).
+            Result file (JSON Lines) written by :meth:`write`.
+        arrays : bool, optional
+            Read also the spectra (``.npz`` files of the analyses),
+            when every analysis of the file has them. Default True.
 
         Raises
         ------
         ValueError
-            If the file is not a result file or its pieces are not
-            compatible with each other or with this result.
+            If the file is not a beamforming result file or its
+            analyses are not compatible with each other or with this
+            result.
+        FileNotFoundError
+            If the spectra of an analysis are missing (read with
+            ``arrays=False``).
         """
-        from shakelab.exploration.yarray.io import read_result_states
+        from shakelab.exploration.yarray.io import read_result
 
+        header, entries = read_result(source, arrays=arrays)
+
+        if header.get("kind") != _KIND:
+            raise ValueError(f"{source}: not a beamforming result file")
+
+        complete = all(entry["arrays"] is not None for entry in entries)
         self.append([
-            BeamformingResult._from_state(state)
-            for state in read_result_states(source)
+            BeamformingResult._from_entry(header, entry, complete)
+            for entry in entries
         ])
 
     def write(
@@ -824,48 +839,86 @@ class BeamformingResult:
         target: Any,
         append: bool = False,
         owrite: bool = False,
+        arrays: bool = True,
     ) -> None:
         """
-        Write the result to a file (pickle).
+        Write the result to a file (JSON Lines).
+
+        The first line of the file is a header (format, configuration,
+        frequencies, units); each result written is one more line,
+        with the block times, the stations and coordinates of each
+        block and the table of the maxima. The spectra, if the result
+        has them, are written to a ``.npz`` file in the folder
+        ``<name>_arrays`` next to the file, referred to by the line.
 
         Parameters
         ----------
         target : str or path-like
-            File; folders are created.
+            File (suffix ``.jsonl`` suggested; ``.json`` is refused);
+            folders are created.
         append : bool, optional
             Add the result to the file (created if missing), to
             accumulate successive analyses; the file must hold results
-            with the same configuration. Default False.
+            with the same configuration, frequencies and units. Default
+            False.
         owrite : bool, optional
             Overwrite an existing file (ignored with ``append``).
             Default False.
+        arrays : bool, optional
+            Write the spectra too, if the result has them. Default
+            True.
 
         Raises
         ------
         ValueError
-            If the result is empty, or ``append`` and the file holds
-            results that are not compatible.
+            If the result is empty, the name ends in ``.json``, or
+            ``append`` and the file holds results that are not
+            compatible.
         FileExistsError
             If the file exists and neither ``append`` nor ``owrite`` is
             set.
         """
-        from shakelab.exploration.yarray.io import (
-            read_result_states,
-            write_result_state,
-        )
+        from shakelab.exploration.yarray.io import write_result
 
         if self.config is None:
             raise ValueError("an empty result cannot be written")
 
-        path = Path(target).expanduser()
+        write_result(
+            self._header(), self._entry(), target,
+            arrays=_spectra_arrays(self.spectra) if arrays else None,
+            times=self.block_times, append=append, owrite=owrite,
+        )
 
-        if append and path.exists() and path.stat().st_size > 0:
-            first = BeamformingResult._from_state(
-                read_result_states(path, first=True)[0]
-            )
-            _check_compatible(first, self, context=f"{path}: ")
+    def to_csv(self, target: Any, owrite: bool = False) -> None:
+        """
+        Write the table of the maxima to a CSV file.
 
-        write_result_state(self._state(), path, append=append, owrite=owrite)
+        One row per maximum: block, time, frequency, component, rank,
+        wavenumber, azimuth, velocity, slowness, power and, when
+        available, power standard error and ellipticity. Empty fields
+        are missing values. The configuration is not written: the
+        result file (:meth:`write`) is the complete record.
+
+        Parameters
+        ----------
+        target : str or path-like
+            CSV file; folders are created.
+        owrite : bool, optional
+            Overwrite an existing file. Default False.
+
+        Raises
+        ------
+        ValueError
+            If the result is empty.
+        FileExistsError
+            If the file exists and ``owrite`` is False.
+        """
+        from shakelab.exploration.yarray.io import write_table
+
+        if self.config is None:
+            raise ValueError("an empty result cannot be written")
+
+        write_table(target, _maxima_columns(self.maxima), owrite=owrite)
 
     def info(self) -> None:
         """Print a summary of the result."""
@@ -944,39 +997,61 @@ class BeamformingResult:
         return result
 
     @classmethod
-    def _from_state(cls, state: dict) -> BeamformingResult:
-        """Result from the state of a file."""
-        if state.get("kind", "beamforming") != "beamforming":
-            raise ValueError("not a beamforming result")
-
+    def _from_entry(
+        cls,
+        header: dict,
+        entry: dict,
+        spectra: bool,
+    ) -> BeamformingResult:
+        """Result of one line of a file."""
+        frequencies = [float(value) for value in header["frequencies"]]
         result = cls()
-        result.maxima = list(state["maxima"])
-        result.spectra = (
-            None if state["spectra"] is None else list(state["spectra"])
-        )
-        result.config = BeamformingConfig(state["config"])
-        result.block_times = dict(state["block_times"])
-        result.units = state["units"]
+        result.config = BeamformingConfig(header["config"])
+        result.units = header["units"]
+        result.block_times = {
+            frequency: tuple(Date(time) for time in times)
+            for frequency, times in zip(frequencies, entry["block_times"])
+        }
+        result._block_stations = {
+            frequency: tuple(int(index) for index in indices)
+            for frequency, indices in zip(frequencies,
+                                          entry["block_stations"])
+        }
         result._station_sets = [
-            (tuple(sids), np.array(coordinates, dtype=float))
-            for sids, coordinates in state["station_sets"]
+            (tuple(item["stations"]), _readonly_coordinates(
+                item["coordinates"]
+            ))
+            for item in entry["station_sets"]
         ]
-        result._block_stations = dict(state["block_stations"])
+        result.maxima = _maxima_from_columns(entry["maxima"])
+        result.spectra = (
+            _spectra_from_arrays(entry["arrays"], result.block_times)
+            if spectra and entry["arrays"] is not None else None
+        )
         return result
 
-    def _state(self) -> dict:
-        """State written to a file."""
+    def _header(self) -> dict:
+        """Header of the result files."""
         return {
+            "kind": _KIND,
             "config": self.config.to_dict(),
-            "maxima": list(self.maxima),
-            "spectra": None if self.spectra is None else list(self.spectra),
-            "block_times": dict(self.block_times),
-            "block_stations": dict(self._block_stations),
+            "frequencies": [float(value) for value in self.frequencies],
+            "units": self.units,
+        }
+
+    def _entry(self) -> dict:
+        """Line of the result files (without the spectra)."""
+        frequencies = sorted(self.block_times)
+        return {
+            "block_times": [self.block_times[value]
+                            for value in frequencies],
+            "block_stations": [self._block_stations[value]
+                               for value in frequencies],
             "station_sets": [
-                (sids, np.array(coordinates))
+                {"stations": list(sids), "coordinates": coordinates}
                 for sids, coordinates in self._station_sets
             ],
-            "units": self.units,
+            "maxima": _maxima_columns(self.maxima),
         }
 
     def _join(self, other: BeamformingResult) -> None:
@@ -1059,6 +1134,116 @@ class BeamformingResult:
             raise ValueError("the result has no frequencies")
 
         return float(frequencies[np.argmin(np.abs(frequencies - frequency))])
+
+
+# Kind of the beamforming result files.
+_KIND = "beamforming"
+
+# Columns of the table of the maxima (fields of SpectralMaximum, with
+# velocity and slowness, which are derived, after the azimuth).
+_MAXIMUM_COLUMNS = (
+    "block", "time", "frequency", "component", "rank", "wavenumber",
+    "azimuth", "velocity", "slowness", "power", "power_standard_error",
+    "ellipticity", "ellipticity_angle",
+)
+
+# Arrays of a FrequencySpectrum written to the .npz files.
+_SPECTRUM_ARRAYS = (
+    "azimuths", "grid_values", "power", "power_standard_error",
+    "ellipticity", "ellipticity_angle",
+)
+
+
+def _maxima_columns(maxima: Sequence) -> dict:
+    """Table of the maxima, by column."""
+    return {
+        name: [getattr(item, name) for item in maxima]
+        for name in _MAXIMUM_COLUMNS
+    }
+
+
+def _maxima_from_columns(columns: dict) -> list:
+    """Maxima from the columns of a result file."""
+    def number(value: Any) -> float:
+        return math.nan if value is None else float(value)
+
+    def optional(value: Any) -> Optional[float]:
+        return None if value is None else float(value)
+
+    return [
+        SpectralMaximum(
+            block=int(columns["block"][row]),
+            time=Date(columns["time"][row]),
+            frequency=float(columns["frequency"][row]),
+            component=columns["component"][row],
+            rank=int(columns["rank"][row]),
+            wavenumber=number(columns["wavenumber"][row]),
+            azimuth=number(columns["azimuth"][row]),
+            power=number(columns["power"][row]),
+            power_standard_error=optional(
+                columns["power_standard_error"][row]
+            ),
+            ellipticity=optional(columns["ellipticity"][row]),
+            ellipticity_angle=optional(columns["ellipticity_angle"][row]),
+        )
+        for row in range(len(columns["block"]))
+    ]
+
+
+def _spectra_arrays(spectra: Optional[list]) -> Optional[dict]:
+    """Arrays of the spectra for a .npz file (None without spectra)."""
+    if not spectra:
+        return None
+
+    arrays: dict = {}
+    table = []
+
+    for index, item in enumerate(spectra):
+        table.append({
+            "frequency": item.frequency,
+            "component": item.component,
+            "quantity": item.quantity.value,
+            "n_realizations": item.n_realizations,
+            "effective_realizations": item.effective_realizations,
+            "arrays": [name for name in _SPECTRUM_ARRAYS
+                       if getattr(item, name) is not None],
+        })
+
+        for name in table[-1]["arrays"]:
+            arrays[f"spectrum{index}_{name}"] = getattr(item, name)
+
+    arrays["spectra"] = np.array(json.dumps(table))
+    return arrays
+
+
+def _spectra_from_arrays(arrays: dict, block_times: dict) -> list:
+    """Spectra from the arrays of a .npz file."""
+    spectra = []
+
+    for index, item in enumerate(json.loads(str(arrays["spectra"]))):
+        values = {
+            name: arrays[f"spectrum{index}_{name}"]
+            for name in item["arrays"]
+        }
+        frequency = float(item["frequency"])
+        spectra.append(FrequencySpectrum(
+            frequency=frequency,
+            component=item["component"],
+            times=block_times[frequency],
+            quantity=GridQuantity(item["quantity"]),
+            n_realizations=int(item["n_realizations"]),
+            effective_realizations=float(item["effective_realizations"]),
+            **values,
+        ))
+
+    return spectra
+
+
+def _readonly_coordinates(value: Any) -> np.ndarray:
+    """Read-only coordinates (None as NaN)."""
+    coordinates = np.array(value, dtype=float).reshape(-1, 3)
+    coordinates.setflags(write=False)
+    return coordinates
 
 
 def _check_compatible(
