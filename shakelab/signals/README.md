@@ -363,6 +363,8 @@ to waveforms and metadata.
 
 ## 8. See also
 
+- [Signals overview](../../docs/signals/signals.md): how the parts of
+  the package work together, with the map of its documentation.
 - Guides in [`docs/signals/`](../../docs/signals/): waveforms and
   processing ([`waveforms.md`](../../docs/signals/waveforms.md)),
   metadata and instrument response

@@ -1,3 +1,5 @@
+[ShakeLab documentation](../README.md) › [Exploration](exploration.md) › YARRAY
+
 # YARRAY: seismic-array processing
 
 `shakelab.exploration.yarray` measures the waves crossing a seismic

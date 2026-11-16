@@ -9,6 +9,14 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: entry point `docs/README.md` (ideas behind ShakeLab,
+  subpackages, map of the documentation), overviews of `signals` and
+  `exploration` (`docs/signals/signals.md`,
+  `docs/exploration/exploration.md`) and a navigation line at the top
+  of every document; figures of the guides in `docs/figures/`, made by
+  the scripts in `docs/figures/scripts/` (`make_figures.py`) from the
+  test data, the first six in the waveforms guide; organization of
+  `docs/` and figures in `docs/development.md` §23 (version 2.5).
 - Documentation: guide to the waveform containers of `signals`
   (`docs/signals/waveforms.md`: time and sampling, records, streams and
   collections, tolerances, views and copies, processing, workflows,

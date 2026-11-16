@@ -107,12 +107,17 @@ Several extras are given together, separated by commas
 The documentation is available at [shakelab.org](http://shakelab.org)
 (under construction). The repository also contains:
 
+- [Documentation](docs/README.md): the starting point, with the ideas
+  behind ShakeLab, its subpackages and the map of all the guides;
 - [Conventions](docs/conventions.md): time, coordinates, units and
   numerical representation adopted across the library;
 - [Development guidelines](docs/development.md): architecture and
   coding principles for contributors;
-- [YARRAY](docs/exploration/yarray.md): seismic-array processing (theory, use from
-  Python, the command line and real time, survey planning);
+- [Signals](docs/signals/signals.md): waveforms, metadata and
+  response, spectra, formats, FDSN and SeedLink;
+- [YARRAY](docs/exploration/yarray.md): seismic-array processing
+  (theory, use from Python, the command line and real time, survey
+  planning);
 - [Examples](examples/README.md): short scripts illustrating the use
   of each subpackage;
 - [Changelog](CHANGELOG.md): notable changes, deprecations and

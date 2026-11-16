@@ -1,3 +1,5 @@
+[ShakeLab documentation](README.md) › Conventions
+
 # ShakeLab conventions
 
 *Version 1.0, 14 November 2026*

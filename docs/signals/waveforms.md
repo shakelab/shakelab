@@ -1,3 +1,5 @@
+[ShakeLab documentation](../README.md) › [Signals](signals.md) › Waveforms
+
 # Waveforms: records, streams and collections
 
 `shakelab.signals.base` holds the waveform data of ShakeLab: the
@@ -29,6 +31,11 @@ earthquake distributed with the tests of ShakeLab
 (`tests/signals/data/`, with the processed data of the ESM database);
 any other recording can be used in their place. The examples of a
 section continue those before it.
+
+![The three components of IV.MODE in raw counts](../figures/signals/waveforms_components.png)
+
+*Figure 1. The data of the examples: the three components of IV.MODE
+(INGV), 100 Hz, in raw counts, as read from `waveforms.mseed`.*
 
 ## Contents
 
@@ -235,6 +242,13 @@ sample (filled with `enforce=True`, kept separate otherwise). A
 smaller tolerance (e.g. `merge_tolerance=0.1`) keeps apart records
 whose time stamps disagree by more than a tenth of a sample.
 
+![Offsets of 0.3 and 0.6 samples](../figures/signals/waveforms_tolerance.png)
+
+*Figure 2. Joining with the default tolerance: a record B starting 0.3
+samples after the next sample of A falls within half a sample of it
+(shaded) and is joined; one starting 0.6 samples after it is on the
+grid one sample later, which leaves a gap of one sample.*
+
 The sampling intervals must agree within a relative $`10^{-9}`$;
 otherwise `Record.append` raises a `ValueError` (§15). The channel
 metadata must be equal, or one of them empty (§6.5).
@@ -289,6 +303,14 @@ as needed to keep onsets free of precursors. The corners must be
 below the Nyquist frequency. (The filter of `Spectrum.filter` is the
 analog amplitude $`|H(f)|`$ in both cases; see
 [`spectral.md`](spectral.md).)
+
+![Zero-phase and causal low-pass filters](../figures/signals/waveforms_filters.png)
+
+*Figure 3. A Butterworth low-pass filter at 1 Hz of order 4. Left: the
+amplitude of the causal filter, $`|H|`$, and of the zero-phase
+filter, $`|H|^2`$. Right: the vertical acceleration of IV.MODE (ESM)
+filtered both ways; the causal filter delays the signal by a fraction
+of a second at these frequencies.*
 
 **Taper.** `taper(time)` multiplies the record by a Tukey window: a
 half cosine of duration `time` at each end and 1 in between. In terms
@@ -1246,6 +1268,11 @@ for record in data.records():
 The peaks agree with the processed records of the ESM database within
 0.5% (§14).
 
+![Corrected acceleration against ESM](../figures/signals/waveforms_response.png)
+
+*Figure 4. Raw counts of IV.MODE corrected for the instrument response
+(blue) and the acceleration processed by ESM (grey).*
+
 ### 12.2 Gaps
 
 ```python
@@ -1261,6 +1288,13 @@ for gap_start, gap_end in zip(starts, ends):
 continuous = gappy.extract(merge=True, enforce=True, fillvalue=np.nan)
 mask = np.isnan(continuous.data)    # where the data are missing
 ```
+
+![A stream with a gap](../figures/signals/waveforms_gaps.png)
+
+*Figure 5. Top: a stream of the vertical component of IV.MODE with
+5 s missing (shaded), held as two records. Bottom: the record
+extracted with `merge=True, enforce=True, fillvalue=np.nan`; the NaN
+samples are not drawn.*
 
 Gaps filled with NaN keep the missing data visible; filtering or
 transforming a record with NaN gives NaN everywhere, so fill with a
@@ -1298,6 +1332,12 @@ d.integrate(method="cum")           # displacement in cm
 The integration of the processed acceleration gives the processed
 velocity of ESM within 0.03% at the peak (§14). On raw or
 unfiltered accelerograms the integral drifts: band-pass filter first.
+
+![Integrated acceleration against ESM](../figures/signals/waveforms_integration.png)
+
+*Figure 6. The vertical acceleration of IV.MODE processed by ESM,
+integrated once and twice with the trapezoidal rule (blue), and the
+velocity and displacement of ESM (grey).*
 
 # Part III. Design, validation and limits
 
