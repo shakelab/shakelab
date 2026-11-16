@@ -6,13 +6,16 @@ propagation azimuth as functions of frequency and time, and the signed
 ellipticity of Rayleigh waves. It also tells, before or after a
 survey, what an array can measure: its geometric response, the
 statistical performance of the estimators and the frequency-velocity
-domain where the analysis is reliable.
+domain where the analysis is reliable. The frequency domain
+decomposition (FDD, also enhanced) uses the same cross-spectral
+matrices to identify resonances, their shapes and their damping.
 
 The same components are used in three ways:
 
-- as a **library** from Python (`ArrayData`, `Beamformer`, results,
-  statistics, `ArrayResponse` for planning);
-- from the **command line** (`slab-yarray`);
+- as a **library** from Python (`ArrayData`, `Beamformer`, `FDD`,
+  results, statistics, `ArrayResponse` for planning);
+- from the **command line** (`slab-yarray`, beamforming and array
+  response);
 - in **real time**, as a function of the SeedLink client
   (`BeamformingMonitor`, `FDDMonitor`).
 
@@ -22,8 +25,6 @@ with its main uses and modules, is in the
 [package README](../../shakelab/exploration/yarray/README.md); scripts
 illustrating every way of use are in
 [`examples/exploration/yarray/`](../../examples/README.md#exploration).
-The frequency domain decomposition (Sections 9 and 12) uses the same
-cross-spectral matrices to identify resonances and their shapes.
 The guide derives from the four documents of the YARRAY development code
 (August 2026: theoretical background, software architecture, user
 manual, array response theory), updated to the implementation in
@@ -46,8 +47,11 @@ Part I. Theory
 Part II. Use
 
 10. [Data](#10-data)
+    - [Array file](#array-file)
 11. [Configuration](#11-configuration)
 12. [Processing and results](#12-processing-and-results)
+    - [Frequency domain decomposition](#frequency-domain-decomposition)
+    - [Result files](#result-files)
 13. [Command line](#13-command-line)
 14. [Real time](#14-real-time)
 15. [Survey planning](#15-survey-planning)
@@ -327,13 +331,13 @@ minimum power relative to the largest) are ranked by power; rank 1 is
 the strongest, not a mode. Each maximum keeps frequency, block and its
 time (centre of the block), wavenumber and azimuth (velocity,
 slowness, $`k_x`$, $`k_y`$ derived), power, its standard error and,
-for RTBF, the ellipticity.
+for the Rayleigh processing, the ellipticity.
 
 The maxima of many blocks (a long record, or the analyses of the
 monitor joined) scatter around the dispersion curves. Their density at
 each frequency is estimated as a weighted mixture of Gaussian kernels
-in wavenumber, log-slowness, log-velocity or, for RTBF, ellipticity
-angle $`\arctan e`$:
+in wavenumber, log-slowness, log-velocity or, for the Rayleigh
+processing, ellipticity angle $`\arctan e`$:
 
 ```math
 D(x \mid f) = \sum_i w_i\, \mathcal{N}(x;\, x_i, \sigma_i)
@@ -585,8 +589,8 @@ matches the shape at the peak form the bell of the mode:
 with $`\alpha`$ = `mac` (0.8 by default) and $`k`$ the best matching
 singular vector of each line, whose singular value is taken; the bell
 is searched on both sides of the peak up to the first line below
-$`\alpha`$, and the other lines are set to zero. The inverse Fourier transform of the
-bell is the autocorrelation of the free decay of the mode, normalized
+$`\alpha`$, and the other lines are set to zero. The inverse Fourier
+transform of the bell is the autocorrelation of the free decay of the mode, normalized
 to $`r(0) = 1`$:
 
 ```math
@@ -611,8 +615,8 @@ index gives half the damped period. Then
 
 The inverse transform needs equally spaced lines of a single spectral
 estimate: the enhanced FDD computes, around each mode, a local
-spectrum with windows of fixed duration $`T`$ (Welch averaging of all
-the windows, Hann taper, 50 % overlap) on the FFT lines
+spectrum with windows of fixed duration $`T`$ (averaging of all the
+windows as in Welch, 1967, Hann taper, 50 % overlap) on the FFT lines
 $`k / T`$. Windows with a fixed number of cycles, valid for the FDD,
 would give each line its own resolution and leakage, and a bell that
 is not the spectrum of one correlation function. $`T`$ is a number of
@@ -629,7 +633,7 @@ from shakelab.exploration.yarray import ArrayData, Beamformer
 ```
 
 The package exposes the main classes and functions; the modules are
-`data`, `config`, `estimators`, `beamforming`, `statistics`,
+`data`, `config`, `estimators`, `beamforming`, `fdd`, `statistics`,
 `response`, `performance`, `operational`, `io`, `monitor` and `cli`,
 the figures `shakelab.graphics.yarray`. Options with fixed values are
 enumerations whose string values are accepted everywhere
@@ -803,8 +807,8 @@ The JSON file has the sections `frequencies`, `spectral` (`transform`,
 `fft_selection`, `fft_padding`), `method` (`name`, `diagonal_loading`,
 `music_sources`), `components`, `grid`, `window`, `ellipticity`
 (`minimum_angle`, `maximum_angle`, `size`), `output` (`spectra`,
-`maxima`, `neighborhood`, `minimum_relative_power`; the `mode` of the
-August files is read as `spectra`), `uncertainty` (`statistical`,
+`maxima`, `neighborhood`, `minimum_relative_power`; an older `mode`
+key is read as `spectra`), `uncertainty` (`statistical`,
 `geometric`) and `strict`:
 
 ```json
@@ -868,6 +872,8 @@ results of later windows (blocks renumbered; results with the same
 configuration, frequencies and units).
 
 ```python
+from shakelab.exploration.yarray import BeamformingResult
+
 result.write("daily.jsonl")
 beamformer.process(start, end).write("daily.jsonl", append=True)
 daily = BeamformingResult("daily.jsonl")              # joined
@@ -886,7 +892,7 @@ summary = density.summary()              # mode, median, quantiles
 peaks = density.peaks(3, minimum_relative_density=0.1)
 ellipticity = result.density(coordinate="ellipticity_angle",
                              weighting="relative_power",
-                             velocity=(150, 400))     # one mode (RTBF)
+                             velocity=(150, 400))     # one mode (Rayleigh)
 ```
 
 Figures (`shakelab.graphics.yarray`, matplotlib imported on use):
@@ -1012,7 +1018,9 @@ the complete record.
 ## 13. Command line
 
 `slab-yarray` (installed with ShakeLab; `python -m
-shakelab.exploration.yarray` is equivalent):
+shakelab.exploration.yarray` is equivalent) runs the beamforming and
+the array response; the frequency domain decomposition is used from
+Python and in real time.
 
 ```sh
 slab-yarray --input array.json --config capon.json -o result.jsonl \
@@ -1081,10 +1089,10 @@ stations, no complete block) are skipped and reported; an unexpected
 error stops the worker and is raised by `close()`. `status()`,
 `latest()`, `results(start, end)`, `result(start, end)` (joined) and
 `array()` can be called at any time and return copies; each result can
-also be appended
-to a file (`output`, with the arrays unless `arrays=False`), and every
-analysis, skipped window or error to a log (`log`, JSON Lines: wall
-time, event, window, duration and stations, or reason).
+also be appended to a file (`output`, with the arrays unless
+`arrays=False`), and every analysis, skipped window or error to a log
+(`log`, JSON Lines: wall time, event, window, duration and stations,
+or reason).
 `background=False` processes in the call;
 `monitor.process(collection, start, end)` processes given data. Any
 object with `get_data(select)` returning a `StreamCollection` can feed
@@ -1195,7 +1203,16 @@ and [`15_operational.py`](../../examples/exploration/yarray/15_operational.py).
    (`3N` for ARDS) and needs more windows per block; the RTBF also
    scans an ellipticity grid, while ARTBF and ARDS find the angle
    exactly and are the cheapest of the three.
-6. Save the results and plot or post-process them from the file,
+6. For the FDD use fixed windows long enough to separate the modes,
+   and the coherence normalization when the channels have different
+   gains (uncorrected data, different sensors). Before reading a peak
+   of the first singular value as a mode, check its shape and its
+   mean MAC: close to 1 for a standing resonance, low for travelling
+   waves.
+7. Use the enhanced FDD on well separated modes and long records (its
+   damping scatters by about 10 % with 20 minutes of data), and check
+   each estimate with `plot_efdd`.
+8. Save the results and plot or post-process them from the file,
    rather than repeating the processing.
 
 Times on the nine SESAME stations (three components, 60 s;
@@ -1208,21 +1225,32 @@ with the frequencies for the direct and the interpolated transforms;
 for 10 frequencies, RTBF with 61 ellipticities takes about 0.4 s, ARTBF
 and ARDS about 0.25 s; the cache of the steering vectors halves the
 time of repeated analyses of the same array. With the 38 stations of
-the full simulation the August measurements were of the order of 15 s
-(Bartlett, 80 spectra) to 1000 s (RTBF, 60 spectra); single-component
-processing takes the same time in ShakeLab, the Rayleigh processing
-much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
-4 frequencies with 130 windows per block).
+the full simulation, single-component processing takes of the order of
+15 s (Bartlett, 80 spectra), the Rayleigh processing about 1.4 s for
+RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at 4 frequencies with 130
+windows per block.
+
+The decomposition is much cheaper than the beamforming, since it has no
+search grid: on the nine SESAME stations, 50 frequencies with 10
+windows per block take about 0.02 s for the vertical component and
+0.04 s for the three components (27 channels) with fixed 5 s windows,
+and about 2.5 times more with windows of 20 cycles. On the four-storey
+frame of Section 18 (four channels, 20 minutes at 50 Hz, 20 s windows,
+191 frequencies) the FDD takes about 0.14 s and the enhanced FDD of
+the four modes 0.13 s with windows of 100 cycles (0.3 s with 200).
 
 # Part III. Design, validation and limits
 
 ## 17. Design choices
 
 - **Layers.** Generic primitives in `shakelab.signals` (no array
-  concepts) < `data` < `estimators` < `config` < `beamforming` <
-  applications (command line, monitor, graphics). The numerical
-  modules do no file input/output, no plotting and keep no global
-  state.
+  concepts) < `data` < `estimators` <
+  `config` < processing (`beamforming` and `statistics`, `fdd`; for
+  planning `response`, `performance` and `operational`) < applications
+  (`monitor`, command line, graphics). The numerical modules do no
+  plotting and keep no global state; files are read and written by
+  `io` (array and result files), called by the configuration and
+  result classes.
 - **Array data filled progressively.** The stations keep their own
   time axis and the common window is taken when processing
   (`ArrayData.window`, used by `Beamformer`), so that stations from
@@ -1251,11 +1279,13 @@ much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
   and vectors) go to separate `.npz` files, optional, so that the text
   file stays light. The stations and coordinates are recorded for each
   block, so that results of windows with different stations join
-  correctly.
-  Frequencies whose windows do not fill a covariance block give no
-  result and a warning instead of an error, as needed for short
-  windows; `Beamformer(cache=True)` keeps the steering vectors while
-  coordinates and grid do not change.
+  correctly. Frequencies whose windows do not fill a covariance block
+  give no result and a warning instead of an error, as needed for
+  short windows; `Beamformer(cache=True)` keeps the steering vectors
+  while coordinates and grid do not change. The monitors copy the
+  buffer in the receiving thread and process in their own, with a
+  short queue that drops the oldest window rather than accumulating
+  delay.
 - **Planning from a snapshot.** `ArrayResponse` is computed once from
   the coordinates of the moment (an `ArrayData` changed later does not
   change it) and is the entry point of every planning analysis.
@@ -1294,7 +1324,7 @@ results:
   to those of the August code for every estimator and component mode
   (`tests/exploration/yarray/data/reference.json`).
 - Densities, summaries and peaks of the maxima agree within 1e-14,
-  except for two corrections: the peak prominence is measured from the
+  except for one correction: the peak prominence is measured from the
   saddle towards a higher peak (`scipy.signal.find_peaks`), not from
   the lowest density on each side, which overrated secondary modes on
   the flank of a stronger one.

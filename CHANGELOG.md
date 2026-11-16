@@ -9,6 +9,10 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: YARRAY guide and README reviewed as a whole (FDD in
+  the overview, layers and modules, scope of `slab-yarray`, contents
+  with subsections, guidance and processing times of the FDD and of
+  the enhanced FDD).
 - Documentation: package names written as words are in capitals
   (YARRAY) also in docstrings, comments and messages of the code
   (`docs/development.md` §23, version 2.4).

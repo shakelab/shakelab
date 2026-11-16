@@ -23,8 +23,9 @@ depends first of all on the geometry of the array, YARRAY also helps
 to design an array before a survey, from the station layout alone.
 
 The same objects are used in three ways: as a Python library, from the
-command line (`slab-yarray`), and in real time within the callbacks of
-the ShakeLab SeedLink client.
+command line (`slab-yarray`, for the beamforming and the array
+response), and in real time within the callbacks of the ShakeLab
+SeedLink client.
 
 ## 1. Features
 
@@ -42,7 +43,11 @@ the ShakeLab SeedLink client.
   statistics over time, resonance peaks and mode shapes; enhanced FDD
   for natural frequencies and damping ratios.
 - Uncertainty of the beam power and of the station coordinates.
-- Real-time monitoring of an array with the SeedLink client.
+- Result files in JSON Lines, to which successive analyses are
+  appended, with the bulky arrays in optional `.npz` files and an
+  export of tables to CSV.
+- Real-time monitoring of an array with the SeedLink client
+  (beamforming and FDD).
 - Survey planning: array response, resolution and aliasing limits,
   Monte Carlo performance of the estimators and operational envelopes.
 - Figures for every result (`shakelab.graphics.yarray`).
@@ -327,8 +332,8 @@ the height of a building (`plot_mode_shape`) and the MAC between modes
 ### 3.6 Real-time monitoring
 
 During an acquisition, the SeedLink client receives the data in a
-background thread and calls a monitor at regular intervals.
-At each call the monitor copies the latest window of data from the
+background thread and calls a monitor at regular intervals. At each
+call the monitor copies the latest window of data from the
 client buffer and processes it in its own thread, so that the
 reception is never delayed; the results can be queried at any time
 while the acquisition runs, or written to a file:
@@ -338,7 +343,8 @@ from shakelab.signals.io import metadata_reader
 from shakelab.signals.seedlink import Client
 from shakelab.exploration.yarray import BeamformingMonitor
 
-client = Client("rtserve.example.org", metadata=metadata_reader("array.xml"))
+metadata = metadata_reader("array.xml")
+client = Client("rtserve.example.org", metadata=metadata)
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=600)
 
@@ -399,12 +405,14 @@ factors that limit it.
 
 ## 4. Command line
 
-The `slab-yarray` command runs the same processing without writing
-Python. The data are given as an array file (`--input`) or as
-waveforms with metadata (`--data`, `--metadata`, `--select`); the
-configuration comes from a JSON file, and any option on the command
-line replaces the corresponding value of the file. Figures can be
-shown or saved, also from a result written before (`--result`):
+The `slab-yarray` command runs the beamforming and the array response
+without writing Python (the frequency domain decomposition is used
+from Python and in real time). The data are given as an array file
+(`--input`) or as waveforms with metadata (`--data`, `--metadata`,
+`--select`); the configuration comes from a JSON file, and any option
+on the command line replaces the corresponding value of the file.
+Figures can be shown or saved, also from a result written before
+(`--result`):
 
 ```sh
 slab-yarray --input array.json --config capon.json -o result.jsonl \
@@ -423,8 +431,9 @@ all the options.
 ## 5. Structure
 
 The package is organized in layers: the data and the configuration
-at the bottom, then the estimators and the beamforming, and on top the
-applications (command line, real-time monitor, figures). Each module
+at the bottom, then the estimators, the processing (beamforming, FDD)
+and the planning, and on top the applications (command line,
+real-time monitor, figures). Each module
 has a single task:
 
 | Module | Main objects | Role |
@@ -442,11 +451,12 @@ has a single task:
 | `io` | | array files and result files |
 | `cli` | | the `slab-yarray` command |
 
-The numerical modules do no file input/output and no plotting, so
-they can be used in any context. The generic spectral tools on which
-they rely (windows, Fourier coefficients, cross-spectral matrices) are
-in `shakelab.signals` (`windowing`, `crossspectral`, `fourier.dft`),
-where they are shared with other array methods. The figures are in
+The numerical modules do no plotting and keep no global state, so they
+can be used in any context; files are read and written by `io`. The
+generic spectral tools on which they rely (windows, Fourier
+coefficients, cross-spectral matrices) are in `shakelab.signals`
+(`windowing`, `crossspectral`, `fourier.dft`), where they are shared
+with other array methods. The figures are in
 `shakelab.graphics.yarray`; matplotlib is needed only to draw them.
 
 ## 6. Conventions
@@ -472,6 +482,9 @@ of ShakeLab are in [`docs/conventions.md`](../../../docs/conventions.md).
   squared per hertz (Bartlett and Capon); data not corrected for the
   instrument response give counts squared per hertz. MUSIC gives a
   pseudo-power without units.
+- **Singular values** of the FDD have the units of the power;
+  **mode shapes** are real, with unit norm and their largest component
+  positive.
 - **Times** are ShakeLab `Date` objects; the time of a block is the
   centre of its covariance window.
 
@@ -484,7 +497,8 @@ of ShakeLab are in [`docs/conventions.md`](../../../docs/conventions.md).
 - [`examples/exploration/yarray/`](../../../examples/README.md#exploration):
   one script per topic (array data, configuration, estimators,
   components, Rayleigh waves, transforms, uncertainty, results,
-  density, command line, real time, planning, FDD).
+  density, command line, real time, planning, processing times, FDD
+  and enhanced FDD).
 - `shakelab.signals.io`, `shakelab.signals.fdsnws` and
   `shakelab.signals.seedlink`: reading, downloading and receiving the
   data in real time.
