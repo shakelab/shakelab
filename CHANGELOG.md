@@ -9,6 +9,11 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: guide to the FDSN web services
+  (`docs/signals/fdsnws.md`: the services and their replies, data
+  centers and the registry, translation of channel patterns, corrected
+  downloads with margins, long windows in chunks, retries and errors;
+  `Client`, waveforms, metadata, events, availability, `slab-fdsn`).
 - Documentation: guide to input and output (`docs/signals/io.md`:
   supported formats and what they keep, conversion to records,
   recognition of the format from the content, SDS archives, file name
