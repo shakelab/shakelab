@@ -1,6 +1,6 @@
 # ShakeLab development and architecture guidelines
 
-*Version 2.3, 14 November 2026*
+*Version 2.4, 16 November 2026*
 
 This document defines the design philosophy of ShakeLab and the
 principles that all contributions follow. Parts I to III state
@@ -606,9 +606,10 @@ lines stay within 79 characters. Names of the code
 they correspond to (`` $`k_R`$ (`resolution_radius`) ``). Docstrings
 stay in plain text.
 
-Package names written as words in the documentation (titles and text)
-are in capitals, for example YARRAY; in the code, in paths and in
-commands they keep the lower-case name of the module (`yarray`,
+Package names written as words are in capitals, for example YARRAY,
+in the documentation (titles and text) and in the docstrings, comments
+and messages of the code; in the code itself, in paths and in commands
+they keep the lower-case name of the module (`yarray`,
 `shakelab.exploration.yarray`, `slab-yarray`).
 
 #### Folder READMEs

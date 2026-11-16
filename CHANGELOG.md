@@ -9,6 +9,10 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: package names written as words are in capitals
+  (YARRAY) also in docstrings, comments and messages of the code
+  (`docs/development.md` §23, version 2.4).
+
 - `exploration.yarray`: result files are JSON Lines instead of pickle
   (format version 2; no pickle is read or written). The first line is
   a header with the kind (`"beamforming"`, `"fdd"`), the complete

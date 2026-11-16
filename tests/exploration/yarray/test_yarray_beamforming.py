@@ -22,7 +22,7 @@ Synthetic plane waves of known velocity, azimuth, polarization and
 ellipticity are recovered by every estimator and component mode; the
 beam power of a random plane wave equals its power spectral density;
 the results on the SESAME excerpt are compared with the independent
-YArray implementation of August 2026 (same maxima, power scaled by the
+YARRAY implementation of August 2026 (same maxima, power scaled by the
 new spectral-density normalization).
 """
 
@@ -910,7 +910,7 @@ def _sesame_array():
 )
 def test_reference_august_2026(case):
     """
-    Maxima equal those of the YArray implementation of August 2026.
+    Maxima equal those of the YARRAY implementation of August 2026.
 
     The reference (``data/reference.json``) was computed by the
     original code of 12 August 2026 on the same data. Wavevectors,

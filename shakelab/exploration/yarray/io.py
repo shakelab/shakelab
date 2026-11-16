@@ -18,7 +18,7 @@
 #
 # ****************************************************************************
 """
-File formats of YArray.
+File formats of YARRAY.
 
 - Array files (JSON): the stations with their local coordinates and
   the waveform file of each component, for data without (or with
@@ -499,7 +499,7 @@ def read_result_header(source: Any) -> dict:
     Raises
     ------
     ValueError
-        If the file is not a YArray result file or has another version
+        If the file is not a YARRAY result file or has another version
         of the format.
     """
     path = Path(source).expanduser()
@@ -531,7 +531,7 @@ def read_result(source: Any, arrays: bool = True) -> tuple[dict, list]:
     Raises
     ------
     ValueError
-        If the file is not a YArray result file, has another version of
+        If the file is not a YARRAY result file, has another version of
         the format, contains no analysis or an invalid line.
     FileNotFoundError
         If a ``.npz`` file of an analysis is missing (read with

@@ -18,7 +18,7 @@
 #
 # ****************************************************************************
 """
-Seismic-array processing (YArray).
+Seismic-array processing (YARRAY).
 
 Frequency-wavenumber analysis of synchronized seismic arrays, usable
 from Python, from the command line and within the callbacks of the
