@@ -14,8 +14,8 @@ The same components are used in three ways:
 
 - as a **library** from Python (`ArrayData`, `Beamformer`, `FDD`,
   results, statistics, `ArrayResponse` for planning);
-- from the **command line** (`slab-yarray`, beamforming and array
-  response);
+- from the **command line** (`slab-yarray beamforming`, `fdd` and
+  `response`);
 - in **real time**, as a function of the SeedLink client
   (`BeamformingMonitor`, `FDDMonitor`).
 
@@ -590,8 +590,8 @@ with $`\alpha`$ = `mac` (0.8 by default) and $`k`$ the best matching
 singular vector of each line, whose singular value is taken; the bell
 is searched on both sides of the peak up to the first line below
 $`\alpha`$, and the other lines are set to zero. The inverse Fourier
-transform of the bell is the autocorrelation of the free decay of the mode, normalized
-to $`r(0) = 1`$:
+transform of the bell is the autocorrelation of the free decay of the
+mode, normalized to $`r(0) = 1`$:
 
 ```math
 r(\tau) \approx e^{-\zeta \omega_n \tau} \cos(\omega_d \tau),
@@ -940,9 +940,11 @@ their coordinates and the units (`power_units`).
 standard deviation; `peaks(fmin, fmax, index, prominence, count)` the
 frequencies of the peaks; `mode(frequency, index)` a `Mode` with the
 shape, its standard deviation among the blocks, the singular value,
-the mean MAC and the channels. `mac(a, b)` compares two shapes. Files
-work as for the beamforming: `write(..., append=True)` accumulates
-results with the same configuration and channels, read back joined by
+the mean MAC and the channels. `mac(a, b)` compares two shapes, and
+`modes_to_csv(target, modes)` writes a table of modes with the same
+channels (frequency, damping, MAC, shapes). Files work as for the
+beamforming: `write(..., append=True)` accumulates results with the
+same configuration and channels, read back joined by
 `FDDResult(file)`.
 
 The enhanced FDD (Section 9) is a method of the processor, which has
@@ -982,9 +984,10 @@ kind of result (`"beamforming"` or `"fdd"`), the complete
 configuration, the frequencies and the units (for the FDD also the
 channels and their coordinates); each result written adds one line.
 Appending (`write(file, append=True)`, the `output` of the monitors,
-`slab-yarray --append`) only adds a line, also over days of real-time
-processing, and is refused if the header differs. The name `.json` is
-refused, because the file is not one JSON document.
+`slab-yarray beamforming` or `fdd` with `--append`) only adds a line,
+also over days of real-time processing, and is refused if the header
+differs. The name `.json` is refused, because the file is not one JSON
+document.
 
 | Result | In the `.jsonl` line | In the `.npz` file (`arrays=True`) |
 |---|---|---|
@@ -1018,33 +1021,63 @@ the complete record.
 ## 13. Command line
 
 `slab-yarray` (installed with ShakeLab; `python -m
-shakelab.exploration.yarray` is equivalent) runs the beamforming and
-the array response; the frequency domain decomposition is used from
-Python and in real time.
+shakelab.exploration.yarray` is equivalent) has three subcommands:
+`beamforming`, `fdd` (frequency domain decomposition, also enhanced)
+and `response` (geometry of the array). The first two share the
+options of input, configuration, output and figure files.
 
 ```sh
-slab-yarray --input array.json --config capon.json -o result.jsonl \
-    --plot-dispersion --save-figures figures
-slab-yarray --input array.json --config capon.json --method music \
-    --fmin 2 --fmax 8 --nfreq 20 -o music.jsonl     # options replace the JSON
-slab-yarray --data "data/*.mseed" --metadata array.xml \
+slab-yarray beamforming --input array.json --config capon.json \
+    -o result.jsonl --plot-dispersion --save-figures figures
+slab-yarray beamforming --input array.json --config capon.json \
+    --method music --fmin 2 --fmax 8 --nfreq 20 -o music.jsonl
+slab-yarray beamforming --data "data/*.mseed" --metadata array.xml \
     --select "XX.*..HH?" --config rtbf.json -o rtbf.jsonl --append
-slab-yarray --result rtbf.jsonl --plot-spectrum --frequency 4.5 --show
+slab-yarray beamforming --result rtbf.jsonl --plot-spectrum \
+    --frequency 4.5 --show
+slab-yarray fdd --input array.json --config fdd.json -o fdd.jsonl \
+    --efdd --modes-csv modes.csv --plot-singular-values --plot-efdd
 slab-yarray response --input array.json --fmin 1 --fmax 20 --plot-all
 ```
 
+Options common to `beamforming` and `fdd`:
+
 | Group | Options |
 |---|---|
-| Input (one) | `--input` array file; `--data` waveform files with `--metadata`, `--select`, `--start`, `--end`; `--result` saved result to plot |
-| Configuration and output | `--config`, `--write-config`, `-o/--output` (result file, `.jsonl`), `--append`, `--no-arrays` (no `.npz` spectra), `--csv` (table of the maxima, also of a `--result`), `--owrite` |
-| Processing (replace the JSON) | `--frequencies` or `--fmin --fmax --nfreq`, `--frequency-scale`, `--method`, `--components`, `--diagonal-loading`, `--music-sources`, `--grid-quantity`, `--grid-scale`, `--grid-min`, `--grid-max`, `--grid-size`, `--azimuth-size`, `--window-type`, `--window-length`, `--window-taper`, `--window-overlap`, `--windows-per-block`, `--block-overlap`, `--ellipticity-angle-min/max/size`, `--spectra`, `--maxima`, `--minimum-relative-power`, `--statistical-uncertainty`, `--geometric-uncertainty`, `--strict`, `--transform`, `--fft-selection`, `--fft-padding` |
-| Figures | `--plot-dispersion`, `--plot-ellipticity`, `--plot-spectrum` (`--frequency`, `--block`, `--spectrum-view`, `--spectrum-quantity`), `--plot-density` (`--density-coordinate`), `--component`, `--ranks`, `--show`, `--save-figures`, `--figure-format`, `--dpi` |
+| Input (one) | `--input` array file; `--data` waveform files with `--metadata`, `--select`, `--start`, `--end`; `--result` saved result (no processing) |
+| Configuration and output | `--config`, `--write-config`, `-o/--output` (result file, `.jsonl`), `--append`, `--no-arrays` (no `.npz` arrays), `--csv` (table of the maxima or of the first singular vectors, also of a `--result`), `--owrite` |
+| Figure files | `--show`, `--save-figures`, `--figure-format`, `--dpi` |
+
+The processing options have the names of the configuration parameters
+(Section 11) and replace the values of the `--config` file.
+
+| `beamforming` | Options |
+|---|---|
+| Processing | `--frequencies` or `--fmin --fmax --nfreq`, `--frequency-scale`, `--method`, `--components`, `--diagonal-loading`, `--music-sources`, `--grid-quantity`, `--grid-scale`, `--grid-min`, `--grid-max`, `--grid-size`, `--azimuth-size`, `--window-type`, `--window-length`, `--window-taper`, `--window-overlap`, `--windows-per-block`, `--block-overlap`, `--ellipticity-angle-min/max/size`, `--spectra`, `--maxima`, `--minimum-relative-power`, `--statistical-uncertainty`, `--geometric-uncertainty`, `--strict`, `--transform`, `--fft-selection`, `--fft-padding` |
+| Figures | `--plot-dispersion`, `--plot-ellipticity`, `--plot-spectrum` (`--frequency`, `--block`, `--spectrum-view`, `--spectrum-quantity`), `--plot-density` (`--density-coordinate`), `--component`, `--ranks` |
+
+| `fdd` | Options |
+|---|---|
+| Processing | `--frequencies` or `--fmin --fmax --nfreq`, `--frequency-scale`, `--window-type`, `--window-length`, `--window-taper`, `--window-overlap`, `--windows-per-block`, `--block-overlap`, `--subfrequencies`, `--bandwidth`, `--normalization`, `--components`, `--azimuth`, `--vectors` |
+| Peaks and modes | `--peak-range FMIN FMAX`, `--prominence`, `--peak-count`, or `--modes F1 F2 ...`; `--efdd` with `--mac`, `--cycles` or `--duration`, `--levels LOW HIGH`; `--modes-csv` |
+| Figures | `--plot-singular-values` (`--count`), `--plot-mode-shape` (`--along`), `--plot-mac`, `--plot-efdd` |
+
+`slab-yarray fdd` prints the result and every mode: the peaks of the
+first singular value (all, or those in `--peak-range`), or the
+frequencies given with `--modes`, give the modes of the FDD or, with
+`--efdd`, those of the enhanced FDD, which needs the data (not a
+`--result`). `--modes-csv` writes the table of the modes
+(`modes_to_csv`): frequency, method, singular value, MAC, number of
+blocks, damping ratio and the shape of every channel with its standard
+deviation.
 
 The figures can also be requested in the section `graphics` of the
-configuration file (`dispersion`, `ellipticity`, `component`, `ranks`,
+configuration file; the options of the command line prevail. For the
+beamforming: `dispersion`, `ellipticity`, `component`, `ranks`,
 `spectrum` {`enabled`, `frequency`, `block`, `view`, `quantity`},
-`density` {`enabled`, `coordinate`}, `show`, `save` {`directory`,
-`format`, `dpi`}); the options of the command line prevail.
+`density` {`enabled`, `coordinate`}; for the FDD: `singular_values`
+{`enabled`, `count`}, `mode_shape` {`enabled`, `along`}, `mac`,
+`efdd`; for both `show` and `save` {`directory`, `format`, `dpi`}.
 
 `slab-yarray response` analyses the geometry only (Section 7): input
 `--input`, `--data` or `--coordinates` (a text file of lines `x y [z]`
@@ -1054,7 +1087,8 @@ uncertainty of the array); grid `--grid-max --grid-size`; velocity
 limits at `--frequencies` or `--fmin --fmax --nfreq`; `--search-max K`
 to check a search domain; figures `--plot-geometry`,
 `--plot-response`, `--plot-resolution`, `--plot-velocity`,
-`--plot-search-domain` or `--plot-all`. The Monte Carlo analysis
+`--plot-search-domain` or `--plot-all`, with `--show`,
+`--save-figures`, `--figure-format`, `--dpi`. The Monte Carlo analysis
 needs too many choices for a command line and is used from Python.
 See
 [`11_command_line.sh`](../../examples/exploration/yarray/11_command_line.sh).

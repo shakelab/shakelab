@@ -23,9 +23,8 @@ depends first of all on the geometry of the array, YARRAY also helps
 to design an array before a survey, from the station layout alone.
 
 The same objects are used in three ways: as a Python library, from the
-command line (`slab-yarray`, for the beamforming and the array
-response), and in real time within the callbacks of the ShakeLab
-SeedLink client.
+command line (`slab-yarray`), and in real time within the callbacks of
+the ShakeLab SeedLink client.
 
 ## 1. Features
 
@@ -327,7 +326,8 @@ plot_efdd(modes[0])                          # bell and fitted decay
 The figures of the decomposition show the singular values with their
 spread (`plot_singular_values`), the shape of a mode along the array or
 the height of a building (`plot_mode_shape`) and the MAC between modes
-(`plot_mac`).
+(`plot_mac`). `modes_to_csv("modes.csv", modes)` writes the modes to a
+table: frequency, damping, MAC and the shape of every channel.
 
 ### 3.6 Real-time monitoring
 
@@ -405,28 +405,37 @@ factors that limit it.
 
 ## 4. Command line
 
-The `slab-yarray` command runs the beamforming and the array response
-without writing Python (the frequency domain decomposition is used
-from Python and in real time). The data are given as an array file
-(`--input`) or as waveforms with metadata (`--data`, `--metadata`,
-`--select`); the configuration comes from a JSON file, and any option
-on the command line replaces the corresponding value of the file.
-Figures can be shown or saved, also from a result written before
-(`--result`):
+The `slab-yarray` command runs the same processing without writing
+Python, with one subcommand for each analysis: `beamforming`, `fdd`
+and `response`. The data are given as an array file (`--input`) or as
+waveforms with metadata (`--data`, `--metadata`, `--select`); the
+configuration comes from a JSON file, and any option on the command
+line replaces the corresponding value of the file. Figures can be
+shown or saved, also from a result written before (`--result`):
 
 ```sh
-slab-yarray --input array.json --config capon.json -o result.jsonl \
-    --plot-dispersion --show
-slab-yarray --data "data/*.mseed" --metadata array.xml \
-    --select "XX.*..HH?" --config capon.json --components rayleigh_angular
-slab-yarray --result result.jsonl --plot-density
+slab-yarray beamforming --input array.json --config capon.json \
+    -o result.jsonl --plot-dispersion --show
+slab-yarray beamforming --data "data/*.mseed" --metadata array.xml \
+    --select "XX.*..HH?" --config capon.json \
+    --components rayleigh_angular
+slab-yarray beamforming --result result.jsonl --plot-density
+
+slab-yarray fdd --input array.json --config fdd.json -o fdd.jsonl \
+    --plot-singular-values --plot-mode-shape --show
+slab-yarray fdd --input array.json --config fdd.json --efdd \
+    --modes-csv modes.csv --plot-efdd --save-figures figures
+
 slab-yarray response --input array.json --plot-all --show
 ```
 
-The subcommand `slab-yarray response` computes the array response
+`slab-yarray fdd` prints the modes at the peaks of the first singular
+value (or at the frequencies given with `--modes`) and, with `--efdd`,
+their natural frequencies and damping ratios; `--modes-csv` writes
+them to a table. The subcommand `response` computes the array response
 and its limits; the Monte Carlo experiments, which need many more
-choices, are available from Python only. `slab-yarray --help` lists
-all the options.
+choices, are available from Python only. `slab-yarray <subcommand>
+--help` lists all the options.
 
 ## 5. Structure
 
@@ -442,14 +451,14 @@ has a single task:
 | `config` | `BeamformingConfig`, `FDDConfig`, `PerformanceConfig` | processing and planning parameters |
 | `estimators` | | Bartlett, Capon and MUSIC on cross-spectral matrices |
 | `beamforming` | `Beamformer`, `BeamformingResult`, `DispersionCurve` | f-k processing and its results |
-| `fdd` | `FDD`, `FDDResult`, `Mode`, `EFDDDetails` | frequency domain decomposition, resonances and shapes; enhanced FDD (frequency and damping) |
+| `fdd` | `FDD`, `FDDResult`, `Mode`, `EFDDDetails`, `modes_to_csv` | frequency domain decomposition, resonances and shapes; enhanced FDD (frequency and damping) |
 | `statistics` | | density of the maxima, summaries, peaks |
 | `response` | `ArrayResponse`, `ResponseAnalysis` | array response and limits; entry point of planning |
 | `performance` | `PerformanceResult` | Monte Carlo performance of the estimators |
 | `operational` | `OperationalAssessment` | usable frequency-velocity envelope |
 | `monitor` | `BeamformingMonitor`, `FDDMonitor` | real-time processing with the SeedLink client |
 | `io` | | array files and result files |
-| `cli` | | the `slab-yarray` command |
+| `cli` | | the `slab-yarray` command (`beamforming`, `fdd`, `response`) |
 
 The numerical modules do no plotting and keep no global state, so they
 can be used in any context; files are read and written by `io`. The

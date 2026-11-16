@@ -39,7 +39,8 @@ shapes.
 - :class:`Mode`: shape of a mode at a frequency;
 - :meth:`FDD.efdd`: enhanced FDD, natural frequency and damping of
   modes (:class:`EFDDDetails` with the steps of the estimate);
-- :func:`mac`: modal assurance criterion between two shapes.
+- :func:`mac`: modal assurance criterion between two shapes;
+- :func:`modes_to_csv`: table of modes (frequency, damping, shapes).
 
 Enhanced FDD
 ------------
@@ -123,6 +124,7 @@ __all__ = [
     "FDDWarning",
     "Mode",
     "mac",
+    "modes_to_csv",
 ]
 
 # Kind of the result states in the result files (see :mod:`.io`).
@@ -389,6 +391,73 @@ class Mode:
     def info(self) -> None:
         """Print the summary (see :meth:`summary`)."""
         print(self.summary())
+
+
+def modes_to_csv(target: Any, modes: Sequence, owrite: bool = False) -> None:
+    """
+    Write modes with the same channels to a CSV table.
+
+    One row per mode: frequency, method, index of the singular value,
+    singular value and the standard deviation of its logarithm, mean
+    MAC, number of blocks, damping ratio (empty if not estimated) and,
+    for each channel, the shape and its standard deviation among the
+    blocks (columns ``"<station> <component>"`` and ``... std``).
+
+    Parameters
+    ----------
+    target : str or path-like
+        CSV file; folders are created.
+    modes : sequence of Mode
+        Modes (:meth:`FDDResult.mode`, :meth:`FDD.efdd`), all with the
+        same channels.
+    owrite : bool, optional
+        Overwrite an existing file. Default False.
+
+    Raises
+    ------
+    TypeError
+        If an element is not a Mode.
+    ValueError
+        If there are no modes or their channels differ.
+    FileExistsError
+        If the file exists and ``owrite`` is False.
+
+    Examples
+    --------
+    >>> modes = [result.mode(value) for value in result.peaks()]
+    >>> modes_to_csv("modes.csv", modes)
+    """
+    from shakelab.exploration.yarray.io import write_table
+
+    modes = list(modes)
+
+    if not modes:
+        raise ValueError("no modes to write")
+
+    if not all(isinstance(mode, Mode) for mode in modes):
+        raise TypeError("the modes must be Mode objects")
+
+    channels = modes[0].channels
+
+    if any(mode.channels != channels for mode in modes):
+        raise ValueError("the modes must have the same channels")
+
+    columns = {
+        "frequency": [mode.frequency for mode in modes],
+        "method": [mode.method for mode in modes],
+        "index": [mode.index for mode in modes],
+        "value": [mode.value for mode in modes],
+        "value_log_std": [mode.value_std for mode in modes],
+        "mac": [mode.mac for mode in modes],
+        "blocks": [mode.blocks for mode in modes],
+        "damping": [mode.damping for mode in modes],
+    }
+
+    for column, label in enumerate(channels):
+        columns[label] = [mode.shape[column] for mode in modes]
+        columns[f"{label} std"] = [mode.shape_std[column] for mode in modes]
+
+    write_table(target, columns, owrite=owrite)
 
 
 # ----------------------------------------------------------------------------

@@ -9,6 +9,11 @@ corrections. The format follows
 
 ### Changed
 
+- `exploration.yarray`: `slab-yarray` has three symmetric subcommands,
+  `beamforming`, `fdd` and `response`; the beamforming, run before
+  without a subcommand, is now `slab-yarray beamforming` (a subcommand
+  is required). The options to show and save figures are the same in
+  all three (`--show` also as `--no-show`).
 - Documentation: YARRAY guide and README reviewed as a whole (FDD in
   the overview, layers and modules, scope of `slab-yarray`, contents
   with subsections, guidance and processing times of the FDD and of
@@ -484,6 +489,20 @@ corrections. The format follows
   Astana, Greenland, Asuncion) and an IANA name added to each entry.
 
 ### Added
+
+- `exploration.yarray`: `slab-yarray fdd`, the frequency domain
+  decomposition from the command line: processing options with the
+  names of the `FDDConfig` parameters, peaks (`--peak-range`,
+  `--prominence`, `--peak-count`) or given frequencies (`--modes`),
+  enhanced FDD (`--efdd`, `--mac`, `--cycles`, `--duration`,
+  `--levels`), table of the modes (`--modes-csv`), figures
+  (`--plot-singular-values`, `--plot-mode-shape`, `--plot-mac`,
+  `--plot-efdd`, also from the section `graphics` of the configuration
+  file); results written, appended and read as for the beamforming.
+- `exploration.yarray`: `modes_to_csv(target, modes, owrite=False)`
+  writes modes with the same channels to a CSV table (frequency,
+  method, singular value, MAC, blocks, damping, shape of every channel
+  and its standard deviation).
 
 - `exploration.yarray.FDD.efdd(frequencies, mac=0.8, cycles=100,
   duration=None, levels=(0.1, 0.9), ...)`: enhanced FDD (Brincker,

@@ -30,7 +30,8 @@ geometric response and limits (:mod:`.response`), Monte Carlo
 performance of the estimators (:mod:`.performance`), operational
 assessment for survey planning (:mod:`.operational`), file formats
 (:mod:`.io`), real-time monitor (:mod:`.monitor`) and command line
-(:mod:`.cli`, installed as ``slab-yarray``). Figures are in
+(:mod:`.cli`, installed as ``slab-yarray`` with the subcommands
+``beamforming``, ``fdd`` and ``response``). Figures are in
 :mod:`shakelab.graphics.yarray`. See ``README.md`` in this folder.
 
 .. code-block:: python
@@ -79,6 +80,7 @@ from shakelab.exploration.yarray.fdd import (
     FDDWarning,
     Mode,
     mac,
+    modes_to_csv,
 )
 from shakelab.exploration.yarray.monitor import (
     ArrayMonitor,
@@ -132,4 +134,5 @@ __all__ = [
     "StationData",
     "WindowConfig",
     "mac",
+    "modes_to_csv",
 ]

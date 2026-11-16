@@ -27,6 +27,8 @@ frequencies and the modes its mode shapes.
 
 from __future__ import annotations
 
+import csv
+import dataclasses
 import warnings
 
 import numpy as np
@@ -47,6 +49,7 @@ from shakelab.exploration.yarray.fdd import (
     FDDWarning,
     Mode,
     mac,
+    modes_to_csv,
 )
 from shakelab.signals.base import Record
 
@@ -520,6 +523,46 @@ def test_mac():
         mac([1.0, 2.0], [1.0])
     with pytest.raises(ValueError):
         mac([0.0, 0.0], [1.0, 1.0])
+
+
+def test_modes_to_csv(tmp_path, frame_modes, frame_result):
+    """Table of modes of the FDD and of the enhanced FDD; errors."""
+    _, modes = frame_modes
+    path = tmp_path / "modes.csv"
+    modes_to_csv(path, modes)
+
+    with path.open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+
+    assert list(rows[0])[:8] == [
+        "frequency", "method", "index", "value", "value_log_std", "mac",
+        "blocks", "damping",
+    ]
+    assert list(rows[0])[8:10] == ["XX.F00. east", "XX.F00. east std"]
+    assert [float(row["damping"]) for row in rows] == pytest.approx(
+        [mode.damping for mode in modes]
+    )
+    assert [float(row["XX.F03. east"]) for row in rows] == pytest.approx(
+        [mode.shape[3] for mode in modes]
+    )
+
+    with pytest.raises(FileExistsError):
+        modes_to_csv(path, modes)
+
+    plain = [frame_result.mode(value) for value in frame_result.peaks()]
+    modes_to_csv(path, plain, owrite=True)
+
+    with path.open(encoding="utf-8", newline="") as stream:
+        assert all(row["damping"] == "" for row in csv.DictReader(stream))
+
+    other = dataclasses.replace(plain[0], stations=("A",) * STOREYS)
+
+    with pytest.raises(ValueError):
+        modes_to_csv(path, [plain[1], other], owrite=True)
+    with pytest.raises(ValueError):
+        modes_to_csv(path, [], owrite=True)
+    with pytest.raises(TypeError):
+        modes_to_csv(path, [1.0], owrite=True)
 
 
 def test_no_warnings_on_complete_data(frame_result):

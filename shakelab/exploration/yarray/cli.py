@@ -20,36 +20,44 @@
 """
 Command-line array processing.
 
+The command ``slab-yarray`` has three subcommands, with the same
+options for data, configuration and figures where they apply:
+
+- ``beamforming``: frequency-wavenumber processing (dispersion,
+  ellipticity, spectra, density of the maxima);
+- ``fdd``: frequency domain decomposition (singular values, peaks,
+  mode shapes) and, with ``--efdd``, the enhanced FDD (natural
+  frequencies and damping ratios);
+- ``response``: geometric response and limits of the array.
+
 The data come from an array file (``--input``, see
-:meth:`~.data.ArrayData.read`), from waveform files read by ShakeLab with
-their metadata (``--data``, ``--metadata``), or a saved result is only
-plotted (``--result``). The configuration is a JSON file (``--config``,
-see :mod:`.config`), whose values the processing options of the
-command line replace; without it the options must define at least the
-frequencies and the grid. The figures (dispersion, ellipticity, spectrum,
-density of the maxima) are chosen with the options or the section
-``graphics`` of the configuration file.
+:meth:`~.data.ArrayData.read`) or from waveform files read by ShakeLab
+with their metadata (``--data``, ``--metadata``); a saved result can be
+only plotted (``--result``), and the response needs only the
+coordinates (``--coordinates``). The configuration is a JSON file
+(``--config``, see :mod:`.config`), whose values the processing options
+of the command line replace; without it the options must define the
+required parameters. The figures are chosen with the options or with
+the section ``graphics`` of the configuration file.
 
 Examples
 --------
 .. code-block:: shell
 
-    slab-yarray --input array.json --config capon.json -o result.jsonl \\
-        --plot-dispersion --save-figures figures
-    slab-yarray --input array.json --config capon.json \\
-        --fmin 2 --fmax 8 --nfreq 20 --method music -o music.jsonl
-    slab-yarray --data "data/*.mseed" --metadata array.xml \\
+    slab-yarray beamforming --input array.json --config capon.json \\
+        -o result.jsonl --plot-dispersion --save-figures figures
+    slab-yarray beamforming --data "data/*.mseed" --metadata array.xml \\
         --select "XX.*..HH?" --config rtbf.json -o rtbf.jsonl
-    slab-yarray --result rtbf.jsonl --plot-spectrum --frequency 4.5 --show
+    slab-yarray beamforming --result rtbf.jsonl --plot-spectrum \\
+        --frequency 4.5 --show
 
-With the first argument ``response`` the command analyses the
-geometric response of the array instead (no waveforms are needed with
-``--coordinates``): it prints the resolution and aliasing limits and,
-with ``--frequencies`` or ``--fmin --fmax``, the corresponding phase
-velocities, and draws the geometry, the response, the directional
-resolution, the velocity limits and a search domain.
-
-.. code-block:: shell
+    slab-yarray fdd --input array.json --config fdd.json -o fdd.jsonl \\
+        --plot-singular-values --plot-mode-shape --show
+    slab-yarray fdd --data "building/*.mseed" --metadata building.xml \\
+        --fmin 0.5 --fmax 15 --window-type fixed --window-length 20 \\
+        --components east --efdd --modes-csv modes.csv --plot-efdd \\
+        --save-figures figures
+    slab-yarray fdd --result fdd.jsonl --peak-range 0.2 0.8 --plot-mac
 
     slab-yarray response --input array.json --plot-response --show
     slab-yarray response --coordinates stations.txt --fmin 1 --fmax 20 \\
@@ -75,13 +83,15 @@ from shakelab.exploration.yarray.beamforming import (
     Beamformer,
     BeamformingResult,
 )
-from shakelab.exploration.yarray.config import BeamformingConfig
+from shakelab.exploration.yarray.config import BeamformingConfig, FDDConfig
 from shakelab.exploration.yarray.data import ArrayData
+from shakelab.exploration.yarray.fdd import FDD, FDDResult, modes_to_csv
 
 __all__ = ["main"]
 
-# Processing options: same names as the BeamformingConfig parameters.
-_OPTIONS = (
+# Processing options of the beamforming: names of the BeamformingConfig
+# parameters.
+_BEAMFORMING_OPTIONS = (
     "frequencies", "fmin", "fmax", "nfreq", "frequency_scale", "method",
     "components", "diagonal_loading", "music_sources", "grid_quantity",
     "grid_scale", "grid_min", "grid_max", "grid_size", "azimuth_size",
@@ -92,6 +102,18 @@ _OPTIONS = (
     "geometric_uncertainty", "strict", "transform", "fft_selection",
     "fft_padding",
 )
+
+# Processing options of the FDD: names of the FDDConfig parameters.
+_FDD_OPTIONS = (
+    "frequencies", "fmin", "fmax", "nfreq", "frequency_scale",
+    "window_type", "window_length", "window_taper", "window_overlap",
+    "windows_per_block", "block_overlap", "subfrequencies", "bandwidth",
+    "normalization", "components", "azimuth", "vectors",
+)
+
+# Figures of the response analysis.
+_RESPONSE_FIGURES = ("geometry", "response", "resolution", "velocity",
+                     "search_domain")
 
 
 # ----------------------------------------------------------------------------
@@ -106,7 +128,8 @@ def main(argv: Optional[list] = None, prog: Optional[str] = None) -> int:
     Parameters
     ----------
     argv : list of str, optional
-        Arguments; ``sys.argv[1:]`` if omitted.
+        Arguments, starting with the subcommand (``beamforming``,
+        ``fdd`` or ``response``); ``sys.argv[1:]`` if omitted.
     prog : str, optional
         Program name shown in the help.
 
@@ -116,13 +139,12 @@ def main(argv: Optional[list] = None, prog: Optional[str] = None) -> int:
         Exit status: 0 on success, 1 on errors, 130 when interrupted.
     """
     argv = sys.argv[1:] if argv is None else list(argv)
-
-    if argv[:1] == ["response"]:
-        args = _response_parser(prog).parse_args(argv[1:])
-        run = _run_response
-    else:
-        args = _parser(prog).parse_args(argv)
-        run = _run
+    args = _parser(prog).parse_args(argv)
+    run = {
+        "beamforming": _run_beamforming,
+        "fdd": _run_fdd,
+        "response": _run_response,
+    }[args.command]
 
     try:
         with warnings.catch_warnings():
@@ -136,61 +158,35 @@ def main(argv: Optional[list] = None, prog: Optional[str] = None) -> int:
         return 1
 
 
-def _run(args: argparse.Namespace) -> int:
-    """Process or load a result, save it and draw the figures."""
-    graphics = _graphics_options(args)
-
-    if args.result is not None:
-        for name in ("config", "output", "write_config"):
-            if getattr(args, name) is not None:
-                raise ValueError(f"--{name.replace('_', '-')} needs data")
-
-        result = BeamformingResult(args.result)
-    else:
-        config = _config(args)
-
-        if args.write_config is not None:
-            config.write(args.write_config, owrite=args.owrite)
-
-        array = _array(args)
-        print(array.summary())
-        result = Beamformer(array, config).process()
-
-        if args.output is not None:
-            result.write(args.output, append=args.append,
-                         owrite=args.owrite, arrays=not args.no_arrays)
-            print(f"result written to {args.output}")
-
-    if args.csv is not None:
-        result.to_csv(args.csv, owrite=args.owrite)
-        print(f"maxima written to {args.csv}")
-
-    print(result.summary())
-
-    for path in _figures(result, graphics):
-        print(f"figure written to {path}")
-
-    return 0
-
-
 # ----------------------------------------------------------------------------
 # Arguments
 # ----------------------------------------------------------------------------
 
 
 def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
-    """Build the argument parser."""
+    """Build the argument parser with its subcommands."""
     parser = argparse.ArgumentParser(
         prog=prog or "slab-yarray",
-        description="Frequency-wavenumber processing of seismic arrays.",
+        description="Seismic-array processing: beamforming, frequency "
+        "domain decomposition and array response.",
     )
+    commands = parser.add_subparsers(dest="command", required=True,
+                                     metavar="command")
+    _beamforming_parser(commands)
+    _fdd_parser(commands)
+    _response_parser(commands)
+    return parser
+
+
+def _add_input(parser: argparse.ArgumentParser, flag: str, kind: Any,
+               text: str) -> None:
+    """Add the sources (one of --input, --data, flag) and data options."""
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--input", type=Path,
                         help="array file (JSON) with coordinates and files")
     source.add_argument("--data", nargs="+",
                         help="waveform files, patterns or folders")
-    source.add_argument("--result", type=Path,
-                        help="saved result to plot (no processing)")
+    source.add_argument(flag, type=kind, help=text)
 
     data = parser.add_argument_group("data (with --data)")
     data.add_argument("--metadata", nargs="+",
@@ -199,6 +195,10 @@ def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
     data.add_argument("--start", help="start time (ISO 8601)")
     data.add_argument("--end", help="end time (ISO 8601)")
 
+
+def _add_output(parser: argparse.ArgumentParser, arrays: str,
+                table: str) -> Any:
+    """Add the configuration and output options; return the group."""
     output = parser.add_argument_group("configuration and output")
     output.add_argument("--config", type=Path,
                         help="configuration file (JSON)")
@@ -209,27 +209,61 @@ def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
     output.add_argument("--append", action="store_true",
                         help="append the result to the file")
     output.add_argument("--no-arrays", action="store_true",
-                        help="do not write the spectra (.npz) of the "
+                        help=f"do not write the {arrays} (.npz) of the "
                         "result")
     output.add_argument("--csv", type=Path,
-                        help="write the table of the maxima (CSV), also "
-                        "of a --result")
+                        help=f"write the table of {table} (CSV), also of "
+                        "a --result")
     output.add_argument("--owrite", action="store_true",
                         help="overwrite existing files")
+    return output
+
+
+def _add_frequencies_and_windows(group: Any, nfreq: str) -> None:
+    """Add the options of frequencies and windows."""
+    group.add_argument("--frequencies", type=float, nargs="+",
+                       help="explicit frequencies (Hz)")
+    group.add_argument("--fmin", type=float, help="minimum frequency")
+    group.add_argument("--fmax", type=float, help="maximum frequency")
+    group.add_argument("--nfreq", type=int, help=nfreq)
+    group.add_argument("--frequency-scale", choices=("log", "linear"))
+    group.add_argument("--window-type", choices=("cycles", "fixed"))
+    group.add_argument("--window-length", type=float,
+                       help="cycles, or seconds with fixed windows")
+    group.add_argument("--window-taper", type=float)
+    group.add_argument("--window-overlap", type=float)
+    group.add_argument("--windows-per-block", type=int)
+    group.add_argument("--block-overlap", type=float)
+
+
+def _add_figure_files(group: Any) -> None:
+    """Add the options to show and save the figures."""
+    group.add_argument("--show", action=argparse.BooleanOptionalAction,
+                       help="show the figures")
+    group.add_argument("--save-figures", type=Path,
+                       help="folder of the figures")
+    group.add_argument("--figure-format", help="image format (png)")
+    group.add_argument("--dpi", type=int, help="resolution (150)")
+
+
+def _beamforming_parser(commands: Any) -> None:
+    """Add the subcommand of the beamforming."""
+    parser = commands.add_parser(
+        "beamforming", help="frequency-wavenumber processing",
+        description="Frequency-wavenumber processing of seismic arrays.",
+    )
+    _add_input(parser, "--result", Path,
+               "saved result to plot (no processing)")
+    _add_output(parser, "spectra", "the maxima")
 
     processing = parser.add_argument_group(
         "processing (replace the values of --config)"
     )
-    processing.add_argument("--frequencies", type=float, nargs="+",
-                            help="explicit frequencies (Hz)")
-    processing.add_argument("--fmin", type=float, help="minimum frequency")
-    processing.add_argument("--fmax", type=float, help="maximum frequency")
-    processing.add_argument(
-        "--nfreq", type=int,
-        help="number of frequencies (omitted with --fmin/--fmax and "
+    _add_frequencies_and_windows(
+        processing,
+        "number of frequencies (omitted with --fmin/--fmax and "
         "--transform rfft: every FFT bin)",
     )
-    processing.add_argument("--frequency-scale", choices=("log", "linear"))
     processing.add_argument("--method",
                             choices=("bartlett", "capon", "music"))
     processing.add_argument("--components", choices=(
@@ -245,13 +279,6 @@ def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
     processing.add_argument("--grid-max", type=float)
     processing.add_argument("--grid-size", type=int)
     processing.add_argument("--azimuth-size", type=int)
-    processing.add_argument("--window-type", choices=("cycles", "fixed"))
-    processing.add_argument("--window-length", type=float,
-                            help="cycles, or seconds with fixed windows")
-    processing.add_argument("--window-taper", type=float)
-    processing.add_argument("--window-overlap", type=float)
-    processing.add_argument("--windows-per-block", type=int)
-    processing.add_argument("--block-overlap", type=float)
     processing.add_argument("--ellipticity-angle-min", type=float)
     processing.add_argument("--ellipticity-angle-max", type=float)
     processing.add_argument("--ellipticity-angle-size", type=int)
@@ -299,30 +326,156 @@ def _parser(prog: Optional[str]) -> argparse.ArgumentParser:
         "--spectrum-quantity",
         choices=("power", "standard_error", "ellipticity"),
     )
-    figures.add_argument("--show", action=argparse.BooleanOptionalAction,
-                         help="show the figures")
-    figures.add_argument("--save-figures", type=Path,
-                         help="folder of the figures")
-    figures.add_argument("--figure-format", help="image format (png)")
-    figures.add_argument("--dpi", type=int, help="resolution (150)")
-
-    return parser
+    _add_figure_files(figures)
 
 
-def _config(args: argparse.Namespace) -> BeamformingConfig:
+def _fdd_parser(commands: Any) -> None:
+    """Add the subcommand of the frequency domain decomposition."""
+    parser = commands.add_parser(
+        "fdd", help="frequency domain decomposition",
+        description="Frequency domain decomposition of seismic arrays: "
+        "singular values, peaks and mode shapes; enhanced FDD for "
+        "natural frequencies and damping ratios.",
+    )
+    _add_input(parser, "--result", Path,
+               "saved result to analyse and plot (no processing)")
+    output = _add_output(parser, "singular values and vectors",
+                         "the first singular vectors")
+    output.add_argument("--modes-csv", type=Path,
+                        help="write the table of the modes (CSV)")
+
+    processing = parser.add_argument_group(
+        "processing (replace the values of --config)"
+    )
+    _add_frequencies_and_windows(
+        processing,
+        "number of frequencies (omitted with --fmin/--fmax and fixed "
+        "windows: every FFT frequency)",
+    )
+    processing.add_argument("--subfrequencies", type=int,
+                            help="sub-frequencies averaged (1)")
+    processing.add_argument("--bandwidth", type=float,
+                            help="relative band of the sub-frequencies")
+    processing.add_argument("--normalization",
+                            choices=("none", "coherence"))
+    processing.add_argument("--components", choices=(
+        "vertical", "north", "east", "radial", "transverse", "horizontal",
+        "three_component",
+    ))
+    processing.add_argument("--azimuth", type=float,
+                            help="azimuth of radial and transverse "
+                            "(degrees from north)")
+    processing.add_argument("--vectors", type=int,
+                            help="singular vectors kept per block (3)")
+
+    modes = parser.add_argument_group("peaks and modes")
+    modes.add_argument("--peak-range", type=float, nargs=2,
+                       metavar=("FMIN", "FMAX"),
+                       help="band of the peaks (Hz; default: all)")
+    modes.add_argument("--prominence", type=float,
+                       help="smallest prominence of a peak (2)")
+    modes.add_argument("--peak-count", type=int,
+                       help="largest number of peaks (all)")
+    modes.add_argument("--modes", type=float, nargs="+",
+                       help="frequencies of the modes (Hz), instead of "
+                       "the peaks")
+    modes.add_argument("--efdd", action="store_true",
+                       help="enhanced FDD of the modes (needs data)")
+    modes.add_argument("--mac", type=float,
+                       help="smallest MAC of the bell (0.8)")
+    modes.add_argument("--cycles", type=float,
+                       help="windows of the EFDD in cycles of the mode "
+                       "(100)")
+    modes.add_argument("--duration", type=float,
+                       help="windows of the EFDD in seconds")
+    modes.add_argument("--levels", type=float, nargs=2,
+                       metavar=("LOW", "HIGH"),
+                       help="amplitudes of the extrema of the decay "
+                       "(0.1 0.9)")
+
+    figures = parser.add_argument_group(
+        "figures (replace the section 'graphics' of --config)"
+    )
+    figures.add_argument("--plot-singular-values",
+                         action=argparse.BooleanOptionalAction)
+    figures.add_argument("--count", type=int,
+                         help="singular values drawn (3)")
+    figures.add_argument("--plot-mode-shape",
+                         action=argparse.BooleanOptionalAction,
+                         help="shape of every mode")
+    figures.add_argument("--along",
+                         choices=("profile", "x", "y", "z", "index"),
+                         help="abscissa of the shapes (profile, or index "
+                         "without positions)")
+    figures.add_argument("--plot-mac", action=argparse.BooleanOptionalAction,
+                         help="MAC between the modes")
+    figures.add_argument("--plot-efdd", action=argparse.BooleanOptionalAction,
+                         help="bell and decay of every mode (with --efdd)")
+    _add_figure_files(figures)
+
+
+def _response_parser(commands: Any) -> None:
+    """Add the subcommand of the response analysis."""
+    parser = commands.add_parser(
+        "response", help="geometric response and limits",
+        description="Geometric response and limits of a seismic array.",
+    )
+    _add_input(
+        parser, "--coordinates", Path,
+        "text file of station coordinates: lines 'x y [z]' or "
+        "'name x y [z]' (comma or space separated, '#' comments)",
+    )
+
+    analysis = parser.add_argument_group("analysis")
+    analysis.add_argument("--resolution-level", type=float, default=0.5,
+                          help="relative power of the main lobe (0.5)")
+    analysis.add_argument("--ambiguity-level", type=float, default=0.5,
+                          help="relative power of the ambiguities (0.5)")
+    analysis.add_argument("--expected", action="store_true",
+                          help="response expected under the coordinate "
+                          "uncertainties of the array")
+    analysis.add_argument("--grid-max", type=float,
+                          help="extent of the wavenumber grid (automatic)")
+    analysis.add_argument("--grid-size", type=int,
+                          help="odd samples per axis of the grid "
+                          "(automatic)")
+    analysis.add_argument("--frequencies", type=float, nargs="+",
+                          help="frequencies of the velocity limits (Hz)")
+    analysis.add_argument("--fmin", type=float, help="minimum frequency")
+    analysis.add_argument("--fmax", type=float, help="maximum frequency")
+    analysis.add_argument("--nfreq", type=int, default=30,
+                          help="number of log-spaced frequencies (30)")
+    analysis.add_argument("--search-max", type=float,
+                          help="radius of a circular search domain to check")
+
+    figures = parser.add_argument_group("figures")
+
+    for name in _RESPONSE_FIGURES:
+        flag = name.replace("_", "-")
+        figures.add_argument(f"--plot-{flag}", action="store_true",
+                             help=f"{name.replace('_', ' ')} figure")
+
+    figures.add_argument("--plot-all", action="store_true",
+                         help="all the figures available")
+    _add_figure_files(figures)
+
+
+# ----------------------------------------------------------------------------
+# Data and configuration
+# ----------------------------------------------------------------------------
+
+
+def _configuration(kind: type, names: tuple,
+                   args: argparse.Namespace, required: str) -> Any:
     """Configuration from the file, with the options replacing values."""
-    config = BeamformingConfig(
+    config = kind(
         args.config,
-        **{name: getattr(args, name) for name in _OPTIONS
+        **{name: getattr(args, name) for name in names
            if getattr(args, name) is not None},
     )
 
     if not config.complete:
-        raise ValueError(
-            "the configuration needs frequencies and grid: give --config "
-            "or --frequencies/--fmin --fmax and --grid-min --grid-max "
-            "--grid-size"
-        )
+        raise ValueError(f"the configuration needs {required}")
 
     return config
 
@@ -344,66 +497,85 @@ def _array(args: argparse.Namespace) -> ArrayData:
     return ArrayData(collection, select=args.select)
 
 
+def _check_result_only(args: argparse.Namespace) -> None:
+    """Refuse the options that need data with --result."""
+    for name in ("config", "output", "write_config"):
+        if getattr(args, name) is not None:
+            raise ValueError(f"--{name.replace('_', '-')} needs data")
+
+
 # ----------------------------------------------------------------------------
-# Figures
+# Beamforming
 # ----------------------------------------------------------------------------
 
 
-def _graphics_options(args: argparse.Namespace) -> dict:
+def _run_beamforming(args: argparse.Namespace) -> int:
+    """Process or load a result, save it and draw the figures."""
+    graphics = _beamforming_graphics(args)
+
+    if args.result is not None:
+        _check_result_only(args)
+        result = BeamformingResult(args.result)
+    else:
+        config = _configuration(
+            BeamformingConfig, _BEAMFORMING_OPTIONS, args,
+            "frequencies and grid: give --config or --frequencies/--fmin "
+            "--fmax and --grid-min --grid-max --grid-size",
+        )
+
+        if args.write_config is not None:
+            config.write(args.write_config, owrite=args.owrite)
+
+        array = _array(args)
+        print(array.summary())
+        result = Beamformer(array, config).process()
+
+        if args.output is not None:
+            result.write(args.output, append=args.append,
+                         owrite=args.owrite, arrays=not args.no_arrays)
+            print(f"result written to {args.output}")
+
+    if args.csv is not None:
+        result.to_csv(args.csv, owrite=args.owrite)
+        print(f"maxima written to {args.csv}")
+
+    print(result.summary())
+
+    for path in _beamforming_figures(result, graphics):
+        print(f"figure written to {path}")
+
+    return 0
+
+
+def _beamforming_graphics(args: argparse.Namespace) -> dict:
     """Figure options: section 'graphics' of the config, then options."""
-    section: dict = {}
-
-    if args.config is not None and args.config.is_file():
-        data = json.loads(args.config.read_text(encoding="utf-8"))
-        section = dict(data.get("graphics", {})) if isinstance(
-            data, Mapping
-        ) else {}
-
-    spectrum = section.get("spectrum", {})
-    spectrum = {"enabled": spectrum} if isinstance(spectrum, bool) else dict(
-        spectrum
-    )
-    density = section.get("density", {})
-    density = {"enabled": density} if isinstance(density, bool) else dict(
-        density
-    )
-    save = section.get("save", {})
-    save = {"enabled": save} if isinstance(save, bool) else dict(save)
-
-    def pick(value: Any, default: Any) -> Any:
-        return default if value is None else value
-
-    directory = pick(args.save_figures, save.get("directory"))
+    section = _graphics_section(args.config)
+    spectrum = _toggle(section.get("spectrum", {}))
+    density = _toggle(section.get("density", {}))
 
     return {
-        "dispersion": pick(args.plot_dispersion,
-                           bool(section.get("dispersion", False))),
-        "ellipticity": pick(args.plot_ellipticity,
-                            bool(section.get("ellipticity", False))),
-        "spectrum": pick(args.plot_spectrum,
-                         bool(spectrum.get("enabled", False))),
-        "density": pick(args.plot_density,
-                        bool(density.get("enabled", False))),
-        "coordinate": pick(args.density_coordinate,
-                           density.get("coordinate", "log_slowness")),
-        "component": pick(args.component, section.get("component")),
-        "ranks": pick(args.ranks, section.get("ranks")),
-        "frequency": pick(args.frequency, spectrum.get("frequency")),
-        "block": pick(args.block, spectrum.get("block", 0)),
-        "view": pick(args.spectrum_view, spectrum.get("view", "kxky")),
-        "quantity": pick(args.spectrum_quantity,
-                         spectrum.get("quantity", "power")),
-        "show": pick(args.show, bool(section.get("show", False))),
-        "directory": None if directory is None else Path(directory),
-        "save": args.save_figures is not None or bool(
-            save.get("enabled", directory is not None)
-        ),
-        "format": pick(args.figure_format, save.get("format", "png")),
-        "dpi": pick(args.dpi, save.get("dpi", 150)),
+        "dispersion": _pick(args.plot_dispersion,
+                            bool(section.get("dispersion", False))),
+        "ellipticity": _pick(args.plot_ellipticity,
+                             bool(section.get("ellipticity", False))),
+        "spectrum": _pick(args.plot_spectrum,
+                          bool(spectrum.get("enabled", False))),
+        "density": _pick(args.plot_density,
+                         bool(density.get("enabled", False))),
+        "coordinate": _pick(args.density_coordinate,
+                            density.get("coordinate", "log_slowness")),
+        "component": _pick(args.component, section.get("component")),
+        "ranks": _pick(args.ranks, section.get("ranks")),
+        "frequency": _pick(args.frequency, spectrum.get("frequency")),
+        "block": _pick(args.block, spectrum.get("block", 0)),
+        "view": _pick(args.spectrum_view, spectrum.get("view", "kxky")),
+        "quantity": _pick(args.spectrum_quantity,
+                          spectrum.get("quantity", "power")),
+        **_saving(args, section),
     }
 
 
-def _figures(result: Any, options: dict) -> list:
+def _beamforming_figures(result: Any, options: dict) -> list:
     """Draw the requested figures; return the files written."""
     wanted = [
         name for name in ("dispersion", "ellipticity", "spectrum", "density")
@@ -413,15 +585,13 @@ def _figures(result: Any, options: dict) -> list:
     if not wanted:
         return []
 
-    if options["save"] and options["directory"] is None:
-        raise ValueError("saving figures needs --save-figures DIR")
-
     if "spectrum" in wanted and options["frequency"] is None:
         raise ValueError("the spectrum figure needs --frequency")
 
+    _check_saving(options)
+
     from shakelab.graphics import yarray as graphics
 
-    plt = graphics._pyplot()
     figures = []
     component = options["component"]
 
@@ -457,6 +627,215 @@ def _figures(result: Any, options: dict) -> list:
         )
         figures.append((figure, f"density_{density.component}"))
 
+    return _output_figures(figures, options)
+
+
+# ----------------------------------------------------------------------------
+# Frequency domain decomposition
+# ----------------------------------------------------------------------------
+
+
+def _run_fdd(args: argparse.Namespace) -> int:
+    """Process or load an FDD result, find its modes, draw the figures."""
+    graphics = _fdd_graphics(args)
+    fdd = None
+
+    if args.result is not None:
+        _check_result_only(args)
+
+        if args.efdd:
+            raise ValueError("--efdd needs data")
+
+        result = FDDResult(args.result)
+    else:
+        config = _configuration(
+            FDDConfig, _FDD_OPTIONS, args,
+            "frequencies: give --config or --frequencies/--fmin --fmax",
+        )
+
+        if args.write_config is not None:
+            config.write(args.write_config, owrite=args.owrite)
+
+        array = _array(args)
+        print(array.summary())
+        fdd = FDD(array, config)
+        result = fdd.process()
+
+        if args.output is not None:
+            result.write(args.output, append=args.append,
+                         owrite=args.owrite, arrays=not args.no_arrays)
+            print(f"result written to {args.output}")
+
+    if args.csv is not None:
+        result.to_csv(args.csv, owrite=args.owrite)
+        print(f"singular vectors written to {args.csv}")
+
+    print(result.summary())
+    modes = _fdd_modes(args, result, fdd)
+
+    for mode in modes:
+        print(mode.summary())
+
+    if args.modes_csv is not None:
+        modes_to_csv(args.modes_csv, modes, owrite=args.owrite)
+        print(f"modes written to {args.modes_csv}")
+
+    for path in _fdd_figures(result, modes, graphics):
+        print(f"figure written to {path}")
+
+    return 0
+
+
+def _fdd_modes(args: argparse.Namespace, result: FDDResult,
+               fdd: Optional[FDD]) -> list:
+    """Modes at the given frequencies or at the peaks (FDD or EFDD)."""
+    if args.modes is not None:
+        frequencies = sorted(args.modes)
+    else:
+        fmin, fmax = args.peak_range or (None, None)
+        options = {"fmin": fmin, "fmax": fmax, "count": args.peak_count}
+
+        if args.prominence is not None:
+            options["prominence"] = args.prominence
+
+        frequencies = [float(value) for value in result.peaks(**options)]
+
+    if not frequencies:
+        print("no peaks: no modes")
+        return []
+
+    if not args.efdd:
+        return [result.mode(value) for value in frequencies]
+
+    options = {
+        name: getattr(args, name) for name in ("mac", "cycles", "duration")
+        if getattr(args, name) is not None
+    }
+
+    if args.levels is not None:
+        options["levels"] = tuple(args.levels)
+
+    return fdd.efdd(frequencies, **options)
+
+
+def _fdd_graphics(args: argparse.Namespace) -> dict:
+    """Figure options: section 'graphics' of the config, then options."""
+    section = _graphics_section(args.config)
+    values = _toggle(section.get("singular_values", {}))
+    shape = _toggle(section.get("mode_shape", {}))
+
+    return {
+        "singular_values": _pick(args.plot_singular_values,
+                                 bool(values.get("enabled", False))),
+        "count": _pick(args.count, values.get("count", 3)),
+        "mode_shape": _pick(args.plot_mode_shape,
+                            bool(shape.get("enabled", False))),
+        "along": _pick(args.along, shape.get("along")),
+        "mac": _pick(args.plot_mac, bool(section.get("mac", False))),
+        "efdd": _pick(args.plot_efdd, bool(section.get("efdd", False))),
+        **_saving(args, section),
+    }
+
+
+def _fdd_figures(result: FDDResult, modes: list, options: dict) -> list:
+    """Draw the requested figures of the FDD; return the files written."""
+    wanted = [
+        name for name in ("singular_values", "mode_shape", "mac", "efdd")
+        if options[name]
+    ]
+
+    if not wanted:
+        return []
+
+    if set(wanted) & {"mode_shape", "mac", "efdd"} and not modes:
+        raise ValueError("the figures of the modes need peaks or --modes")
+
+    if "efdd" in wanted and modes[0].efdd is None:
+        raise ValueError("the EFDD figure needs --efdd")
+
+    _check_saving(options)
+
+    from shakelab.graphics import yarray as graphics
+
+    figures = []
+
+    if "singular_values" in wanted:
+        figure, _ = graphics.plot_singular_values(result,
+                                                  count=options["count"])
+        figures.append((figure, "singular_values"))
+
+    if "mode_shape" in wanted:
+        for mode in modes:
+            figure, _ = graphics.plot_mode_shape(mode,
+                                                 along=options["along"])
+            figures.append((figure, f"mode_shape_f{mode.frequency:.4g}"))
+
+    if "mac" in wanted:
+        figures.append((graphics.plot_mac(modes)[0], "mac"))
+
+    if "efdd" in wanted:
+        for mode in modes:
+            figure, _ = graphics.plot_efdd(mode)
+            figures.append((figure, f"efdd_f{mode.frequency:.4g}"))
+
+    return _output_figures(figures, options)
+
+
+# ----------------------------------------------------------------------------
+# Figures
+# ----------------------------------------------------------------------------
+
+
+def _graphics_section(path: Optional[Path]) -> dict:
+    """Section 'graphics' of a configuration file (empty if none)."""
+    if path is None or not path.is_file():
+        return {}
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    if not isinstance(data, Mapping):
+        return {}
+
+    return dict(data.get("graphics", {}))
+
+
+def _toggle(value: Any) -> dict:
+    """A figure entry of the section: a flag or a dictionary."""
+    return {"enabled": value} if isinstance(value, bool) else dict(value)
+
+
+def _pick(value: Any, default: Any) -> Any:
+    """The command-line value, or the default when it is not given."""
+    return default if value is None else value
+
+
+def _saving(args: argparse.Namespace, section: Mapping) -> dict:
+    """Options to show and save the figures."""
+    save = _toggle(section.get("save", {}))
+    directory = _pick(args.save_figures, save.get("directory"))
+
+    return {
+        "show": _pick(args.show, bool(section.get("show", False))),
+        "directory": None if directory is None else Path(directory),
+        "save": args.save_figures is not None or bool(
+            save.get("enabled", directory is not None)
+        ),
+        "format": _pick(args.figure_format, save.get("format", "png")),
+        "dpi": _pick(args.dpi, save.get("dpi", 150)),
+    }
+
+
+def _check_saving(options: dict) -> None:
+    """Refuse saving without a folder."""
+    if options["save"] and options["directory"] is None:
+        raise ValueError("saving figures needs --save-figures DIR")
+
+
+def _output_figures(figures: list, options: dict) -> list:
+    """Save, show and close figures ``(figure, stem)``; return the files."""
+    from shakelab.graphics import yarray as graphics
+
+    plt = graphics._pyplot()
     written = []
 
     if options["save"]:
@@ -479,77 +858,6 @@ def _figures(result: Any, options: dict) -> list:
 # ----------------------------------------------------------------------------
 # Array response
 # ----------------------------------------------------------------------------
-
-
-_RESPONSE_FIGURES = ("geometry", "response", "resolution", "velocity",
-                     "search_domain")
-
-
-def _response_parser(prog: Optional[str]) -> argparse.ArgumentParser:
-    """Build the argument parser of the response analysis."""
-    parser = argparse.ArgumentParser(
-        prog=f"{prog or 'slab-yarray'} response",
-        description="Geometric response and limits of a seismic array.",
-    )
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--input", type=Path,
-                        help="array file (JSON) with coordinates and files")
-    source.add_argument("--data", nargs="+",
-                        help="waveform files, patterns or folders")
-    source.add_argument(
-        "--coordinates", type=Path,
-        help="text file of station coordinates: lines 'x y [z]' or "
-        "'name x y [z]' (comma or space separated, '#' comments)",
-    )
-
-    data = parser.add_argument_group("data (with --data)")
-    data.add_argument("--metadata", nargs="+",
-                      help="metadata files (positions, orientations)")
-    data.add_argument("--select", help="channel pattern NET.STA.LOC.CHA")
-    data.add_argument("--start", help="start time (ISO 8601)")
-    data.add_argument("--end", help="end time (ISO 8601)")
-
-    analysis = parser.add_argument_group("analysis")
-    analysis.add_argument("--resolution-level", type=float, default=0.5,
-                          help="relative power of the main lobe (0.5)")
-    analysis.add_argument("--ambiguity-level", type=float, default=0.5,
-                          help="relative power of the ambiguities (0.5)")
-    analysis.add_argument("--expected", action="store_true",
-                          help="response expected under the coordinate "
-                          "uncertainties of the array")
-    analysis.add_argument("--grid-max", type=float,
-                          help="extent of the wavenumber grid (automatic)")
-    analysis.add_argument("--grid-size", type=int,
-                          help="odd samples per axis of the grid "
-                          "(automatic)")
-    analysis.add_argument("--frequencies", type=float, nargs="+",
-                          help="frequencies of the velocity limits (Hz)")
-    analysis.add_argument("--fmin", type=float, help="minimum frequency")
-    analysis.add_argument("--fmax", type=float, help="maximum frequency")
-    analysis.add_argument("--nfreq", type=int, default=30,
-                          help="number of log-spaced frequencies (30)")
-    analysis.add_argument("--search-max", type=float,
-                          help="radius of a circular search domain to check")
-
-    figures = parser.add_argument_group("figures")
-
-    for name in _RESPONSE_FIGURES:
-        flag = name.replace("_", "-")
-        figures.add_argument(f"--plot-{flag}", action="store_true",
-                             help=f"{name.replace('_', ' ')} figure")
-
-    figures.add_argument("--plot-all", action="store_true",
-                         help="all the figures available")
-    figures.add_argument("--show", action="store_true",
-                         help="show the figures")
-    figures.add_argument("--save-figures", type=Path,
-                         help="folder of the figure files")
-    figures.add_argument("--figure-format", default="png",
-                         help="image format (png)")
-    figures.add_argument("--dpi", type=int, default=150,
-                         help="resolution (150)")
-
-    return parser
 
 
 def _read_coordinates(path: Path) -> tuple:
@@ -670,13 +978,15 @@ def _response_figures(args: argparse.Namespace, wanted: list,
     if not wanted:
         return []
 
+    options = _saving(args, {})
+    _check_saving(options)
+
     from shakelab.graphics import yarray as graphics
 
-    plt = graphics._pyplot()
     figures = []
 
     if "geometry" in wanted:
-        figure, axis = graphics.plot_array_geometry(
+        figure, _ = graphics.plot_array_geometry(
             analysis.response, labels=names
         )
         figures.append((figure, "array_geometry"))
@@ -697,23 +1007,12 @@ def _response_figures(args: argparse.Namespace, wanted: list,
         figures.append((graphics.plot_search_domain(analysis, domain)[0],
                         "search_domain"))
 
-    written = []
+    return _output_figures(figures, options)
 
-    if args.save_figures is not None:
-        args.save_figures.mkdir(parents=True, exist_ok=True)
 
-        for figure, stem in figures:
-            path = args.save_figures / f"{stem}.{args.figure_format}"
-            figure.savefig(path, dpi=args.dpi, bbox_inches="tight")
-            written.append(path)
-
-    if args.show:
-        plt.show()
-
-    for figure, _ in figures:
-        plt.close(figure)
-
-    return written
+# ----------------------------------------------------------------------------
+# Warnings
+# ----------------------------------------------------------------------------
 
 
 def _show_warning(message: Any, category: Any, *args: Any,
