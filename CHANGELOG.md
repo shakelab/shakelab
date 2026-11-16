@@ -9,6 +9,13 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: READMEs of `signals` (overview, quick start, common
+  tasks, command line, formats, structure, conventions), of
+  `signals/libio` (with the common scheme of the format modules and
+  how to add a format), of `signals/seedlink` and of `signals/fdsnws`;
+  docstrings of the packages `shakelab.signals` and
+  `shakelab.signals.libio`, which replace the placeholder files (the
+  stray attribute `shakelab.signals.name` is removed).
 - `exploration.yarray`: `slab-yarray` has three symmetric subcommands,
   `beamforming`, `fdd` and `response`; the beamforming, run before
   without a subcommand, is now `slab-yarray beamforming` (a subcommand
