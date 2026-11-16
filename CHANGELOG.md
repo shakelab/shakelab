@@ -9,6 +9,12 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: guide to channel metadata and instrument responses
+  (`docs/signals/response.md`: stages and their conventions,
+  normalization, digital stages and time corrections, water level,
+  prefilter and padding, metadata collections and epochs, correction
+  of data, validation against evalresp), with six figures
+  (`docs/figures/scripts/signals_response.py`).
 - Documentation: entry point `docs/README.md` (ideas behind ShakeLab,
   subpackages, map of the documentation), overviews of `signals` and
   `exploration` (`docs/signals/signals.md`,
@@ -16,7 +22,8 @@ corrections. The format follows
   of every document; figures of the guides in `docs/figures/`, made by
   the scripts in `docs/figures/scripts/` (`make_figures.py`) from the
   test data, the first six in the waveforms guide; organization of
-  `docs/` and figures in `docs/development.md` §23 (version 2.5).
+  `docs/` and figures in `docs/development.md` §23 (version 2.5; figures
+  are didactic, version 2.6).
 - Documentation: guide to the waveform containers of `signals`
   (`docs/signals/waveforms.md`: time and sampling, records, streams and
   collections, tolerances, views and copies, processing, workflows,

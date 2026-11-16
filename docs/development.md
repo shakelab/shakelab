@@ -1,6 +1,6 @@
 # ShakeLab development and architecture guidelines
 
-*Version 2.5, 16 November 2026*
+*Version 2.6, 16 November 2026*
 
 [ShakeLab documentation](README.md) › Development guidelines
 
@@ -615,8 +615,11 @@ to READMEs or guides.
 #### Figures
 
 Figures support the explanations that need a picture (waveforms,
-filters, spectra, spectrograms, array responses). They are
-reproducible:
+filters, spectra, spectrograms, array responses). They are didactic:
+each shows the user what a concept, a method or an option does, or
+when to choose one over another; comparisons that a sentence or a
+table states as well (for example a numerical agreement with a
+reference implementation) stay in the text. They are reproducible:
 
 - the images are in `docs/figures/`, organized as the guides
   (`docs/figures/signals/waveforms_filters.png`), and are committed;
