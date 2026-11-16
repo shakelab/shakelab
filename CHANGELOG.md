@@ -9,6 +9,23 @@ corrections. The format follows
 
 ### Changed
 
+- `exploration.yarray`: `ArrayMonitor` is now the base of the
+  real-time monitors and is not used directly (TypeError);
+  `BeamformingMonitor(config, window, ...)` is the former
+  `ArrayMonitor`, with the same options. The worker thread is named
+  after the class.
+- `exploration.yarray`: station positions are optional. `StationData`
+  takes `coordinates=None` (a coordinate covariance or a location then
+  is an error) and has `has_position`; `ArrayData.add` adds the
+  stations without metadata location or explicit coordinates without
+  a position, instead of raising; `ArrayData.has_positions` is new and
+  `ArrayData.coordinates` raises ValueError if a position is unknown.
+  `Beamformer.process`, `ArrayGeometry` and `ArrayResponse` need every
+  position (ValueError naming the stations); the FDD does not, and
+  writes NaN coordinates for the channels without a position. In the
+  array file `coordinates` is optional. `set_reference` leaves the
+  stations without a position unchanged.
+
 - Documentation: the equations of the YARRAY guide are written in
   LaTeX and rendered by GitHub (displayed `math` blocks and inline
   symbols; vectors and matrices in Unicode bold, which GitHub shows
@@ -440,6 +457,14 @@ corrections. The format follows
 
 ### Added
 
+- `exploration.yarray.FDDMonitor(config, window, stations=None,
+  gaps="raise", ...)`: periodic frequency domain decomposition of the
+  data of a SeedLink client, with the options and queries of the
+  beamforming monitor (`result()` joins `FDDResult`). Results join only
+  with the same channels: the monitor processes the stations given in
+  `stations` (in that order) or those of its first result, ignores the
+  others and skips the windows in which one of them is missing or, with
+  the default `gaps="raise"`, has gaps; `FDDMonitor.stations`.
 - `exploration.yarray`: frequency domain decomposition (FDD), new
   module `fdd`. `FDDConfig` (same frequencies and windows as
   `BeamformingConfig`, plus `subfrequencies`, `bandwidth`,

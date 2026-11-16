@@ -79,7 +79,11 @@ from shakelab.exploration.yarray.fdd import (
     Mode,
     mac,
 )
-from shakelab.exploration.yarray.monitor import ArrayMonitor
+from shakelab.exploration.yarray.monitor import (
+    ArrayMonitor,
+    BeamformingMonitor,
+    FDDMonitor,
+)
 from shakelab.exploration.yarray.operational import OperationalAssessment
 from shakelab.exploration.yarray.performance import (
     PerformanceResult,
@@ -101,12 +105,14 @@ __all__ = [
     "ArrayResponse",
     "Beamformer",
     "BeamformingConfig",
+    "BeamformingMonitor",
     "BeamformingResult",
     "BeamformingWarning",
     "DispersionCurve",
     "EllipticityGrid",
     "FDD",
     "FDDConfig",
+    "FDDMonitor",
     "FDDResult",
     "FDDWarning",
     "FrequencyConfig",

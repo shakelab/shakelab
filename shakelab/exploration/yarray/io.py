@@ -56,7 +56,9 @@ Version 1, a JSON object::
     }
 
 Coordinates are East, North[, Up] in metres (a list or an object
-``x``, ``y``, ``z``); the optional ``reference`` is the geographic
+``x``, ``y``, ``z``); a station without ``coordinates`` has no position
+(enough for the frequency domain decomposition, not for the
+wavenumber methods). The optional ``reference`` is the geographic
 position (longitude, latitude[, elevation in m]) of their origin.
 Component names Z, N, E (also UP, VERTICAL, NORTH, EAST, X, Y and, as
 in the ArrayTool3C file lists, 1, 2, 3 for E, N, Z) imply the
@@ -302,7 +304,10 @@ def _read_station(
     return StationData(
         sid=sid.strip(),
         records=[rec.extract(start, end) for rec in records],
-        coordinates=_coordinates(entry.get("coordinates"), context),
+        coordinates=(
+            None if entry.get("coordinates") is None
+            else _coordinates(entry["coordinates"], context)
+        ),
         orientation=[item[3] for item in items],
         coordinate_covariance=entry.get("coordinate_covariance"),
     )

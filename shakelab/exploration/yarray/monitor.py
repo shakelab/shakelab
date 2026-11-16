@@ -20,8 +20,8 @@
 """
 Real-time array processing.
 
-An :class:`ArrayMonitor` processes, at regular intervals, the latest
-data of an array arriving through the SeedLink client
+A monitor processes, at regular intervals, the latest data of an array
+arriving through the SeedLink client
 (:mod:`shakelab.signals.seedlink`). It is a function of the client,
 called by :meth:`Client.every <shakelab.signals.seedlink.Client.every>`:
 
@@ -30,11 +30,18 @@ called by :meth:`Client.every <shakelab.signals.seedlink.Client.every>`:
     client = seedlink.Client("server", metadata=meta)
     client.select("XX.A*..HH?")
     client.set_buffer(max_duration=900)
-    monitor = ArrayMonitor(config, window=600)
+    monitor = BeamformingMonitor(config, window=600)
     client.every(600, monitor)
     client.start()
     ...
     monitor.status(), monitor.latest(), monitor.result(start, end)
+
+There is one monitor for each processing: :class:`BeamformingMonitor`
+(:class:`~.beamforming.Beamformer`, results
+:class:`~.beamforming.BeamformingResult`) and :class:`FDDMonitor`
+(:class:`~.fdd.FDD`, results :class:`~.fdd.FDDResult`). Both derive
+from :class:`ArrayMonitor`, which holds the buffer window, the worker
+thread, the callbacks and the queries, and is not used directly.
 
 Design choices
 --------------
@@ -44,18 +51,26 @@ monitor only copies the data of the buffer
 (:meth:`Client.get_data`) and queues them; the processing runs in a
 worker thread of the monitor. The queue is short (one pending analysis
 by default): when the processing is slower than the calls, the oldest
-pending analysis is dropped and reported (:meth:`on_skip`), so that
-the monitor never accumulates delay. With ``background=False`` the
-processing runs in the call itself (light configurations, tests,
+pending analysis is dropped and reported (:meth:`ArrayMonitor.on_skip`),
+so that the monitor never accumulates delay. With ``background=False``
+the processing runs in the call itself (light configurations, tests,
 replays of archives with ``clock="data"``).
 
-All the query methods (:meth:`status`, :meth:`latest`, :meth:`results`,
-:meth:`result`, :meth:`array`) can be called from any thread while the
-monitor runs: they return copies.
+All the query methods (:meth:`~ArrayMonitor.status`,
+:meth:`~ArrayMonitor.latest`, :meth:`~ArrayMonitor.results`,
+:meth:`~ArrayMonitor.result`, :meth:`~ArrayMonitor.array`) can be
+called from any thread while the monitor runs: they return copies.
 
 Windows whose data cannot be processed (no data, too few stations,
-too short, singular matrices) are skipped and reported; other errors
-stop the worker, are logged and raised again by :meth:`close`.
+too short, singular matrices, unknown positions for the beamforming)
+are skipped and reported; other errors stop the worker, are logged and
+raised again by :meth:`~ArrayMonitor.close`.
+
+The results of a frequency domain decomposition can be joined only
+when they have the same channels: an :class:`FDDMonitor` keeps the
+stations of its first result (or those given with ``stations``) and
+skips the windows in which one of them is missing; by default it also
+skips the windows in which a station has gaps (``gaps="raise"``).
 """
 
 from __future__ import annotations
@@ -65,7 +80,7 @@ import queue
 import threading
 import time
 from collections import deque
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 import numpy as np
 
@@ -74,10 +89,11 @@ from shakelab.exploration.yarray.beamforming import (
     BeamformingResult,
 )
 from shakelab.exploration.yarray.data import ArrayData
+from shakelab.exploration.yarray.fdd import FDD, FDDResult
 from shakelab.libutils.timeN import Date
 from shakelab.signals.base import StreamCollection
 
-__all__ = ["ArrayMonitor"]
+__all__ = ["ArrayMonitor", "BeamformingMonitor", "FDDMonitor"]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,13 +101,21 @@ _LOGGER = logging.getLogger(__name__)
 _SKIPPED_ERRORS = (ValueError, np.linalg.LinAlgError)
 
 
+# ----------------------------------------------------------------------------
+# Base monitor
+# ----------------------------------------------------------------------------
+
+
 class ArrayMonitor:
     """
     Periodic array processing of the data of a SeedLink client.
 
+    Base of :class:`BeamformingMonitor` and :class:`FDDMonitor`, which
+    are the classes to use; the parameters below are common to both.
+
     Parameters
     ----------
-    config : BeamformingConfig, str or path-like
+    config : configuration, str or path-like
         Configuration of the processing of each window, or a JSON file
         (the monitor keeps a copy).
     window : float
@@ -101,13 +125,13 @@ class ArrayMonitor:
         Channels of the buffer (patterns ``NET.STA.LOC.CHA``). Default:
         every channel.
     gaps : {"drop", "raise"}, optional
-        Stations with gaps in the window: excluded (default) or the
-        window is skipped.
+        Stations with gaps in the window: excluded, or the window is
+        skipped.
     min_stations : int, optional
         Fewest stations for an analysis. Default is 3.
     output : str or path-like, optional
-        File to which each result is appended (see
-        :meth:`BeamformingResult.write`).
+        File to which each result is appended (see the ``write``
+        method of the results).
     keep : int, optional
         Results kept in memory (the latest). Default: all.
     background : bool, optional
@@ -121,11 +145,15 @@ class ArrayMonitor:
     Raises
     ------
     TypeError
-        If ``config`` is neither a configuration nor a file.
+        If the class is used directly, or ``config`` is neither a
+        configuration nor a file.
     ValueError
         If the configuration is incomplete, or ``window``,
         ``min_stations``, ``keep`` or ``queue_size`` are not positive.
     """
+
+    # Class of the results (set by the derived classes).
+    _result_type: type = type(None)
 
     def __init__(
         self,
@@ -143,8 +171,14 @@ class ArrayMonitor:
         orientations: Any = None,
         coordinate_covariance: Any = None,
     ) -> None:
-        beamformer = Beamformer(config=config, cache=True)
-        beamformer.config.check_complete()
+        if type(self) is ArrayMonitor:
+            raise TypeError(
+                "ArrayMonitor is the base of the monitors: use "
+                "BeamformingMonitor or FDDMonitor"
+            )
+
+        processor = self._processor_for(config)
+        processor.config.check_complete()
 
         if not float(window) > 0.0:
             raise ValueError("window must be positive")
@@ -155,7 +189,10 @@ class ArrayMonitor:
             if int(value) < 1:
                 raise ValueError(f"{name} must be at least 1")
 
-        self._beamformer = beamformer
+        if gaps not in ("drop", "raise"):
+            raise ValueError("gaps must be 'drop' or 'raise'")
+
+        self._processor = processor
         self.window = float(window)
         self.select = select
         self.gaps = gaps
@@ -181,7 +218,7 @@ class ArrayMonitor:
 
     def __repr__(self) -> str:
         return (
-            f"ArrayMonitor(window={self.window:g} s, "
+            f"{type(self).__name__}(window={self.window:g} s, "
             f"{self._counts['analyses']} analyses)"
         )
 
@@ -304,7 +341,7 @@ class ArrayMonitor:
         collection: StreamCollection,
         starttime: Any = None,
         endtime: Any = None,
-    ) -> Optional[BeamformingResult]:
+    ) -> Any:
         """
         Process a window of data now, in the calling thread.
 
@@ -318,7 +355,7 @@ class ArrayMonitor:
 
         Returns
         -------
-        BeamformingResult or None
+        BeamformingResult, FDDResult or None
             Result, or None if the window was skipped.
         """
         if starttime is None or endtime is None:
@@ -331,32 +368,39 @@ class ArrayMonitor:
             starttime, endtime = window
 
         begin = time.perf_counter()
+        label = f"window {starttime} - {endtime}"
 
         try:
             array = ArrayData(
-                collection, select=self.select, starttime=starttime,
-                endtime=endtime, gaps=self.gaps, **self._array_options,
+                self._waveforms(collection), select=self.select,
+                starttime=starttime, endtime=endtime, gaps=self.gaps,
+                **self._array_options,
             )
 
             if array.nsta < self.min_stations:
                 self._skip(
-                    f"window {starttime} - {endtime}: {array.nsta} "
-                    f"stations (at least {self.min_stations} required)"
+                    f"{label}: {array.nsta} stations (at least "
+                    f"{self.min_stations} required)"
                 )
                 return None
 
-            self._beamformer.array = array
-            result = self._beamformer.process(gaps=self.gaps)
+            array, reason = self._prepare(array)
+
+            if reason is not None:
+                self._skip(f"{label}: {reason}")
+                return None
+
+            self._processor.array = array
+            result = self._processor.process(gaps=self.gaps)
 
         except _SKIPPED_ERRORS as error:
-            self._skip(f"window {starttime} - {endtime}: {error}")
+            self._skip(f"{label}: {error}")
             return None
 
-        if not any(result.block_times.values()):
-            self._skip(
-                f"window {starttime} - {endtime}: too short for one "
-                "covariance block"
-            )
+        reason = self._check(result)
+
+        if reason is not None:
+            self._skip(f"{label}: {reason}")
             return None
 
         if self.output is not None:
@@ -372,6 +416,8 @@ class ArrayMonitor:
                 "stations": array.nsta,
                 "excluded": array.excluded,
             }
+
+        self._accepted(result)
 
         for func in self._on_result:
             func(self, result)
@@ -413,7 +459,7 @@ class ArrayMonitor:
     @property
     def config(self) -> Any:
         """Copy of the configuration of the processing."""
-        return self._beamformer.config.copy()
+        return self._processor.config.copy()
 
     @property
     def running(self) -> bool:
@@ -444,13 +490,13 @@ class ArrayMonitor:
                 "error": None if self._error is None else str(self._error),
             }
 
-    def latest(self) -> Optional[BeamformingResult]:
+    def latest(self) -> Any:
         """
         Return the latest result.
 
         Returns
         -------
-        BeamformingResult or None
+        BeamformingResult, FDDResult or None
             Latest result, None before the first analysis.
         """
         with self._lock:
@@ -469,7 +515,7 @@ class ArrayMonitor:
 
         Returns
         -------
-        list of BeamformingResult
+        list
             Results in time order of the analyses.
         """
         start = None if starttime is None else Date(starttime)
@@ -484,11 +530,7 @@ class ArrayMonitor:
             and (end is None or first <= end)
         ]
 
-    def result(
-        self,
-        starttime: Any = None,
-        endtime: Any = None,
-    ) -> Optional[BeamformingResult]:
+    def result(self, starttime: Any = None, endtime: Any = None) -> Any:
         """
         Return the results kept, joined into one.
 
@@ -499,8 +541,8 @@ class ArrayMonitor:
 
         Returns
         -------
-        BeamformingResult or None
-            Joined result (:meth:`BeamformingResult.append`), None if
+        BeamformingResult, FDDResult or None
+            Joined result (``append`` method of the results), None if
             there is none.
         """
         items = self.results(starttime, endtime)
@@ -508,7 +550,7 @@ class ArrayMonitor:
         if not items:
             return None
 
-        joined = BeamformingResult()
+        joined = self._result_type()
         joined.append(items)
         return joined
 
@@ -525,6 +567,27 @@ class ArrayMonitor:
             array = self._array
 
         return None if array is None else array.copy()
+
+    # -- processing steps (derived classes) --------------------------------
+
+    def _processor_for(self, config: Any) -> Any:
+        """Processor of the monitor, with a copy of the configuration."""
+        raise NotImplementedError
+
+    def _waveforms(self, collection: StreamCollection) -> Any:
+        """Waveforms of the buffer to process."""
+        return collection
+
+    def _prepare(self, array: ArrayData) -> tuple:
+        """Array to process and the reason to skip it (or None)."""
+        return array, None
+
+    def _check(self, result: Any) -> Optional[str]:
+        """Reason to skip a result (None to accept it)."""
+        return None
+
+    def _accepted(self, result: Any) -> None:
+        """Record an accepted result."""
 
     # -- helpers -----------------------------------------------------------
 
@@ -555,7 +618,7 @@ class ArrayMonitor:
         """Start the worker thread if needed."""
         if self._thread is None or not self._thread.is_alive():
             self._thread = threading.Thread(
-                target=self._work, name="ArrayMonitor", daemon=True
+                target=self._work, name=type(self).__name__, daemon=True
             )
             self._thread.start()
 
@@ -585,3 +648,215 @@ class ArrayMonitor:
             raise RuntimeError(
                 f"the array monitor stopped: {self._error}"
             ) from self._error
+
+
+# ----------------------------------------------------------------------------
+# Beamforming monitor
+# ----------------------------------------------------------------------------
+
+
+class BeamformingMonitor(ArrayMonitor):
+    """
+    Periodic beamforming of the data of a SeedLink client.
+
+    Each window is processed by a :class:`~.beamforming.Beamformer`
+    (with the cache of the steering vectors); the results are
+    :class:`~.beamforming.BeamformingResult`. The positions of the
+    stations are required: windows with stations of unknown position
+    are skipped.
+
+    Parameters
+    ----------
+    config : BeamformingConfig, str or path-like
+        Configuration of the beamforming, or a JSON file (the monitor
+        keeps a copy).
+    window : float
+        Duration of the analysed data, in seconds.
+    **options
+        Options of :class:`ArrayMonitor` (``select``, ``gaps``, default
+        ``"drop"``, ``min_stations``, ``output``, ``keep``,
+        ``background``, ``queue_size``, ``coordinates``,
+        ``reference``, ``orientations``, ``coordinate_covariance``).
+
+    Raises
+    ------
+    TypeError
+        If ``config`` is neither a BeamformingConfig nor a file.
+    ValueError
+        If the configuration is incomplete or an option is invalid.
+
+    Examples
+    --------
+    >>> monitor = BeamformingMonitor(config, window=600, output="bf.pkl")
+    >>> client.every(600, monitor)
+    """
+
+    _result_type = BeamformingResult
+
+    def __init__(self, config: Any, window: float, **options: Any) -> None:
+        super().__init__(config, window, **options)
+
+    def _processor_for(self, config: Any) -> Beamformer:
+        """Beamformer with a copy of the configuration."""
+        return Beamformer(config=config, cache=True)
+
+    def _check(self, result: BeamformingResult) -> Optional[str]:
+        """Skip the windows too short for one covariance block."""
+        if not any(result.block_times.values()):
+            return "too short for one covariance block"
+
+        return None
+
+
+# ----------------------------------------------------------------------------
+# FDD monitor
+# ----------------------------------------------------------------------------
+
+
+class FDDMonitor(ArrayMonitor):
+    """
+    Periodic frequency domain decomposition of the data of a client.
+
+    Each window is processed by an :class:`~.fdd.FDD`; the results are
+    :class:`~.fdd.FDDResult`. Results can be joined (:meth:`result`, the
+    ``output`` file) only with the same channels: the monitor processes
+    always the same stations, those given with ``stations`` or else
+    those of its first result. Other stations of the buffer are
+    ignored; a window in which one of them is missing (or, with the
+    default ``gaps="raise"``, has gaps) is skipped. Positions are not
+    required.
+
+    Parameters
+    ----------
+    config : FDDConfig, str or path-like
+        Configuration of the decomposition, or a JSON file (the monitor
+        keeps a copy).
+    window : float
+        Duration of the analysed data, in seconds.
+    stations : str or sequence of str, optional
+        Stations to process (``NET.STA.LOC``), in this order. Default:
+        those of the first result.
+    gaps : {"raise", "drop"}, optional
+        Stations with gaps in the window: the window is skipped
+        (default) or they are excluded (then the window is skipped
+        anyway if they are among the stations processed).
+    **options
+        Other options of :class:`ArrayMonitor` (``select``,
+        ``min_stations``, ``output``, ``keep``, ``background``,
+        ``queue_size``, ``coordinates``, ``reference``,
+        ``orientations``, ``coordinate_covariance``).
+
+    Raises
+    ------
+    TypeError
+        If ``config`` is neither an FDDConfig nor a file, or
+        ``stations`` is not a string or a sequence of strings.
+    ValueError
+        If the configuration is incomplete, an option is invalid or
+        ``stations`` is empty, has an empty name or repeats a station.
+
+    Examples
+    --------
+    >>> monitor = FDDMonitor(config, window=1800, output="fdd.pkl")
+    >>> client.every(300, monitor)
+    >>> monitor.result().mode(1.2).info()
+    """
+
+    _result_type = FDDResult
+
+    def __init__(
+        self,
+        config: Any,
+        window: float,
+        stations: Union[str, Any, None] = None,
+        gaps: str = "raise",
+        **options: Any,
+    ) -> None:
+        super().__init__(config, window, gaps=gaps, **options)
+        self._stations: Optional[tuple] = None
+
+        if stations is not None:
+            if isinstance(stations, str):
+                stations = [stations]
+
+            try:
+                stations = tuple(stations)
+            except TypeError:
+                raise TypeError(
+                    "stations must be a string or a sequence of strings"
+                ) from None
+
+            if not all(isinstance(sid, str) for sid in stations):
+                raise TypeError(
+                    "stations must be a string or a sequence of strings"
+                )
+
+            stations = tuple(sid.strip() for sid in stations)
+
+            if (
+                not stations or not all(stations)
+                or len(set(stations)) != len(stations)
+            ):
+                raise ValueError(
+                    "stations must be non-empty and without repetitions"
+                )
+
+            self._stations = stations
+
+    @property
+    def stations(self) -> Optional[tuple[str, ...]]:
+        """Stations processed (None before the first result)."""
+        with self._lock:
+            return self._stations
+
+    def _processor_for(self, config: Any) -> FDD:
+        """FDD processor with a copy of the configuration."""
+        return FDD(config=config)
+
+    def _waveforms(self, collection: StreamCollection) -> Any:
+        """Records of the stations processed (all before the first)."""
+        stations = self.stations
+
+        if stations is None:
+            return collection
+
+        wanted = set(stations)
+        return [
+            record for stream in collection
+            if stream.sid is not None
+            and stream.sid.rsplit(".", 1)[0] in wanted
+            for record in stream.records()
+        ]
+
+    def _prepare(self, array: ArrayData) -> tuple:
+        """Array of the stations processed, in their order."""
+        stations = self.stations
+
+        if stations is None:
+            return array, None
+
+        missing = [sid for sid in stations if sid not in array]
+
+        if missing:
+            return array, (
+                "stations " + ", ".join(missing) + " missing (the "
+                "results keep the same stations)"
+            )
+
+        if array.sids == stations:
+            return array, None
+
+        return array._derived([array[sid] for sid in stations], []), None
+
+    def _check(self, result: FDDResult) -> Optional[str]:
+        """Skip the windows too short for one block."""
+        if not result.nblocks:
+            return "too short for one block"
+
+        return None
+
+    def _accepted(self, result: FDDResult) -> None:
+        """Keep the stations of the first result."""
+        with self._lock:
+            if self._stations is None:
+                self._stations = tuple(dict.fromkeys(result.stations))

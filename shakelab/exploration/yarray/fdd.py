@@ -218,7 +218,7 @@ class Mode:
         Component of each channel.
     coordinates : numpy.ndarray
         Position ``(n_channels, 3)`` of each channel in metres (East,
-        North, Up).
+        North, Up); NaN for stations without a position.
     damping : float or None
         Damping ratio (None: not estimated).
     method : str
@@ -316,7 +316,8 @@ class FDDResult:
     components : tuple of str
         Component of each channel.
     coordinates : numpy.ndarray
-        Position ``(n_channels, 3)`` of each channel in metres.
+        Position ``(n_channels, 3)`` of each channel in metres; NaN for
+        stations without a position.
     units : str or None
         Units of the data (None if unknown).
 
@@ -815,7 +816,8 @@ def _check_compatible(
                                                other.components):
         raise ValueError(context + "the results have different channels")
 
-    if not np.allclose(first.coordinates, other.coordinates):
+    if not np.allclose(first.coordinates, other.coordinates,
+                       equal_nan=True):
         raise ValueError(
             context + "the results have different station coordinates"
         )
@@ -978,7 +980,10 @@ class FDD:
         nsta, ncomp, nsamp = motion.shape
         stations = tuple(sid for sid in array.sids for _ in names)
         components = names * nsta
-        coordinates = np.repeat(array.coordinates, ncomp, axis=0)
+        coordinates = np.repeat(np.stack([
+            st.coordinates if st.has_position else np.full(3, np.nan)
+            for st in array
+        ]), ncomp, axis=0)
         delta = array.delta
         frequency = _frequencies(config, delta)
         window = config.window

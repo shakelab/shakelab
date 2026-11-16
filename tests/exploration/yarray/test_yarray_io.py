@@ -139,6 +139,18 @@ def test_invalid_array_files(tmp_path, change, error, match):
         read_array(_edited(tmp_path, change))
 
 
+def test_array_file_without_coordinates(tmp_path):
+    """A station of the array file may have no position."""
+    def change(data):
+        del data["stations"][0]["coordinates"]
+
+    array = read_array(_edited(tmp_path, change))
+
+    assert not array["S1001"].has_position
+    assert array["S1002"].has_position
+    assert not array.has_positions
+
+
 def test_reference_of_the_array_file(tmp_path):
     """The reference of the file is the origin of the local frame."""
     path = _edited(tmp_path, lambda d: d.update(reference=[13.25, 46.06]))

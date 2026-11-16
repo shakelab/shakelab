@@ -123,6 +123,11 @@ array = ArrayData(data, coordinates={"XX.A01.": (0.0, 0.0),
                                      "XX.A02.": (25.0, -10.0)})
 ```
 
+Stations whose position is neither in the metadata nor given are added
+without one. The frequency domain decomposition works without
+positions; beamforming and the array response need them all and say
+which are missing (`array.has_positions` checks it in advance).
+
 **From an array file.** For data without usable metadata, such as SAC
 files of a temporary survey, a JSON array file lists the stations,
 their local coordinates and the waveform file of each component:
@@ -293,7 +298,7 @@ those of the beamforming.
 ### 3.6 Real-time monitoring
 
 During an acquisition, the SeedLink client receives the data in a
-background thread and calls an `ArrayMonitor` at regular intervals.
+background thread and calls a monitor at regular intervals.
 At each call the monitor copies the latest window of data from the
 client buffer and processes it in its own thread, so that the
 reception is never delayed; the results can be queried at any time
@@ -302,13 +307,13 @@ while the acquisition runs, or written to a file:
 ```python
 from shakelab.signals.io import metadata_reader
 from shakelab.signals.seedlink import Client
-from shakelab.exploration.yarray import ArrayMonitor
+from shakelab.exploration.yarray import BeamformingMonitor
 
 client = Client("rtserve.example.org", metadata=metadata_reader("array.xml"))
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=600)
 
-monitor = ArrayMonitor(config, window=300, output="monitor.pkl")
+monitor = BeamformingMonitor(config, window=300, output="monitor.pkl")
 client.every(60, monitor)
 client.start()
 
@@ -321,6 +326,19 @@ processed (`on_skip`), for example because too few stations have data.
 With `clock="data"` the calls follow the time of the data instead of
 the wall clock, which allows to replay an archive through a SeedLink
 server.
+
+The frequency domain decomposition has its own monitor, `FDDMonitor`,
+with the same options and queries. Since its results can be joined
+only when they have the same channels, it always processes the same
+stations, those of its first result or those given in advance, and
+skips the windows in which one of them is missing or has gaps:
+
+```python
+from shakelab.exploration.yarray import FDDMonitor
+
+monitor = FDDMonitor(fdd_config, window=1800, output="fdd.pkl")
+client.every(300, monitor)
+```
 
 ### 3.7 Plan a survey
 
@@ -391,7 +409,7 @@ has a single task:
 | `response` | `ArrayResponse`, `ResponseAnalysis` | array response and limits; entry point of planning |
 | `performance` | `PerformanceResult` | Monte Carlo performance of the estimators |
 | `operational` | `OperationalAssessment` | usable frequency-velocity envelope |
-| `monitor` | `ArrayMonitor` | real-time processing with the SeedLink client |
+| `monitor` | `BeamformingMonitor`, `FDDMonitor` | real-time processing with the SeedLink client |
 | `io` | | array files and result files |
 | `cli` | | the `slab-yarray` command |
 

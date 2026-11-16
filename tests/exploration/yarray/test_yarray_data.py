@@ -473,18 +473,32 @@ def test_from_collection_explicit_coordinates():
     assert array.frame is None
     np.testing.assert_array_equal(array["XX.A03."].coordinates, [0, 10, 0])
 
-    with pytest.raises(ValueError, match="missing"):
-        ArrayData(
-            _array_collection(), coordinates={"XX.A01.": (0, 0)}
-        )
+    partial = ArrayData(
+        _array_collection(), coordinates={"XX.A01.": (0, 0)}
+    )
+
+    assert partial["XX.A01."].has_position
+    assert not partial["XX.A02."].has_position
+    assert not partial.has_positions
 
 
 def test_from_collection_missing_location():
-    """Without metadata or coordinates the positions are unknown."""
+    """
+    Without metadata or coordinates the positions are unknown.
+
+    The stations are added without a position; only the coordinates of
+    the array, needed by the wavenumber methods, are refused.
+    """
     collection = _collection(_station_records("A01"))
+    array = ArrayData(collection)
+
+    assert not array.has_positions
+    assert array["XX.A01."].coordinates is None
+    assert array.frame is None
+    assert "no position" in array.summary()
 
     with pytest.raises(ValueError, match="unknown"):
-        ArrayData(collection)
+        array.coordinates
 
 
 def test_from_collection_station_windows():
@@ -811,3 +825,54 @@ def test_sesame_excerpt():
         array.vertical()[0],
         collection[".S1001..Z"].records()[0].data,
     )
+
+
+# ----------------------------------------------------------------------------
+# Optional positions
+# ----------------------------------------------------------------------------
+
+
+def test_station_without_position():
+    """A station may have no position, but not a covariance alone."""
+    station = StationData("XX.A..", _station_records("A"))
+
+    assert station.coordinates is None
+    assert not station.has_position
+
+    with pytest.raises(ValueError, match="needs coordinates"):
+        StationData("XX.A..", _station_records("A"),
+                    coordinate_covariance=1.0)
+
+
+def test_mixed_positions():
+    """
+    Stations with and without a location share the array.
+
+    The frame comes from the first located station; the stations
+    without a location keep no position, also after set_reference.
+    """
+    records = (
+        _station_records("A01", location=LOCATIONS["A01"])
+        + _station_records("A02")
+        + _station_records("A03", location=LOCATIONS["A03"])
+    )
+    array = ArrayData(_collection(records), coordinate_covariance=0.01)
+
+    assert array.frame.ref_geo == pytest.approx(LOCATIONS["A01"])
+    assert array.sids == ("XX.A01.", "XX.A02.", "XX.A03.")
+    assert not array.has_positions
+    assert array["XX.A02."].coordinate_covariance is None
+    assert array["XX.A03."].coordinate_covariance is not None
+
+    with pytest.raises(ValueError, match="XX.A02."):
+        array.coordinates
+
+    array.set_reference()
+
+    assert not array["XX.A02."].has_position
+    np.testing.assert_allclose(
+        array["XX.A01."].coordinates[:2],
+        -array["XX.A03."].coordinates[:2], atol=0.01,
+    )
+    np.testing.assert_array_equal(array.window().horizontal().shape,
+                                  (3, 2, 500))

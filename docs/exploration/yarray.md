@@ -14,7 +14,7 @@ The same components are used in three ways:
   statistics, `ArrayResponse` for planning);
 - from the **command line** (`slab-yarray`);
 - in **real time**, as a function of the SeedLink client
-  (`ArrayMonitor`).
+  (`BeamformingMonitor`, `FDDMonitor`).
 
 This guide gives the theory (Part I), the use (Part II) and the
 design, validation and limits (Part III). An overview of the package,
@@ -627,6 +627,16 @@ first station added; adding stations does not move it.
 `set_reference(point)` (or `set_reference()`, the mean of the current
 stations) changes it and recomputes the coordinates.
 
+Positions are optional. A station without a metadata location and
+without explicit coordinates (or, in the array file, without
+`coordinates`) is added without a position (`station.has_position`,
+`array.has_positions`). The wavenumber methods need every position:
+`array.coordinates`, the `Beamformer`, `ArrayGeometry` and
+`ArrayResponse` raise a `ValueError` naming the stations without one.
+The frequency domain decomposition does not use them; its results keep
+the positions that are known (NaN for the others), to draw the mode
+shapes on the geometry of the array.
+
 ### Array file
 
 An array file describes an array whose recordings have no usable
@@ -927,14 +937,14 @@ See
 ## 14. Real time
 
 ```python
-from shakelab.exploration.yarray import ArrayMonitor
+from shakelab.exploration.yarray import BeamformingMonitor
 from shakelab.signals.io import metadata_reader
 from shakelab.signals.seedlink import Client
 
 client = Client("server", metadata=metadata_reader("array.xml"))
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=900)
-monitor = ArrayMonitor(config, window=600, output="monitor.pkl")
+monitor = BeamformingMonitor(config, window=600, output="monitor.pkl")
 monitor.on_result(lambda monitor, result: print(result.summary()))
 client.every(600, monitor)        # clock="data" to replay an archive
 client.start()
@@ -960,6 +970,31 @@ to a file (`output`). `background=False` processes in the call;
 object with `get_data(select)` returning a `StreamCollection` can feed
 the monitor. See
 [`12_realtime.py`](../../examples/exploration/yarray/12_realtime.py).
+
+There is one monitor for each processing, with the same options and
+queries: `BeamformingMonitor` (a `Beamformer` with the cache of the
+steering vectors; results `BeamformingResult`) and `FDDMonitor` (an
+`FDD`; results `FDDResult`). Both derive from `ArrayMonitor`, which
+holds the common machinery and is not used directly.
+
+```python
+from shakelab.exploration.yarray import FDDMonitor
+
+monitor = FDDMonitor(config, window=1800, output="fdd.pkl")
+client.every(300, monitor)
+...
+monitor.stations                  # fixed by the first result
+monitor.result().mode(1.2).info()
+```
+
+Results of the decomposition join only with the same channels, so an
+`FDDMonitor` always processes the same stations: those given with
+`stations=[...]` (in that order) or else those of its first result.
+Other stations of the buffer are ignored; a window in which one of
+them is missing is skipped. By default (`gaps="raise"`) a window in
+which one of them has gaps is skipped too, rather than processed
+without it. The stations need no position. See
+[`18_realtime_fdd.py`](../../examples/exploration/yarray/18_realtime_fdd.py).
 
 ## 15. Survey planning
 
@@ -1085,8 +1120,8 @@ much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
 - **One name per parameter.** The parameters of `BeamformingConfig`
   have the names of the command-line options; the grouped objects
   (`WindowConfig`...) are immutable and the configuration changes with
-  `update`, validated as a whole. `Beamformer`, `ArrayMonitor` and the
-  results keep their own copy. Options with fixed values are
+  `update`, validated as a whole. `Beamformer`, `FDD`, the monitors
+  and the results keep their own copy. Options with fixed values are
   enumerations, whose string values are accepted everywhere.
 - **Results for real time.** A result file holds one result, possibly
   written in pieces (`append=True`, with the same configuration); the
@@ -1182,9 +1217,7 @@ Current limitations:
 - Results are stored with pickle, which can run arbitrary code when
   read: read only result files of trusted origin.
 - The FDD gives frequencies limited by the analysis step and the
-  window resolution, and no damping; it needs the position of every
-  station (as the rest of YARRAY), and it has no real-time monitor
-  yet.
+  window resolution, and no damping.
 
 Planned extensions:
 
@@ -1196,8 +1229,7 @@ Planned extensions:
 - Bias correction of Capon, $`(L - n + 1) / L`$, as an option.
 - Enhanced FDD (Brincker, Ventura and Andersen, 2001): damping and
   frequency from the single-degree-of-freedom bell of each mode, on a
-  local spectrum with fixed windows; figures of the FDD; a real-time
-  monitor for the FDD; positions optional for the FDD.
+  local spectrum with fixed windows; figures of the FDD.
 - Multitaper spectral estimates with a rigorous number of degrees of
   freedom; the `CrossSpectra` of the FDD used also by the beamforming
   and by spatial autocorrelation (SPAC).

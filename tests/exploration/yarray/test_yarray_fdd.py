@@ -292,6 +292,37 @@ def test_processor_errors():
         FDD(config={"fmin": 1.0})
 
 
+def test_without_positions():
+    """
+    The decomposition needs no positions.
+
+    The coordinates of the result are NaN for the stations without a
+    position, and such results can still be joined.
+    """
+    motion = _response(duration=300.0)
+    located = _array(motion)
+    stations = list(located)
+    stations[2] = StationData(stations[2].sid, stations[2].records)
+    array = ArrayData(stations)
+    result = FDD(array, _config()).process()
+    reference = FDD(located, _config()).process()
+
+    assert not array.has_positions
+    assert np.isnan(result.coordinates[2]).all()
+    np.testing.assert_array_equal(result.coordinates[[0, 1, 3]],
+                                  reference.coordinates[[0, 1, 3]])
+    np.testing.assert_allclose(
+        result.values[result.frequencies[5]],
+        reference.values[reference.frequencies[5]],
+    )
+
+    joined = result.copy()
+    joined.append(result)
+
+    assert joined.nblocks == 2 * result.nblocks
+    assert np.isnan(result.mode(1.5).coordinates[2]).all()
+
+
 # ----------------------------------------------------------------------------
 # Results
 # ----------------------------------------------------------------------------

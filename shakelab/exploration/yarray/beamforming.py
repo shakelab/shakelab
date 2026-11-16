@@ -1237,8 +1237,9 @@ class Beamformer:
         ------
         ValueError
             If array or configuration are missing or incomplete, the
-            window is invalid, the components are not observable at
-            every station, the coordinate covariances are missing for
+            position of a station is unknown, the window is invalid,
+            the components are not observable at every station, the
+            coordinate covariances are missing for
             the geometric uncertainty, or a block has too few windows
             for the estimator.
 
@@ -1255,6 +1256,7 @@ class Beamformer:
             raise ValueError("the beamformer has no configuration")
 
         self._config.check_complete()
+        _require_positions(self._array, "the beamforming")
         array = self._array.window(starttime, endtime, gaps=gaps)
         steering = None
 
@@ -1271,6 +1273,17 @@ class Beamformer:
             steering = self._cache
 
         return _beamform(array, self._config, steering_cache=steering)
+
+
+def _require_positions(array: ArrayData, method: str) -> None:
+    """Raise if the position of some stations is unknown."""
+    missing = [st.sid for st in array if not st.has_position]
+
+    if missing:
+        raise ValueError(
+            f"{method} needs the station positions; unknown for "
+            + ", ".join(missing) + ": give metadata or coordinates"
+        )
 
 
 def _beamform(

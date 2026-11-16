@@ -684,6 +684,16 @@ def test_beamformer_needs_array_and_complete_config():
                                             grid_size=10)).process()
 
 
+def test_beamformer_needs_positions():
+    """Stations without a position cannot be beamformed."""
+    array = _harmonic_array()
+    stations = list(array)
+    stations[1] = StationData(stations[1].sid, stations[1].records)
+
+    with pytest.raises(ValueError, match="needs the station positions"):
+        Beamformer(ArrayData(stations), _config()).process()
+
+
 def _halves(array, config):
     """Results of the two halves of an array, processed by windows."""
     beamformer = Beamformer(array, config)
