@@ -73,6 +73,7 @@ from shakelab.exploration.yarray.data import (
     StationData,
 )
 from shakelab.exploration.yarray.fdd import (
+    EFDDDetails,
     FDD,
     FDDResult,
     FDDWarning,
@@ -109,6 +110,7 @@ __all__ = [
     "BeamformingResult",
     "BeamformingWarning",
     "DispersionCurve",
+    "EFDDDetails",
     "EllipticityGrid",
     "FDD",
     "FDDConfig",

@@ -570,9 +570,57 @@ $`\mathrm{tr}(𝐂) / N`$: the differences of gain between the channels
 (uncorrected data, different sensors) no longer weigh on the vectors.
 
 The frequency of a peak is limited by the frequency step of the
-analysis and by the resolution of the windows; the FDD gives no
-damping. Both are improved by the enhanced FDD (Brincker, Ventura and
-Andersen, 2001), planned (Section 19).
+analysis and by the resolution of the windows, and the FDD gives no
+damping: the enhanced FDD gives both.
+
+**Enhanced FDD.** Close to a mode, $`s_1(f)`$ is the auto spectrum of an
+equivalent single-degree-of-freedom system (Brincker, Ventura and
+Andersen, 2001). Around the peak, the lines whose singular vector
+matches the shape at the peak form the bell of the mode:
+
+```math
+\mathrm{MAC}\big(𝐮_1(f_{\mathrm{peak}}),\, 𝐮_k(f)\big) \geq \alpha
+```
+
+with $`\alpha`$ = `mac` (0.8 by default) and $`k`$ the best matching
+singular vector of each line, whose singular value is taken; the bell
+is searched on both sides of the peak up to the first line below
+$`\alpha`$, and the other lines are set to zero. The inverse Fourier transform of the
+bell is the autocorrelation of the free decay of the mode, normalized
+to $`r(0) = 1`$:
+
+```math
+r(\tau) \approx e^{-\zeta \omega_n \tau} \cos(\omega_d \tau),
+\qquad \omega_d = \omega_n \sqrt{1 - \zeta^2}
+```
+
+Its extrema (peaks and troughs, refined by a parabola through three
+samples) are half a damped period apart, so that their amplitudes
+$`|r_k|`$ decrease as $`e^{-k \delta / 2}`$, with $`\delta`$ the
+logarithmic decrement. A linear regression of $`2 \ln |r_k|`$ on
+$`k`$, on the extrema whose amplitude lies between the `levels`
+(0.1 and 0.9 by default, stopping at the first one below the lower
+level, where noise dominates), gives $`\delta`$ as the slope; a
+regression of the zero crossings (linear interpolation) on their
+index gives half the damped period. Then
+
+```math
+\zeta = \frac{\delta}{\sqrt{4 \pi^2 + \delta^2}},
+\qquad f_n = \frac{f_d}{\sqrt{1 - \zeta^2}}
+```
+
+The inverse transform needs equally spaced lines of a single spectral
+estimate: the enhanced FDD computes, around each mode, a local
+spectrum with windows of fixed duration $`T`$ (Welch averaging of all
+the windows, Hann taper, 50 % overlap) on the FFT lines
+$`k / T`$. Windows with a fixed number of cycles, valid for the FDD,
+would give each line its own resolution and leakage, and a bell that
+is not the spectrum of one correlation function. $`T`$ is a number of
+cycles of the mode (`cycles`, 100 by default: about 50 lines inside
+the half-power bandwidth $`2 \zeta f_n`$ at 2 % damping) or a given
+duration. Leakage widens the bell and overestimates the damping; a
+bell truncated by a high $`\alpha`$ underestimates it; the number of
+windows sets the statistical scatter.
 
 # Part II. Use
 
@@ -891,6 +939,35 @@ work as for the beamforming: `write(..., append=True)` accumulates
 results with the same configuration and channels, read back joined by
 `FDDResult(file)`.
 
+The enhanced FDD (Section 9) is a method of the processor, which has
+the data: it computes its own local spectrum around each mode.
+
+```python
+fdd = FDD(array, config)
+result = fdd.process()
+modes = fdd.efdd(result.peaks(), mac=0.8)  # cycles=100 or duration=...
+for mode in modes:
+    mode.info()                            # frequency, damping, shape
+```
+
+`efdd(frequencies, mac, cycles, duration, levels, starttime, endtime,
+gaps)` returns one `Mode` for each frequency (the peak is searched
+within 5 %), with `method="efdd"`, the natural frequency, the damping
+ratio, the shape at the peak and the mean MAC of the bell; `mode.efdd`
+(`EFDDDetails`) keeps the local spectrum, the bell, the correlation,
+its extrema and crossings and the regression, for checking the
+estimate. The components and azimuth of the configuration are used,
+not its windows or normalization (the bell must be a power spectrum).
+
+Figures: `plot_singular_values(result, count=3)` (geometric means with
+their bands and the peaks), `plot_mode_shape(mode, along=...)` (shape
+along the main direction of the stations, a coordinate, `"z"` with
+the height on the vertical axis for a building, or the station index
+when positions are missing), `plot_mac(modes)` (MAC between modes)
+and `plot_efdd(mode)` (bell and fitted decay). See
+[`17_fdd.py`](../../examples/exploration/yarray/17_fdd.py) and
+[`19_efdd.py`](../../examples/exploration/yarray/19_efdd.py).
+
 ### Result files
 
 Results are written as JSON Lines (`.jsonl`): text, one JSON object per
@@ -1197,6 +1274,14 @@ much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
   since their statistics combine the blocks channel by channel. The
   result files hold beamforming or FDD results, each class reading
   only its own.
+- **Enhanced FDD on its own spectrum.** The bell must be transformed
+  to a correlation, which needs equally spaced lines of one estimate:
+  the enhanced FDD is a method of `FDD`, which has the data, and
+  computes a local spectrum with fixed windows for each mode (a number
+  of cycles of the mode, like the windows in cycles, frozen at the
+  peak), whatever the windows of the FDD. Its details stay with the
+  mode (`Mode.efdd`), so that every estimate can be checked
+  (`plot_efdd`).
 
 ## 18. Validation
 
@@ -1232,6 +1317,15 @@ with several noise realizations. The cross-spectral matrices agree with
 the theoretical matrix of mixed white noise, and the coherence
 normalization makes the vectors independent of the channel gains.
 
+The enhanced FDD is checked on the same frame (2 % damping, 20
+minutes, windows of 100 cycles): over six noise realizations the
+natural frequencies are within 0.3 % on average (scatter 0.1-0.3 %)
+and the damping ratios between 2.0 % and 2.2 % on average (scatter
+0.1-0.3 % of damping); windows of 200 cycles give 1.8-2.0 % with a
+larger scatter (fewer windows), and the MAC threshold (0.8 or 0.9)
+changes the estimates little on well separated modes. The test
+requires 0.5 % in frequency and 0.6 % of damping on one realization.
+
 Differences from the August code that change numbers: the power is in
 physical units (power spectral density), $`N \Delta / 2`$ times the old
 value (squared for the RTBF objective), with maxima and relative
@@ -1263,7 +1357,12 @@ Current limitations:
   several sources, sampled coordinate errors and the Rayleigh
   processing are not modelled.
 - The FDD gives frequencies limited by the analysis step and the
-  window resolution, and no damping.
+  window resolution; the enhanced FDD gives frequency and damping of
+  well separated, lightly damped modes, but its damping estimates
+  scatter by about 10 % with 20 minutes of data and are biased by
+  leakage (short windows) or by a truncated bell (high `mac`). Close
+  modes and harmonics (Jacobsen, Andersen and Brincker, 2007) are
+  not treated.
 
 Planned extensions:
 
@@ -1273,9 +1372,8 @@ Planned extensions:
 - Correction of the vertical-horizontal noise difference of the
   angular processing (Wathelet, 2024, Section 3.6).
 - Bias correction of Capon, $`(L - n + 1) / L`$, as an option.
-- Enhanced FDD (Brincker, Ventura and Andersen, 2001): damping and
-  frequency from the single-degree-of-freedom bell of each mode, on a
-  local spectrum with fixed windows; figures of the FDD.
+- Detection of harmonics in the FDD (Jacobsen, Andersen and
+  Brincker, 2007); uncertainty of the enhanced FDD over blocks.
 - Multitaper spectral estimates with a rigorous number of degrees of
   freedom; the `CrossSpectra` of the FDD used also by the beamforming
   and by spatial autocorrelation (SPAC).
@@ -1310,6 +1408,11 @@ IEEE, 58(10), 1785-1786.
 Ermert, L., Poggi, V., Burjánek, J., and Fäh, D. (2014). Fundamental
 and higher two-dimensional resonance modes of an Alpine valley.
 Geophysical Journal International, 198(2), 795-811.
+
+Jacobsen, N.-J., Andersen, P., and Brincker, R. (2007). Eliminating
+the influence of harmonic components in operational modal analysis.
+Proceedings of the 25th International Modal Analysis Conference
+(IMAC).
 
 Percival, D. B., and Walden, A. T. (1993). Spectral Analysis for
 Physical Applications. Cambridge University Press.

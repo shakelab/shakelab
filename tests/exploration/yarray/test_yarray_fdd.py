@@ -324,6 +324,75 @@ def test_without_positions():
 
 
 # ----------------------------------------------------------------------------
+# Enhanced FDD
+# ----------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def frame_modes():
+    """Enhanced FDD of the four modes of the shear frame (shared)."""
+    fdd = FDD(_array(_response()), _config())
+    return fdd, fdd.efdd(_shear_frame()[0])
+
+
+def test_efdd_of_the_shear_frame(frame_modes):
+    """
+    Natural frequencies, damping and shapes of the shear frame.
+
+    With 20 minutes of data and 2% damping the estimates of six
+    realizations scatter by about 10% in damping and 0.3% in frequency
+    around the true values (diary, 2026-11-16): the bounds are four
+    times wider than that scatter.
+    """
+    frequency, shapes = _shear_frame()
+    _, modes = frame_modes
+
+    for k, mode in enumerate(modes):
+        assert mode.method == "efdd"
+        assert mode.frequency == pytest.approx(frequency[k], rel=0.005)
+        assert mode.damping == pytest.approx(DAMPING, abs=0.006)
+        assert mac(mode.shape, shapes[:, k]) > 0.999
+        assert mode.mac > 0.95
+
+        details = mode.efdd
+        assert details.duration == pytest.approx(
+            100.0 / frequency[k], abs=DELTA
+        )
+        assert details.bell[np.argmin(np.abs(
+            details.frequency - details.peak_frequency
+        ))]
+        assert details.used.sum() >= 3
+        assert np.all(np.abs(details.extrema[details.used, 1]) <= 0.9)
+        assert details.correlation[0] == 1.0
+        assert mode.damping == pytest.approx(
+            details.decrement / np.hypot(2.0 * np.pi, details.decrement)
+        )
+        assert mode.frequency > details.damped_frequency
+
+    assert "EFDD" in modes[0].summary()
+
+
+def test_efdd_options_and_errors(frame_modes):
+    """Fixed duration, levels and invalid options."""
+    fdd, _ = frame_modes
+    mode = fdd.efdd(4.3, duration=40.0, levels=(0.2, 0.8))[0]
+
+    assert mode.efdd.duration == pytest.approx(40.0)
+    assert mode.frequency == pytest.approx(_shear_frame()[0][1], rel=0.01)
+
+    with pytest.raises(TypeError):
+        fdd.efdd(4.3, cycles=50, duration=40.0)
+    for options in ({"mac": 0.0}, {"levels": (0.9, 0.1)}, {"cycles": -1},
+                    {"duration": 2000.0}):
+        with pytest.raises(ValueError):
+            fdd.efdd(4.3, **options)
+    with pytest.raises(ValueError, match="Nyquist"):
+        fdd.efdd(30.0)
+    with pytest.raises(ValueError):
+        FDD(config=_config()).efdd(4.3)
+
+
+# ----------------------------------------------------------------------------
 # Results
 # ----------------------------------------------------------------------------
 

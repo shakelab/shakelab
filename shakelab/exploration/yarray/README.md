@@ -39,7 +39,8 @@ the ShakeLab SeedLink client.
 - Spectral maxima, dispersion curves and the density of the maxima,
   to identify the modes of propagation.
 - Frequency domain decomposition (FDD): singular values with their
-  statistics over time, resonance peaks and mode shapes.
+  statistics over time, resonance peaks and mode shapes; enhanced FDD
+  for natural frequencies and damping ratios.
 - Uncertainty of the beam power and of the station coordinates.
 - Real-time monitoring of an array with the SeedLink client.
 - Survey planning: array response, resolution and aliasing limits,
@@ -302,6 +303,27 @@ radial or transverse to an azimuth (for instance the axis of a
 valley), horizontal or all three. Results are written and joined like
 those of the beamforming.
 
+The peaks of the FDD are as precise as the frequency step, and give no
+damping. The enhanced FDD refines each mode from its own spectrum:
+around the peak it keeps the lines whose shape matches the mode (the
+bell), transforms them to the free decay of the mode and measures its
+period and logarithmic decrement:
+
+```python
+from shakelab.graphics.yarray import plot_efdd
+
+fdd = FDD(array, config)
+result = fdd.process()
+modes = fdd.efdd(result.peaks(), mac=0.8)   # windows of 100 cycles
+modes[0].info()                              # frequency and damping
+plot_efdd(modes[0])                          # bell and fitted decay
+```
+
+The figures of the decomposition show the singular values with their
+spread (`plot_singular_values`), the shape of a mode along the array or
+the height of a building (`plot_mode_shape`) and the MAC between modes
+(`plot_mac`).
+
 ### 3.6 Real-time monitoring
 
 During an acquisition, the SeedLink client receives the data in a
@@ -411,7 +433,7 @@ has a single task:
 | `config` | `BeamformingConfig`, `FDDConfig`, `PerformanceConfig` | processing and planning parameters |
 | `estimators` | | Bartlett, Capon and MUSIC on cross-spectral matrices |
 | `beamforming` | `Beamformer`, `BeamformingResult`, `DispersionCurve` | f-k processing and its results |
-| `fdd` | `FDD`, `FDDResult`, `Mode` | frequency domain decomposition, resonances and shapes |
+| `fdd` | `FDD`, `FDDResult`, `Mode`, `EFDDDetails` | frequency domain decomposition, resonances and shapes; enhanced FDD (frequency and damping) |
 | `statistics` | | density of the maxima, summaries, peaks |
 | `response` | `ArrayResponse`, `ResponseAnalysis` | array response and limits; entry point of planning |
 | `performance` | `PerformanceResult` | Monte Carlo performance of the estimators |
@@ -468,6 +490,10 @@ of ShakeLab are in [`docs/conventions.md`](../../../docs/conventions.md).
   data in real time.
 
 ## 8. References
+
+Brincker, R., Ventura, C. E., and Andersen, P. (2001). Damping
+estimation by frequency domain decomposition. Proceedings of the 19th
+International Modal Analysis Conference (IMAC), 698-703.
 
 Brincker, R., Zhang, L., and Andersen, P. (2001). Modal identification
 of output-only systems using frequency domain decomposition. Smart

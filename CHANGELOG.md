@@ -477,6 +477,24 @@ corrections. The format follows
 
 ### Added
 
+- `exploration.yarray.FDD.efdd(frequencies, mac=0.8, cycles=100,
+  duration=None, levels=(0.1, 0.9), ...)`: enhanced FDD (Brincker,
+  Ventura and Andersen, 2001). For each mode a local spectrum with
+  fixed windows (cycles of the mode or a duration; Hann, 50% overlap)
+  gives the bell of lines whose vector matches the shape at the peak
+  (MAC at least `mac`); its inverse transform is the free-decay
+  correlation, whose extrema (logarithmic decrement) and zero
+  crossings (damped period) give damping ratio and natural frequency.
+  Returns `Mode` objects with `method="efdd"`, `damping` and
+  `Mode.efdd` (`EFDDDetails`: local spectrum, bell, correlation,
+  extrema, crossings, regression). Validated on a simulated shear
+  frame (2% damping: 2.0-2.2% on average, frequencies within 0.3%).
+- `graphics.yarray`: `plot_singular_values` (singular values with
+  their spread and the peaks), `plot_mode_shape` (along the main
+  direction of the stations, a coordinate, the height of a building
+  or the station index), `plot_mac` (MAC between modes), `plot_efdd`
+  (bell and fitted decay). Examples `17_fdd.py` (figure) and new
+  `19_efdd.py`; guide (Sections 9, 12, 17-19) and README.
 - `exploration.yarray`: `BeamformingResult.to_csv` (table of the
   maxima) and `FDDResult.to_csv` (first singular value and vector of
   every block), optional exports for spreadsheets; `slab-yarray

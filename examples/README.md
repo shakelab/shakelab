@@ -41,3 +41,4 @@ Array processing (`shakelab.exploration.yarray`, guide in
 | [`exploration/yarray/16_profiling.py`](exploration/yarray/16_profiling.py) | Processing times of the main choices of a configuration |
 | [`exploration/yarray/17_fdd.py`](exploration/yarray/17_fdd.py) | Frequency domain decomposition: singular values, resonance peaks, mode shapes, MAC, files |
 | [`exploration/yarray/18_realtime_fdd.py`](exploration/yarray/18_realtime_fdd.py) | Real-time frequency domain decomposition with `FDDMonitor`: fixed stations, joined results |
+| [`exploration/yarray/19_efdd.py`](exploration/yarray/19_efdd.py) | Enhanced FDD: natural frequencies and damping ratios of the modes of a building, bell and free decay |

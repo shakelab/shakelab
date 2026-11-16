@@ -38,7 +38,12 @@ Figures of array processing (:mod:`shakelab.exploration.yarray`).
   Monte Carlo estimates and sweeps
   (:mod:`shakelab.exploration.yarray.performance`);
 - :func:`plot_operational`: frequency-velocity envelope of an array
-  (:mod:`shakelab.exploration.yarray.operational`).
+  (:mod:`shakelab.exploration.yarray.operational`);
+- :func:`plot_singular_values`, :func:`plot_mode_shape`,
+  :func:`plot_mac` and :func:`plot_efdd`: frequency domain
+  decomposition (:mod:`shakelab.exploration.yarray.fdd`), singular
+  values with their spread, mode shapes, MAC between modes and the
+  steps of the enhanced FDD.
 
 The functions draw on a given matplotlib axis or on a new figure and
 return ``(figure, axis)``; they never modify the results. matplotlib is
@@ -58,6 +63,7 @@ from shakelab.exploration.yarray.beamforming import (
 )
 from shakelab.exploration.yarray.config import GridQuantity
 from shakelab.exploration.yarray.data import ArrayData
+from shakelab.exploration.yarray.fdd import FDDResult, Mode, mac
 from shakelab.exploration.yarray.operational import OperationalAssessment
 from shakelab.exploration.yarray.performance import (
     OutcomeClass,
@@ -84,12 +90,16 @@ __all__ = [
     "plot_array_response",
     "plot_density",
     "plot_dispersion",
+    "plot_efdd",
     "plot_ellipticity",
+    "plot_mac",
+    "plot_mode_shape",
     "plot_operational",
     "plot_performance",
     "plot_performance_sweep",
     "plot_resolution",
     "plot_search_domain",
+    "plot_singular_values",
     "plot_spectrum",
     "plot_velocity_limits",
 ]
@@ -1245,3 +1255,359 @@ def plot_operational(
     )
 
     return figure, axis
+
+
+# ----------------------------------------------------------------------------
+# Frequency domain decomposition
+# ----------------------------------------------------------------------------
+
+
+def plot_singular_values(
+    result: FDDResult,
+    count: int = 3,
+    band: bool = True,
+    peaks: bool = True,
+    log_frequency: bool = False,
+    ax: Any = None,
+) -> tuple:
+    """
+    Plot the singular values of an FDD versus frequency.
+
+    Parameters
+    ----------
+    result : FDDResult
+        Result of a frequency domain decomposition.
+    count : int, optional
+        Number of singular values, from the first. Default is 3 (fewer
+        if the result keeps fewer).
+    band : bool, optional
+        Shade the band ``mean * exp(+/- log_std)`` of each value among
+        the blocks. Default True.
+    peaks : bool, optional
+        Mark the peaks of the first value (:meth:`FDDResult.peaks`).
+        Default True.
+    log_frequency : bool, optional
+        Logarithmic frequency axis. Default False.
+    ax : matplotlib.axes.Axes, optional
+        Axis to draw on; a new figure otherwise.
+
+    Returns
+    -------
+    tuple
+        ``(figure, axis)``.
+
+    Raises
+    ------
+    TypeError
+        If ``result`` is not an FDDResult.
+    ValueError
+        If the result is empty or ``count`` is smaller than one.
+    """
+    if not isinstance(result, FDDResult):
+        raise TypeError("result must be an FDDResult")
+
+    if result.config is None:
+        raise ValueError("the result is empty")
+
+    if count < 1:
+        raise ValueError("count must be at least 1")
+
+    frequency, mean, spread = result.singular_values()
+    figure, axis = _axes(ax, (8.0, 5.5))
+
+    for index in range(min(count, mean.shape[1])):
+        line, = axis.plot(frequency, mean[:, index],
+                          label=f"singular value {index + 1}")
+
+        if band and np.any(np.isfinite(spread[:, index])):
+            factor = np.exp(spread[:, index])
+            axis.fill_between(frequency, mean[:, index] / factor,
+                              mean[:, index] * factor,
+                              color=line.get_color(), alpha=0.2,
+                              linewidth=0.0)
+
+    if peaks:
+        for value in result.peaks():
+            axis.axvline(value, color="0.4", linestyle=":", linewidth=1.0)
+
+    axis.set_yscale("log")
+
+    if log_frequency:
+        _plain_log_axis(axis, "x")
+
+    axis.set_xlabel("Frequency (Hz)")
+    axis.set_ylabel(f"Singular value ({result.power_units})")
+    axis.set_title(
+        f"Frequency domain decomposition, {result.config.components.value}"
+        f" ({result.nchannels} channels)"
+    )
+    axis.grid(True, which="both", alpha=0.25)
+    axis.legend(loc="best")
+
+    return figure, axis
+
+
+def plot_mode_shape(
+    mode: Mode,
+    along: Optional[str] = None,
+    ax: Any = None,
+) -> tuple:
+    """
+    Plot the shape of a mode along the array.
+
+    Each component is one line; the components are drawn against the
+    position of their station along a coordinate, or against the index
+    of the station. With ``along="z"`` (a building) the height is on
+    the vertical axis. Error bars give the spread of the shape among
+    the blocks, if known.
+
+    Parameters
+    ----------
+    mode : Mode
+        Mode (:meth:`FDDResult.mode` or :meth:`FDD.efdd`).
+    along : {"profile", "x", "y", "z", "index"}, optional
+        Abscissa: the distance along the main direction of the stations
+        (``"profile"``: a profile, or the height for a building), a
+        coordinate (East, North, Up), or the index of the station.
+        Default: ``"profile"`` if every position is known, ``"index"``
+        otherwise.
+    ax : matplotlib.axes.Axes, optional
+        Axis to draw on; a new figure otherwise.
+
+    Returns
+    -------
+    tuple
+        ``(figure, axis)``.
+
+    Raises
+    ------
+    TypeError
+        If ``mode`` is not a Mode.
+    ValueError
+        If ``along`` is not valid, or needs positions that are not
+        known.
+    """
+    if not isinstance(mode, Mode):
+        raise TypeError("mode must be a Mode")
+
+    stations = list(dict.fromkeys(mode.stations))
+    row = np.array([stations.index(sid) for sid in mode.stations])
+    known = bool(np.all(np.isfinite(mode.coordinates)))
+
+    if along is None:
+        along = "profile" if known else "index"
+
+    if along not in ("profile", "x", "y", "z", "index"):
+        raise ValueError(
+            "along must be 'profile', 'x', 'y', 'z' or 'index'"
+        )
+
+    if along != "index" and not known:
+        raise ValueError(f"along={along!r} needs every station position")
+
+    if along == "index":
+        position = row.astype(float)
+        label = "Station"
+    elif along == "profile":
+        position = _profile(mode.coordinates)
+        label = "Distance along the array (m)"
+    else:
+        position = mode.coordinates[:, "xyz".index(along)]
+        label = {"x": "East (m)", "y": "North (m)", "z": "Up (m)"}[along]
+
+    vertical = along == "z"
+    figure, axis = _axes(ax, (5.5, 7.0) if vertical else (8.0, 5.5))
+    spread = None if np.all(np.isnan(mode.shape_std)) else mode.shape_std
+
+    for component in dict.fromkeys(mode.components):
+        rows = np.array([index for index, name in enumerate(mode.components)
+                         if name == component])
+        order = rows[np.argsort(position[rows], kind="stable")]
+        error = None if spread is None else spread[order]
+
+        if vertical:
+            axis.errorbar(mode.shape[order], position[order], xerr=error,
+                          marker="o", capsize=3, label=component)
+        else:
+            axis.errorbar(position[order], mode.shape[order], yerr=error,
+                          marker="o", capsize=3, label=component)
+
+    if vertical:
+        axis.axvline(0.0, color="0.5", linewidth=0.8)
+    else:
+        axis.axhline(0.0, color="0.5", linewidth=0.8)
+
+    if along == "index":
+        axis.set_xticks(range(len(stations)))
+        axis.set_xticklabels(stations, rotation=45, ha="right")
+
+    title = f"Mode at {mode.frequency:.4g} Hz ({mode.method}"
+
+    if mode.damping is not None:
+        title += f", damping {100.0 * mode.damping:.2f}%"
+
+    if vertical:
+        axis.set_xlabel("Shape (unit norm)")
+        axis.set_ylabel(label)
+    else:
+        axis.set_xlabel(label)
+        axis.set_ylabel("Shape (unit norm)")
+
+    axis.set_title(title + f", MAC {mode.mac:.3f})")
+    axis.grid(True, alpha=0.25)
+    axis.legend(loc="best")
+
+    return figure, axis
+
+
+def plot_mac(modes: Any, ax: Any = None) -> tuple:
+    """
+    Plot the MAC between the shapes of several modes.
+
+    Parameters
+    ----------
+    modes : sequence of Mode
+        Modes with the same channels.
+    ax : matplotlib.axes.Axes, optional
+        Axis to draw on; a new figure otherwise.
+
+    Returns
+    -------
+    tuple
+        ``(figure, axis)``.
+
+    Raises
+    ------
+    TypeError
+        If an item is not a Mode.
+    ValueError
+        If there are no modes or their channels differ.
+    """
+    modes = list(modes)
+
+    if not modes:
+        raise ValueError("no mode to compare")
+
+    if not all(isinstance(item, Mode) for item in modes):
+        raise TypeError("modes must be Mode")
+
+    if any(item.channels != modes[0].channels for item in modes):
+        raise ValueError("the modes have different channels")
+
+    values = np.array([[mac(first.shape, second.shape) for second in modes]
+                       for first in modes])
+    labels = [f"{item.frequency:.3g} Hz" for item in modes]
+    figure, axis = _axes(ax, (6.5, 5.5))
+    image = axis.imshow(values, vmin=0.0, vmax=1.0, cmap="viridis")
+    figure.colorbar(image, ax=axis, label="MAC")
+
+    for (row, column), value in np.ndenumerate(values):
+        axis.text(column, row, f"{value:.2f}", ha="center", va="center",
+                  color="w" if value < 0.6 else "k", fontsize=9)
+
+    axis.set_xticks(range(len(modes)))
+    axis.set_yticks(range(len(modes)))
+    axis.set_xticklabels(labels, rotation=45, ha="right")
+    axis.set_yticklabels(labels)
+    axis.set_title("Modal assurance criterion")
+
+    return figure, axis
+
+
+def plot_efdd(mode: Mode, axes: Any = None) -> tuple:
+    """
+    Plot the steps of an enhanced FDD estimate.
+
+    Left: the first singular value of the local spectrum, the singular
+    values of the bell and the peak. Right: the normalized
+    autocorrelation of the bell, its extrema (those of the regression
+    filled) and the decay ``exp(-delta k / 2)`` fitted on them.
+
+    Parameters
+    ----------
+    mode : Mode
+        Mode estimated by :meth:`FDD.efdd`.
+    axes : sequence of two matplotlib.axes.Axes, optional
+        Axes to draw on; a new figure otherwise.
+
+    Returns
+    -------
+    tuple
+        ``(figure, axes)``.
+
+    Raises
+    ------
+    TypeError
+        If ``mode`` is not a Mode.
+    ValueError
+        If the mode has no enhanced FDD details.
+    """
+    if not isinstance(mode, Mode):
+        raise TypeError("mode must be a Mode")
+
+    details = mode.efdd
+
+    if details is None:
+        raise ValueError("the mode has no enhanced FDD (method 'efdd')")
+
+    if axes is None:
+        figure, axes = _pyplot().subplots(1, 2, figsize=(12.0, 5.0))
+    else:
+        figure = axes[0].figure
+
+    left, right = axes
+    left.plot(details.frequency, details.values, color="0.6",
+              label="first singular value")
+    left.plot(details.frequency[details.bell],
+              details.bell_values[details.bell], "o", color="tab:blue",
+              markersize=3, label="bell")
+    left.axvline(details.peak_frequency, color="tab:red", linestyle=":",
+                 label=f"peak {details.peak_frequency:.4g} Hz")
+    left.set_yscale("log")
+    left.set_xlabel("Frequency (Hz)")
+    left.set_ylabel("Singular value")
+    left.set_title(f"Bell ({int(details.bell.sum())} lines, windows of "
+                   f"{details.duration:.4g} s)")
+    left.grid(True, which="both", alpha=0.25)
+    left.legend(loc="best")
+
+    used = details.used
+    index = np.arange(details.extrema.shape[0])
+    end = details.extrema[np.flatnonzero(used)[-1], 0]
+    shown = details.lag <= 1.5 * end
+    envelope = np.exp(0.5 * (details.intercept - details.decrement * index))
+    right.plot(details.lag[shown], details.correlation[shown],
+               color="tab:blue", linewidth=1.0, label="correlation")
+    right.plot(details.extrema[used, 0], details.extrema[used, 1], "o",
+               color="tab:red", label="extrema used")
+    right.plot(details.extrema[~used, 0], details.extrema[~used, 1], "o",
+               markerfacecolor="none", color="tab:red")
+    right.plot(details.extrema[used, 0], envelope[used], "--",
+               color="k", linewidth=1.0,
+               label=f"decay, damping {100.0 * mode.damping:.2f}%")
+    right.plot(details.extrema[used, 0], -envelope[used], "--",
+               color="k", linewidth=1.0)
+    right.set_xlim(0.0, 1.5 * end)
+    right.set_xlabel("Lag (s)")
+    right.set_ylabel("Normalized correlation")
+    right.set_title(f"Free decay, f = {mode.frequency:.4g} Hz")
+    right.grid(True, alpha=0.25)
+    right.legend(loc="best")
+
+    return figure, axes
+
+
+def _profile(coordinates: np.ndarray) -> np.ndarray:
+    """Distance along the main direction of positions, from the first."""
+    centered = coordinates - coordinates.mean(axis=0)
+
+    if not np.any(centered):
+        return np.zeros(coordinates.shape[0])
+
+    direction = np.linalg.svd(centered, full_matrices=False)[2][0]
+    distance = centered @ direction
+
+    if distance[-1] < distance[0]:
+        distance = -distance
+
+    return distance - distance.min()
