@@ -9,6 +9,13 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: guide to spectra and spectrograms
+  (`docs/signals/spectral.md`: scaling of the Fourier transform,
+  resolution, leakage and smoothing, power spectral densities and
+  Welch averaging, windowed, wavelet and Stockwell transforms with
+  their edge effects, cross-spectral matrices; `Spectrum`,
+  `Spectrogram`, Fourier primitives, windows and cross-spectra), with
+  six figures (`docs/figures/scripts/signals_spectral.py`).
 - Documentation: guide to channel metadata and instrument responses
   (`docs/signals/response.md`: stages and their conventions,
   normalization, digital stages and time corrections, water level,
