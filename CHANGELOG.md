@@ -9,6 +9,13 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: guide to input and output (`docs/signals/io.md`:
+  supported formats and what they keep, conversion to records,
+  recognition of the format from the content, SDS archives, file name
+  templates, MiniSEED backends and encodings; `reader`, `writer`,
+  `read_mseed_bytes`, `metadata_reader`, the format modules of `libio`
+  used directly, metadata in waveform files), with three figures
+  (`docs/figures/scripts/signals_io.py`).
 - Documentation: guide to spectra and spectrograms
   (`docs/signals/spectral.md`: scaling of the Fourier transform,
   resolution, leakage and smoothing, power spectral densities and
