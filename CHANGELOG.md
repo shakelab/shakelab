@@ -9,6 +9,15 @@ corrections. The format follows
 
 ### Changed
 
+- Documentation: guide to the SeedLink client
+  (`docs/signals/seedlink.md`: the protocol in versions 3.1 and 4.0,
+  selection, the order and thread of the destinations and callbacks,
+  buffers, reconnection and resumption, archives, data and wall-clock
+  time; `read`, `archive`, `records`, `Client`, `slab-seedlink`), with
+  a figure of the receiving thread
+  (`docs/figures/scripts/signals_seedlink.py`); the guide to input and
+  output now states how the archive templates of SeedLink differ from
+  those of `io.writer`.
 - Documentation: guide to the FDSN web services
   (`docs/signals/fdsnws.md`: the services and their replies, data
   centers and the registry, translation of channel patterns, corrected

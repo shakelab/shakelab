@@ -36,7 +36,7 @@ __all__ = ["GUIDES", "main"]
 
 # One module per guide, each with a dictionary FIGURES of functions
 GUIDES = ("signals_waveforms", "signals_response", "signals_spectral",
-          "signals_io")
+          "signals_io", "signals_seedlink")
 
 
 def main(argv: list[str]) -> int:

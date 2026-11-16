@@ -259,8 +259,10 @@ record:
 | `{year}` | year, four digits |
 | `{jday}` | day of the year, three digits |
 
-These are the fields of the archives written by the SeedLink client
-(see [`seedlink.md`](seedlink.md)). The template is applied to every
+The archives written by the SeedLink client use the same codes and
+dates, but there `{time}` is the start of the rotation interval of the
+files and `{sid}` and `{start}` do not exist (see
+[`seedlink.md`](seedlink.md) §6). The template is applied to every
 record; records that get the same name are written to the same file,
 and the folders of the names are created. A template therefore decides
 how the data are split: `{sta}.mseed` gives one file per station with
