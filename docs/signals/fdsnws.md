@@ -168,18 +168,65 @@ The client places those effects outside the requested window:
    10% of the longest window and at least 30 s;
 2. it requests the metadata of the channels, with their responses, and
    attaches them;
-3. on each padded record it removes a linear trend, tapers the margins
-   (a cosine taper as long as the margin), corrects the response with
-   the water level (default 60 dB) and the optional `prefilter`, with
-   zero padding to avoid the wrap-around, and applies the optional
+3. on each padded record it removes a linear trend, tapers the part
+   of the record outside the window (a half cosine at each end, at
+   most as long as the margin), corrects the response with the water
+   level (default 60 dB) and the optional `prefilter`, with zero
+   padding to avoid the wrap-around, and applies the optional
    `highpass` and `lowpass` filters;
 4. it cuts the records to the requested window.
 
 The same margin, detrend and taper are used when only filters are
 asked. Records whose channel has no response are left out, with one
-`FdsnWarning`. The margin protects the window only if the server has
-data in it: at the beginning or end of the available data the taper
-falls inside the window (§18).
+`FdsnWarning`.
+
+**Margins without data.** The margin protects the window only where
+the server has data in it. At the beginning or end of the available
+data, and at the edges of a gap inside the window, a record has an
+end inside the window, or close to it. The taper never covers more
+of a record than the part outside the window, so that the data of the
+window are not attenuated, but an end needs at least a short taper:
+after the detrend a record does not begin at zero, and the correction
+of the digital stages, whose response falls near the Nyquist
+frequency, amplifies the step up to the water level. The taper is
+therefore never shorter than 10 samples (0.1 s at 100 Hz), and where
+the record has less than that outside the window it enters the window
+by the difference. On the vertical acceleration of IV.MODE, corrected
+without prefilter in a window that begins 4 s before the peak
+acceleration, with no data before the window (amplitude relative to
+the same window corrected with a full margin of 30 s):
+
+| Taper at the beginning of the window | 0-0.1 s | 0.1-0.2 s | 1-2 s | 2-3 s | Peak (reference 0.3264 m/s²) |
+|---|---|---|---|---|---|
+| as long as the margin, inside the window | 0.00 | 0.00 | 0.01 | 0.02 | 0.085 |
+| none | 23.8 | 34.9 | 1.75 | 1.42 | 1.260 |
+| 10 samples (the client) | 0.67 | 1.04 | 1.00 | 1.00 | 0.3261 |
+
+With the prefilter `(0.05, 0.1, 30, 40)` the step is not amplified:
+without taper the window is correct from the first sample, with 10
+samples from the first tenth of a second, while the long taper still
+attenuates it for 30 s. The client reports the records
+without the whole margin in one `FdsnWarning`, with the side
+(`before`, `after`): the first or last seconds of the window may still
+carry the transient of the correction at low frequencies, which no
+short taper removes (sensors whose response falls at low frequencies,
+§18).
+
+```python
+from shakelab.signals.fdsnws import Client
+
+client = Client("INGV")
+data = client.get_waveforms("IV.MODE..HNZ", "2012-05-20T02:03:23",
+                            "2012-05-20T02:05:30", correct=True)
+```
+
+On the test data, which hold only these three minutes, the call warns
+that there are no data "in the whole margin of the window for
+IV.MODE..HNZ (before and after)".
+
+A longer `pad` widens the protection where the server has data, at the
+cost of a larger download; it cannot add data before the first sample
+or inside a gap.
 
 ## 5. Long windows
 
@@ -729,7 +776,9 @@ for span in spans:
 - **Corrections where the data are complete.** The margin, the taper
   and the zero padding place the edge effects of the correction
   outside the window, which the client cuts at the end; the parameters
-  are those of `Record.deconvolve_response`.
+  are those of `Record.deconvolve_response`. The taper does not enter
+  the window beyond the 10 samples that an end without margin needs
+  (§4), and missing margins are reported.
 - **Raw data untouched when asked.** `target` writes the bytes of the
   server, without decoding and encoding them again.
 - **A built-in registry.** Creating a client needs no request; the
@@ -745,7 +794,7 @@ for span in spans:
 
 ## 17. Validation
 
-The package is covered by the tests of `tests/signals/fdsnws/` (87
+The package is covered by the tests of `tests/signals/fdsnws/` (90
 tests), which run against a fake FDSN server on a local socket: the
 server answers the four services with the test data of ShakeLab
 (IV.MODE in MiniSEED, StationXML and text, a QuakeML catalogue and
@@ -758,6 +807,7 @@ fail, compress, redirect or answer with chosen statuses.
 | Formatting of parameters (times, small and large reals, booleans) | as the FDSN specifications require |
 | Waveforms: window, several windows, chunks joined, `target` with chunks | records cut to the windows; chunked and single downloads equal |
 | Corrected downloads, with and without prefilter and filters | margins requested; records in m/s², cut to the window; peak acceleration of IV.MODE..HNZ within 0.5% of the accelerogram processed by ESM |
+| Corrected downloads without data in the margins: a window from the start of the data, a gap inside the window | peak acceleration within 0.5% of ESM; amplitude next to the gap within 20% of the download without gap; one `FdsnWarning` with the sides; no warning with whole margins |
 | Metadata at the three levels, text format, geography | the expected epochs; parameters in the order of the services |
 | Events, availability (`query` and `extent`) | the expected catalogue and spans |
 | Statuses 204, 400, 413, 429 and 5xx, `Retry-After`, timeouts, gzip, 307 redirects of POST requests | empty results, `FdsnError` with the message of the server, retries |
@@ -766,12 +816,13 @@ fail, compress, redirect or answer with chosen statuses.
 
 ## 18. Current limitations
 
-- **Margins without data.** When the server has no data in a margin
-  (the window begins at the start of the available data, as in the
-  examples of §9.3 with the whole record), the taper and the edge
-  effects of the correction fall inside the window, without warning.
-  Ask for a window that the data exceed by the margin, or check the
-  start of the records.
+- **Margins without data.** Where the server has no data in a margin
+  (start or end of the available data, gaps), the window is protected
+  only by a taper of 10 samples (§4), with an `FdsnWarning`. For
+  sensors whose response falls at low frequencies (broadband
+  velocimeters, geophones) the low-frequency transient of the
+  correction can last longer than the taper: use a `prefilter`, or ask
+  for a window that the data exceed by the margin.
 - **One data center at a time.** There is no federation (EIDA routing,
   the FDSN federator), no parallel downloads and no authentication for
   restricted data.

@@ -55,7 +55,8 @@ With `correct=True` the client requests the metadata of the channels
 and a margin before and after the window (`pad`), removes a linear
 trend, tapers the margins, corrects the response in the frequency
 domain and cuts the records to the window, so that the edge effects
-fall in the discarded margins.
+fall in the discarded margins. Where the server has no data in a
+margin (start of the data, gaps) a `FdsnWarning` says so.
 
 ## 3. Common tasks
 

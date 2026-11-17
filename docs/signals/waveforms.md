@@ -316,7 +316,11 @@ of a second at these frequencies.*
 half cosine of duration `time` at each end and 1 in between. In terms
 of the Tukey parameter, $`\alpha = 2\,\tau / (n\Delta)`$, the fraction
 of the record inside the two cosine parts; durations longer than half
-the record, or negative, give a full cosine (Hann) window. Tapering
+the record, or negative, give a full cosine (Hann) window. A pair
+`(start, end)` gives different durations at the two ends, each the
+half cosine of the symmetric taper of that duration (0 leaves an end
+unchanged): it tapers only the side that needs it, for example the
+part of a record that lies before a window of interest. Tapering
 brings the ends smoothly to zero before Fourier-domain processing,
 which treats the record as periodic.
 
@@ -677,6 +681,7 @@ x.remove_mean()                     # subtract the mean
 x.detrend()                         # subtract the least-squares line
 x.detrend("constant")               # same as remove_mean
 x.taper(5.0)                        # 5 s cosine at each end
+x.taper((5.0, 0.0))                 # 5 s at the beginning, none at the end
 x.taper(-1)                         # full cosine (Hann) window
 ```
 
@@ -908,9 +913,10 @@ for record in stream:               # iteration over the records
 
 A missing or ambiguous event identifier raises a `KeyError`; other key
 types (floats, lists) a `TypeError`. A slice is a new stream holding
-the stored records, not copies (§9). `"window-1" in stream` compares
-the string with the records and is always False: test
-`"window-1" in stream.eid` (§15).
+the stored records, not copies (§9). `in` follows the indexing:
+`"window-1" in stream` tells whether a record has that event
+identifier, `record in stream` whether that record (not a copy of it)
+is stored in the stream.
 
 `remove(key)` takes a record out by position or event identifier and
 returns it:
@@ -1058,8 +1064,9 @@ for record in collection.records(): # all the records, stream by stream
 ```
 
 A missing source identifier raises a `KeyError`, another key type a
-`TypeError`. As for streams, `"IV.MODE..HNZ" in collection` is always
-False: test `in collection.sid` (§15).
+`TypeError`. As for streams, `in` follows the indexing:
+`"IV.MODE..HNZ" in collection` tells whether the collection has a
+stream with that source identifier.
 
 ```python
 removed = collection.copy().remove("IV.MODE..HNE")   # or by position
@@ -1395,7 +1402,7 @@ velocity and displacement of ESM (grey).*
 ## 14. Validation
 
 The containers are covered by the tests of `tests/signals/test_base.py`
-(93 tests: header, construction, times, windows on and off the grid,
+(96 tests: header, construction, times, windows on and off the grid,
 joining with gaps, overlaps and rounded time stamps, metadata,
 operators, processing, response correction, streams, collections,
 views and copies) and `tests/signals/test_circular.py` (9 tests). The
@@ -1435,9 +1442,6 @@ compared with libmseed in the tests of `libio`.
 - **No in-memory selection by channel**: `select` exists in the reader
   and in `MetadataCollection`, not in `StreamCollection` (use
   `match_sid`, §8.3).
-- **Membership tests.** Streams and collections have no `in` for
-  identifiers: `sid in collection` is always False; use
-  `sid in collection.sid` (or `eid in stream.eid`).
 - **Units.** The units of the header are updated by the response
   corrections but not by integration, differentiation or the
   arithmetic operators.

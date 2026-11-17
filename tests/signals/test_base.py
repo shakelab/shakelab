@@ -987,6 +987,28 @@ def test_record_taper_and_window():
     )
 
 
+def test_record_asymmetric_taper():
+    """A pair of durations tapers each end on its own."""
+    record = Record(data=np.ones(1001), delta=0.01)
+    symmetric = record.copy()
+    symmetric.taper(2.0)
+    pair = record.copy()
+    pair.taper((2.0, 2.0))
+    np.testing.assert_array_equal(pair.data, symmetric.data)
+
+    start = record.copy()
+    start.taper((2.0, 0.0))
+    np.testing.assert_array_equal(start.data[:500], symmetric.data[:500])
+    np.testing.assert_array_equal(start.data[500:], 1.0)
+
+    with pytest.raises(ValueError):
+        record.taper((-1.0, 0.0))
+    with pytest.raises(ValueError):
+        record.taper((1.0,))
+    with pytest.raises(TypeError):
+        record.taper((1.0, "end"))
+
+
 def test_record_zero_padding():
     """Padding appends zeros by default doubling the length."""
     record = Record(data=[1, 2, 3], delta=0.5)
@@ -1193,6 +1215,17 @@ def test_stream_event_identifiers():
         stream["missing"]
 
 
+def test_stream_membership():
+    """``in`` takes event identifiers, as indexing, or stored records."""
+    stream = Stream("XX.A..HHZ")
+    stream.append(Record(data=[1], delta=1.0, time=START, eid="ev1"))
+
+    assert "ev1" in stream
+    assert "ev2" not in stream
+    assert stream[0] in stream
+    assert stream[0].copy() not in stream
+
+
 def test_stream_remove_and_sort():
     """Records are removed by position and sorted by start time."""
     stream = _two_record_stream()
@@ -1351,6 +1384,14 @@ def test_collection_read_and_access(mode, capsys):
         mode[True]
     with pytest.raises(KeyError):
         mode["IV.MODE..XXX"]
+
+
+def test_collection_membership(mode):
+    """``in`` takes source identifiers, as indexing, or stored streams."""
+    assert "IV.MODE..HNZ" in mode
+    assert "IV.MODE..XXX" not in mode
+    assert mode[0] in mode
+    assert mode[0].copy() not in mode
 
 
 def test_collection_read_method(tmp_path):

@@ -311,6 +311,69 @@ def test_waveforms_corrected_and_filtered(client):
     assert pga == pytest.approx(ESM_PGA_HNZ, rel=1e-2)
 
 
+def test_corrected_without_data_in_the_margin(client):
+    """
+    Without data before the window, the taper does not enter it.
+
+    The window begins at the start of the data, with a margin longer
+    than the time of the peak: the PGA must not be attenuated, and a
+    warning tells that the margin is missing.
+    """
+    with pytest.warns(FdsnWarning, match=r"IV.MODE..HNZ \(before and after\)"):
+        collection = client.get_waveforms(
+            "IV.MODE..HNZ", "2012-05-20T02:03:23", T1, correct=True,
+            pad=60.0,
+        )
+    (record,) = _records(collection)
+    assert record.time == Date("2012-05-20T02:03:23")
+    pga = np.abs(record.data).max()
+    assert pga == pytest.approx(ESM_PGA_HNZ, rel=5e-3)
+
+
+def test_corrected_with_whole_margins_without_warning(client):
+    """Margins covered by the data give no warning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        client.get_waveforms("IV.MODE..HNZ", T0, T1, correct=True, pad=30.0)
+
+
+def test_corrected_across_a_gap(client, server, tmp_path):
+    """The records on both sides of a gap are not tapered inside it."""
+    gap = Date("2012-05-20T02:05:00")
+    complete = client.get_waveforms(
+        "IV.MODE..HNZ", T0, T1, correct=True, pad=30.0
+    )
+    (reference,) = _records(complete)
+
+    collection = io.reader(os.path.join(SIGNALS_DATA, "MODE.mseed"),
+                           select="IV.MODE..HNZ")
+    raw = collection[0][0]
+    pieces = StreamCollection()
+    pieces.append(raw.cut(raw.starttime, gap, inplace=False))
+    pieces.append(raw.cut(gap + 1.0, raw.endtime, inplace=False))
+    path = tmp_path / "gap.mseed"
+    io.writer(pieces, path, format="mseed")
+    server.replies["/fdsnws/dataselect/1/query"] = lambda req: (
+        200, path.read_bytes(), {}
+    )
+
+    with pytest.warns(FdsnWarning, match=r"\(after\).*\(before\)"):
+        collection = client.get_waveforms(
+            "IV.MODE..HNZ", T0, T1, correct=True, pad=30.0
+        )
+    first, second = _records(collection)
+
+    def rms(record, start, end):
+        part = record.cut(start, end, inplace=False)
+        return np.sqrt(np.mean(part.data ** 2))
+
+    for record, start in ((first, gap - 5.0), (second, gap + 1.0)):
+        ratio = rms(record, start, start + 4.0) / rms(
+            reference, start, start + 4.0
+        )
+        assert ratio == pytest.approx(1.0, abs=0.2)
+
+
 def test_default_pad(client, server):
     """Default margin: 10 % of the window, at least 30 s."""
     client.get_waveforms("IV.MODE..HNZ", T0, T1, highpass=0.1)

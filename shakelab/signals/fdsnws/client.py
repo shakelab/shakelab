@@ -38,10 +38,13 @@ follow the conventions of ShakeLab: ``region=(lonmin, lonmax, latmin,
 latmax)``, ``center=(lon, lat)``, radii in degrees and depths in km.
 
 Corrected downloads (``correct=True``) request a margin ``pad`` before
-and after the window, remove a linear trend, taper the margins, correct
-the response in the frequency domain with zero padding (and the
-optional ``prefilter``), filter if asked, and cut the records to the
-window: the edge effects fall in the discarded margins.
+and after the window, remove a linear trend, taper the part of each
+record outside the window, correct the response in the frequency
+domain with zero padding (and the optional ``prefilter``), filter if
+asked, and cut the records to the window: the edge effects fall in the
+discarded margins. Where the server has no data in a margin (start or
+end of the data, gaps) the taper is ``TAPER_MINIMUM`` samples long and
+enters the window, and an :class:`FdsnWarning` reports it.
 
 Examples
 --------
@@ -91,6 +94,11 @@ __all__ = ["Client", "TimeSpan"]
 # at least PAD_MINIMUM seconds.
 PAD_FRACTION = 0.1
 PAD_MINIMUM = 30.0
+
+# Shortest taper, in samples, at an end of a record without the whole
+# margin: it smooths the step that the correction of the digital stages
+# would amplify near the Nyquist frequency.
+TAPER_MINIMUM = 10
 
 _LEVELS = ("station", "channel", "response")
 _MERGE = ("samplerate", "quality", "overlap")
@@ -291,7 +299,8 @@ class Client:
             :class:`FdsnWarning`.
         pad : float, optional
             Margin in seconds requested before and after each window,
-            and tapered, when the records are corrected or filtered.
+            when the records are corrected or filtered; the part of the
+            records in it is tapered.
             Default: 10 % of the window, at least 30 s.
         highpass, lowpass : float, optional
             Corner frequencies in Hz of a Butterworth filter applied
@@ -1003,13 +1012,36 @@ def _process(
     prefilter: Optional[tuple],
     waterlevel: Real,
 ) -> list:
-    """Detrend, taper, correct and filter the padded records."""
+    """
+    Detrend, taper, correct and filter the padded records.
+
+    At each end the taper covers the part of the record outside the
+    requested window (at most the margin), so that the data of the
+    window are not changed. Where that part is shorter than
+    ``TAPER_MINIMUM`` samples (start or end of the available data,
+    gaps), the taper is that long and enters the window; records
+    without the whole margin are reported in one warning.
+    """
     kept = []
     missing = []
+    short = []
     for record, item in pairs:
         record.detrend()
         if margin:
-            record.taper(margin)
+            outside = (
+                min(max(item.starttime + margin - record.starttime, 0.0),
+                    margin),
+                min(max(record.endtime - (item.endtime - margin), 0.0),
+                    margin),
+            )
+            shortest = TAPER_MINIMUM * record.delta
+            record.taper(tuple(max(length, shortest) for length in outside))
+            sides = [
+                side for side, length in zip(("before", "after"), outside)
+                if length < margin - record.delta
+            ]
+            if sides:
+                short.append(f"{record.sid} ({' and '.join(sides)})")
         if correct:
             try:
                 record.deconvolve_response(
@@ -1024,6 +1056,15 @@ def _process(
             record.filter(highpass=highpass, lowpass=lowpass)
         kept.append((record, item))
 
+    if short:
+        warnings.warn(
+            "no data in the whole margin of the window for "
+            + ", ".join(short)
+            + ": the edge effects of the processing may fall inside "
+            "the window",
+            FdsnWarning,
+            stacklevel=3,
+        )
     if missing:
         warnings.warn(
             "records left out, not corrected: " + "; ".join(missing),

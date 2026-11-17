@@ -1639,22 +1639,32 @@ class Record:
 
         self.delta = new_delta
 
-    def taper(self, time: float = 0.1) -> None:
+    def taper(self, time: Any = 0.1) -> None:
         """
-        Apply a symmetric Tukey taper to the waveform.
+        Apply a Tukey (cosine) taper to the waveform.
 
         Parameters
         ----------
-        time : float, optional
-            Taper duration at each end of the record, in seconds.
-            A negative value applies a full cosine taper. Default is
-            0.1 seconds.
+        time : float or tuple of float, optional
+            Taper duration at each end of the record, in seconds, or
+            the pair ``(start, end)`` of durations at the beginning and
+            at the end (0 leaves that end unchanged). A negative value
+            (not in a pair) applies a full cosine taper. Default is 0.1
+            seconds.
+
+        Raises
+        ------
+        TypeError
+            If ``time`` is not a real number or a pair of them.
+        ValueError
+            If the sampling interval is missing, or a duration is not
+            finite or, in a pair, negative.
 
         Notes
         -----
-        The operation is performed in place. If the requested taper
-        duration exceeds half the record duration, a full cosine taper is
-        applied.
+        The operation is performed in place. Each cosine part covers at
+        most half the record: a longer duration gives the half cosine
+        of a full (Hann) taper at that end.
         """
         if self.nsamp == 0:
             return
@@ -1664,36 +1674,46 @@ class Record:
                 "sampling interval is required for tapering"
             )
 
-        if (
-            not isinstance(time, Real)
-            or isinstance(time, (bool, np.bool_))
-        ):
-            raise TypeError(
-                "time must be a real number"
-            )
+        if isinstance(time, (tuple, list)):
+            if len(time) != 2:
+                raise ValueError(
+                    "time must be a duration or a pair (start, end)"
+                )
+            start, end = (_taper_time(value) for value in time)
+            if start < 0.0 or end < 0.0:
+                raise ValueError(
+                    "taper durations in a pair must be non-negative"
+                )
+            half = self.nsamp // 2
+            window = np.ones(self.nsamp)
+            if start > 0.0:
+                window[:half] = tukey_window(
+                    self.nsamp, self._taper_alpha(start)
+                )[:half]
+            if end > 0.0:
+                window[half:] = tukey_window(
+                    self.nsamp, self._taper_alpha(end)
+                )[half:]
+            self.data = self.data * window
+            return
 
-        time = float(time)
-
-        if not np.isfinite(time):
-            raise ValueError(
-                "time must be finite"
-            )
+        time = _taper_time(time)
 
         if time < 0.0:
             alpha = 1.0
         elif time == 0.0:
             return
         else:
-            total_window = self.nsamp * self.delta
-            alpha = min(
-                2.0 * time / total_window,
-                1.0,
-            )
+            alpha = self._taper_alpha(time)
 
         self.data = self.data * tukey_window(
             self.nsamp,
             alpha,
         )
+
+    def _taper_alpha(self, time: float) -> float:
+        """Tukey parameter of a cosine part of ``time`` seconds."""
+        return min(2.0 * time / (self.nsamp * self.delta), 1.0)
 
     def zero_padding(self, time: Optional[float] = None) -> None:
         """
@@ -2582,6 +2602,17 @@ class Stream:
         """
         return iter(self.record)
 
+    def __contains__(self, item: Any) -> bool:
+        """
+        Tell whether a record is in the stream.
+
+        A string is an event identifier (``"ev01" in stream``), as in
+        indexing; any other object must be one of the stored records.
+        """
+        if isinstance(item, str):
+            return item in self.eid
+        return any(record is item for record in self.record)
+
     def __getitem__(self, key: Any) -> Any:
         """
         Return one record, or a stream of records.
@@ -3252,7 +3283,7 @@ class Stream:
                 antialias=antialias,
             )
 
-    def taper(self, time: float = 0.1) -> None:
+    def taper(self, time: Any = 0.1) -> None:
         """
         Taper every record (see :meth:`Record.taper`).
         """
@@ -3426,6 +3457,18 @@ class StreamCollection:
         Iterate over streams in insertion order.
         """
         return iter(self.stream)
+
+    def __contains__(self, item: Any) -> bool:
+        """
+        Tell whether a stream is in the collection.
+
+        A string is a source identifier (``"IV.MODE..HNZ" in data``),
+        as in indexing; any other object must be one of the stored
+        streams.
+        """
+        if isinstance(item, str):
+            return item in self.sid
+        return any(stream is item for stream in self.stream)
 
     def __getitem__(self, key: Any) -> Any:
         """
@@ -4037,7 +4080,7 @@ class StreamCollection:
                 antialias=antialias,
             )
 
-    def taper(self, time: float = 0.1) -> None:
+    def taper(self, time: Any = 0.1) -> None:
         """
         Taper every record (see :meth:`Record.taper`).
         """
@@ -4293,6 +4336,16 @@ class StreamCollection:
 # ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
+
+
+def _taper_time(value: Any) -> float:
+    """Check a taper duration and return it as a float."""
+    if not isinstance(value, Real) or isinstance(value, (bool, np.bool_)):
+        raise TypeError("time must be a real number")
+    value = float(value)
+    if not np.isfinite(value):
+        raise ValueError("time must be finite")
+    return value
 
 
 def tukey_window(N: int, alpha: float = 0.5) -> np.ndarray:

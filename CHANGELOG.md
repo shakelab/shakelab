@@ -9,6 +9,14 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.base.Record.taper` (and `Stream.taper`,
+  `StreamCollection.taper`) takes a pair `(start, end)` of durations to
+  taper the two ends differently (0 leaves an end unchanged).
+- `signals.base.Stream` and `StreamCollection` support `in` with the
+  keys of indexing: `"ev1" in stream` (event identifier),
+  `"IV.MODE..HNZ" in collection` (source identifier), or a stored
+  object. Before, a string was compared with the records or streams
+  and the result was always False.
 - `signals.libio.sac`: `sacwrite`, `Sac.write` and `Sac.to_bytes`
   take `version=7` to write the double-precision footer of SAC 102
   (sampling interval, times and coordinates in double precision);
@@ -954,6 +962,16 @@ corrections. The format follows
 
 ### Fixed
 
+- `signals.fdsnws.Client.get_waveforms` with `correct=True` or filters:
+  the taper of the margins was applied to the ends of the received
+  records, so that where the server had no data in a margin (a window
+  at the start of the data, a gap) it fell inside the window and
+  attenuated it (peak acceleration of IV.MODE..HNZ four times too
+  small, without warning). The taper now covers only the part of the
+  records outside the window, never less than 10 samples
+  (`TAPER_MINIMUM`, needed to smooth the step that the correction
+  would amplify), and records without the whole margin are reported in
+  one `FdsnWarning`.
 - `signals.libio.sac`: the sampling interval of version-6 files, a
   32-bit float, was read as such (0.01 s as 0.009999999776 s), so that
   a record read from SAC could not be joined with the same channel
