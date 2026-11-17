@@ -31,9 +31,10 @@ sequence of them, or a text file listing them (``list_file``). Unless
 ``format`` is given, the format of each file is inferred from its
 extension or, for files without a known extension (e.g. the daily files
 of an SDS archive) or with an ambiguous one (``.asc``), from its first
-bytes; files of unknown format found in directories or patterns are
-skipped with one :class:`IoWarning`. Pickle files are never recognized
-from their content.
+bytes; files of unknown format and files without waveforms (spectra)
+found in directories or patterns are skipped with one
+:class:`IoWarning`. Pickle files are never recognized from their
+content.
 
 MiniSEED is read and written by the libmseed-based ``cymseed`` module
 or by the pure-Python ``mseed`` module: :data:`USE_LIBMSEED` sets the
@@ -74,6 +75,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 from shakelab.libutils.timeN import Date
 from shakelab.libutils.utils import warn_external
 from shakelab.signals.codes import SidPattern, parse_sid_pattern
+from shakelab.signals.libio.common import NotWaveformError
 
 if TYPE_CHECKING:
     from shakelab.signals.base import Record, StreamCollection
@@ -298,7 +300,10 @@ def reader(
         If no source is given, if the format of a file given by name
         is not recognized, if a pattern is invalid, if the time window
         is reversed, or if ``layout`` is unknown or given without
-        ``starttime`` and ``endtime``.
+        ``starttime`` and ``endtime``. A file without waveforms given by
+        name raises
+        :class:`~shakelab.signals.libio.common.NotWaveformError`, a
+        subclass.
     FileNotFoundError
         If a file, or the root of an archive, does not exist, or if a
         pattern matches no file.
@@ -311,9 +316,10 @@ def reader(
     Warns
     -----
     IoWarning
-        If files of unknown format, found in directories or patterns,
-        are skipped (one warning listing them; hidden files are
-        ignored), or if an archive has no data for the request.
+        If files of unknown format or without waveforms, found in
+        directories or patterns, are skipped (one warning for each
+        reason, listing them; hidden files are ignored), or if an
+        archive has no data for the request.
     MetadataWarning
         If ``metadata`` is given and some channels read have no epoch
         in it (one warning listing them).
@@ -360,6 +366,7 @@ def reader(
         collection = stream_collection
 
     skipped = []
+    other = []
     for path, explicit in files:
         current = name or _format_of(path)
         if current is None:
@@ -370,10 +377,17 @@ def reader(
                 )
             skipped.append(path)
             continue
-        _read_file(path, current, collection, options)
+        try:
+            _read_file(path, current, collection, options)
+        except NotWaveformError:
+            if explicit:
+                raise
+            other.append(path)
 
     if skipped:
         _warn_skipped(skipped)
+    if other:
+        _warn_skipped(other, "without waveforms")
 
     if selecting:
         collection = _collection(
@@ -918,12 +932,15 @@ def _list_entries(list_file: Any) -> list[str]:
     return entries
 
 
-def _warn_skipped(paths: list[str]) -> None:
-    """One warning for the files of unknown format."""
+def _warn_skipped(
+    paths: list[str],
+    reason: str = "of unknown format",
+) -> None:
+    """One warning for the files skipped for the same reason."""
     names = [os.path.basename(path) for path in paths]
     listed = ", ".join(names[:5]) + (", ..." if len(names) > 5 else "")
     warn_external(
-        f"{len(paths)} file(s) of unknown format skipped: {listed}",
+        f"{len(paths)} file(s) {reason} skipped: {listed}",
         IoWarning,
     )
 

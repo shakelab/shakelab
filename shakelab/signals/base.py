@@ -3864,9 +3864,9 @@ class StreamCollection:
             If ``True``, also sort records within each stream. Default is
             ``True``.
         reverse : bool, optional
-            If ``True``, sort streams from descending to ascending source
-            identifier. The same ordering is requested for records.
-            Default is ``False``.
+            If ``True``, sort the streams by descending source identifier
+            and, with ``sort_records``, the records of each stream by
+            descending start time. Default is ``False``.
 
         Raises
         ------
@@ -4015,7 +4015,8 @@ class StreamCollection:
 
         Notes
         -----
-        Streams and records are not copied automatically.
+        The records are copied, as by :meth:`append`: the other
+        collection is left unchanged and shares no data with this one.
         """
         if not isinstance(collection, StreamCollection):
             raise TypeError(
@@ -4307,8 +4308,10 @@ class StreamCollection:
         Parameters
         ----------
         target : str or path-like
-            Output file, directory, or file name template with fields
-            such as ``{station}``, ``{channel}`` and ``{start}``.
+            Output file, directory (with ``format``), or file name
+            template with the fields of
+            :func:`shakelab.signals.io.writer` (``{net}``, ``{sta}``,
+            ``{loc}``, ``{cha}``, ``{start}``, ...).
         format : str, optional
             Waveform format; inferred from ``target`` if omitted.
         owrite : bool, optional
@@ -4325,7 +4328,8 @@ class StreamCollection:
         Examples
         --------
         >>> collection.write("waveforms.mseed", encoding=11)
-        >>> collection.write("{station}.{channel}.{start}.sac")
+        >>> collection.write("{net}.{sta}.{loc}.{cha}.sac")
+        >>> collection.write("output/", format="sac")
         """
         # Local import: io sits above this module.
         from shakelab.signals import io

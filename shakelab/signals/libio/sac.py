@@ -68,6 +68,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import numpy as np
 
 from shakelab.libutils.timeN import Date
+from shakelab.signals.libio.common import NotWaveformError
 
 if TYPE_CHECKING:
     from shakelab.signals.base import Record
@@ -564,14 +565,15 @@ class Sac:
 
         Raises
         ------
-        ValueError
-            If the file is not an evenly sampled time series.
+        NotWaveformError
+            If the file is not an evenly sampled time series (a
+            :class:`ValueError`).
         """
         from shakelab.signals.base import Record
         from shakelab.signals.metadata import ChannelEpoch
 
         if not self.is_timeseries:
-            raise ValueError(
+            raise NotWaveformError(
                 "the SAC file is not an evenly sampled time series "
                 f"(IFTYPE={self.head['IFTYPE']}, LEVEN={self.head['LEVEN']});"
                 " read it with Sac"

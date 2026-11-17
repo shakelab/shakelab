@@ -563,12 +563,14 @@ read_mseed_bytes("waveforms.mseed")      # TypeError: bytes required
 | file or archive root missing, pattern matching nothing | `FileNotFoundError` |
 | format of a file given by name not recognized | `ValueError` (set `format`) |
 | files of unknown format in folders or patterns | skipped, one `IoWarning` |
+| files without waveforms (DYNA and SAC spectra) in folders or patterns | skipped, one `IoWarning` |
+| a file without waveforms given by name | `NotWaveformError` (a `ValueError`) |
 | format known but not supported (GSE, SEG-Y...) | `NotImplementedError` |
 | option not accepted by the reader of the format | `TypeError`, before reading |
 | reversed time window, unknown layout, layout without times | `ValueError` |
 | no data in an archive for the request | empty collection, `IoWarning` |
 | channels without metadata (`metadata=`) | `MetadataWarning` |
-| a file of a known format that cannot be read (corrupt, a DYNA spectrum) | the error of the format reader |
+| a file of a known format that cannot be read (corrupt) | the error of the format reader |
 
 Arguments are checked before the files are read, and the files are
 read in order: an error in one file stops the reading, and no
@@ -848,7 +850,8 @@ writer(raw["IV.MODE..HNZ"][0], "counts.asc")    # ValueError: units
 DYNA files of the databases also hold response spectra (`SA`, `SD`)
 and Fourier amplitude spectra (`FAS`). They are not waveforms: `Dyna`
 reads them, with the periods or frequencies in `abscissa`, and
-`dynaread` refuses them:
+`dynaread` refuses them with `NotWaveformError` (a `ValueError`;
+`reader` skips them in folders and patterns, §8):
 
 ```python
 spectrum = Dyna.read("database/IV.MODE..HNZ.D.IT-2012-0008.SA.MP.ASC")
@@ -857,7 +860,7 @@ print(spectrum)
 # ndata=105)
 print(spectrum.abscissa[[0, -1]], spectrum.data.max())
 # [ 0.01 10.  ] 117.512932         periods (s), cm/s**2
-dynaread("database/IV.MODE..HNZ.D.IT-2012-0008.SA.MP.ASC")  # ValueError
+dynaread("database/IV.MODE..HNZ.D.IT-2012-0008.SA.MP.ASC")  # NotWaveformError
 ```
 
 `Dyna.header` holds the fields in file order, `data` the values;
@@ -1161,9 +1164,10 @@ automatically. The steps are described in the
   many formats: the first bytes decide. Pickle is never recognized
   from content, for safety.
 - **Explicit files are errors, found files are warnings.** A file
-  named by the user that cannot be read is an error; unknown files in
-  a folder are skipped with one warning, so that folders can be read
-  as they are.
+  named by the user that cannot be read is an error; unknown files and
+  files without waveforms (spectra) in a folder are skipped with one
+  warning, so that folders can be read as they are. A corrupt file
+  stops the reading in both cases.
 - **Options checked before reading.** Options of the format readers
   and writers pass through `reader` and `writer` and are checked
   against their signatures before any file is opened.
@@ -1183,7 +1187,7 @@ automatically. The steps are described in the
 ## 14. Validation
 
 The functions of `io` and the format modules are covered by the tests
-of `tests/signals/test_io.py` (43 tests) and `tests/signals/libio/`
+of `tests/signals/test_io.py` (44 tests) and `tests/signals/libio/`
 (191 tests). Each format is compared with the reference software of
 the format, or with files written by it:
 
@@ -1195,6 +1199,7 @@ the format, or with files written by it:
 | SAC files from the test data of ObsPy (both byte orders, version 6, text fields, alphanumeric files) | header fields and samples as expected; round trip unchanged |
 | SAC round trip at 100, 3, 30, 125, 1000 and 0.1 Hz (version 6) and at an odd rate (version 7); a record read from SAC appended to the rest of its channel | the interval of `1 / rate`; one joined record |
 | DYNA files of ESM (waveforms, response and Fourier spectra), read and written | every sample and typed header field read; header text written as in the ESM files; round trip without losses |
+| Folders and patterns with DYNA spectra next to the waveforms; a spectrum named explicitly | spectra skipped with one `IoWarning`; `NotWaveformError` |
 | Simple ASCII written by `mseed2ascii` from the libmseed files | the same records as libmseed reads from the originals; files written by ShakeLab equal to those of `mseed2ascii` |
 | TDMS scenarios of npTDMS (segments, interleaved and incomplete data, scales, timestamps) | the expected channel data |
 | Detection of every format, files without extension, unknown files in folders | the expected format, warning or error |
@@ -1210,14 +1215,6 @@ the format, or with files written by it:
   sampling rates (the raw and the processed record) stop the reading
   with `ValueError: records have incompatible sampling intervals`.
   Read such files separately, or select them by name (§12.3).
-- **Spectra in DYNA folders.** A DYNA file holding a spectrum is
-  recognized as DYNA and then refused by the reader, which stops the
-  whole call instead of skipping the file:
-
-  ```python
-  reader("database/")                    # ValueError
-  ```
-
 - **SAC sampling interval and units.** In version 6 of the header an
   odd sampling rate without a short decimal value (§10.3) keeps the
   32-bit interval, so that the record cannot be joined with the same

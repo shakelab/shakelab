@@ -49,6 +49,7 @@ from shakelab.signals.io import (
     reader,
     writer,
 )
+from shakelab.signals.libio.common import NotWaveformError
 from shakelab.signals.libio.dyna import is_dyna
 from shakelab.signals.libio.mseed import is_mseed
 from shakelab.signals.libio.sac import is_sac
@@ -279,6 +280,25 @@ def _collection(nsamp=10):
                    units="m/s**2")
         )
     return collection
+
+
+def test_reader_skips_files_without_waveforms(tmp_path):
+    """Spectra in directories and patterns are skipped, not by name."""
+    esm = DATA / "ESM" / "ASCII"
+    for kind in ("ACC", "SA", "S"):
+        shutil.copy(esm / f"IV.MODE..HNZ.D.IT-2012-0008.{kind}.MP.ASC",
+                    tmp_path)
+
+    for source in (tmp_path, tmp_path / "*.ASC"):
+        with pytest.warns(IoWarning, match="2 file.*without waveforms"):
+            collection = reader(source)
+        assert collection.sid == ["IV.MODE..HNZ"]
+
+    spectrum = tmp_path / "IV.MODE..HNZ.D.IT-2012-0008.SA.MP.ASC"
+    with pytest.raises(NotWaveformError):
+        reader(spectrum)
+    with pytest.raises(NotWaveformError):
+        reader([spectrum])
 
 
 def test_reader_directory_skips_unknown_files(tmp_path):

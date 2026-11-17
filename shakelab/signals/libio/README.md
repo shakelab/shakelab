@@ -167,7 +167,10 @@ The format class has:
 - `to_shakelab()` and `from_shakelab(record)`, the conversion to and
   from ShakeLab objects (for the formats that can be written);
 - `info()`, and the properties `sid`, `start_ns` and `is_timeseries`
-  (False for content that is not a waveform, such as spectra or text).
+  (False for content that is not a waveform, such as spectra or text);
+  `to_shakelab()` raises `NotWaveformError` (from `common.py`, a
+  `ValueError`) for such content, so that `io.reader` can skip the
+  file in folders and patterns.
 
 In the conversion, the source identifier, start time, sampling and
 units go to the record header; coordinates, burial depth and
@@ -221,6 +224,7 @@ model:
 | `simpleascii` | Simple ASCII | `simpleasciiread`, `simpleasciiwrite`, `SimpleAscii`, `is_simpleascii` |
 | `ascii` | text tables | `asciiread`, `asciiwrite` |
 | `tdms` | NI TDMS | `tdmsread`, `TdmsFile`, `is_tdms` |
+| `common` | definitions shared by the formats | `NotWaveformError` |
 
 The pickle format of `io` and the metadata formats (StationXML, RESP,
 the text format of the FDSN station service) are in

@@ -35,6 +35,7 @@ import pytest
 
 from shakelab.libutils.timeN import Date
 from shakelab.signals.base import Record, Stream
+from shakelab.signals.libio.common import NotWaveformError
 from shakelab.signals.libio.sac import (
     FOOTER_FIELDS,
     HEADER_SIZE,
@@ -179,7 +180,7 @@ def test_not_a_time_series(name, tmp_path):
 
     raw = Sac.from_bytes(content)
     np.testing.assert_array_equal(raw.data2, sac.data2)
-    with pytest.raises(ValueError, match="not an evenly sampled"):
+    with pytest.raises(NotWaveformError, match="not an evenly sampled"):
         sacread(content)
 
 

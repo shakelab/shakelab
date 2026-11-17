@@ -980,6 +980,16 @@ corrections. The format follows
 
 ### Fixed
 
+- `signals.io.reader`: a valid file without waveforms (a DYNA response
+  or Fourier spectrum, a SAC spectrum or x-y file) found in a folder or
+  pattern stopped the whole reading with `ValueError`; such files are
+  now skipped with one `IoWarning`, as files of unknown format. Named
+  explicitly, they raise `NotWaveformError` (new in
+  `signals.libio.common`, a subclass of `ValueError`, raised by
+  `Sac.to_shakelab`, `Dyna.to_shakelab`, `sacread` and `dynaread`).
+- `signals.base.StreamCollection`: the docstrings of `merge` (records
+  are copied), `sort` (`reverse`) and `write` (fields of the file name
+  templates) were wrong.
 - `signals.codes.parse_sid_pattern` (and every selection: `io.reader`,
   `MetadataCollection.select`, `fdsnws`, `seedlink`): a set that is not
   closed (`"HN[Z"`), empty or nested was taken literally and selected
