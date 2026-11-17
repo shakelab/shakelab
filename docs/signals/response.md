@@ -684,8 +684,8 @@ print(abs(seismometer.transfer_function([0.1, 1.0, 10.0])))
 Unknown parameter names raise a `KeyError`; values are converted to
 the declared types (poles and zeros to complex arrays). `to_dict()`
 returns the parameters; `to_json(file)` and `from_json(file)` write
-and read them for stages with real parameters (§17). The other stage
-types:
+and read them (complex values as `{"real": ..., "imag": ...}`). The
+other stage types:
 
 ```python
 from shakelab.signals.response import (
@@ -1000,7 +1000,7 @@ print(problems or "consistent")
 ## 16. Validation
 
 The response model and the readers are covered by the tests of
-`tests/signals/` (`test_instrument_response.py`, 41 tests;
+`tests/signals/` (`test_instrument_response.py`, 42 tests;
 `test_metadata.py`, 26; `test_stationxml.py`, 16; `test_respfile.py`,
 33; `test_stationtext.py`, 7). The main checks:
 
@@ -1036,10 +1036,6 @@ $`\sum_i \left[(N_i-1)/(2 f_{s,i}) - c_i\right]`$ over the FIR stages.
 - **Undescribed stages.** A correction is only as good as the
   metadata: decimation stages missing from them (for example the CIC
   decimator of some dataloggers) are not corrected.
-- **JSON of single stages.** `StageResponse.to_json` writes complex
-  poles and zeros in a form that `from_json` does not read back; stage
-  sets and collections (`to_dict`, `MetadataCollection.write`) are not
-  affected.
 - **Elevations** are taken as written (relative to the local ground,
   usually mean sea level), not converted to ellipsoidal heights.
 - **Interface asymmetries** (under review): `MetadataCollection.read`

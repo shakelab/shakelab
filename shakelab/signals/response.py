@@ -650,7 +650,7 @@ class StageResponse:
         try:
             with open(file_name, "r") as fobj:
                 data = _json.load(fobj)
-            self.from_dict(data)
+            self.from_dict(deserialize_complex(data))
         except (IOError, _json.JSONDecodeError) as error:
             raise ValueError(f"Failed to load JSON file: {error}")
 

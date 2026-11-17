@@ -920,7 +920,9 @@ def test_reference_august_2026(case):
     square, so that the new spectral density is ``N * delta / 2`` times
     the old power (squared for the RTBF objective; MUSIC is unchanged
     up to the same factor, inverse, being a reciprocal of a projection
-    without the matrix scale).
+    without the matrix scale). The original code took the sampling
+    interval of the SAC files in single precision (0.008750000037 s
+    instead of 0.00875 s): the powers agree to a relative 1e-6.
     """
     reference = json.loads(
         (DATA / "reference.json").read_text()
@@ -951,7 +953,8 @@ def test_reference_august_2026(case):
         else:
             ratio = factor
 
-        assert new.power == pytest.approx(old["power"] * ratio, rel=1e-8)
+        assert new.power == pytest.approx(old["power"] * ratio, rel=1e-6,
+                                          abs=0.0)
 
         if old["power_standard_error"] is not None:
             assert new.power_standard_error == pytest.approx(

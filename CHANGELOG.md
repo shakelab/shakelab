@@ -9,6 +9,11 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.libio.sac`: `sacwrite`, `Sac.write` and `Sac.to_bytes`
+  take `version=7` to write the double-precision footer of SAC 102
+  (sampling interval, times and coordinates in double precision);
+  version 6 remains the default.
+
 - Documentation: guide to the SeedLink client
   (`docs/signals/seedlink.md`: the protocol in versions 3.1 and 4.0,
   selection, the order and thread of the destinations and callbacks,
@@ -949,6 +954,15 @@ corrections. The format follows
 
 ### Fixed
 
+- `signals.libio.sac`: the sampling interval of version-6 files, a
+  32-bit float, was read as such (0.01 s as 0.009999999776 s), so that
+  a record read from SAC could not be joined with the same channel
+  read from MiniSEED and its end time moved by a few microseconds. The
+  record now gets the decimal value with the fewest significant
+  digits, as interval or as rate, that has the same 32-bit
+  representation (0.01 for 100 Hz, 1/3 for 3 Hz).
+- `signals.response.StageResponse.from_json` could not read the
+  complex poles and zeros written by `to_json` (`TypeError`).
 - `exploration.yarray.ArrayMonitor` skipped every window of the
   circular buffer of the SeedLink client ("no station covers the time
   window"): the packets were never joined (see `Client.get_data` and

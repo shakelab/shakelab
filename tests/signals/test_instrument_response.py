@@ -297,6 +297,38 @@ def test_unsupported_stage():
     np.testing.assert_allclose(values, 2.0)
 
 
+@pytest.mark.parametrize(
+    "stage",
+    [
+        StageGain(sensitivity=2.5, frequency=1.0, stage_number=2),
+        StagePoleZero(poles=[-0.037 + 0.037j, -0.037 - 0.037j],
+                      zeros=[0j, 0j], normalization_factor=1.0,
+                      normalization_frequency=1.0, stage_number=1),
+        StageCoefficients(numerator=[0.25, 0.5, 0.25],
+                          input_sample_rate=200.0, decimation_factor=2,
+                          stage_number=3),
+        StageResponseList(frequency=[1.0, 10.0], amplitude=[1.0, 100.0],
+                          phase=[0.0, 90.0], stage_number=1),
+        StagePolynomial(coefficients=[600.0, 100.0], stage_number=1),
+        StageUnsupported(element="Coefficients (OTHER)", stage_number=4),
+    ],
+    ids=lambda stage: type(stage).__name__,
+)
+def test_stage_json_round_trip(stage, tmp_path):
+    """A stage written to JSON is read back (complex values included)."""
+    path = tmp_path / "stage.json"
+    stage.to_json(path)
+
+    restored = type(stage)()
+    restored.from_json(path)
+
+    for key, value in stage.to_dict().items():
+        if isinstance(value, np.ndarray):
+            np.testing.assert_array_equal(restored[key], value)
+        else:
+            assert restored[key] == value
+
+
 def test_stage_selection():
     """The complete response is the default; subsets are selectable."""
     stage_set = StageSet()

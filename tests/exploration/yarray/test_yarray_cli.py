@@ -311,7 +311,8 @@ def test_fdd_command(tmp_path, frame, capsys):
     assert all(float(row["mac"]) > 0.99 for row in rows)
     assert "XX.F03. east std" in rows[0]
     assert FDDConfig(written).components.value == "east"
-    assert len(FDDResult(output).singular_values()[0]) == 190
+    # 0.5 to 10 Hz every 0.05 Hz (20 s windows), both bounds included
+    assert len(FDDResult(output).singular_values()[0]) == 191
 
 
 def test_fdd_from_saved_result(tmp_path, frame, capsys):

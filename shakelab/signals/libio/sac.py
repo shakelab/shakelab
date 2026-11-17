@@ -27,6 +27,12 @@ Reading
 - Byte order detected from the header version, or imposed.
 - Header versions 6 and 7 (the double-precision footer takes
   precedence over the corresponding header values).
+- In version 6 the sampling interval is a 32-bit float (0.01 is
+  stored as 0.009999999776). The record gets the decimal value with
+  the fewest significant digits, as interval or as sampling rate,
+  that has the same 32-bit representation (0.01 for 100 Hz, 1/3 for
+  3 Hz), so that it matches the same channel read from MiniSEED; if
+  none has at most 9 digits, the stored value is kept.
 - The start time is the reference time (``NZYEAR`` ... ``NZMSEC``)
   plus ``B``.
 - Coordinates, burial depth and orientation (``STLA``, ``STLO``,
@@ -41,7 +47,9 @@ Reading
 
 Writing
 -------
-- Header version 6, big-endian unless requested otherwise.
+- Header version 6, big-endian unless requested otherwise; version 7
+  (``version=7``) adds the double-precision footer, which SAC 102 and
+  later read but some other programs do not.
 - The reference time is the start time truncated to the millisecond,
   and ``B`` holds the rest, so the start time keeps its microseconds.
 - Channel metadata and ``head.extra["sac"]`` are written back, so a
@@ -175,6 +183,7 @@ def sacwrite(
     record: Record,
     byte_order: str = DEFAULT_BYTE_ORDER,
     owrite: bool = False,
+    version: int = 6,
 ) -> None:
     """
     Write a ShakeLab Record to a SAC file.
@@ -189,13 +198,19 @@ def sacwrite(
         Byte order. Default is ``"be"``.
     owrite : bool, optional
         If True, overwrite an existing file.
+    version : {6, 7}, optional
+        Header version. Version 7 adds a footer with the sampling
+        interval, the times and the coordinates in double precision.
+        Default is 6, the version read by all programs.
 
     Raises
     ------
     FileExistsError
         If the file exists and ``owrite`` is False.
     """
-    Sac.from_shakelab(record).write(target, byte_order, owrite)
+    Sac.from_shakelab(record).write(
+        target, byte_order, owrite, version=version
+    )
 
 
 def is_sac(head: bytes) -> bool:
@@ -437,24 +452,40 @@ class Sac:
                 raise ValueError(f"invalid sampling interval {head['DELTA']}")
         return sac
 
-    def to_bytes(self, byte_order: str = DEFAULT_BYTE_ORDER) -> bytes:
+    def to_bytes(
+        self,
+        byte_order: str = DEFAULT_BYTE_ORDER,
+        version: int = 6,
+    ) -> bytes:
         """
-        Encode the file with header version 6.
+        Encode the file.
 
         Parameters
         ----------
         byte_order : {"be", "le"}, optional
             Byte order. Default is ``"be"``.
+        version : {6, 7}, optional
+            Header version; version 7 adds the double-precision
+            footer. Default is 6.
 
         Returns
         -------
         bytes
             Encoded file.
+
+        Raises
+        ------
+        ValueError
+            If ``version`` is not 6 or 7.
         """
+        if version not in (6, 7):
+            raise ValueError(
+                f"SAC header version must be 6 or 7, not {version!r}"
+            )
         prefix = _prefix(byte_order)
         head = dict(self.head)
         data = np.asarray(self.data, dtype=np.float32)
-        head["NVHDR"] = 6
+        head["NVHDR"] = version
         head["NPTS"] = int(data.size)
         if data.size:
             head["DEPMIN"] = float(data.min())
@@ -479,6 +510,14 @@ class Sac:
         content += data.astype(prefix + "f4").tobytes()
         if self.data2 is not None:
             content += np.asarray(self.data2).astype(prefix + "f4").tobytes()
+        if version == 7:
+            content += struct.pack(
+                prefix + f"{len(FOOTER_FIELDS)}d",
+                *(
+                    SAC_UNDEFINED if head[name] is None else float(head[name])
+                    for name in FOOTER_FIELDS
+                ),
+            )
         return content
 
     def write(
@@ -486,6 +525,7 @@ class Sac:
         target: Any,
         byte_order: str = DEFAULT_BYTE_ORDER,
         owrite: bool = False,
+        version: int = 6,
     ) -> None:
         """
         Write the SAC file.
@@ -498,13 +538,16 @@ class Sac:
             Byte order. Default is ``"be"``.
         owrite : bool, optional
             If True, overwrite an existing file.
+        version : {6, 7}, optional
+            Header version; version 7 adds the double-precision
+            footer. Default is 6.
 
         Raises
         ------
         FileExistsError
             If the file exists and ``owrite`` is False.
         """
-        content = self.to_bytes(byte_order)
+        content = self.to_bytes(byte_order, version)
         if isinstance(target, (str, os.PathLike)):
             if os.path.exists(target) and not owrite:
                 raise FileExistsError(f"File exists: {target}")
@@ -535,9 +578,12 @@ class Sac:
             )
 
         start = self.start_ns
+        delta = self.head["DELTA"]
+        if self.head["NVHDR"] != 7:
+            delta = _decimal_interval(delta)
         record = Record(
             data=self.data.copy(),
-            delta=self.head["DELTA"],
+            delta=delta,
             time=None if start is None else Date.from_unix_ns(start),
         )
         record.head.meta = ChannelEpoch(self.sid, **self._channel())
@@ -721,6 +767,28 @@ def _detect_byte_order(buffer: memoryview) -> str:
         if version in (6, 7):
             return byte_order
     raise ValueError("not a binary SAC file (header version not 6 or 7)")
+
+
+def _decimal_interval(delta: float) -> float:
+    """
+    Sampling interval meant by a 32-bit value.
+
+    Returns the decimal number with the fewest significant digits (at
+    most 9), taken as interval or as sampling rate (interval ``1 /
+    rate``), whose 32-bit representation is ``delta``; ``delta`` itself
+    if there is none or if it is not a 32-bit value.
+    """
+    single = np.float32(delta)
+    if not np.isfinite(single) or single <= 0 or float(single) != delta:
+        return delta
+    for digits in range(1, 10):
+        rate = float(f"{1.0 / delta:.{digits}g}")
+        if np.float32(1.0 / rate) == single:
+            return 1.0 / rate
+        interval = float(f"{delta:.{digits}g}")
+        if np.float32(interval) == single:
+            return interval
+    return delta
 
 
 def _decode_text(raw: bytes) -> Optional[str]:

@@ -104,7 +104,9 @@ What each format holds, and what a round trip through it keeps:
   fields) and the samples as 32-bit floats. Coordinates and
   orientation of the sensor are part of the header, so SAC files are
   often used to exchange events with their station positions. Float64
-  data and the sampling interval are rounded to float32.
+  data are rounded to float32; the sampling interval, a 32-bit float
+  in the usual version 6 of the header, is read back as the intended
+  decimal value (§10.3).
 - **DYNA 1.2** is the ASCII format of the Engineering Strong Motion
   database (ESM) and of the Italian Accelerometric Archive (ITACA): 64
   `KEY: value` header lines (event, station, instrument, processing)
@@ -771,6 +773,8 @@ sac.head["KUSER0"] = "checked"
 sac.info()                                 # the defined header fields
 sac.write("record_checked.sac")
 record = sac.to_shakelab()
+print(record.delta)
+# 0.01
 print(record.head.extra["sac"])
 # {'KUSER0': 'checked'}
 ```
@@ -783,7 +787,27 @@ byte order of a file is detected and kept in `sac.byte_order`;
 `sacread(source, byte_order=...)` imposes one. Headers of version 6
 and 7 are read (the double-precision footer of version 7 takes
 precedence); version 6 is written, big-endian unless
-`byte_order="le"`.
+`byte_order="le"`, and version 7 with `version=7`:
+
+```python
+writer(data["IV.MODE..HNZ"][0], "record7.sac", version=7)
+sacwrite("record7.sac", record, owrite=True, version=7)   # the same
+```
+
+Version 7 adds after the samples a footer with the sampling interval,
+the times, the event and station coordinates in double precision. SAC
+reads it from version 102.0, but other programs may accept only
+version 6: write it when the files stay within ShakeLab and SAC.
+
+In version 6 the sampling interval is a 32-bit float, which cannot
+hold 0.01 exactly (`Sac.head["DELTA"]` shows 0.009999999776, the value
+in the file). A 32-bit value stands for all the numbers within about
+1e-7 of it, so the conversion to a record takes among them the decimal
+number with the fewest significant digits, as interval or as sampling
+rate: 0.01 for 100 Hz, 1/3 for 3 Hz, 0.008 for 125 Hz, the same values
+that MiniSEED gives for the same channel. An interval without such a
+value within 9 digits (an odd rate such as 99.9999 Hz) keeps its
+32-bit value.
 
 In the conversion, `STLA`, `STLO`, `STEL`, `STDP`, `CMPAZ` and
 `CMPINC` become the channel metadata (`CMPINC`, measured from the
@@ -791,8 +815,8 @@ vertical, becomes the SEED dip); the reference time and `B` the start
 time; the time markers (`O`, `A`, `F`, `T0` to `T9`) are kept in
 `head.extra["sac"]` as absolute dates. When writing, the reference
 time is the start time truncated to the millisecond and `B` holds the
-rest, so that microseconds are kept. The samples and the sampling
-interval are stored as 32-bit floats.
+rest, so that microseconds are kept. The samples are stored as
+32-bit floats.
 
 ### 10.4 DYNA
 
@@ -1160,7 +1184,7 @@ automatically. The steps are described in the
 
 The functions of `io` and the format modules are covered by the tests
 of `tests/signals/test_io.py` (43 tests) and `tests/signals/libio/`
-(185 tests). Each format is compared with the reference software of
+(191 tests). Each format is compared with the reference software of
 the format, or with files written by it:
 
 | Check | Result |
@@ -1169,6 +1193,7 @@ the format, or with files written by it:
 | The two MiniSEED backends on the same files, reading and writing | the same records |
 | MiniSEED written and read again, every encoding and record length | samples and times unchanged |
 | SAC files from the test data of ObsPy (both byte orders, version 6, text fields, alphanumeric files) | header fields and samples as expected; round trip unchanged |
+| SAC round trip at 100, 3, 30, 125, 1000 and 0.1 Hz (version 6) and at an odd rate (version 7); a record read from SAC appended to the rest of its channel | the interval of `1 / rate`; one joined record |
 | DYNA files of ESM (waveforms, response and Fourier spectra), read and written | every sample and typed header field read; header text written as in the ESM files; round trip without losses |
 | Simple ASCII written by `mseed2ascii` from the libmseed files | the same records as libmseed reads from the originals; files written by ShakeLab equal to those of `mseed2ascii` |
 | TDMS scenarios of npTDMS (segments, interleaved and incomplete data, scales, timestamps) | the expected channel data |
@@ -1193,11 +1218,12 @@ the format, or with files written by it:
   reader("database/")                    # ValueError
   ```
 
-- **SAC sampling interval.** The sampling interval is stored as a
-  32-bit float (version 6 of the header): 0.01 s becomes
-  0.009999999776 s, so that a record read from SAC cannot be joined
-  with the same channel read from MiniSEED (`ValueError`), and its end
-  time differs by a few microseconds. Units are not written to SAC.
+- **SAC sampling interval and units.** In version 6 of the header an
+  odd sampling rate without a short decimal value (§10.3) keeps the
+  32-bit interval, so that the record cannot be joined with the same
+  channel read from MiniSEED (`ValueError`) and its end time differs
+  by a few microseconds; `version=7` keeps it exact. Units are not
+  written to SAC (`IDEP` is not used).
 - **Text tables** are recognized only by the `.csv` extension; with
   other extensions they need `format="ascii"`. A `.asc` file that is
   neither DYNA nor another recognized format is read as DYNA and
