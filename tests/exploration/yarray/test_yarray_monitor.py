@@ -100,7 +100,7 @@ class _Client:
 
         self.calls = []
 
-    def get_data(self, sid="*", start=None, end=None):
+    def get_data(self, sid="*", *, starttime=None, endtime=None):
         self.calls.append(sid)
         return self.buffer.copy()
 

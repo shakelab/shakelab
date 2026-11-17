@@ -59,7 +59,7 @@ version 3 or later.
 | `seismicity` | earthquake catalogues, magnitudes, QuakeML and ISC tools |
 | `engineering` | exposure, fragility and taxonomy models, impact scenarios, engineering parameters of records |
 | `graphics` | figures for the objects of the other subpackages |
-| `libutils` | shared utilities: time, geodesy, JSON and ASCII input and output, time zones |
+| `libutils` | shared utilities: time, geodesy, JSON and ASCII input and output, time zones, server addresses |
 
 ## Map of the documentation
 

@@ -101,7 +101,8 @@ def test_parameter_synonyms(line, delta):
 def test_numbers_only_with_arguments():
     """A file of numbers only, with the parameters as arguments."""
     collection = asciiread(
-        "  1  2  3\n  4  5  6\n", rate=200, start="2026-11-05 10:00:00",
+        "  1  2  3\n  4  5  6\n", rate=200,
+        first_sample_time="2026-11-05 10:00:00",
         sid=["XX.A..HNE", "XX.A..HNN", "XX.A..HNZ"],
     )
     rec = collection["XX.A..HNN"][0]
@@ -131,7 +132,7 @@ def test_contradictory_sampling():
     with pytest.raises(ValueError, match="invalid sampling rate"):
         asciiread("1\n2\n", rate="fast")
     with pytest.raises(ValueError, match="invalid start"):
-        asciiread("1\n2\n", rate=1, start="yesterday")
+        asciiread("1\n2\n", rate=1, first_sample_time="yesterday")
 
 
 # ----------------------------------------------------------------------------
@@ -146,7 +147,8 @@ def test_column_of_seconds():
         "0,000;1,5;-2,25\n0,005;1,6;-2,30\n"
     )
     records = _records(asciiread(
-        text, sid="XX.A..HN{column}", start="2026-11-05 10:00:00"
+        text, sid="XX.A..HN{column}",
+        first_sample_time="2026-11-05 10:00:00",
     ))
 
     assert [rec.sid for rec in records] == ["XX.A..HNX", "XX.A..HNY"]
@@ -177,7 +179,7 @@ def test_unnamed_column_of_dates():
 def test_seconds_from_start():
     """A column of seconds counts from the start time."""
     text = "t,a\n1.0,5\n1.5,6\n"
-    rec = asciiread(text, start="2026-01-01T00:00:00")[0][0]
+    rec = asciiread(text, first_sample_time="2026-01-01T00:00:00")[0][0]
     assert rec.time == Date("2026-01-01T00:00:01Z")
 
     with pytest.warns(AsciiSignalWarning, match="start time is None"):
@@ -280,7 +282,7 @@ def test_written_text():
 
     assert buffer.getvalue().splitlines() == [
         "# delta: 0.01",
-        "# start: 2026-01-01T00:00:00.000000Z",
+        "# first_sample_time: 2026-01-01T00:00:00.000000Z",
         "# units: M/S**2",
         "time;XX.A..HNZ",
         "0;0.5",
@@ -322,5 +324,18 @@ def test_io_reader_and_writer(tmp_path):
     text = tmp_path / "x.txt"
     text.write_text("1\n2\n")
     rec = reader(str(text), format="ascii", rate=10,
-                 start="2026-01-01T00:00:00")[0][0]
+                 first_sample_time="2026-01-01T00:00:00")[0][0]
     assert rec.delta == 0.1
+
+
+def test_first_sample_time_and_time_window(tmp_path):
+    """The time of the first sample is not the time window of reader."""
+    path = tmp_path / "table.csv"
+    path.write_text("a,b\n1,2\n3,4\n5,6\n")
+    collection = reader(
+        str(path), rate=100, first_sample_time="2026-01-01T00:00:00",
+        starttime="2026-01-01T00:00:00.01",
+    )
+    rec = collection[0][0]
+    assert rec.time == Date("2026-01-01T00:00:00.01Z")
+    assert rec.nsamp == 2

@@ -111,12 +111,24 @@ the rest of the session.
 Any other server can be used, not only those of the registry: the
 FDSN services of an observatory, of a temporary network, or the local
 server of an acquisition system (SeisComP, for instance, offers them
-on its own port). It is given by the `http://` or `https://` address
-of its host, with an optional port and path prefix
-(`http://192.168.1.10:8080`, `https://example.org/seismo`), when it
+on its own port). It is given by the address of its host,
+`[scheme://]host[:port][/prefix]` (`example.org`,
+`http://192.168.1.10:8080`, `https://example.org/seismo`), when it
 uses the standard paths `/fdsnws/<service>/1/`; otherwise, or for
 services on different hosts, by the address of each service. The OGS
 servers of the table are themselves addresses with a port.
+
+Without a scheme, the address is `https`: most data centers serve
+their services over HTTPS, which protects the data and, in future,
+credentials. Servers that serve plain HTTP only (about a third of the
+registry, and many local servers) must be written with `http://`:
+ShakeLab does not fall back from HTTPS to HTTP by itself, which would
+silently turn an encrypted connection into a plain one. When an HTTPS
+connection fails because the server answers in plain HTTP, the error
+says so and suggests the `http://` address. The address is read as
+by the SeedLink client (`host:port`, IPv6 in brackets), with the
+port given separately (`port=`, `--port`) taking precedence over the
+one in the address.
 
 ## 3. From a ShakeLab selection to a request
 
@@ -307,10 +319,13 @@ Any server, also one not in the registry, is given by the address of
 its host, with the port and a path prefix if needed, when it uses the
 standard paths; otherwise service by service (the address of a service
 may include the method, which is removed). Explicit services replace
-those of a named data center. The scheme `http://` or `https://` is
-required, and addresses without a host or with an invalid port are
-rejected when the client is created; a name that looks like an address
-(with `.`, `:` or `/`) gives an error that suggests the scheme:
+those of a named data center. A text with a scheme, a dot, a colon or
+a slash, or `localhost`, is an address (the names of the registry have
+none of them), with `https` if the scheme is omitted; addresses
+without a host, with another scheme or with an invalid port are
+rejected when the client is created. `port` is the port of the address
+and takes precedence over the one written in it; it is refused with a
+name of the registry, whose services have complete addresses:
 
 ```python
 local = Client("http://192.168.1.10:8080")      # e.g. a SeisComP server
@@ -321,6 +336,12 @@ print(sorted(local.services))
 prefixed = Client("https://example.org/seismo")
 print(prefixed.services["station"])
 # https://example.org/seismo/fdsnws/station/1/
+secure = Client("example.org:8443")              # https by default
+print(secure.services["event"])
+# https://example.org:8443/fdsnws/event/1/
+moved = Client("http://192.168.1.10:8080", port=8081)
+print(moved.services["station"])
+# http://192.168.1.10:8081/fdsnws/station/1/
 mixed = Client(station="https://meta.example.org/fdsnws/station/1/query",
                dataselect="http://192.168.1.10:8080/custom/dataselect/1/")
 print(mixed)
@@ -329,8 +350,9 @@ inherited = Client("INGV", station="http://localhost:8080/fdsnws/station/1/")
 print(inherited.services["station"], inherited.services["dataselect"])
 # http://localhost:8080/fdsnws/station/1/
 # https://webservices.ingv.it/fdsnws/dataselect/1/
-Client("192.168.1.10:8080")         # ValueError: unknown data center; write 'http://192.168.1.10:8080'
-Client("http://")                   # ValueError: service address without host
+Client("ftp://example.org")         # ValueError: the scheme must be http:// or https://
+Client("example.org:80x")           # ValueError: invalid port
+Client("INGV", port=8080)           # ValueError: port applies to an address
 patient = Client("INGV", timeout=300, retries=5)
 ```
 
@@ -664,6 +686,7 @@ of the server. Not every data center offers the service.
 | Situation | Result |
 |---|---|
 | unknown data center, invalid address | `ValueError` when creating the client |
+| HTTPS connection to a server that serves plain HTTP | `FdsnError` suggesting the `http://` address (not retried) |
 | service not offered by the data center | `ValueError` before the request |
 | wrong argument types, invalid ranges, incompatible options | `TypeError` or `ValueError` before the request |
 | no data for the request (status 204) | empty object |
@@ -692,7 +715,8 @@ returned with `target`, which is 0).
 `slab-fdsn` (also `python -m shakelab.signals.fdsnws`) gives the four
 services and the table of data centers from a terminal. The data
 center is a name of the registry or the address of a host with the
-standard paths (`slab-fdsn waveforms http://192.168.1.10:8080 ...`;
+standard paths (`slab-fdsn waveforms http://192.168.1.10:8080 ...`,
+`https` if the scheme is omitted, `--port` to replace the port;
 services with other paths need the library); patterns and times are
 those of the library:
 
@@ -812,6 +836,11 @@ for span in spans:
 - **A built-in registry.** Creating a client needs no request; the
   table can be refreshed from the FDSN, and any server can be given by
   its address.
+- **HTTPS by default, no fallback.** An address without a scheme is
+  `https`; plain HTTP must be written, so that a connection is never
+  downgraded without the user knowing. Addresses are read as in every
+  client of ShakeLab (`shakelab.libutils.address`), with a separate
+  port taking precedence.
 - **Standard library only.** No dependency for HTTP; compression,
   retries, redirects and certificates handled explicitly, verification
   never disabled.
@@ -822,7 +851,7 @@ for span in spans:
 
 ## 17. Validation
 
-The package is covered by the tests of `tests/signals/fdsnws/` (94
+The package is covered by the tests of `tests/signals/fdsnws/` (99
 tests), which run against a fake FDSN server on a local socket: the
 server answers the four services with the test data of ShakeLab
 (IV.MODE in MiniSEED, StationXML and text, a QuakeML catalogue and
@@ -841,6 +870,7 @@ fail, compress, redirect or answer with chosen statuses.
 | Events, availability (`query` and `extent`) | the expected catalogue and spans |
 | Statuses 204, 400, 413, 429 and 5xx, `Retry-After`, timeouts, gzip, 307 redirects of POST requests | empty results, `FdsnError` with the message of the server, retries |
 | Registry: names, aliases, addresses on several hosts, refresh | the expected services |
+| Addresses with and without scheme, with a separate port (also `--port`); an HTTPS request to the fake server, which serves plain HTTP | `https` by default, the separate port prevailing; an `FdsnError` suggesting `http://`, without retries |
 | Command line: every subcommand, outputs and exit statuses | as documented |
 
 ## 18. Current limitations

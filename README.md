@@ -32,7 +32,7 @@ independently:
 | `seismicity` | Earthquake catalogues, magnitudes, QuakeML and ISC tools |
 | `engineering` | Exposure, fragility and taxonomy models, impact scenarios (ShakeScenario, with client/server and web interface), engineering parameters of records |
 | `graphics` | Plotting helpers |
-| `libutils` | Shared utilities: time handling, geodesy, JSON and ASCII I/O, time zones |
+| `libutils` | Shared utilities: time handling, geodesy, JSON and ASCII I/O, time zones, server addresses |
 
 ## Installation
 

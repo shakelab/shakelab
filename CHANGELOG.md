@@ -9,6 +9,31 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.seedlink`: time windows are `starttime` and `endtime`, as in
+  the rest of the library (they were `start` and `end`) in `read`,
+  `records`, `Client.run`, `Client.start` and `Client.get_data`, and in
+  the attributes of `SeedLinkEvent` and `StreamInfo`. They are
+  keyword-only, as the arguments after `select` of `read`, `records`
+  and after `path` of `archive`. The command line keeps `--start` and
+  `--end`, as `slab-fdsn` and `slab-yarray`.
+- Server addresses (new `libutils.address.parse_address`, used by
+  every network client): `signals.seedlink.Client`, `read`, `records`
+  and `archive` take the server as one address `HOST[:PORT]` (IPv6 in
+  brackets) in place of `host` and `port`, as on the command line;
+  `port=` stays, keyword-only, and takes precedence over the port in
+  the address. Before, `Client("host:18001")` was accepted with the
+  port in the host name and failed only when connecting.
+  `signals.fdsnws.Client` takes addresses without a scheme
+  (`Client("example.org:8080")`, `https` by default; servers that
+  serve plain HTTP only need `http://`) and `port=`; an HTTPS
+  connection to a server that answers in plain HTTP gives an
+  `FdsnError` that suggests the `http://` address, without retries.
+  `slab-seedlink` and `slab-fdsn` take `--port`.
+- `signals.libio.ascii.asciiread` and `signals.libio.tdms.tdmsread`,
+  `tdms_to_matrix`: the time of the first sample is
+  `first_sample_time` (it was `start`), distinct from the time window
+  `starttime`, `endtime` of `io.reader`. `asciiwrite` writes the key
+  `first_sample_time`; `start` and the other keys are still read.
 - `signals.fdsnws.Client.get_waveforms`: `metadata` also takes metadata
   already at hand (a `MetadataCollection` or StationXML files), which
   are attached and used by `correct` without a request to the station
@@ -40,6 +65,10 @@ corrections. The format follows
   (sampling interval, times and coordinates in double precision);
   version 6 remains the default.
 
+- Documentation: `docs/development.md` version 2.8 records the rules
+  on silent omissions and on ShakeLab exceptions (§16), the
+  conventions for time windows, server addresses and given metadata
+  (§17), and the shared modules of a subpackage (§21).
 - Documentation: guide to the SeedLink client
   (`docs/signals/seedlink.md`: the protocol in versions 3.1 and 4.0,
   selection, the order and thread of the destinations and callbacks,

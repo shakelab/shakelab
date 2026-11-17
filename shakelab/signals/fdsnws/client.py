@@ -69,6 +69,7 @@ from shakelab.signals.codes import match_code
 from shakelab.signals.fdsnws.registry import (
     SERVICES,
     find_datacenter,
+    is_address,
     service_root,
     service_urls,
 )
@@ -137,8 +138,13 @@ class Client:
         Name of a data center of the registry (see
         :func:`~shakelab.signals.fdsnws.registry.datacenters`; case and
         former names such as ``IRIS`` or ``ORFEUS`` are accepted), or
-        the ``http(s)://`` address of a host with the standard paths
-        ``/fdsnws/<service>/1/``.
+        the address of a host with the standard paths
+        ``/fdsnws/<service>/1/``: ``[scheme://]host[:port][/prefix]``,
+        with ``https`` if the scheme is omitted (servers that serve
+        plain HTTP only must be written with ``http://``).
+    port : int, optional
+        Port of the host, which takes precedence over the one in
+        ``datacenter``; not accepted with a data center name.
     station, dataselect, event, availability : str, optional
         Address of a service, replacing that of ``datacenter`` (also
         for services with non-standard paths). At least one service
@@ -169,12 +175,15 @@ class Client:
     --------
     >>> Client("ingv").services["station"]
     'https://webservices.ingv.it/fdsnws/station/1/'
+    >>> Client("example.org:8080").services["station"]
+    'https://example.org:8080/fdsnws/station/1/'
     """
 
     def __init__(
         self,
         datacenter: Optional[str] = None,
         *,
+        port: Optional[int] = None,
         station: Optional[str] = None,
         dataselect: Optional[str] = None,
         event: Optional[str] = None,
@@ -194,12 +203,19 @@ class Client:
         self.name: Optional[str] = None
         self.services: dict = {}
 
+        if datacenter is None and port is not None:
+            raise ValueError("port applies to the address of datacenter")
         if datacenter is not None:
             if not isinstance(datacenter, str):
                 raise TypeError("datacenter must be a string")
-            if datacenter.strip().lower().startswith(("http://", "https://")):
-                self.services = service_urls(datacenter)
+            if is_address(datacenter):
+                self.services = service_urls(datacenter, port)
             else:
+                if port is not None:
+                    raise ValueError(
+                        "port applies to an address, not to the data "
+                        f"center {datacenter!r}"
+                    )
                 center = find_datacenter(datacenter)
                 self.name = center.name
                 self.services = dict(center.services)

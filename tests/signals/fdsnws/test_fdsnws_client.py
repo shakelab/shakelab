@@ -87,6 +87,38 @@ def test_client_from_registry():
     assert client.services["event"] == "https://example.org/fdsnws/event/1/"
 
 
+@pytest.mark.parametrize(
+    "address, kwargs, expected",
+    [
+        ("example.org", {}, "https://example.org/fdsnws/station/1/"),
+        ("example.org:8080/prefix", {},
+         "https://example.org:8080/prefix/fdsnws/station/1/"),
+        ("http://158.110.30.85:8080", {},
+         "http://158.110.30.85:8080/fdsnws/station/1/"),
+        ("http://example.org:8080", {"port": 8081},
+         "http://example.org:8081/fdsnws/station/1/"),
+        ("localhost", {"port": 8080},
+         "https://localhost:8080/fdsnws/station/1/"),
+        ("[::1]:8080", {}, "https://[::1]:8080/fdsnws/station/1/"),
+    ],
+)
+def test_client_from_address(address, kwargs, expected):
+    """Addresses with or without scheme (https by default) and port."""
+    client = Client(address, **kwargs)
+    assert client.name is None
+    assert client.services["station"] == expected
+
+
+def test_plain_http_server_over_https(server):
+    """A server that serves plain HTTP: the error suggests http://."""
+    address = server.url.split("://")[1].split("/")[0]
+    client = Client(address, retries=3, timeout=10.0)
+    with pytest.raises(FdsnError, match=f"write its address as "
+                       f"http://{address}"):
+        client.version("station")
+    assert server.requests == []
+
+
 def test_client_from_services():
     """Services only, without a data center."""
     client = Client(station="https://example.org/fdsnws/station/1/query")
@@ -108,6 +140,9 @@ def test_client_from_services():
         (("INGV",), {"retries": -1}, ValueError),
         (("INGV",), {"retries": 1.0}, TypeError),
         ((), {"station": "ftp://example.org"}, ValueError),
+        (("INGV",), {"port": 8080}, ValueError),
+        ((), {"port": 8080, "station": "example.org"}, ValueError),
+        (("example.org",), {"port": "8080"}, TypeError),
     ],
 )
 def test_client_errors(args, kwargs, error):

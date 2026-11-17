@@ -31,7 +31,9 @@ Subcommands:
 - ``datacenters``: the known data centers and their services.
 
 The data center is a name of the FDSN registry (``INGV``,
-``EarthScope``, ``GEOFON``...) or the ``http(s)://`` address of a host;
+``EarthScope``, ``GEOFON``...) or the address of a host,
+``[http(s)://]HOST[:PORT][/PREFIX]`` (``https`` if the scheme is
+omitted; ``--port`` takes precedence over the port in the address);
 channels are patterns ``NET.STA.LOC.CHA`` (see
 :mod:`shakelab.signals.codes`); times are ISO 8601 in UTC.
 
@@ -273,8 +275,14 @@ def _parser(prog: Optional[str] = None) -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "datacenter",
-        help="data center of the FDSN registry (e.g. INGV) or "
-        "http(s):// address of a host",
+        help="data center of the FDSN registry (e.g. INGV) or address "
+        "of a host, [http(s)://]HOST[:PORT][/PREFIX] (https if the "
+        "scheme is omitted)",
+    )
+    common.add_argument(
+        "--port", type=int,
+        help="port of the host, which takes precedence over the one in "
+        "the address",
     )
     common.add_argument(
         "--timeout", type=float, default=DEFAULT_TIMEOUT,
@@ -427,7 +435,7 @@ def _parser(prog: Optional[str] = None) -> argparse.ArgumentParser:
 
 def _client(args) -> Client:
     """Client of the data center of the command line."""
-    return Client(args.datacenter, timeout=args.timeout)
+    return Client(args.datacenter, port=args.port, timeout=args.timeout)
 
 
 def _range(low: Optional[float], high: Optional[float]):

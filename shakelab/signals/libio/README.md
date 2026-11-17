@@ -126,7 +126,8 @@ sampling interval and the start time:
 ```python
 from shakelab.signals.io import reader
 
-data = reader("logger.csv", rate=200.0, start="2026-03-01T10:00:00",
+data = reader("logger.csv", rate=200.0,
+              first_sample_time="2026-03-01T10:00:00",
               network="XX", station="LOG", units="m/s**2")
 ```
 

@@ -29,9 +29,10 @@ Subcommands:
 - ``archive``: continuous archive of MiniSEED files (template or SDS),
   with a state file to resume after a restart.
 
-The server is given as ``HOST[:PORT]`` (default port 18000); channels
-as patterns ``NET.STA.LOC.CHA`` (see :mod:`shakelab.signals.codes`) or
-a file of patterns.
+The server is given as ``HOST[:PORT]`` (default port 18000), or with
+``--port``, which takes precedence; channels as patterns
+``NET.STA.LOC.CHA`` (see :mod:`shakelab.signals.codes`) or a file of
+patterns.
 
 Examples
 --------
@@ -92,8 +93,7 @@ def main(argv: Optional[list] = None, prog: Optional[str] = None) -> int:
         format="%(levelname)s: %(message)s",
     )
     try:
-        host, port = _server(args.server)
-        return args.command(args, host, port)
+        return args.command(args)
     except KeyboardInterrupt:
         return 130
     except (OSError, SeedLinkError, ValueError) as error:
@@ -106,15 +106,15 @@ def main(argv: Optional[list] = None, prog: Optional[str] = None) -> int:
 # ----------------------------------------------------------------------------
 
 
-def _info(args, host: str, port: int) -> int:
+def _info(args) -> int:
     """List the stations or the streams of the server."""
-    client = _client(args, host, port)
+    client = _client(args)
     pattern = args.pattern or "*"
     if args.streams:
         streams = client.streams(pattern)
         for stream in streams:
-            print(f"{stream.sid:<16} {_time(stream.start):<28} "
-                  f"{_time(stream.end)}")
+            print(f"{stream.sid:<16} {_time(stream.starttime):<28} "
+                  f"{_time(stream.endtime)}")
         _count(streams, "stream")
     else:
         stations = client.stations(pattern)
@@ -124,9 +124,9 @@ def _info(args, host: str, port: int) -> int:
     return 0
 
 
-def _monitor(args, host: str, port: int) -> int:
+def _monitor(args) -> int:
     """Print the records received, or the channel latencies."""
-    client = _client(args, host, port)
+    client = _client(args)
     _select(client, args)
     if args.status:
         client.every(args.status, _print_status)
@@ -136,25 +136,27 @@ def _monitor(args, host: str, port: int) -> int:
     return 0
 
 
-def _get(args, host: str, port: int) -> int:
+def _get(args) -> int:
     """Write the records of a time window in a MiniSEED file."""
     if args.duration is None and args.end is None:
         raise ValueError("give --end or --duration")
     if os.path.exists(args.output):
         raise ValueError(f"{args.output} exists")
-    client = _client(args, host, port)
+    client = _client(args)
     _select(client, args)
     client.set_archive(args.output.replace("{", "{{").replace("}", "}}"))
-    client.run(duration=args.duration, start=args.start, end=args.end)
+    client.run(
+        duration=args.duration, starttime=args.start, endtime=args.end
+    )
     if not os.path.exists(args.output):
         print("no data received", file=sys.stderr)
         return 1
     return 0
 
 
-def _archive(args, host: str, port: int) -> int:
+def _archive(args) -> int:
     """Archive the records continuously."""
-    client = _client(args, host, port)
+    client = _client(args)
     _select(client, args)
     if args.sds is not None:
         client.set_archive(args.sds, layout="sds")
@@ -180,7 +182,12 @@ def _parser(prog: Optional[str] = None) -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "server", help=f"HOST[:PORT] of the server (port {DEFAULT_PORT} "
-        "if omitted)",
+        "if omitted; [ADDRESS]:PORT for IPv6)",
+    )
+    common.add_argument(
+        "--port", type=int,
+        help="server port, which takes precedence over the one in "
+        "HOST[:PORT]",
     )
     common.add_argument(
         "--protocol", default="auto", choices=("auto", "3.1", "4.0"),
@@ -265,21 +272,11 @@ def _parser(prog: Optional[str] = None) -> argparse.ArgumentParser:
     return parser
 
 
-def _server(text: str) -> tuple:
-    """Host and port of ``HOST[:PORT]``."""
-    host, separator, port = text.rpartition(":")
-    if not separator:
-        return text, DEFAULT_PORT
-    if not port.isdigit() or not host:
-        raise ValueError(f"invalid server {text!r}: use HOST[:PORT]")
-    return host, int(port)
-
-
-def _client(args, host: str, port: int) -> Client:
+def _client(args) -> Client:
     """Client configured by the common options."""
     return Client(
-        host,
-        port=port,
+        args.server,
+        port=args.port,
         protocol=args.protocol,
         timeout=args.timeout,
         state_file=getattr(args, "state", None),

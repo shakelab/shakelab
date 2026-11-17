@@ -151,8 +151,8 @@ def test_streams(make_server, stations, version):
         "IV.MODE..HNE", "IV.MODE..HNZ", "OX.ABC.00.HHZ", "OX.BAD..HHZ",
     ]
     abc = client.streams("OX.ABC")[0]
-    assert abc.start == START
-    assert abs(abc.end - (START + 30.0)) < 1e-3
+    assert abc.starttime == START
+    assert abs(abc.endtime - (START + 30.0)) < 1e-3
     assert [s.sid for s in client.streams("*.*.*.HNZ")] == [
         "IV.MODE..HNZ"
     ]
@@ -271,8 +271,16 @@ def test_cli_get_and_archive(make_server, stations, tmp_path):
     assert len(list((tmp_path / "rot").iterdir())) == 3
 
 
+def test_cli_port_takes_precedence(make_server, stations, capsys):
+    server = make_server(stations)
+    assert main(["info", "127.0.0.1:1", "--port", str(server.port)]) == 0
+    assert "ABC" in capsys.readouterr().out
+
+
 def test_cli_errors(capsys):
     assert main(["info", "127.0.0.1:x"]) == 1
+    assert "invalid port in '127.0.0.1:x'" in capsys.readouterr().err
+    assert main(["info", "http://127.0.0.1:1"]) == 1
     assert "HOST[:PORT]" in capsys.readouterr().err
     assert main(["monitor", "127.0.0.1:1", "--duration", "1"]) == 1
     assert "patterns" in capsys.readouterr().err

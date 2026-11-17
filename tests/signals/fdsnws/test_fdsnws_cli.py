@@ -124,6 +124,14 @@ def test_metadata_table(server, capsys):
     ]
 
 
+def test_port_takes_precedence(server, capsys):
+    """--port replaces the port written in the address."""
+    port = server.url.split(":")[2].split("/")[0]
+    assert main(["metadata", "http://127.0.0.1:1", "IV.MODE..HNZ",
+                 "--port", port]) == 0
+    assert capsys.readouterr().out.startswith("IV.MODE..HNZ")
+
+
 def test_metadata_to_file(server, tmp_path):
     """The reply written to a file."""
     output = tmp_path / "channels.txt"

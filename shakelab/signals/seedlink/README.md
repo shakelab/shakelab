@@ -58,7 +58,7 @@ channel joined, ready for the processing of `shakelab.signals`.
 ```python
 from shakelab.signals.seedlink import Client
 
-client = Client("rtserve.example.org")
+client = Client("rtserve.example.org")       # HOST[:PORT], port 18000
 client.select(["IV.MODE..HH?", "OX.*..HHZ"])
 client.set_buffer(max_duration=600)          # last 10 minutes
 
@@ -99,14 +99,14 @@ template separates the files by network, station or channel
 regular intervals aligned with the clock (`rotate="1h"`, with
 `{time:%Y%m%dT%H}` in the template). With a state file the client
 resumes after a restart from the packet after the last one archived.
-`archive(host, select, path, ...)` does the same in one call.
+`archive(address, select, path, ...)` does the same in one call.
 
 ### 3.3 Data held by the server
 
 ```python
 data = seedlink.read("rtserve.example.org", "IV.MODE..HH?",
-                     start="2026-11-05T12:00:00",
-                     end="2026-11-05T12:05:00")
+                     starttime="2026-11-05T12:00:00",
+                     endtime="2026-11-05T12:05:00")
 ```
 
 A start time asks the server for the data it still holds from that
@@ -144,7 +144,8 @@ slab-seedlink archive rtserve.example.org "IV.*..HH?" \
 `info` lists the stations or the streams of a server, `monitor` prints
 the records received or a table of the latencies, `get` writes a time
 window to a MiniSEED file and `archive` archives continuously. The
-server is `HOST[:PORT]` (port 18000 by default).
+server is `HOST[:PORT]` (port 18000 by default, `--port` takes
+precedence), as for `Client`.
 `python -m shakelab.signals.seedlink` is the same command.
 
 ## 5. Structure

@@ -22,6 +22,8 @@ server of ``conftest.py``.
 
 from __future__ import annotations
 
+import dataclasses
+import inspect
 import socket
 import warnings
 from pathlib import Path
@@ -43,6 +45,7 @@ from shakelab.signals.seedlink import (
     Client,
     SeedLinkError,
     SeedLinkEvent,
+    StreamInfo,
     read,
 )
 from shakelab.signals.seedlink import client as client_module
@@ -138,6 +141,24 @@ def test_configuration_types():
         client.run(duration=1)  # nothing selected
 
 
+def test_server_address():
+    client = Client("rtserve.example.org:18001")
+    assert (client.host, client.port) == ("rtserve.example.org", 18001)
+    assert client.address == "rtserve.example.org:18001"
+    assert Client("rtserve.example.org").port == 18000
+    assert Client("rtserve.example.org:18001", port=18002).port == 18002
+    client = Client("[::1]:18001")
+    assert (client.host, client.port) == ("::1", 18001)
+    assert client.address == "[::1]:18001"
+    assert Client("::1").address == "[::1]:18000"
+    with pytest.raises(ValueError, match="HOST"):
+        Client("http://rtserve.example.org")
+    with pytest.raises(ValueError, match="invalid port"):
+        Client("rtserve.example.org:x")
+    with pytest.raises(TypeError):
+        Client("rtserve.example.org", 18001)
+
+
 def test_callback_methods_return_function():
     client = Client("localhost")
 
@@ -194,7 +215,7 @@ def test_past_time_window(make_server, mode, version):
     start, end = START + 20.0, START + 30.0
 
     collection = read(
-        "127.0.0.1", "IV.MODE..HNZ", start=start, end=end,
+        "127.0.0.1", "IV.MODE..HNZ", starttime=start, endtime=end,
         port=server.port, timeout=5.0,
     )
 
@@ -254,7 +275,9 @@ def test_get_data_joins_circular_buffer(make_server, mode):
     data["IV.MODE..HNZ"].record[0].data[:] = 0
     assert client.buffer["IV.MODE..HNZ"].record[0].data.any()
 
-    window = client.get_data("*.*.*.*Z", start=START + 1.0, end=START + 2.0)
+    window = client.get_data(
+        "*.*.*.*Z", starttime=START + 1.0, endtime=START + 2.0
+    )
     assert window["IV.MODE..HNZ"].nsamp == 101
 
 
@@ -287,7 +310,7 @@ def test_past_window_of_several_stations(make_server, mode, other, version):
     server = make_server([mode[1], other[1]], version=version)
     client = _client(server)
     client.select(["IV.MODE", "OX.ABC"])
-    collection = client.run(start=START, end=START + 25.0)
+    collection = client.run(starttime=START, endtime=START + 25.0)
 
     assert sorted(collection.sid) == [
         "IV.MODE..HNE", "IV.MODE..HNN", "IV.MODE..HNZ", "OX.ABC.00.HHZ",
@@ -458,8 +481,8 @@ def test_gap_event(make_server):
     assert len(gaps) == 1
     assert isinstance(gaps[0], SeedLinkEvent)
     assert gaps[0].sid == "IV.MODE..HNZ"
-    assert gaps[0].start == START + 20.0
-    assert gaps[0].end == START + 30.0
+    assert gaps[0].starttime == START + 20.0
+    assert gaps[0].endtime == START + 30.0
     assert len(collection["IV.MODE..HNZ"].record) == 2
 
 
@@ -483,7 +506,9 @@ def test_background_and_get_data(make_server, mode):
 
     assert not client.running
     _assert_same(data, records)
-    window = client.get_data("*.*.*.*Z", start=START + 1.0, end=START + 2.0)
+    window = client.get_data(
+        "*.*.*.*Z", starttime=START + 1.0, endtime=START + 2.0
+    )
     assert window.sid == ["IV.MODE..HNZ"]
     assert window["IV.MODE..HNZ"].nsamp == 101
 
@@ -600,3 +625,29 @@ def test_sensitivity_option_type():
 def test_read_requires_stop_condition():
     with pytest.raises(ValueError):
         read("localhost", "IV.MODE")
+
+
+@pytest.mark.parametrize("function", [
+    Client.run, Client.start, Client.get_data, read, client_module.records,
+])
+def test_time_window_names(function):
+    # Time windows are starttime and endtime, keyword-only, as in the
+    # rest of the library.
+    parameters = inspect.signature(function).parameters
+    for name in ("starttime", "endtime"):
+        assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+    assert "start" not in parameters and "end" not in parameters
+
+
+def test_time_window_attributes():
+    names = {field.name for field in dataclasses.fields(StreamInfo)}
+    assert {"starttime", "endtime"} <= names
+    names = {field.name for field in dataclasses.fields(SeedLinkEvent)}
+    assert {"starttime", "endtime"} <= names
+
+
+def test_endtime_must_follow_starttime():
+    client = Client("localhost")
+    client.select("IV.MODE")
+    with pytest.raises(ValueError, match="endtime must follow starttime"):
+        client.run(starttime=START + 10.0, endtime=START)

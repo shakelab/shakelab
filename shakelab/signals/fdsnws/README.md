@@ -117,8 +117,10 @@ for name, center in datacenters().items():
 
 `datacenters()` returns the built-in table of the registry
 (`refresh=True` reads it again from the FDSN). A server not in the
-registry is given by its address, `Client("https://host")`, or service
-by service (`station=`, `dataselect=`, `event=`, `availability=`).
+registry is given by its address, `Client("example.org:8080")`
+(`https` if the scheme is omitted; servers that serve plain HTTP only
+need `http://`, and `port=` replaces the port), or service by service
+(`station=`, `dataselect=`, `event=`, `availability=`).
 
 ## 4. Command line
 

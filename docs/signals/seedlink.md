@@ -272,8 +272,8 @@ each channel joined:
 from shakelab.signals import seedlink
 
 data = seedlink.read("rtserve.example.org", "IV.MODE..HN?",
-                     start="2012-05-20T02:04:00",
-                     end="2012-05-20T02:05:00")
+                     starttime="2012-05-20T02:04:00",
+                     endtime="2012-05-20T02:05:00")
 print(data["IV.MODE..HNZ"][0])
 # starttime 2012-05-20T02:04:00.000000Z, duration 60.0s,
 # sampling rate 100.0 Hz, 6001 samples
@@ -303,8 +303,8 @@ print(count)
 `records` runs a client in a background thread and passes the records
 through a queue of at most `max_queue` records (1000): if the loop is
 slower than the data, reception pauses and the data wait on the
-server. It accepts `start`, `end`, `fetch` and `state_file`, as the
-client.
+server. It accepts `starttime`, `endtime`, `fetch` and `state_file`,
+as the client.
 
 ## 9. Client
 
@@ -316,13 +316,29 @@ from shakelab.signals.seedlink import Client
 client = Client("rtserve.example.org")
 print(client)
 # Client(rtserve.example.org:18000, 0 pattern(s), idle)
-other = Client("192.168.1.20", port=18001, protocol="3.1",
+other = Client("192.168.1.20:18001", protocol="3.1",
                timeout=120, keepalive=30, state_file="client.state")
+print(other.host, other.port, other.address)
+# 192.168.1.20 18001 192.168.1.20:18001
+print(Client("192.168.1.20:18001", port=18002).port)  # port prevails
+# 18002
+print(Client("[::1]:18001").address)                   # IPv6
+# [::1]:18001
+Client("http://rtserve.example.org")   # ValueError: write the server as HOST[:PORT]
 ```
+
+The server is one address, `HOST[:PORT]`, as on the command line and
+as the FDSN client (§2 of the [FDSN guide](fdsnws.md) for the
+addresses of web services): a host name or an IPv4 address with an
+optional port (18000 if omitted), or an IPv6 address alone or in
+brackets with a port (`[::1]:18001`). The port given separately with
+`port` takes precedence over the one in the address. SeedLink has no
+scheme: `http://` and similar prefixes are refused.
 
 | Parameter | Meaning | Default |
 |---|---|---|
-| `host`, `port` | server name or address, and port | port 18000 |
+| `address` | server as `HOST[:PORT]` | port 18000 |
+| `port` | server port, which takes precedence over the one in `address` | none |
 | `protocol` | `"auto"`, `"3.1"` or `"4.0"` | `"auto"`: the highest offered |
 | `metadata` | channel metadata attached to the records (§10) | none |
 | `timeout` | seconds without data before reconnecting | 600 |
@@ -369,7 +385,7 @@ client.set_buffer(max_duration=60)             # last minute
 client.run(duration=30)
 
 data = client.get_data("IV.MODE..HNZ")         # copy, records joined
-vertical = client.get_data("*.*.*.HNZ", start="2012-05-20T02:05:30")
+vertical = client.get_data("*.*.*.HNZ", starttime="2012-05-20T02:05:30")
 print(len(data["IV.MODE..HNZ"]))
 # 1
 ```
@@ -385,9 +401,9 @@ records that arrive later would stay in counts.
 `set_buffer()` without arguments makes an unlimited buffer,
 `max_duration` a circular one, and a collection given as argument is
 used as it is (§4). `client.buffer` is the buffer itself, for the
-callbacks and for a client that is not running; `get_data(sid, start,
-end)` the safe copy for any thread. If no buffer and no callback are
-set, `run` creates an unlimited buffer and returns it.
+callbacks and for a client that is not running; `get_data(sid,
+starttime=..., endtime=...)` the safe copy for any thread. If no buffer
+and no callback are set, `run` creates an unlimited buffer and returns it.
 
 ### 9.4 Archive
 
@@ -444,8 +460,8 @@ interval, so it is called with the function. The signatures:
 
 A `SeedLinkEvent` has `kind` (`"connected"`, `"disconnected"`, `"gap"`,
 `"overlap"`, `"end"`), `time` (wall clock), `message`, and for gaps and
-overlaps `sid`, `start` and `end` (from the expected start of the
-record to its actual start).
+overlaps `sid`, `starttime` and `endtime` (from the expected start of
+the record to its actual start).
 
 `on_record` passes the record as received, in counts. With
 `sensitivity=True` (in a call, not as a decorator) the function
@@ -480,13 +496,14 @@ print(client.running)
 # False
 ```
 
-`run` and `start` take the same stop conditions:
+`run` and `start` take the same stop conditions (given by name, except
+`duration`):
 
 | Argument | Meaning |
 |---|---|
 | `duration` | wall-clock seconds after which the run stops |
-| `start` | the server sends the data it holds from this time (otherwise from the next packet, or from where an earlier run stopped) |
-| `end` | end of the data: in the past it implies dial-up mode; in real time the run stops when the wall clock and every channel received have passed it; in both cases also after 10 s without packets past it |
+| `starttime` | the server sends the data it holds from this time (otherwise from the next packet, or from where an earlier run stopped) |
+| `endtime` | end of the data: in the past it implies dial-up mode; in real time the run stops when the wall clock and every channel received have passed it; in both cases also after 10 s without packets past it |
 | `fetch` | dial-up mode: the server sends what it holds and ends the session |
 
 Without any of them a run lasts until `stop` is called (from a callback
@@ -512,7 +529,7 @@ packet after the last one received.
 ```python
 client = Client("rtserve.example.org")
 client.select("IV.MODE..HN?")
-client.run(start="2012-05-20T02:04:00", end="2012-05-20T02:05:00")
+client.run(starttime="2012-05-20T02:04:00", endtime="2012-05-20T02:05:00")
 for status in client.status():
     print(status.sid, status.last_sample, status.packets, status.gaps)
 # IV.MODE..HNE 2012-05-20T02:05:01.750000Z 26 0
@@ -535,7 +552,7 @@ for station in client.stations("IV"):
     print(station.code, station.description, station.begin_sequence,
           station.end_sequence)
 for stream in client.streams("IV.MODE"):
-    print(stream.sid, stream.start, stream.end)
+    print(stream.sid, stream.starttime, stream.endtime)
 # IV.MODE..HNE 2012-05-20T02:03:23.000000Z 2012-05-20T02:06:23.010000Z
 # IV.MODE..HNN 2012-05-20T02:03:23.000000Z 2012-05-20T02:06:23.010000Z
 # IV.MODE..HNZ 2012-05-20T02:03:23.000000Z 2012-05-20T02:06:23.010000Z
@@ -559,7 +576,8 @@ response like a file:
 client = Client("rtserve.example.org", metadata="station.xml")
 client.select("IV.MODE..HN?")
 client.set_buffer()
-client.run(start="2012-05-20T02:03:23", end="2012-05-20T02:06:23")
+client.run(starttime="2012-05-20T02:03:23",
+           endtime="2012-05-20T02:06:23")
 
 data = client.get_data()
 data.detrend()
@@ -595,8 +613,9 @@ packets): `logging.basicConfig(level=logging.INFO)` shows it.
 ## 12. Command line
 
 `slab-seedlink` (also `python -m shakelab.signals.seedlink`) gives the
-main uses from a terminal. The server is `HOST[:PORT]`; channels are
-patterns or a file of patterns:
+main uses from a terminal. The server is `HOST[:PORT]` (or
+`--port`, which takes precedence); channels are patterns or a file of
+patterns:
 
 ```sh
 slab-seedlink info rtserve.example.org
@@ -651,7 +670,8 @@ def peak_acceleration(client):
         peaks[record.sid] = max(peaks.get(record.sid, 0.0), latest)
 
 client.every(10.0, peak_acceleration, clock="data")
-client.run(start="2012-05-20T02:03:23", end="2012-05-20T02:06:23")
+client.run(starttime="2012-05-20T02:03:23",
+           endtime="2012-05-20T02:06:23")
 print({sid: round(value, 3) for sid, value in sorted(peaks.items())})
 # {'IV.MODE..HNE': 0.268, 'IV.MODE..HNN': 0.419, 'IV.MODE..HNZ': 0.324}
 ```
@@ -677,8 +697,8 @@ last one archived, and the files are appended to.
 
 ```python
 event = seedlink.read("rtserve.example.org", "IV.MODE..HN?",
-                      start="2012-05-20T02:03:40",
-                      end="2012-05-20T02:05:40")
+                      starttime="2012-05-20T02:03:40",
+                      endtime="2012-05-20T02:05:40")
 print(len(event.records()), event.records()[0].duration)
 # 3 120.0
 ```
@@ -717,7 +737,8 @@ client = Client("rtserve.example.org")
 client.select("IV.MODE..HN?")
 client.set_buffer(max_duration=300)
 client.every(60.0, take_window, clock="data")
-client.run(start="2012-05-20T02:03:23", end="2012-05-20T02:06:23")
+client.run(starttime="2012-05-20T02:03:23",
+           endtime="2012-05-20T02:06:23")
 work.put(None)
 thread.join()
 ```
@@ -750,13 +771,16 @@ thread.join()
 - **Two clocks.** Periodic functions follow the wall clock or the data
   time, so that a replayed or delayed stream is analyzed as it would
   have been in real time.
+- **One address.** The server is written `HOST[:PORT]` in Python and on
+  the command line, and read as in every client of ShakeLab
+  (`shakelab.libutils.address`); a separate port takes precedence.
 - **Library first.** `read`, `archive`, `records` and `slab-seedlink`
   are built on the same `Client`; the real-time monitors of array
   processing use its callbacks.
 
 ## 15. Validation
 
-The package is covered by the tests of `tests/signals/seedlink/` (73
+The package is covered by the tests of `tests/signals/seedlink/` (78
 tests), which run against a fake SeedLink server on a local port: it
 speaks versions 3.1 and 4.0, serves MiniSEED packets of several
 stations (also interleaved in time, as a real server), honours
@@ -765,6 +789,7 @@ requests, and can drop a connection or reject a command.
 
 | Check | Result |
 |---|---|
+| Server addresses: `HOST[:PORT]`, IPv6, separate port, schemes, invalid ports (also on the command line) | host and port as written, the separate port prevailing; errors when the client is created |
 | Negotiation of the version, `HELLO` of SeisComP and ringserver | the highest common version |
 | Commands of both versions (`STATION`, `SELECT`, `DATA`, `TIME`, `FETCH`, `END`, `ENDFETCH`), sequence numbers and their wrap-around in version 3 | as the protocols require |
 | Selection with wildcards in station codes (also on servers that do not accept them) | the matching stations requested one by one |
@@ -799,12 +824,9 @@ test suite.
   authentication (version 4 allows it).
 - **`read` returns the channels in order of arrival**, not sorted as
   `io.reader` does.
-- **Interface asymmetries** (under review): time windows are `start`
-  and `end` here, `starttime` and `endtime` in `io` and `fdsnws`; the
-  server is `host` and `port` here and one address in `fdsnws`;
-  `Client.info()` prints the reception status, while `info()`
-  describes the object elsewhere and `slab-seedlink info` lists the
-  stations of the server; the archive templates have `{time}` as the
+- **Interface asymmetries** (under review): `Client.info()` prints the
+  reception status, while `info()` describes the object elsewhere and
+  `slab-seedlink info` lists the stations of the server; the archive templates have `{time}` as the
   start of the rotation interval and no `{sid}` or `{start}`, unlike
   those of `io.writer`; `slab-seedlink get` writes MiniSEED only and
   refuses an existing file (no `--owrite`).

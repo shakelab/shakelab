@@ -118,8 +118,9 @@ def test_find_datacenter_errors():
     """Unknown names and wrong types are rejected."""
     with pytest.raises(ValueError, match="unknown data center"):
         registry.find_datacenter("NOWHERE")
-    with pytest.raises(ValueError, match="'http://192.168.1.10:8080'"):
-        registry.find_datacenter("192.168.1.10:8080")
+    with pytest.raises(ValueError, match="'https://NOWHERE' or "
+                       "'http://NOWHERE'"):
+        registry.find_datacenter("NOWHERE")
     with pytest.raises(TypeError):
         registry.find_datacenter(1)
 
@@ -159,6 +160,28 @@ def test_service_urls():
 def test_service_root(url, expected):
     """Final slash added, method names removed."""
     assert registry.service_root(url) == expected
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("INGV", False), ("earthscope", False), ("localhost", True),
+        ("example.org", True), ("192.168.1.10:8080", True),
+        ("https://example.org", True),
+    ],
+)
+def test_is_address(text, expected):
+    """Registry names have no dot, colon or slash."""
+    assert registry.is_address(text) is expected
+
+
+def test_service_addresses_without_scheme():
+    """https if the scheme is omitted; a separate port prevails."""
+    assert registry.service_root("a.org/fdsnws/station/1/query") == (
+        "https://a.org/fdsnws/station/1/"
+    )
+    urls = registry.service_urls("http://a.org:8080", 8081)
+    assert urls["event"] == "http://a.org:8081/fdsnws/event/1/"
 
 
 def test_address_errors():

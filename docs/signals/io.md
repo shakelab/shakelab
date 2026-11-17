@@ -399,9 +399,9 @@ data = reader("waveforms.mseed", format="segy")  # NotImplementedError
 Other keyword arguments are options of the format reader, the same for
 all files: `byte_order` for SAC and for the Python MiniSEED backend,
 `mseed_backend` for MiniSEED, the parameters of text tables (`rate`,
-`start`, `columns`...) and of TDMS files (`group`, `network`...). They
-are checked against the signature of the reader before any file is
-read, so that a misspelled option stops at once:
+`first_sample_time`, `columns`...) and of TDMS files (`group`,
+`network`...). They are checked against the signature of the reader
+before any file is read, so that a misspelled option stops at once:
 
 ```python
 data = reader("waveforms.mseed", mseed_backend="python")
@@ -451,10 +451,10 @@ reader("waveforms.mseed", starttime=late, endtime=early)  # ValueError
 
 The selection is done after reading each file. It saves memory when
 many channels are read and few kept, but every file is still opened:
-to avoid that for archives, use `layout` (§8.5). The names
-`starttime` and `endtime` differ from the `start` option of some
-formats, which is the time of the first sample of files that do not
-have it (text tables, TDMS).
+to avoid that for archives, use `layout` (§8.5). The time window
+`starttime`, `endtime` differs from the `first_sample_time` option of
+some formats, which gives the time of the first sample to files that
+do not have it (text tables, TDMS); both can be given in one call.
 
 ### 8.5 Archives
 
@@ -900,7 +900,7 @@ builds one record per numeric column. A logger file:
 # station: LOG
 # network: XX
 # rate: 200 Hz
-# start: 2026-03-01T10:00:00
+# first_sample_time: 2026-03-01T10:00:00
 # units: m/s**2
 X;Y;Z
 0,0012;-0,0004;0,0101
@@ -928,7 +928,7 @@ over what is derived from a column of times:
 |---|---|
 | `rate` | `rate`, `sampling_rate`, `sample_rate`, `sps`, `fs`, `sampling_frequency` (Hz; `100 Hz` accepted) |
 | `delta` | `delta`, `dt`, `sampling_interval`, `time_step` (s) |
-| `start` | `start`, `starttime`, `start_time`, `t0` (ISO 8601, UTC) |
+| `first_sample_time` | `first_sample_time`, `start`, `starttime`, `start_time`, `t0` (ISO 8601, UTC) |
 | `sid` | `sid`, `source_id` |
 | `network`, `station`, `location` | `network`, `net`; `station`, `sta`; `location`, `loc` |
 | `units` | `units`, `unit` (one value, or one per column) |
@@ -936,10 +936,10 @@ over what is derived from a column of times:
 The column of times is the one named `time`, `t`, `date`, `datetime`,
 `timestamp`, `seconds`... (or given with `time_column`), or the first
 column if it holds dates: dates give the start time, numbers are
-seconds from `start`, and the sampling interval is checked to be
-uniform. Without names in the file, `columns` gives them (None skips a
-column); `sid` gives the identifiers, as a template with `{column}`,
-one identifier or a list:
+seconds from `first_sample_time`, and the sampling interval is checked
+to be uniform. Without names in the file, `columns` gives them (None
+skips a column); `sid` gives the identifiers, as a template with
+`{column}`, one identifier or a list:
 
 ```python
 data = reader("logger.csv", rate=100.0, sid="XX.LOG..HN{column}")
@@ -984,8 +984,9 @@ channels applied (`scaled=False` keeps the raw values). `tdmsread`
 reads the numeric channels of one group (`group=`, or the only group,
 or the one most likely to hold DAS data) as records, taking the
 sampling rate, the start time and the units from the properties of
-the channel, the group or the file, or from `rate` and `start`. The
-channel code is `channel_prefix` followed by the channel name.
+the channel, the group or the file, or from `rate` and
+`first_sample_time`. The channel code is `channel_prefix` followed by
+the channel name.
 `tdms_to_matrix` returns the channels of a DAS acquisition as one
 matrix with their spacing; it is provisional, waiting for containers
 designed for DAS data. TDMS files are not written.
@@ -1188,7 +1189,7 @@ automatically. The steps are described in the
 
 The functions of `io` and the format modules are covered by the tests
 of `tests/signals/test_io.py` (44 tests) and `tests/signals/libio/`
-(191 tests). Each format is compared with the reference software of
+(192 tests). Each format is compared with the reference software of
 the format, or with files written by it:
 
 | Check | Result |

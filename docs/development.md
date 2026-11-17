@@ -1,6 +1,6 @@
 # ShakeLab development and architecture guidelines
 
-*Version 2.7, 16 November 2026*
+*Version 2.8, 17 November 2026*
 
 [ShakeLab documentation](README.md) › Development guidelines
 
@@ -369,12 +369,24 @@ missing mandatory information, unavailable optional information,
 invalid configuration, external service failures and internal
 programming errors. Use the most specific built-in exception
 (`ValueError`, `TypeError`, `NotImplementedError`, ...) or a ShakeLab
-exception when callers need to distinguish the case.
+exception when callers need to distinguish the case. A ShakeLab
+exception derives from the built-in exception it specializes (a file
+without waveforms raises `NotWaveformError`, a `ValueError`), so that
+code handling the general case keeps working.
 
 Never catch exceptions broadly to let execution continue, and never
 replace an invalid operation with a scientifically different fallback.
 A fallback is acceptable only when it preserves the intended meaning
 and is explicit.
+
+Never return a wrong or incomplete result silently. Where the data do
+not allow the intended operation (margins missing around a window,
+channels without metadata, files without waveforms in a folder), the
+operation either raises or does what it can and says what it left out.
+Warnings raised deep in the library are attributed to the caller's
+code (`shakelab.libutils.utils.warn_external`); one call gives one
+warning that lists all the cases (one per channel in real-time
+streams), not one per record.
 
 Raise an exception when the result would be wrong. Issue a warning
 (`warnings.warn`, with an appropriate category) when the result is
@@ -408,7 +420,19 @@ conventions adopted so far are:
   data are the first argument of a writer; the arguments after the
   first (after `target` in writers) are keyword-only;
 - time windows: `starttime` and `endtime`, `Date` objects or ISO 8601
-  strings, bounds included;
+  strings, bounds included, keyword-only; the time of the first sample
+  of data that do not have one (text tables, TDMS) is
+  `first_sample_time`, a different concept;
+- servers: one address, read by `shakelab.libutils.address`
+  (`host[:port]`, IPv6 in brackets, and for web services
+  `[scheme://]host[:port][/prefix]` with `https` if the scheme is
+  omitted, never falling back to plain HTTP); a `port` given separately
+  takes precedence over the one in the address; the same form on the
+  command line, with `--port`;
+- metadata attached to data: `metadata=` accepts metadata at hand (a
+  `MetadataCollection` or files) wherever data are read or received
+  (`io`, `fdsnws`, `seedlink`), and `True` in the services to download
+  them;
 - channel selection: `select`, with the patterns of
   `shakelab.signals.codes` (`NET.STA.LOC.CHA`, `*`, `?`, `[...]`);
 - options with a fixed set of values are enumerations, and their
@@ -508,6 +532,10 @@ owns, its layer, what it depends on, what may depend on it and whether
 an existing module already owns the concept. Avoid generic dumping
 grounds such as an ever-growing `utils.py`: a helper that acquires
 domain meaning moves to the concept that owns it.
+
+Modules of a subpackage do not import the subpackage's own
+`__init__`: definitions shared by its modules live in a dedicated
+module (`signals/libio/common.py`).
 
 Dated or numbered copies of a module (`providers_20260825.py`) and
 example scripts do not belong in the package tree: history lives in
