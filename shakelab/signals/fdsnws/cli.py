@@ -119,6 +119,7 @@ def _waveforms(args) -> int:
         or args.lowpass is not None
     )
 
+    metadata = False
     if args.metadata is not None:
         size = client.get_metadata(
             args.patterns, args.start, args.end, level="response",
@@ -126,6 +127,8 @@ def _waveforms(args) -> int:
         )
         if not size:
             print("no metadata", file=sys.stderr)
+        elif args.correct:
+            metadata = args.metadata      # read again, not downloaded
 
     if not processing:
         if args.format not in (None, "mseed"):
@@ -140,7 +143,7 @@ def _waveforms(args) -> int:
         return _report(size, f"{size} bytes written to {args.output}")
 
     collection = client.get_waveforms(
-        args.patterns, args.start, args.end,
+        args.patterns, args.start, args.end, metadata=metadata,
         correct=args.correct, pad=args.pad, highpass=args.highpass,
         lowpass=args.lowpass,
         prefilter=None if args.prefilter is None else tuple(args.prefilter),

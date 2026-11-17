@@ -278,6 +278,42 @@ def test_waveforms_with_metadata(client, server):
     assert record.location.latitude == pytest.approx(44.629722)
 
 
+@pytest.mark.parametrize("given", ["collection", "file"])
+def test_waveforms_with_given_metadata(client, server, given):
+    """Metadata given by the user are used without a request."""
+    path = os.path.join(SIGNALS_DATA, "MODE.xml")
+    metadata = io.metadata_reader(path) if given == "collection" else path
+
+    collection = client.get_waveforms(
+        "IV.MODE..HNZ", T0, T1, metadata=metadata, correct=True, pad=30.0
+    )
+
+    assert all(r.path != "/fdsnws/station/1/query" for r in server.requests)
+    (record,) = _records(collection)
+    assert record.head.units == "m/s**2"
+    assert np.abs(record.data).max() == pytest.approx(ESM_PGA_HNZ, rel=5e-3)
+
+
+def test_waveforms_with_given_metadata_missing_a_channel(client):
+    """Channels missing from the given metadata are reported."""
+    metadata = io.metadata_reader(os.path.join(SIGNALS_DATA, "MODE.xml"))
+    metadata = metadata.select("IV.MODE..HN[ZN]")
+
+    with pytest.warns(FdsnWarning, match="no metadata for IV.MODE..HNE"):
+        attached = client.get_waveforms("IV.MODE..HN?", T0, T1,
+                                        metadata=metadata)
+    assert len(_records(attached)) == 3
+    with pytest.warns(FdsnWarning, match="left out.*IV.MODE..HNE"):
+        corrected = client.get_waveforms("IV.MODE..HN?", T0, T1,
+                                         metadata=metadata, correct=True,
+                                         pad=30.0)
+    assert [r.sid for r in _records(corrected)] == [
+        "IV.MODE..HNN", "IV.MODE..HNZ"
+    ]
+    with pytest.raises(TypeError):
+        client.get_waveforms("IV.MODE..HNZ", T0, T1, metadata=None)
+
+
 def test_waveforms_corrected(client, server):
     """
     Corrected records: margins requested, physical units, PGA of ESM.

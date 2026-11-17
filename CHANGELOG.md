@@ -9,6 +9,11 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.fdsnws.Client.get_waveforms`: `metadata` also takes metadata
+  already at hand (a `MetadataCollection` or StationXML files), which
+  are attached and used by `correct` without a request to the station
+  service. `slab-fdsn waveforms --metadata FILE --correct` downloads
+  the metadata once (it downloaded them twice).
 - `signals.seedlink.Client.get_data` and `Client.on_record` take
   `sensitivity=True` to give copies of the records divided by the
   sensitivity of the channel metadata (physical units without the

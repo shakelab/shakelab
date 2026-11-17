@@ -407,6 +407,28 @@ data.deconvolve_response(waterlevel=40.0)
 
 Channels without metadata keep their records, with one `FdsnWarning`.
 
+`metadata` also takes metadata already at hand, as a
+`MetadataCollection` or StationXML files: they are attached instead of
+the reply of the server, and used by `correct`, without a request to
+the station service. This corrects the data with metadata of your own,
+for example a StationXML fixed by hand, or with metadata downloaded
+once for several requests:
+
+```python
+from shakelab.signals.io import metadata_reader
+
+network = metadata_reader("station.xml")
+data = client.get_waveforms("IV.MODE..HN?", "2012-05-20T02:04:00",
+                            "2012-05-20T02:05:00", metadata=network,
+                            correct=True)
+print(round(data["IV.MODE..HNZ"][0].peak, 4))
+# 0.3264                           without prefilter
+```
+
+Channels missing from the given metadata behave as channels that the
+server has no metadata for: kept with a warning, or left out with a
+warning when they are to be corrected.
+
 ### 9.4 Corrected and filtered
 
 ```python
@@ -424,7 +446,7 @@ The steps are described in §4. The options:
 
 | Option | Meaning | Default |
 |---|---|---|
-| `correct` | correct the instrument response (implies `metadata`) | False |
+| `correct` | correct the instrument response (implies `metadata=True` when no metadata are given) | False |
 | `pad` | margin before and after each window, s | 10% of the window, at least 30 s |
 | `prefilter` | `(f1, f2, f3, f4)`, frequency window of the correction, Hz (with `correct` only) | none |
 | `waterlevel` | water level of the correction, dB below the maximum | 60 |
@@ -699,7 +721,10 @@ slab-fdsn datacenters --service availability --urls
 | `availability` | patterns, `--start`, `--end`, `--extent`, `--merge`, `--mergegaps` | a table of the spans |
 | `datacenters` | `--refresh`, `--service`, `--urls` | the data centers and their services |
 
-All subcommands except `datacenters` accept `--timeout`. The summary
+With `--metadata FILE` and `--correct`, the StationXML written to the
+file is also the one used for the correction (one request to the
+station service). All subcommands except `datacenters` accept
+`--timeout`. The summary
 and the warnings go to the standard error; the exit status is 0 on
 success, 1 on errors and when there are no data, 130 when
 interrupted.
@@ -797,7 +822,7 @@ for span in spans:
 
 ## 17. Validation
 
-The package is covered by the tests of `tests/signals/fdsnws/` (91
+The package is covered by the tests of `tests/signals/fdsnws/` (94
 tests), which run against a fake FDSN server on a local socket: the
 server answers the four services with the test data of ShakeLab
 (IV.MODE in MiniSEED, StationXML and text, a QuakeML catalogue and
@@ -811,6 +836,7 @@ fail, compress, redirect or answer with chosen statuses.
 | Waveforms: window, several windows, chunks joined, `target` with chunks | records cut to the windows; chunked and single downloads equal |
 | Corrected downloads, with and without prefilter and filters | margins requested; records in m/s², cut to the window; peak acceleration of IV.MODE..HNZ within 0.5% of the accelerogram processed by ESM |
 | Corrected downloads without data in the margins: a window from the start of the data, a gap inside the window | peak acceleration within 0.5% of ESM; amplitude next to the gap within 20% of the download without gap; one `FdsnWarning` with the sides; no warning with whole margins |
+| Metadata given as a collection or a file, also with channels missing; `slab-fdsn waveforms --metadata FILE --correct` | no request to the station service (one with the command line); the PGA of ESM; missing channels reported |
 | Metadata at the three levels, text format, geography | the expected epochs; parameters in the order of the services |
 | Events, availability (`query` and `extent`) | the expected catalogue and spans |
 | Statuses 204, 400, 413, 429 and 5xx, `Retry-After`, timeouts, gzip, 307 redirects of POST requests | empty results, `FdsnError` with the message of the server, retries |
@@ -835,9 +861,6 @@ fail, compress, redirect or answer with chosen statuses.
 - **Event catalogue.** `get_events` returns the `EqDatabase` of
   `shakelab.seismicity`, whose interface has not been revised yet; the
   text format of the event service is not read.
-- **Metadata twice.** `slab-fdsn waveforms --metadata FILE --correct`
-  downloads the metadata twice (once for the file, once for the
-  correction).
 - **Interface asymmetries** (under review): `target` exists for
   waveforms, metadata and events, not for availability, and makes the
   methods return a number of bytes instead of an object;

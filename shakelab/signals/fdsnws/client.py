@@ -261,7 +261,7 @@ class Client:
         starttime: Any = None,
         endtime: Any = None,
         *,
-        metadata: bool = False,
+        metadata: Any = False,
         correct: bool = False,
         pad: Optional[Real] = None,
         highpass: Optional[Real] = None,
@@ -289,12 +289,17 @@ class Client:
         starttime, endtime : Date or str, optional
             Time window of the patterns without one; every pattern
             needs a window.
-        metadata : bool, optional
+        metadata : bool, MetadataCollection, path or sequence of paths
             If True, also download the channel metadata (with the
-            responses) and assign them to the records.
+            responses) and assign them to the records. Metadata given
+            as a collection or files (see
+            :func:`~shakelab.signals.io.metadata_reader`) are assigned
+            instead, and used by ``correct``, without downloading them.
+            Default is False.
         correct : bool, optional
             If True, correct the records for the instrument response
-            (implies ``metadata``), as described in the module notes.
+            (implies ``metadata=True`` if no metadata are given), as
+            described in the module notes.
             Records without a response are left out with a
             :class:`FdsnWarning`.
         pad : float, optional
@@ -356,7 +361,10 @@ class Client:
         FdsnError
             If a request fails.
         """
-        _check_bool(metadata, "metadata")
+        given = None
+        if not isinstance(metadata, bool):
+            given = _as_metadata(metadata)
+        attach = metadata is True or given is not None
         _check_bool(correct, "correct")
         _check_bool(longestonly, "longestonly")
         _check_bool(owrite, "owrite")
@@ -372,7 +380,7 @@ class Client:
         processing = correct or filtering
         if prefilter is not None and not correct:
             raise ValueError("prefilter is used only with correct=True")
-        if target is not None and (metadata or processing):
+        if target is not None and (attach or processing):
             raise ValueError(
                 "target writes the records as received: it cannot be "
                 "combined with metadata, correct or filters"
@@ -426,20 +434,23 @@ class Client:
         if not pairs:
             return stream_collection
 
-        if metadata or correct:
-            channels = self.get_metadata(
-                [
-                    (str(item.pattern), item.starttime, item.endtime)
-                    for item in requests
-                ],
-                level="response",
-            )
+        if attach or correct:
+            channels = given
+            if channels is None:
+                channels = self.get_metadata(
+                    [
+                        (str(item.pattern), item.starttime, item.endtime)
+                        for item in requests
+                    ],
+                    level="response",
+                )
             missing = []
             for record, _ in pairs:
-                if record.sid in channels:
+                try:
                     record.set_metadata(channels)
-                elif record.sid not in missing:
-                    missing.append(record.sid)
+                except KeyError:
+                    if record.sid not in missing:
+                        missing.append(record.sid)
             if missing and not correct:
                 warnings.warn(
                     "no metadata for " + ", ".join(missing),
@@ -1151,6 +1162,19 @@ def _range(value: Any, name: str) -> tuple:
     if None not in bounds and bounds[1] < bounds[0]:
         raise ValueError(f"{name}: max is smaller than min")
     return tuple(bounds)
+
+
+def _as_metadata(metadata: Any) -> MetadataCollection:
+    """Metadata collection from a collection, path or paths."""
+    if isinstance(metadata, MetadataCollection):
+        return metadata
+    if metadata is None:
+        raise TypeError(
+            "metadata must be a boolean, a MetadataCollection or files"
+        )
+    from shakelab.signals.io import metadata_reader
+
+    return metadata_reader(metadata)
 
 
 def _check_bool(value: Any, name: str) -> None:
