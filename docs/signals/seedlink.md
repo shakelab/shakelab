@@ -136,7 +136,8 @@ client:
 4. the **status** of the channel (last sample, number of packets, gaps
    and overlaps) and the **buffer**, if set, are updated, under a lock;
 5. the functions registered with **`on_record`** are called with the
-   record;
+   record (the buffer keeps its own copy, so that a callback that
+   changes the record does not change the buffer);
 6. the functions registered with **`every(..., clock="data")`** are
    called if the time of the data has passed their next instant.
 
@@ -373,6 +374,14 @@ print(len(data["IV.MODE..HNZ"]))
 # 1
 ```
 
+With channel metadata (§10), `get_data(..., sensitivity=True)` divides
+the copy by the sensitivity of each channel: physical units without a
+correction of the whole response, at the cost of one division per
+sample. The buffer keeps the samples as received, so that the whole
+response can still be corrected on a copy; the circular buffer refuses
+`remove_sensitivity` like the other processing methods, because the
+records that arrive later would stay in counts.
+
 `set_buffer()` without arguments makes an unlimited buffer,
 `max_duration` a circular one, and a collection given as argument is
 used as it is (§4). `client.buffer` is the buffer itself, for the
@@ -429,14 +438,30 @@ interval, so it is called with the function. The signatures:
 
 | Method | Called as | When |
 |---|---|---|
-| `on_record(func)` | `func(client, record)` | at every record, after the buffer |
+| `on_record(func, sensitivity=False)` | `func(client, record)` | at every record, after the buffer |
 | `every(interval, func, clock="wall")` | `func(client)` | every `interval` seconds of wall-clock or data time (§7) |
 | `on_event(func)` | `func(client, event)` | at connection events, gaps and overlaps, end of a dial-up transfer |
 
 A `SeedLinkEvent` has `kind` (`"connected"`, `"disconnected"`, `"gap"`,
 `"overlap"`, `"end"`), `time` (wall clock), `message`, and for gaps and
 overlaps `sid`, `start` and `end` (from the expected start of the
-record to its actual start). A callback may call `client.stop()`: the
+record to its actual start).
+
+`on_record` passes the record as received, in counts. With
+`sensitivity=True` (in a call, not as a decorator) the function
+receives a copy divided by the sensitivity of the channel, and is not
+called for channels without one (one `MetadataWarning` each):
+
+```python
+client = Client("rtserve.example.org", metadata="station.xml")
+client.select("IV.MODE..HN?")
+
+def alarm(client, record):
+    if record.peak > 0.1:                # m/s**2
+        print(record.sid, record.time)
+
+client.on_record(alarm, sensitivity=True)
+``` A callback may call `client.stop()`: the
 run stops after the callback returns.
 
 ### 9.6 Running
@@ -546,7 +571,10 @@ print(round(data["IV.MODE..HNZ"][0].peak, 4))
 
 Channels without metadata give one `MetadataWarning` each and keep
 empty metadata. The metadata can also select the channels:
-`client.select(metadata)`.
+`client.select(metadata)`. For physical units without the whole
+correction, `get_data(..., sensitivity=True)` and
+`on_record(func, sensitivity=True)` divide copies of the records by the
+sensitivity (§9.3, §9.5).
 
 ## 11. Errors, warnings and log
 
@@ -616,9 +644,8 @@ client.set_buffer(max_duration=20)
 peaks = {}
 
 def peak_acceleration(client):
-    data = client.get_data()
+    data = client.get_data(sensitivity=True)   # m/s**2
     data.detrend()
-    data.remove_sensitivity()               # counts -> m/s**2
     for record in data.records():
         latest = float(record.peak)
         peaks[record.sid] = max(peaks.get(record.sid, 0.0), latest)
@@ -708,6 +735,11 @@ thread.join()
 - **Archives as received.** Packets are written unchanged, so that an
   archive is a faithful copy of what the server sent and costs no
   decoding or encoding.
+- **Buffers as received.** The buffer keeps the samples in counts, with
+  its own copy of every record; conversions to physical units are
+  applied to the copies given to the user (`get_data`, `on_record`
+  with `sensitivity=True`), so that the buffer never mixes units and
+  the whole response can still be corrected.
 - **No data lost while the server keeps them.** Sequence numbers per
   station, reconnection with growing delays and the state file make
   resumption automatic, also across restarts.
@@ -724,7 +756,7 @@ thread.join()
 
 ## 15. Validation
 
-The package is covered by the tests of `tests/signals/seedlink/` (69
+The package is covered by the tests of `tests/signals/seedlink/` (73
 tests), which run against a fake SeedLink server on a local port: it
 speaks versions 3.1 and 4.0, serves MiniSEED packets of several
 stations (also interleaved in time, as a real server), honours
@@ -736,6 +768,7 @@ requests, and can drop a connection or reject a command.
 | Negotiation of the version, `HELLO` of SeisComP and ringserver | the highest common version |
 | Commands of both versions (`STATION`, `SELECT`, `DATA`, `TIME`, `FETCH`, `END`, `ENDFETCH`), sequence numbers and their wrap-around in version 3 | as the protocols require |
 | Selection with wildcards in station codes (also on servers that do not accept them) | the matching stations requested one by one |
+| Physical units: `get_data` and `on_record` with `sensitivity=True`; a callback that changes the record | samples divided by the sensitivity of MODE.xml, channels without metadata left out with a warning; the buffer unchanged, in counts |
 | Real-time and dial-up transfers, past windows of several stations | the requested data, the run stopping at the end |
 | Unlimited and circular buffers, `get_data` | the data joined; the circular buffer limited to its duration |
 | Connection dropped during the transfer | reconnection, resumption without losses or repetitions |

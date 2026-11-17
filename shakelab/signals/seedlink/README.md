@@ -78,8 +78,9 @@ The functions registered with `on_record` (called as
 they should be quick; `every` takes `clock="data"` to follow the time
 of the data instead of the wall clock, for example when an archive is
 replayed through a server. Other threads read the buffer with
-`get_data`, which returns an independent copy, and the reception with
-`status` (last sample and latency of every channel). `run` does the
+`get_data`, which returns an independent copy (in physical units with
+`sensitivity=True`, when the client has the channel metadata), and the
+reception with `status` (last sample and latency of every channel). `run` does the
 same as `start` in the calling thread, until a duration, an end time
 or `stop`.
 

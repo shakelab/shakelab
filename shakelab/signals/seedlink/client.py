@@ -396,6 +396,7 @@ class Client:
         self._run_end: dict = {}
         self._metadata_cache: dict = {}
         self._missing_metadata: set = set()
+        self._missing_sensitivity: set = set()
 
         self._lock = threading.RLock()
         self._stop_request = threading.Event()
@@ -609,7 +610,11 @@ class Client:
         """Archive of the records (None if not set)."""
         return self._archive
 
-    def on_record(self, func: Callable) -> Callable:
+    def on_record(
+        self,
+        func: Callable,
+        sensitivity: bool = False,
+    ) -> Callable:
         """
         Call a function at every record received.
 
@@ -617,17 +622,26 @@ class Client:
         ----------
         func : callable
             Called as ``func(client, record)`` after the record is added
-            to the buffer.
+            to the buffer. The record is the one received, in counts;
+            changing it does not change the buffer.
+        sensitivity : bool, optional
+            If True, ``func`` receives a copy divided by the sensitivity
+            of the channel metadata (see
+            :meth:`~shakelab.signals.base.Record.remove_sensitivity`);
+            records of channels without a sensitivity are not passed,
+            with one warning per channel. Default is False.
 
         Returns
         -------
         callable
             ``func`` itself, so that the method can be used as a
-            decorator.
+            decorator (without ``sensitivity``).
         """
         self._require_idle()
         _require_callable(func)
-        self._record_callbacks.append(func)
+        if not isinstance(sensitivity, bool):
+            raise TypeError("sensitivity must be a boolean")
+        self._record_callbacks.append((func, sensitivity))
         return func
 
     def every(
@@ -831,6 +845,7 @@ class Client:
         sid: str = "*",
         start: Any = None,
         end: Any = None,
+        sensitivity: bool = False,
     ) -> StreamCollection:
         """
         Return a copy of the buffer, safe from any thread.
@@ -842,6 +857,14 @@ class Client:
             :meth:`select`). Default is every channel.
         start, end : Date or str, optional
             Time window to extract.
+        sensitivity : bool, optional
+            If True, divide the copy by the sensitivity of the channel
+            metadata (see
+            :meth:`~shakelab.signals.base.Record.remove_sensitivity`):
+            physical units without a correction of the whole response.
+            Channels without a sensitivity are left out, with one
+            warning per channel. The buffer is not changed. Default is
+            False.
 
         Returns
         -------
@@ -856,6 +879,8 @@ class Client:
         RuntimeError
             If no buffer is set.
         """
+        if not isinstance(sensitivity, bool):
+            raise TypeError("sensitivity must be a boolean")
         patterns = parse_sid_pattern(sid)
         with self._lock:
             self._flush()
@@ -872,6 +897,14 @@ class Client:
                 starttime=_as_date(start, "start"),
                 endtime=_as_date(end, "end"),
             )
+        if sensitivity:
+            collection.stream = [
+                stream for stream in collection
+                if all(
+                    self._physical(record, inplace=True) is not None
+                    for record in stream
+                )
+            ]
         return collection
 
     def status(self, sid: str = "*") -> list:
@@ -1367,8 +1400,13 @@ class Client:
             if self._buffer is not None:
                 self._store(record)
 
-        for func in self._record_callbacks:
-            func(self, record)
+        for func, sensitivity in self._record_callbacks:
+            if not sensitivity:
+                func(self, record)
+                continue
+            converted = self._physical(record)
+            if converted is not None:
+                func(self, converted)
         self._run_data_timers(end_ns)
 
     def _store(self, record: Record) -> None:
@@ -1377,10 +1415,12 @@ class Client:
 
         Records for an unlimited buffer wait in a list, joined in one
         array when the buffer is read: appending each packet to the
-        stream would copy its whole data every time.
+        stream would copy its whole data every time. They are copies,
+        as the records appended to a circular buffer, so that the
+        callbacks cannot change the buffer.
         """
         if self._buffer.max_duration is None:
-            self._pending.setdefault(record.sid, []).append(record)
+            self._pending.setdefault(record.sid, []).append(record.copy())
             return
         try:
             self._buffer.append(record)
@@ -1395,6 +1435,30 @@ class Client:
             for record in _join_contiguous(records):
                 self._buffer.append(record)
         self._pending.clear()
+
+    def _physical(
+        self,
+        record: Record,
+        inplace: bool = False,
+    ) -> Optional[Record]:
+        """
+        Record (a copy unless ``inplace``) divided by its sensitivity, or
+        None (one warning per channel) if the channel has none.
+        """
+        converted = record if inplace else record.copy()
+        try:
+            converted.remove_sensitivity()
+        except ValueError as error:
+            if record.sid not in self._missing_sensitivity:
+                self._missing_sensitivity.add(record.sid)
+                warnings.warn(
+                    f"{record.sid} not converted to physical units "
+                    f"({error}): its records are left out",
+                    _metadata.MetadataWarning,
+                    stacklevel=3,
+                )
+            return None
+        return converted
 
     def _assign_metadata(self, record: Record) -> None:
         """Assign the channel metadata (one warning per channel)."""

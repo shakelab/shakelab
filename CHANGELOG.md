@@ -9,6 +9,19 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.seedlink.Client.get_data` and `Client.on_record` take
+  `sensitivity=True` to give copies of the records divided by the
+  sensitivity of the channel metadata (physical units without the
+  whole response correction); channels without a sensitivity are left
+  out with one `MetadataWarning` each. The buffer keeps the samples as
+  received.
+- `signals.circular.CircularStream.remove_sensitivity` is refused, as
+  the other processing methods: the records arriving later stayed in
+  counts, and the joined copy mixed units under the units of the first
+  record.
+- `signals.fdsnws`: an unknown data center name that looks like an
+  address (`"192.168.1.10:8080"`) gives an error that suggests the
+  `http://` scheme.
 - `signals.base.Record.taper` (and `Stream.taper`,
   `StreamCollection.taper`) takes a pair `(start, end)` of durations to
   taper the two ends differently (0 leaves an end unchanged).
@@ -962,6 +975,18 @@ corrections. The format follows
 
 ### Fixed
 
+- `signals.codes.parse_sid_pattern` (and every selection: `io.reader`,
+  `MetadataCollection.select`, `fdsnws`, `seedlink`): a set that is not
+  closed (`"HN[Z"`), empty or nested was taken literally and selected
+  nothing without error; it now raises a `ValueError`, as unbalanced
+  braces do.
+- `signals.fdsnws`: service addresses without a host (`"http://"`) or
+  with an invalid port were accepted and failed only at the first
+  request; they are rejected when the client is created.
+- `signals.seedlink.Client`: the records of an unlimited buffer were
+  the objects passed to the `on_record` callbacks, so that a callback
+  changing a record changed the buffer; the buffer now keeps copies,
+  as the circular buffer does.
 - `signals.fdsnws.Client.get_waveforms` with `correct=True` or filters:
   the taper of the margins was applied to the ends of the received
   records, so that where the server had no data in a margin (a window

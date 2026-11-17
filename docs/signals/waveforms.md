@@ -1097,7 +1097,9 @@ z_rec = collection.extract(sid="IV.MODE..HNZ", starttime=0.0,
 
 Channels are selected when reading, with the patterns of
 `shakelab.signals.codes` (`*`, `?`, `[...]`, `{A,B}`, code by code),
-together with a time window:
+together with a time window. A set that is not closed (`HN[Z`), empty
+or nested raises a `ValueError`, as unbalanced braces do, instead of
+matching nothing:
 
 ```python
 horizontal = reader("waveforms.mseed", select="*.*.*.HN{N,E}",

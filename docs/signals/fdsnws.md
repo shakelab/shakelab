@@ -308,7 +308,9 @@ its host, with the port and a path prefix if needed, when it uses the
 standard paths; otherwise service by service (the address of a service
 may include the method, which is removed). Explicit services replace
 those of a named data center. The scheme `http://` or `https://` is
-required:
+required, and addresses without a host or with an invalid port are
+rejected when the client is created; a name that looks like an address
+(with `.`, `:` or `/`) gives an error that suggests the scheme:
 
 ```python
 local = Client("http://192.168.1.10:8080")      # e.g. a SeisComP server
@@ -327,7 +329,8 @@ inherited = Client("INGV", station="http://localhost:8080/fdsnws/station/1/")
 print(inherited.services["station"], inherited.services["dataselect"])
 # http://localhost:8080/fdsnws/station/1/
 # https://webservices.ingv.it/fdsnws/dataselect/1/
-Client("192.168.1.10:8080")         # ValueError: neither a name nor an address
+Client("192.168.1.10:8080")         # ValueError: unknown data center; write 'http://192.168.1.10:8080'
+Client("http://")                   # ValueError: service address without host
 patient = Client("INGV", timeout=300, retries=5)
 ```
 
@@ -794,7 +797,7 @@ for span in spans:
 
 ## 17. Validation
 
-The package is covered by the tests of `tests/signals/fdsnws/` (90
+The package is covered by the tests of `tests/signals/fdsnws/` (91
 tests), which run against a fake FDSN server on a local socket: the
 server answers the four services with the test data of ShakeLab
 (IV.MODE in MiniSEED, StationXML and text, a QuakeML catalogue and

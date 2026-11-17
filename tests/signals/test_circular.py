@@ -166,6 +166,7 @@ def test_circular_selections_are_standard_streams(vertical):
         ("integrate", ()),
         ("differentiate", ()),
         ("shift", (0.5,)),
+        ("remove_sensitivity", ()),
     ],
 )
 def test_circular_processing_is_refused(vertical, method, args):

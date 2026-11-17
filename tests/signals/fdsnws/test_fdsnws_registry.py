@@ -118,6 +118,8 @@ def test_find_datacenter_errors():
     """Unknown names and wrong types are rejected."""
     with pytest.raises(ValueError, match="unknown data center"):
         registry.find_datacenter("NOWHERE")
+    with pytest.raises(ValueError, match="'http://192.168.1.10:8080'"):
+        registry.find_datacenter("192.168.1.10:8080")
     with pytest.raises(TypeError):
         registry.find_datacenter(1)
 
@@ -165,6 +167,23 @@ def test_address_errors():
         registry.service_root("ftp://a.org/fdsnws/station/1/")
     with pytest.raises(TypeError):
         registry.service_urls(None)
+
+
+@pytest.mark.parametrize(
+    "url, message",
+    [
+        ("http://", "without host"),
+        ("https:///fdsnws/station/1/", "without host"),
+        ("http://a.org:80x", "invalid port"),
+        ("http://a.org:99999", "invalid port"),
+    ],
+)
+def test_address_without_host_or_with_invalid_port(url, message):
+    """Addresses are checked when the client is created."""
+    with pytest.raises(ValueError, match=message):
+        registry.service_urls(url)
+    with pytest.raises(ValueError, match=message):
+        registry.service_root(url)
 
 
 # ----------------------------------------------------------------------------

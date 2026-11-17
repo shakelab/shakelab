@@ -193,7 +193,8 @@ def parse_sid_pattern(pattern: str, parts: int = 4) -> list:
         If the pattern is not a string.
     ValueError
         If the pattern is empty, has too many codes, an empty network,
-        station or channel code, spaces or unbalanced braces.
+        station or channel code, spaces, unbalanced braces or a set of
+        characters that is not closed, empty or nested.
     """
     if not isinstance(pattern, str):
         raise TypeError("patterns must be strings")
@@ -217,6 +218,7 @@ def parse_sid_pattern(pattern: str, parts: int = 4) -> list:
                 raise ValueError(f"invalid pattern {pattern!r}: empty code")
             if any(char.isspace() for char in code):
                 raise ValueError(f"invalid pattern {pattern!r}: spaces")
+            _check_sets(code, pattern)
         parsed = SidPattern(*codes) if parts == 4 else tuple(codes)
         if parsed not in result:
             result.append(parsed)
@@ -276,6 +278,29 @@ def match_code(code: Optional[str], pattern: str) -> bool:
     return any(
         all(fnmatch.fnmatchcase(value, item) for value, item in zip(codes, p))
         for p in parse_sid_pattern(pattern, parts=2)
+    )
+
+
+def _check_sets(code: str, pattern: str) -> None:
+    """Raise ValueError if a ``[...]`` set of a code is not well formed."""
+    start = None
+    for index, char in enumerate(code):
+        if char == "[":
+            if start is not None:
+                break
+            start = index
+        elif char == "]":
+            if start is None:
+                break
+            body = code[start + 1:index]
+            if body in ("", "!"):
+                break
+            start = None
+    else:
+        if start is None:
+            return
+    raise ValueError(
+        f"invalid pattern {pattern!r}: unbalanced or empty brackets"
     )
 
 

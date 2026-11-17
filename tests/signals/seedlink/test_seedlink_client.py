@@ -518,6 +518,85 @@ def test_metadata_assigned(make_server, mode, other):
     assert collection["OX.ABC.00.HHZ"].record[0].head.meta.empty
 
 
+def _sensitivity(sid):
+    """Sensitivity of a channel of MODE.xml at the start of the data."""
+    from shakelab.signals.io import metadata_reader
+    from shakelab.signals.metadata import select_sensitivity
+
+    collection = metadata_reader(DATA / "MODE.xml")
+    return select_sensitivity(collection, sid=sid, time=START).value
+
+
+def test_get_data_in_physical_units(make_server, mode, other):
+    """``sensitivity=True`` converts the copy, not the buffer."""
+    records, station = mode
+    server = make_server([station, other[1]])
+    client = _client(server, metadata=DATA / "MODE.xml")
+    client.select(["IV.MODE", "OX.ABC"])
+
+    with pytest.warns(MetadataWarning):
+        client.run(fetch=True, duration=10)
+    with pytest.warns(MetadataWarning, match="OX.ABC.00.HHZ not converted"):
+        data = client.get_data(sensitivity=True)
+
+    assert sorted(data.sid) == sorted(record.sid for record in records)
+    for record in records:
+        converted = data[record.sid].record[0]
+        np.testing.assert_allclose(
+            converted.data, record.data / _sensitivity(record.sid)
+        )
+        assert converted.head.units == "m/s**2"
+    _assert_same(client.get_data("IV.MODE"), records)
+
+
+def test_on_record_in_physical_units(make_server, mode, other):
+    """The callback receives converted copies; the buffer keeps counts."""
+    records, station = mode
+    server = make_server([station, other[1]])
+    client = _client(server, metadata=DATA / "MODE.xml")
+    client.select(["IV.MODE..HNZ", "OX.ABC"])
+    client.set_buffer()
+    received = []
+    client.on_record(lambda client, record: received.append(record),
+                     sensitivity=True)
+
+    with pytest.warns(MetadataWarning) as caught:
+        collection = client.run(fetch=True, duration=10)
+    messages = [str(item.message) for item in caught]
+    assert any("OX.ABC.00.HHZ not converted" in text for text in messages)
+
+    assert {record.sid for record in received} == {"IV.MODE..HNZ"}
+    data = np.concatenate([record.data for record in received])
+    np.testing.assert_allclose(
+        data, records[0].data / _sensitivity("IV.MODE..HNZ")
+    )
+    np.testing.assert_array_equal(
+        collection["IV.MODE..HNZ"].record[0].data, records[0].data
+    )
+
+
+def test_callbacks_cannot_change_the_buffer(make_server, mode):
+    """Records changed by a callback stay unchanged in the buffer."""
+    records, station = mode
+    server = make_server([station])
+    client = _client(server)
+    client.select("IV.MODE")
+    client.set_buffer()
+
+    @client.on_record
+    def clear(client, record):
+        record.data[:] = 0
+
+    collection = client.run(fetch=True, duration=10)
+    _assert_same(collection, records)
+
+
+def test_sensitivity_option_type():
+    client = Client("localhost")
+    with pytest.raises(TypeError):
+        client.on_record(print, sensitivity=1)
+
+
 def test_read_requires_stop_condition():
     with pytest.raises(ValueError):
         read("localhost", "IV.MODE")

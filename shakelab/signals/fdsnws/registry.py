@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, NamedTuple, Optional
+from urllib.parse import urlsplit
 
 __all__ = [
     "DataCenter",
@@ -336,8 +337,11 @@ def find_datacenter(name: str) -> DataCenter:
     for center in _CURRENT.values():
         if center.name.upper() == key:
             return center
+    hint = ""
+    if any(char in name for char in ".:/"):
+        hint = f"; for a server by address, write 'http://{name.strip()}'"
     raise ValueError(
-        f"unknown data center {name!r}; known: "
+        f"unknown data center {name!r}{hint}; known: "
         f"{', '.join(datacenters())}"
     )
 
@@ -361,7 +365,7 @@ def service_urls(base: str) -> dict:
     ------
     ValueError
         If the address does not start with ``http://`` or
-        ``https://``.
+        ``https://``, has no host or an invalid port.
     """
     return _standard(_check_url(base).rstrip("/"), SERVICES)
 
@@ -387,7 +391,8 @@ def service_root(url: str) -> str:
     TypeError
         If ``url`` is not a string.
     ValueError
-        If it does not start with ``http://`` or ``https://``.
+        If it does not start with ``http://`` or ``https://``, has no
+        host or an invalid port.
     """
     url = _check_url(url)
     for method in ("queryauth", "query"):
@@ -457,4 +462,11 @@ def _check_url(url: Any) -> str:
             f"service addresses must start with http:// or https://: "
             f"{url!r}"
         )
+    parts = urlsplit(url)
+    if not parts.hostname:
+        raise ValueError(f"service address without host: {url!r}")
+    try:
+        parts.port
+    except ValueError:
+        raise ValueError(f"invalid port in {url!r}") from None
     return url

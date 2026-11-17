@@ -435,3 +435,4 @@ class CircularStream(Stream):
     differentiate = _processing_not_supported
     convolve_response = _processing_not_supported
     deconvolve_response = _processing_not_supported
+    remove_sensitivity = _processing_not_supported
