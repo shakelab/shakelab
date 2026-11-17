@@ -1056,10 +1056,13 @@ class MetadataCollection:
         self,
         source: Any,
         format: Optional[str] = None,
-        append: bool = False,
     ) -> None:
         """
         Read metadata from a StationXML, RESP, FDSN text or JSON file.
+
+        The epochs read are added to the collection, as
+        :meth:`extend` does; to read into a new collection use
+        :func:`shakelab.signals.io.metadata_reader` or the constructor.
 
         Parameters
         ----------
@@ -1077,8 +1080,6 @@ class MetadataCollection:
             ending with ``.resp``, otherwise the extension; files and
             contents with another extension are recognized as
             ``"fdsntext"`` from their header line.
-        append : bool, optional
-            If True, add to the current content; otherwise replace it.
 
         Raises
         ------
@@ -1118,9 +1119,6 @@ class MetadataCollection:
         else:
             raise ValueError(f"Unknown metadata format: {format}")
 
-        if not append:
-            self._channels = {}
-            self._stations = []
         self.extend(new)
 
     def write(self, file: Any, format: str = "json") -> None:

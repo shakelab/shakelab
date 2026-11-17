@@ -451,15 +451,7 @@ class Record:
             return record
 
         if isinstance(value, Record):
-            appended = record.append(
-                value.copy(),
-            )
-
-            if not appended:
-                raise ValueError(
-                    "records cannot be concatenated"
-                )
-
+            record.append(value.copy())
             return record
 
         raise TypeError(
@@ -911,9 +903,13 @@ class Record:
         enforce: bool = False,
         fillvalue: float = 0.0,
         merge_tolerance: Optional[float] = None,
-    ) -> bool:
+    ) -> None:
         """
         Append another record to the current record.
+
+        The record must follow the current one without a gap or an
+        overlap, unless ``enforce`` is True; records that cannot be
+        joined are kept separate by :meth:`Stream.append`.
 
         Parameters
         ----------
@@ -931,17 +927,14 @@ class Record:
             a fraction of one sampling interval. Default is
             :data:`MERGE_TOLERANCE` (half a sample).
 
-        Returns
-        -------
-        bool
-            ``True`` when the record was appended, otherwise ``False``.
-
         Raises
         ------
         TypeError
             If ``record`` is not a Record.
         ValueError
-            If metadata or sampling parameters are incompatible.
+            If metadata or sampling parameters are incompatible, or if
+            the records are not contiguous (a gap, an overlap or an
+            offset off the sampling grid) and ``enforce`` is False.
 
         Notes
         -----
@@ -954,6 +947,31 @@ class Record:
         For overlapping records with ``enforce=True``, samples from the
         new record take precedence from its start time onward.
         """
+        if self._join(record, enforce, fillvalue, merge_tolerance):
+            return
+        offset = self._time_difference(
+            record.starttime, self.endtime + self.delta
+        )
+        if np.isclose(offset / self.delta, round(offset / self.delta),
+                      rtol=0.0, atol=MERGE_TOLERANCE
+                      if merge_tolerance is None else merge_tolerance):
+            kind = "gap" if offset > 0 else "overlap"
+            detail = f"{kind} of {abs(offset):.6g} s"
+        else:
+            detail = "offset off the sampling grid"
+        raise ValueError(
+            f"records are not contiguous ({detail}); join them with "
+            f"enforce=True or keep them separate in a Stream"
+        )
+
+    def _join(
+        self,
+        record: Record,
+        enforce: bool,
+        fillvalue: float,
+        merge_tolerance: Optional[float],
+    ) -> bool:
+        """Append ``record`` if possible; return whether it was joined."""
         if not isinstance(record, Record):
             raise TypeError(
                 "record must be a Record instance"
@@ -2954,11 +2972,8 @@ class Stream:
             self.record.append(record)
             return
 
-        merged = self.record[-1].append(
-            record,
-            enforce=enforce,
-            fillvalue=fillvalue,
-            merge_tolerance=merge_tolerance,
+        merged = self.record[-1]._join(
+            record, enforce, fillvalue, merge_tolerance
         )
 
         if not merged:
@@ -3185,11 +3200,8 @@ class Stream:
         output = selected[0]
 
         for record in selected[1:]:
-            merged = output.append(
-                record,
-                enforce=enforce,
-                fillvalue=fillvalue,
-                merge_tolerance=merge_tolerance,
+            merged = output._join(
+                record, enforce, fillvalue, merge_tolerance
             )
 
             if not merged:
@@ -4246,9 +4258,12 @@ class StreamCollection:
         format: Optional[str] = None,
         metadata: Any = None,
         **options: Any,
-    ) -> StreamCollection:
+    ) -> None:
         """
         Read waveform data into the collection.
+
+        The records read are added to the collection; to read into a new
+        collection use :func:`shakelab.signals.io.reader`.
 
         Parameters
         ----------
@@ -4264,11 +4279,6 @@ class StreamCollection:
         **options
             Options of the format reader (e.g. ``byte_order`` for SAC,
             ``mseed_backend`` for MiniSEED).
-
-        Returns
-        -------
-        StreamCollection
-            The collection itself, with the records read.
 
         Notes
         -----
@@ -4291,8 +4301,6 @@ class StreamCollection:
             stream_collection=self,
             **options,
         )
-
-        return self
 
     def write(
         self,

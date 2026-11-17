@@ -64,6 +64,7 @@ from numbers import Real
 from typing import Any, NamedTuple, Optional
 
 from shakelab.libutils.timeN import Date
+from shakelab.libutils.utils import check_target
 from shakelab.signals.base import StreamCollection
 from shakelab.signals.codes import match_code
 from shakelab.signals.fdsnws.registry import (
@@ -907,8 +908,7 @@ class Client:
         if not isinstance(target, (str, os.PathLike)):
             raise TypeError("target must be a path")
         path = os.fspath(target)
-        if os.path.exists(path) and not owrite:
-            raise FileExistsError(f"{path} exists (use owrite=True)")
+        check_target(path, owrite)
 
         if len(groups) == 1:
             size = self._query(service, "query", groups[0], params, path)

@@ -412,7 +412,7 @@ def test_write_text(tmp_path):
     """Files are not overwritten unless requested."""
     path = tmp_path / "x.txt"
     write_text(path, "one\n")
-    with pytest.raises(FileExistsError):
+    with pytest.raises(FileExistsError, match=r"\(use owrite=True\)"):
         write_text(path, "two\n")
     write_text(path, "two\n", owrite=True)
     assert path.read_text() == "two\n"

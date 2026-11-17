@@ -670,7 +670,7 @@ def test_record_append_metadata():
     second = Record(data=[3.0], delta=1.0, time="2026-01-01T00:00:02",
                     sid="XX.STA..HHZ", location=(13.0, 46.0))
 
-    assert first.append(second) is True
+    assert first.append(second) is None
     assert first.location == WgsPoint(13.0, 46.0)
 
     third = Record(data=[4.0], delta=1.0, time="2026-01-01T00:00:03",
@@ -745,11 +745,33 @@ def test_record_append_contiguous_and_gaps():
     record = Record(data=[1, 2, 3], delta=1.0, time=START)
     late = Record(data=[4, 5], delta=1.0, time="2026-01-01T00:00:05")
 
-    assert record.append(late) is False
+    with pytest.raises(ValueError, match=r"not contiguous \(gap of 2 s\)"):
+        record.append(late)
     assert record.data.tolist() == [1, 2, 3]
 
-    assert record.append(late, enforce=True) is True
+    assert record.append(late, enforce=True) is None
     assert record.data.tolist() == [1, 2, 3, 0, 0, 4, 5]
+
+
+def test_record_append_refuses_records_it_cannot_join():
+    """Without enforce, overlaps and offsets off the grid are errors."""
+    record = Record(data=[1, 2, 3], delta=1.0, time=START)
+    overlap = Record(data=[9, 9], delta=1.0, time="2026-01-01T00:00:01")
+    with pytest.raises(ValueError, match=r"\(overlap of 2 s\)"):
+        record.append(overlap)
+    shifted = Record(data=[9], delta=1.0, time="2026-01-01T00:00:03.6")
+    with pytest.raises(ValueError, match=r"\(gap of 0.6 s\)"):
+        record.append(shifted)
+    with pytest.raises(ValueError, match="offset off the sampling grid"):
+        record.append(shifted, merge_tolerance=0.1)
+    with pytest.raises(ValueError, match="not contiguous"):
+        record + Record(data=[9], delta=1.0, time="2026-01-01T00:00:09")
+    assert record.data.tolist() == [1, 2, 3]
+
+    stream = Stream()
+    stream.append(record)
+    stream.append(overlap)
+    assert len(stream) == 2
 
 
 def test_record_append_overlap_with_enforce():
@@ -757,7 +779,7 @@ def test_record_append_overlap_with_enforce():
     record = Record(data=[1, 2, 3], delta=1.0, time=START)
     overlap = Record(data=[9, 9], delta=1.0, time="2026-01-01T00:00:01")
 
-    assert record.append(overlap, enforce=True) is True
+    assert record.append(overlap, enforce=True) is None
     assert record.data.tolist() == [1, 9, 9]
 
 
@@ -774,7 +796,7 @@ def test_record_append_absorbs_time_rounding(mode):
     second = raw.extract(10.01, 20.0)
     second.time = second.time + 4e-5
 
-    assert first.append(second) is True
+    assert first.append(second) is None
     np.testing.assert_array_equal(first.data, raw.extract(0.0, 20.0).data)
 
 
@@ -800,7 +822,7 @@ def test_record_append_to_empty_record():
     record = Record()
     other = Record(data=[1, 2], delta=1.0, time=START, sid="XX.A..HHZ")
 
-    assert record.append(other) is True
+    assert record.append(other) is None
     assert record.sid == "XX.A..HHZ"
     assert record.data.tolist() == [1, 2]
 
@@ -1395,11 +1417,11 @@ def test_collection_membership(mode):
 
 
 def test_collection_read_method(tmp_path):
-    """StreamCollection.read appends the content of a file."""
+    """StreamCollection.read adds the content of a file, in place."""
     collection = StreamCollection()
     returned = collection.read(str(DATA / "MODE.mseed"))
 
-    assert returned is collection
+    assert returned is None
     assert len(collection) == 3
 
 

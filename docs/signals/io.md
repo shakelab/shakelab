@@ -593,7 +593,7 @@ data = reader("waveforms.mseed")
 writer(data, "copy.mseed")                          # all channels
 writer(data["IV.MODE..HNZ"][0], "vertical.sac")     # one record
 writer(data, "copy.data", format="mseed")
-writer(data, "copy.mseed")               # FileExistsError
+writer(data, "copy.mseed")               # FileExistsError: copy.mseed exists (use owrite=True)
 writer(data, "copy.mseed", owrite=True)
 writer(data, "all.sac")                  # ValueError: one record per file
 ```
@@ -659,7 +659,9 @@ With a folder or a template, all the names are computed and checked
 first: if any file exists and `owrite` is false, `FileExistsError` is
 raised and no file is written, so that a collection is never written
 in part. With `owrite=True` existing files are replaced, not appended
-to.
+to. Every writer of ShakeLab (formats, `writer`, the FDSN client, the
+results of YARRAY) gives the same error, `<file> exists (use
+owrite=True)`, and the commands suggest `--owrite`.
 
 ```python
 writer(data, "sac/", format="sac")       # FileExistsError

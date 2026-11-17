@@ -347,7 +347,7 @@ def test_existing_file(tmp_path):
     record = Record(data=[1.0], delta=1.0, time="2026-01-01T00:00:00")
     sacwrite(path, record)
 
-    with pytest.raises(FileExistsError):
+    with pytest.raises(FileExistsError, match=r"\(use owrite=True\)"):
         sacwrite(path, record)
     sacwrite(path, record, owrite=True)
 

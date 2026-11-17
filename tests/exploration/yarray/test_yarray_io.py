@@ -206,7 +206,8 @@ def test_result_lines(tmp_path):
     write_result(header, {"x": [1.0, np.nan]}, path,
                  arrays={"v": np.arange(3)}, times=times)
 
-    with pytest.raises(FileExistsError):
+    with pytest.raises(FileExistsError,
+                       match=r"\(use owrite=True or append=True\)"):
         write_result(header, {"x": []}, path)
 
     write_result(header, {"x": [np.inf]}, path, times=times,

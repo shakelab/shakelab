@@ -86,6 +86,7 @@ from shakelab.exploration.yarray.beamforming import (
 from shakelab.exploration.yarray.config import BeamformingConfig, FDDConfig
 from shakelab.exploration.yarray.data import ArrayData
 from shakelab.exploration.yarray.fdd import FDD, FDDResult, modes_to_csv
+from shakelab.libutils.utils import command_message
 
 __all__ = ["main"]
 
@@ -154,7 +155,7 @@ def main(argv: Optional[list] = None, prog: Optional[str] = None) -> int:
     except KeyboardInterrupt:
         return 130
     except (OSError, ValueError, TypeError, np.linalg.LinAlgError) as error:
-        print(f"error: {error}", file=sys.stderr)
+        print(f"error: {command_message(error)}", file=sys.stderr)
         return 1
 
 

@@ -206,7 +206,7 @@ def test_collection_read_metadata():
     collection = StreamCollection()
     returned = collection.read(MSEED, metadata=SXML)
 
-    assert returned is collection
+    assert returned is None
     assert collection["IV.MODE..HNN"][0].orientation.azimuth == 0.0
 
 
@@ -249,7 +249,8 @@ def test_pickle_record_and_existing_file(tmp_path):
     path = str(tmp_path / "rec.pkl")
     writer(rec, path)
 
-    with pytest.raises(FileExistsError):
+    with pytest.raises(FileExistsError,
+                       match=r"rec.pkl exists \(use owrite=True\)"):
         writer(rec, path)
     writer(rec, path, owrite=True)
     again = reader(path, format="pickle")

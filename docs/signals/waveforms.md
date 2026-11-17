@@ -585,7 +585,10 @@ the bounds come from times rounded more coarsely than the sampling.
 ### 6.5 Joining records: append
 
 `a.append(b)` joins `b` to the end of `a` in place, following the
-rules of §4, and returns whether it did; `b` is not modified.
+rules of §4; `b` is not modified. Records that cannot be joined (a
+gap, an overlap, an offset off the sampling grid) raise a `ValueError`
+that says why, unless `enforce=True`; `Stream.append` keeps them as
+separate records instead (§7.1).
 
 ```python
 a = z.extract(0.0, 59.99)           # 0-59.99 s, 6000 samples
@@ -593,9 +596,9 @@ b = z.extract(60.0, 119.99)         # contiguous with a
 c = z.extract(125.0)                # after a gap of 5 s
 
 x = a.copy()
-x.append(b)                         # True: contiguous, now 12000 samples
-x.append(c)                         # False: gap, x unchanged
-x.append(c, enforce=True)           # True: gap filled with 0.0
+x.append(b)                         # contiguous: now 12000 samples
+x.append(c)                         # ValueError: records are not contiguous (gap of 5 s); x unchanged
+x.append(c, enforce=True)           # gap filled with 0.0
 print(x.nsamp)                      # 18001
 
 x = a.copy()
@@ -608,8 +611,8 @@ one.
 
 ```python
 x = a.copy()
-x.append(z.extract(50.0, 100.0))    # False: overlap of 10 s
-x.append(z.extract(50.0, 100.0), enforce=True)  # True
+x.append(z.extract(50.0, 100.0))    # ValueError: records are not contiguous (overlap of 10 s)
+x.append(z.extract(50.0, 100.0), enforce=True)
 print(x.endtime)                    # 2012-05-20T02:05:03.000000Z
 ```
 
@@ -619,14 +622,14 @@ grid:
 ```python
 late = b.copy()
 late.time = b.time + 0.003          # 0.3 samples late
-a.copy().append(late)               # True: joined, the 3 ms are absorbed
+a.copy().append(late)               # joined, the 3 ms are absorbed
 
 late.time = b.time + 0.006          # 0.6 samples late: a 1-sample gap
-a.copy().append(late)               # False (with enforce=True: 1 fill sample)
-a.copy().append(late, merge_tolerance=0.1)  # False
+a.copy().append(late)               # ValueError: records are not contiguous (gap of 0.006 s)
+a.copy().append(late, merge_tolerance=0.1)  # ValueError: ... (offset off the sampling grid)
 ```
 
-`a.append(b)` raises a `ValueError` if the sampling intervals differ,
+`a.append(b)` also raises a `ValueError` if the sampling intervals differ,
 if both records have a source identifier and they differ, or if both
 have non-empty channel metadata and they differ (records of different
 epochs are not joined). Appending to an empty record copies the
@@ -996,8 +999,8 @@ gaps, extract a merged record first (§12.2).
 from shakelab.signals.base import StreamCollection
 
 collection = reader("waveforms.mseed", metadata="station.xml")
-collection = StreamCollection().read("waveforms.mseed",
-                                     metadata="station.xml")  # the same
+collection = StreamCollection()
+collection.read("waveforms.mseed", metadata="station.xml")  # the same
 collection.info()
 # number of streams: 3
 # Stream 0: source identifier: IV.MODE..HNE ...
@@ -1006,7 +1009,8 @@ collection.write("event/", format="sac")   # SAC files in a folder
 ```
 
 `read` adds the data of files, patterns, folders or lists to the
-collection and returns it; `write` writes it in any format, to one
+collection, in place (it returns None, as every method that changes
+the object); `write` writes it in any format, to one
 file, to a folder or with a name template. Both delegate to
 `shakelab.signals.io` ([`io.md`](io.md)).
 
@@ -1404,7 +1408,7 @@ velocity and displacement of ESM (grey).*
 ## 14. Validation
 
 The containers are covered by the tests of `tests/signals/test_base.py`
-(96 tests: header, construction, times, windows on and off the grid,
+(97 tests: header, construction, times, windows on and off the grid,
 joining with gaps, overlaps and rounded time stamps, metadata,
 operators, processing, response correction, streams, collections,
 views and copies) and `tests/signals/test_circular.py` (9 tests). The

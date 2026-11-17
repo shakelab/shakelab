@@ -831,16 +831,10 @@ def _stream_record(stream):
     record = stream[0].copy()
 
     for segment in stream[1:]:
-        merged = record.append(
-            segment.copy(),
-            enforce=False,
-        )
-
-        if not merged:
-            raise ValueError(
-                f"Stream {stream.sid!r} contains non-contiguous "
-                "records"
-            )
+        try:
+            record.append(segment.copy())
+        except ValueError as error:
+            raise ValueError(f"Stream {stream.sid!r}: {error}") from None
 
     return record
 

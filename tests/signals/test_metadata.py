@@ -245,6 +245,16 @@ def test_read_formats():
         MetadataCollection(str(MODE), format="txt")
 
 
+def test_read_adds_to_collection():
+    """read adds the epochs to the collection, as extend; returns None."""
+    collection = MetadataCollection(str(MODE))
+    assert collection.read(str(TT)) is None
+    assert len(collection) == 3 + len(MetadataCollection(str(TT)))
+    assert "IV.MODE..HNZ" in collection.sid
+    with pytest.raises(TypeError):
+        collection.read(str(TT), append=False)
+
+
 def test_channel_without_coordinates_takes_station():
     """A channel without coordinates inherits those of its station."""
     document = (

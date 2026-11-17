@@ -65,6 +65,7 @@ import sys
 import warnings
 from typing import Optional
 
+from shakelab.libutils.utils import command_message
 from shakelab.signals.fdsnws.client import Client
 from shakelab.signals.fdsnws.registry import datacenters
 from shakelab.signals.fdsnws.transport import DEFAULT_TIMEOUT, FdsnError
@@ -104,7 +105,7 @@ def main(argv: Optional[list] = None, prog: Optional[str] = None) -> int:
     except KeyboardInterrupt:
         return 130
     except (OSError, FdsnError, ValueError, TypeError) as error:
-        print(f"error: {error}", file=sys.stderr)
+        print(f"error: {command_message(error)}", file=sys.stderr)
         return 1
 
 

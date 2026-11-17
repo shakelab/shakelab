@@ -68,6 +68,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import numpy as np
 
 from shakelab.libutils.timeN import Date
+from shakelab.libutils.utils import check_target
 from shakelab.signals.libio.common import NotWaveformError
 
 if TYPE_CHECKING:
@@ -550,8 +551,7 @@ class Sac:
         """
         content = self.to_bytes(byte_order, version)
         if isinstance(target, (str, os.PathLike)):
-            if os.path.exists(target) and not owrite:
-                raise FileExistsError(f"File exists: {target}")
+            check_target(target, owrite)
             with open(target, "wb") as fid:
                 fid.write(content)
         elif hasattr(target, "write"):

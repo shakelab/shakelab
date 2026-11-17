@@ -535,7 +535,7 @@ for status in client.status():
 # IV.MODE..HNE 2012-05-20T02:05:01.750000Z 26 0
 # IV.MODE..HNN 2012-05-20T02:05:03.220000Z 27 0
 # IV.MODE..HNZ 2012-05-20T02:05:00.350000Z 26 0
-client.info()                             # the same as a table
+client.info()                             # the client, then a table
 ```
 
 `status(sid)` returns a `ChannelStatus` per channel received: `sid`,
@@ -544,6 +544,14 @@ of its arrival), `latency` (seconds from the last sample to the call),
 `packets`, `gaps`, `overlaps`. It is safe from any thread. Packets are
 received whole, so the last sample is usually past the requested end,
 and the packets counted include those that only overlap the window.
+
+`summary()` describes the client as text, and `info()` prints it, as
+for the other objects of ShakeLab: the address and the state (idle or
+running), the server and the protocol once contacted, the patterns,
+the buffer, the archive, the callbacks, the metadata and the state
+file, then the status of the channels as a table once data have
+arrived. The stations and streams of the server are given by
+`stations` and `streams` (§9.8) and by `slab-seedlink info`.
 
 ### 9.8 What the server offers
 
@@ -633,7 +641,7 @@ slab-seedlink archive rtserve.example.org --file channels.txt \
 |---|---|---|
 | `info` | pattern, `--streams` | the stations, or the streams with their time span |
 | `monitor` | patterns or `--file`, `--status SECONDS`, `--duration` | one line per record received, or a table of the latencies at regular intervals |
-| `get` | patterns or `--file`, `--start`, `--end` or `--duration`, `-o` | a MiniSEED file with the records of the window (refused if it exists) |
+| `get` | patterns or `--file`, `--start`, `--end` or `--duration`, `-o`, `--owrite` | a MiniSEED file with the records of the window (an existing file is replaced only with `--owrite`) |
 | `archive` | patterns or `--file`, `--sds ROOT` or `--path TEMPLATE` with `--rotate`, `--state`, `--duration` | a continuous archive |
 
 All subcommands accept `--protocol`, `--timeout` and `-v` (connections
@@ -780,7 +788,7 @@ thread.join()
 
 ## 15. Validation
 
-The package is covered by the tests of `tests/signals/seedlink/` (78
+The package is covered by the tests of `tests/signals/seedlink/` (79
 tests), which run against a fake SeedLink server on a local port: it
 speaks versions 3.1 and 4.0, serves MiniSEED packets of several
 stations (also interleaved in time, as a real server), honours
@@ -824,12 +832,10 @@ test suite.
   authentication (version 4 allows it).
 - **`read` returns the channels in order of arrival**, not sorted as
   `io.reader` does.
-- **Interface asymmetries** (under review): `Client.info()` prints the
-  reception status, while `info()` describes the object elsewhere and
-  `slab-seedlink info` lists the stations of the server; the archive templates have `{time}` as the
-  start of the rotation interval and no `{sid}` or `{start}`, unlike
-  those of `io.writer`; `slab-seedlink get` writes MiniSEED only and
-  refuses an existing file (no `--owrite`).
+- **Interface asymmetries** (under review): the archive templates have
+  `{time}` as the start of the rotation interval and no `{sid}` or
+  `{start}`, unlike those of `io.writer`; `slab-seedlink get` writes
+  MiniSEED only.
 
 ## 17. References
 

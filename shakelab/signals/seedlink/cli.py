@@ -59,6 +59,7 @@ import os
 import sys
 from typing import Optional
 
+from shakelab.libutils.utils import check_target, command_message
 from shakelab.signals.seedlink.client import Client
 from shakelab.signals.seedlink.protocol import DEFAULT_PORT, SeedLinkError
 
@@ -97,7 +98,7 @@ def main(argv: Optional[list] = None, prog: Optional[str] = None) -> int:
     except KeyboardInterrupt:
         return 130
     except (OSError, SeedLinkError, ValueError) as error:
-        print(f"error: {error}", file=sys.stderr)
+        print(f"error: {command_message(error)}", file=sys.stderr)
         return 1
 
 
@@ -140,11 +141,13 @@ def _get(args) -> int:
     """Write the records of a time window in a MiniSEED file."""
     if args.duration is None and args.end is None:
         raise ValueError("give --end or --duration")
-    if os.path.exists(args.output):
-        raise ValueError(f"{args.output} exists")
+    check_target(args.output, args.owrite)
     client = _client(args)
     _select(client, args)
     client.set_archive(args.output.replace("{", "{{").replace("}", "}}"))
+    if os.path.exists(args.output):
+        # The archive adds to existing files: --owrite starts anew.
+        os.remove(args.output)
     client.run(
         duration=args.duration, starttime=args.start, endtime=args.end
     )
@@ -244,6 +247,9 @@ def _parser(prog: Optional[str] = None) -> argparse.ArgumentParser:
     get.add_argument("--end", help="end time (ISO 8601, UTC)")
     get.add_argument(
         "-o", "--output", required=True, help="MiniSEED file to write",
+    )
+    get.add_argument(
+        "--owrite", action="store_true", help="replace an existing file",
     )
     get.set_defaults(command=_get)
 

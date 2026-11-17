@@ -412,15 +412,15 @@ The format is inferred from the file name (`RESP.` at the start or
 `.resp` at the end for RESP, otherwise the extension); files and
 contents with another extension (e.g. `.txt`) are recognized as FDSN
 text from their header line. StationXML, RESP and FDSN text can also
-be given as text, bytes or an open file. `read` replaces the content,
-or adds to it with `append=True`:
+be given as text, bytes or an open file. `read` adds the epochs of a
+file to the collection, as `extend` does, and returns None; a new
+collection is made by the constructor:
 
 ```python
 resp = MetadataCollection("station.resp")   # RESP: two epochs, no coordinates
 text = MetadataCollection("channels.txt")   # FDSN text: no response stages
 
-metadata.read("nominal.xml", append=True)   # add to the collection
-metadata.read("station.xml")                # replace the content
+metadata.read("nominal.xml")                # add to the collection
 ```
 
 The formats give what they contain: StationXML the complete
@@ -1001,7 +1001,7 @@ print(problems or "consistent")
 
 The response model and the readers are covered by the tests of
 `tests/signals/` (`test_instrument_response.py`, 42 tests;
-`test_metadata.py`, 26; `test_stationxml.py`, 16; `test_respfile.py`,
+`test_metadata.py`, 27; `test_stationxml.py`, 16; `test_respfile.py`,
 33; `test_stationtext.py`, 7). The main checks:
 
 | Check | Result |
@@ -1038,8 +1038,7 @@ $`\sum_i \left[(N_i-1)/(2 f_{s,i}) - c_i\right]`$ over the FIR stages.
   decimator of some dataloggers) are not corrected.
 - **Elevations** are taken as written (relative to the local ground,
   usually mean sea level), not converted to ellipsoidal heights.
-- **Interface asymmetries** (under review): `MetadataCollection.read`
-  returns None while `StreamCollection.read` returns the collection;
+- **Interface asymmetries** (under review):
   `MetadataCollection.write(file, format)` does not follow the names of
   the writers (`target`, `owrite`); integer and slice indexing return
   epochs and lists, not collections; `StageSet[n]` indexes by stage

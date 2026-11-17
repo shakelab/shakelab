@@ -959,11 +959,78 @@ class Client:
             for key, value in sorted(channels.items())
         ]
 
+    def summary(self) -> str:
+        """
+        Return a description of the client as text.
+
+        Returns
+        -------
+        str
+            Server, protocol, state, patterns, destinations of the
+            records and, once data have arrived, the reception status of
+            the channels (as :meth:`status`).
+        """
+        state = "running" if self.running else "idle"
+        if self.protocol is None:
+            server = (
+                f"not contacted yet (protocol {self._requested_protocol})"
+            )
+        else:
+            # The server line of version 3 ends with its capabilities.
+            name = (self.server or "unknown").split(" :: ")[0]
+            server = f"{name}, protocol {self.protocol}"
+            if self.organization:
+                server += f" ({self.organization})"
+
+        with self._lock:
+            buffer = self._buffer
+            if buffer is None:
+                buffered = "none"
+            elif buffer.max_duration is None:
+                buffered = f"unlimited, {len(buffer)} channel(s)"
+            else:
+                buffered = (
+                    f"circular, {buffer.max_duration:g} s, "
+                    f"{len(buffer)} channel(s)"
+                )
+        if self._archive is None:
+            archived = "none"
+        elif self._archive.layout == "sds":
+            archived = f"SDS, {self._archive.template}"
+        else:
+            archived = self._archive.template
+        callbacks = ", ".join(
+            f"{count} {name}" for count, name in (
+                (len(self._record_callbacks), "per record"),
+                (len(self._timers), "timer(s)"),
+                (len(self._event_callbacks), "for events"),
+            ) if count
+        )
+        metadata = (
+            "none" if self._metadata is None
+            else f"{len(self._metadata)} channel(s)"
+        )
+
+        lines = [
+            f"SeedLink client {self.address}, {state}",
+            f"  server    : {server}",
+            f"  patterns  : {', '.join(self.selection) or 'none'}",
+            f"  buffer    : {buffered}",
+            f"  archive   : {archived}",
+            f"  callbacks : {callbacks or 'none'}",
+            f"  metadata  : {metadata}",
+            f"  state file: {self.state_file or 'none'}",
+        ]
+        statuses = self.status()
+        if statuses:
+            lines.append(_status_table(statuses))
+        return "\n".join(lines)
+
     def info(self) -> None:
         """
-        Print the reception status of the channels as a table.
+        Print the description of the client (see :meth:`summary`).
         """
-        print(_status_table(self.status()))
+        print(self.summary())
 
     def stations(self, pattern: str = "*") -> list:
         """

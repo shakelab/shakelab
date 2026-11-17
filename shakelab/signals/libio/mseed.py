@@ -66,6 +66,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional
 import numpy as np
 
 from shakelab.libutils.timeN import Date
+from shakelab.libutils.utils import check_target
 
 if TYPE_CHECKING:
     from shakelab.signals.base import Record, StreamCollection
@@ -1380,8 +1381,7 @@ class _BinaryOutput:
 
     def __enter__(self) -> Any:
         if isinstance(self._target, (str, os.PathLike)):
-            if os.path.exists(self._target) and not self._owrite:
-                raise FileExistsError(f"File exists: {self._target}")
+            check_target(self._target, self._owrite)
             self._file = open(self._target, "wb")
             return self._file
         if hasattr(self._target, "write"):

@@ -9,6 +9,31 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.base.StreamCollection.read` and
+  `signals.metadata.MetadataCollection.read` add the content of a file
+  to the collection and return None, as every method that changes an
+  object. `StreamCollection.read` returned the collection;
+  `MetadataCollection.read` replaced the content unless
+  `append=True`, and has no `append` any more (a new collection is
+  made by the constructor or `io.metadata_reader`).
+- `signals.base.Record.append` returns None and raises a `ValueError`
+  that says why (gap, overlap or offset off the sampling grid) when the
+  records cannot be joined without `enforce=True`. It returned False
+  and left the record unchanged, so that data could be lost without
+  notice. `Stream.append` still keeps such records separate.
+- Existing files: every writer of `signals` and YARRAY gives the same
+  error, `FileExistsError("<file> exists (use owrite=True)")` (new
+  `libutils.utils.check_target`); `io`, the format writers and
+  `libutils.ascii` said "File exists: <file>". The commands
+  `slab-fdsn`, `slab-seedlink` and `slab-yarray` suggest `--owrite`
+  (new `libutils.utils.command_message`). `slab-seedlink get` raises
+  this error for an existing file (it was a `ValueError`) and takes
+  `--owrite`, which replaces the file.
+- `signals.seedlink.Client.info()` prints a description of the client
+  (address, state, server and protocol, patterns, buffer, archive,
+  callbacks, metadata, state file), followed by the reception status of
+  the channels; it printed the status only. New `Client.summary()`
+  returns the text.
 - `signals.seedlink`: time windows are `starttime` and `endtime`, as in
   the rest of the library (they were `start` and `end`) in `read`,
   `records`, `Client.run`, `Client.start` and `Client.get_data`, and in
@@ -68,7 +93,8 @@ corrections. The format follows
 - Documentation: `docs/development.md` version 2.8 records the rules
   on silent omissions and on ShakeLab exceptions (§16), the
   conventions for time windows, server addresses and given metadata
-  (§17), and the shared modules of a subpackage (§21).
+  (§17), and the shared modules of a subpackage (§21); version 2.9 the
+  conventions for existing files, return values and `info()` (§17).
 - Documentation: guide to the SeedLink client
   (`docs/signals/seedlink.md`: the protocol in versions 3.1 and 4.0,
   selection, the order and thread of the destinations and callbacks,

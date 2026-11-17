@@ -516,8 +516,9 @@ data = client.get_waveforms("IV.MODE..HN?", "2012-05-20T02:04:00",
 
 `target` writes the MiniSEED records to a file exactly as the server
 sends them, without decoding them, and returns the number of bytes
-written; it cannot be combined with metadata, corrections or filters,
-which need the records decoded:
+written (0 when the server has no data: no file is created), as every
+download of ShakeLab to a file; it cannot be combined with metadata,
+corrections or filters, which need the records decoded:
 
 ```python
 size = client.get_waveforms("IV.MODE..HN?", "2012-05-20T02:03:23",
@@ -892,8 +893,7 @@ fail, compress, redirect or answer with chosen statuses.
   `shakelab.seismicity`, whose interface has not been revised yet; the
   text format of the event service is not read.
 - **Interface asymmetries** (under review): `target` exists for
-  waveforms, metadata and events, not for availability, and makes the
-  methods return a number of bytes instead of an object;
+  waveforms, metadata and events, not for availability;
   `stream_collection` exists for waveforms only; the command line
   writes `--minmag`, `--maxmag`, `--mindepth`, `--maxdepth`,
   `--maxradius` for the ranges of the library and has no geographic

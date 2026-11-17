@@ -73,7 +73,7 @@ from glob import glob
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from shakelab.libutils.timeN import Date
-from shakelab.libutils.utils import warn_external
+from shakelab.libutils.utils import check_target, warn_external
 from shakelab.signals.codes import SidPattern, parse_sid_pattern
 from shakelab.signals.libio.common import NotWaveformError
 
@@ -543,7 +543,7 @@ def metadata_reader(
         ):
             skipped.append(path)
             continue
-        collection.read(path, format=format, append=True)
+        collection.read(path, format=format)
 
     if skipped:
         _warn_skipped(skipped)
@@ -688,10 +688,8 @@ def writer(
                     f"{path}: {len(records)} records with the same name; "
                     "add {start} to the name template"
                 )
-    if not owrite:
-        for path in files:
-            if os.path.exists(path):
-                raise FileExistsError(f"File exists: {path}")
+    for path in files:
+        check_target(path, owrite)
 
     for path, records in files.items():
         folder = os.path.dirname(path)
@@ -747,8 +745,7 @@ def _write_pickle(target: Any, data: Any, owrite: bool = False) -> None:
     FileExistsError
         If the file exists and ``owrite`` is False.
     """
-    if os.path.exists(target) and not owrite:
-        raise FileExistsError(f"File exists: {target}")
+    check_target(target, owrite)
     with open(target, "wb") as fid:
         pickle.dump(data, fid, protocol=pickle.HIGHEST_PROTOCOL)
 

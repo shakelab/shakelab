@@ -1,6 +1,6 @@
 # ShakeLab development and architecture guidelines
 
-*Version 2.8, 17 November 2026*
+*Version 2.9, 17 November 2026*
 
 [ShakeLab documentation](README.md) › Development guidelines
 
@@ -418,7 +418,17 @@ conventions adopted so far are:
   and `target` (file or folder) as argument names, `format` for the
   format, `owrite` to overwrite existing files (False by default); the
   data are the first argument of a writer; the arguments after the
-  first (after `target` in writers) are keyword-only;
+  first (after `target` in writers) are keyword-only; an existing file
+  without `owrite` gives the same `FileExistsError` everywhere
+  (`shakelab.libutils.utils.check_target`: `<file> exists (use
+  owrite=True)`), and the commands have `--owrite` and show it in the
+  message;
+- return values: methods that change an object in place (`read`,
+  `append`, `cut`, `filter`...) return None, and raise when they cannot
+  do what was asked rather than returning a flag (`Record.append`
+  raises for records that cannot be joined); functions that download
+  to a `target` instead of returning the data return the number of
+  bytes written (0: no data, no file);
 - time windows: `starttime` and `endtime`, `Date` objects or ISO 8601
   strings, bounds included, keyword-only; the time of the first sample
   of data that do not have one (text tables, TDMS) is
@@ -438,7 +448,9 @@ conventions adopted so far are:
 - options with a fixed set of values are enumerations, and their
   string values are accepted wherever the enumeration is;
 - objects that can describe themselves have `summary()`, returning
-  the text, and `info()`, printing it;
+  the text, and `info()`, printing it: a description of the object
+  (for a client, its server, configuration and state), not of
+  something else;
 - an argument of the wrong type raises `TypeError`, a value out of its
   domain `ValueError`.
 

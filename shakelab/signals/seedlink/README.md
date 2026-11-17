@@ -127,8 +127,9 @@ With `metadata=` (a `MetadataCollection`, for example from
 metadata of their channel as they arrive, so that the buffer can be
 corrected for the instrument response. `on_event` reports connections,
 disconnections, gaps and overlaps between records, and the end of a
-dial-up transfer (`SeedLinkEvent`). `client.info()`, `stations()` and
-`streams()` describe what the server offers.
+dial-up transfer (`SeedLinkEvent`). `client.info()` describes the
+client and the reception of each channel; `stations()` and `streams()`
+describe what the server offers.
 
 ## 4. Command line
 

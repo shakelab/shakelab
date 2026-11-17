@@ -119,6 +119,7 @@ import numpy as np
 
 from shakelab.exploration.yarray.data import StationData
 from shakelab.libutils.timeN import Date
+from shakelab.libutils.utils import check_target
 from shakelab.signals import io as waveform_io
 
 __all__ = [
@@ -428,8 +429,7 @@ def write_result(
     """
     path = result_path(target)
 
-    if path.exists() and not (append or owrite):
-        raise FileExistsError(f"{path} exists (use owrite or append)")
+    check_target(path, owrite, append=append)
 
     exists = path.exists() and path.stat().st_size > 0
 
@@ -635,8 +635,7 @@ def write_table(target: Any, columns: Mapping, owrite: bool = False) -> None:
     """
     path = Path(target).expanduser()
 
-    if path.exists() and not owrite:
-        raise FileExistsError(f"{path} exists (use owrite)")
+    check_target(path, owrite)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     names = list(columns)
