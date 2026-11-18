@@ -164,21 +164,7 @@ class Header:
         )
 
     def __str__(self) -> str:
-        meta = self.meta
-        lines = [
-            f"sampling interval: {self.delta}",
-            f"sampling rate: {self.rate}",
-            f"starting time: {self.time}",
-            f"source identifier: {self.sid}",
-            f"event identifier: {self.eid}",
-            f"units: {self.units}",
-            f"location: {meta.location}",
-            f"orientation: {meta.orientation}",
-            "response: "
-            + ("declared" if meta.response is not None else "none"),
-        ]
-
-        return "\n".join(lines)
+        return self.summary()
 
     # -- properties -----------------------------------------------------
 
@@ -327,9 +313,34 @@ class Header:
 
     # -- summary and copies ---------------------------------------------
 
+    def summary(self) -> str:
+        """
+        Return a description of the header as text.
+
+        Returns
+        -------
+        str
+            One line per field.
+        """
+        meta = self.meta
+        lines = [
+            f"sampling interval: {self.delta}",
+            f"sampling rate: {self.rate}",
+            f"starting time: {self.time}",
+            f"source identifier: {self.sid}",
+            f"event identifier: {self.eid}",
+            f"units: {self.units}",
+            f"location: {meta.location}",
+            f"orientation: {meta.orientation}",
+            "response: "
+            + ("declared" if meta.response is not None else "none"),
+        ]
+
+        return "\n".join(lines)
+
     def info(self) -> None:
-        """Print a human-readable description of the header."""
-        print(self)
+        """Print the description of the header (see :meth:`summary`)."""
+        print(self.summary())
 
     def copy(self, parent: Any = None) -> Header:
         """

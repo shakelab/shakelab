@@ -383,8 +383,8 @@ data = client.get_waveforms("IV.MODE..HN?", "2012-05-20T02:04:00",
 print(data.sid)
 # ['IV.MODE..HNE', 'IV.MODE..HNN', 'IV.MODE..HNZ']
 print(data["IV.MODE..HNZ"][0])
-# starttime 2012-05-20T02:04:00.000000Z, duration 60.0s,
-# sampling rate 100.0 Hz, 6001 samples
+# Record IV.MODE..HNZ: 2012-05-20T02:04:00.000000Z -
+# 2012-05-20T02:05:00.000000Z, 100 Hz, 6001 samples
 ```
 
 The result is a `StreamCollection` (empty if the server has no data),

@@ -289,10 +289,7 @@ class Record:
         return bool(np.any(self.data == value))
 
     def __str__(self) -> str:
-        return (
-            f"starttime {self.starttime}, duration {self.duration}s, "
-            f"sampling rate {self.rate} Hz, {self.nsamp} samples\n"
-        )
+        return self.summary()
 
     @staticmethod
     def _is_numeric_scalar(value):
@@ -506,11 +503,24 @@ class Record:
         """
         return [self]
 
+    def summary(self) -> str:
+        """
+        Return a description of the record as text.
+
+        Returns
+        -------
+        str
+            One line: source identifier, time span, sampling rate,
+            number of samples, and the units and the event identifier
+            when they are known.
+        """
+        return f"Record {self.sid}: {_record_line(self)}"
+
     def info(self) -> None:
         """
-        Print a human-readable description of the record.
+        Print the description of the record (see :meth:`summary`).
         """
-        print(self)
+        print(self.summary())
 
     def __add__(self, value: Any) -> Record:
         """
@@ -1438,7 +1448,7 @@ class Record:
         highpass: Optional[float] = None,
         lowpass: Optional[float] = None,
         order: int = 4,
-        minphase: bool = False,
+        causal: bool = False,
     ) -> None:
         """
         Apply a Butterworth filter to the waveform data.
@@ -1451,10 +1461,11 @@ class Record:
             Low-pass corner frequency in hertz.
         order : int, optional
             Butterworth filter order. Default is 4.
-        minphase : bool, optional
-            If ``False``, apply forward-backward zero-phase filtering.
-            If ``True``, apply a single-pass causal filter. Default is
-            ``False``.
+        causal : bool, optional
+            If ``False``, filter forward and backward: zero phase, with
+            the amplitude squared. If ``True``, filter once forward: a
+            causal (and minimum-phase) filter, which delays the signal.
+            Default is ``False``.
 
         Raises
         ------
@@ -1466,10 +1477,6 @@ class Record:
         Notes
         -----
         The operation is performed in place.
-
-        Despite the historical parameter name, ``minphase=True`` applies
-        a causal single-pass Butterworth filter. It does not construct a
-        true minimum-phase equivalent filter.
         """
         if self.nsamp == 0:
             return
@@ -1494,8 +1501,8 @@ class Record:
         if order <= 0:
             raise ValueError("order must be strictly positive")
 
-        if not isinstance(minphase, bool):
-            raise TypeError("minphase must be a boolean")
+        if not isinstance(causal, bool):
+            raise TypeError("causal must be a boolean")
 
         nyquist = 0.5 * self.rate
 
@@ -1561,7 +1568,7 @@ class Record:
             output="sos",
         )
 
-        if minphase:
+        if causal:
             self.data = signal.sosfilt(
                 sos,
                 self.data,
@@ -2428,37 +2435,49 @@ class Record:
 
     def correlate(
         self,
-        record: Record,
+        record: Any,
         mode: str = "full",
         method: str = "auto",
-    ) -> None:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Cross-correlate the waveform with another sequence.
+        Cross-correlate the waveform with another one.
+
+        The record is not changed: the correlation is a function of the
+        lag, not a waveform in time, and is returned with its lags.
 
         Parameters
         ----------
         record : Record or array-like
-            Reference waveform.
+            Reference waveform, sampled as this record.
         mode : {"full", "same", "valid"}, optional
-            Output-size mode accepted by :func:`scipy.signal.correlate`.
-            Default is ``"full"``.
+            Lags returned, as in :func:`scipy.signal.correlate`: every
+            lag with some overlap (``"full"``, default), as many as the
+            samples of this record, centred (``"same"``), or only those
+            with complete overlap (``"valid"``).
         method : {"auto", "direct", "fft"}, optional
             Correlation method. Default is ``"auto"``.
+
+        Returns
+        -------
+        lag : numpy.ndarray
+            Lags in seconds. A positive lag means that this record is
+            delayed with respect to the reference: the peak of the
+            correlation is at the delay. When both have a start time,
+            the difference of the start times is included, so the lag
+            is between the absolute times of the two signals.
+        value : numpy.ndarray
+            Correlation (not normalized) at each lag.
 
         Raises
         ------
         ValueError
-            If the reference waveform is invalid or has an incompatible
-            sampling interval.
+            If the record has no sampling interval, the reference is
+            invalid or has an incompatible sampling interval.
 
-        Notes
-        -----
-        The operation is performed in place.
-
-        The output is a lag-domain sequence rather than an ordinary
-        absolute-time waveform. For backward compatibility, the original
-        start time is preserved. Lag coordinates should be calculated
-        explicitly from the input lengths and sampling interval.
+        Examples
+        --------
+        >>> lag, value = x.correlate(reference)
+        >>> delay = lag[np.argmax(value)]
         """
         mode = str(mode).lower()
         method = str(method).lower()
@@ -2466,13 +2485,16 @@ class Record:
         self._validate_signal_mode(mode)
         self._validate_signal_method(method)
 
-        if self.nsamp == 0:
-            return
+        if self.delta is None:
+            raise ValueError(
+                "sampling interval is required for a correlation"
+            )
+
+        offset = 0.0
 
         if isinstance(record, Record):
             if (
-                self.delta is not None
-                and record.delta is not None
+                record.delta is not None
                 and not np.isclose(
                     self.delta,
                     record.delta,
@@ -2484,17 +2506,28 @@ class Record:
                     "records have incompatible sampling intervals"
                 )
 
+            if self.time is not None and record.time is not None:
+                offset = self._time_difference(self.time, record.time)
+
         reference = self._as_waveform_data(
             record,
             name="correlation reference",
         )
 
-        self.data = signal.correlate(
+        if self.nsamp == 0:
+            return np.zeros(0), np.zeros(0, dtype=self.data.dtype)
+
+        value = signal.correlate(
             self.data,
             reference,
             mode=mode,
             method=method,
         )
+        lag = signal.correlation_lags(
+            self.nsamp, reference.size, mode=mode
+        ) * self.delta + offset
+
+        return lag, value
 
     def convolve_response(
         self, resp: Any = None, stages: Any = None
@@ -2792,22 +2825,7 @@ class Stream:
         return f"Stream(sid={self.sid!r}, records={len(self.record)})"
 
     def __str__(self) -> str:
-        if not self.record:
-            return f"empty stream: source identifier {self.sid}"
-
-        lines = [
-            f"source identifier: {self.sid}",
-            f"number of records: {len(self)}",
-        ]
-
-        for index, record in enumerate(self.record):
-            description = str(record).rstrip()
-
-            lines.append(
-                f"Record {index}: {description}"
-            )
-
-        return "\n".join(lines)
+        return self.summary()
 
     @property
     def eid(self) -> list:
@@ -2962,11 +2980,45 @@ class Stream:
 
         return self.record[indices[0]]
 
+    def summary(self) -> str:
+        """
+        Return a description of the stream as text.
+
+        Returns
+        -------
+        str
+            A first line with the source identifier, the number of
+            records, the time span and the number of samples, then one
+            indented line per record (as :meth:`Record.summary`).
+        """
+        name = type(self).__name__
+        max_duration = getattr(self, "max_duration", None)
+
+        if max_duration is not None:
+            name += f" (circular, {max_duration:g} s)"
+
+        if not self.record:
+            return f"{name} {self.sid}: no records"
+
+        lines = [
+            f"{name} {self.sid}: {_count(len(self), 'record')}, "
+            f"{_span_text(self.record)}, "
+            f"{_count(self.nsamp, 'sample')}",
+        ]
+        width = len(str(len(self) - 1))
+
+        for index, record in enumerate(self.record):
+            lines.append(
+                f"  {index:>{width}}  {_record_line(record)}"
+            )
+
+        return "\n".join(lines)
+
     def info(self) -> None:
         """
-        Print a human-readable description of the stream.
+        Print the description of the stream (see :meth:`summary`).
         """
-        print(self)
+        print(self.summary())
 
     def copy(self) -> Stream:
         """
@@ -3439,10 +3491,10 @@ class Stream:
     def select(
         self,
         sid: Any = None,
-        *,
-        eid: Any = None,
         starttime: Any = None,
         endtime: Any = None,
+        *,
+        eid: Any = None,
         duration: Optional[Real] = None,
     ) -> Stream:
         """
@@ -3454,14 +3506,14 @@ class Stream:
             Source identifier pattern, or list of patterns (see
             :meth:`StreamCollection.select`). Default: no selection by
             channel.
-        eid : str or sequence of str, optional
-            Event identifier, or list of them, with the wildcards ``*``
-            (any text) and ``?`` (one character). Records without event
-            identifier match no pattern. Default: all records.
         starttime : Date or str, optional
             Start of the time window. Default: no lower bound.
         endtime : Date or str, optional
             End of the time window, included. Default: no upper bound.
+        eid : str or sequence of str, optional
+            Event identifier, or list of them, with the wildcards ``*``
+            (any text) and ``?`` (one character). Records without event
+            identifier match no pattern. Default: all records.
         duration : float, optional
             Length of the window in seconds after ``starttime``, instead
             of ``endtime``.
@@ -3521,7 +3573,7 @@ class Stream:
         highpass: Optional[float] = None,
         lowpass: Optional[float] = None,
         order: int = 4,
-        minphase: bool = False,
+        causal: bool = False,
     ) -> None:
         """
         Filter every record (see :meth:`Record.filter`).
@@ -3531,7 +3583,7 @@ class Stream:
                 highpass=highpass,
                 lowpass=lowpass,
                 order=order,
-                minphase=minphase,
+                causal=causal,
             )
 
     def resample(
@@ -3788,21 +3840,7 @@ class StreamCollection:
         return f"StreamCollection(streams={len(self.stream)})"
 
     def __str__(self) -> str:
-        if not self.stream:
-            return "empty stream collection"
-
-        lines = [
-            f"number of streams: {len(self)}",
-        ]
-
-        for index, stream in enumerate(self.stream):
-            description = str(stream).rstrip()
-
-            lines.append(
-                f"Stream {index}: {description}"
-            )
-
-        return "\n".join(lines)
+        return self.summary()
 
     @property
     def sid(self) -> list:
@@ -3833,6 +3871,54 @@ class StreamCollection:
             stream.nsamp
             for stream in self.stream
         )
+
+    @property
+    def starttime(self) -> Optional[Date]:
+        """
+        Earliest start time of the streams.
+
+        Returns
+        -------
+        Date or None
+            Earliest start time, or ``None`` for a collection without
+            records.
+
+        Raises
+        ------
+        ValueError
+            If one or more records have no start time.
+        """
+        times = [
+            stream.starttime
+            for stream in self.stream
+            if stream.record
+        ]
+
+        return min(times) if times else None
+
+    @property
+    def endtime(self) -> Optional[Date]:
+        """
+        Latest end time of the streams.
+
+        Returns
+        -------
+        Date or None
+            Latest end time, or ``None`` for a collection without
+            records.
+
+        Raises
+        ------
+        ValueError
+            If one or more records have no valid time axis.
+        """
+        times = [
+            stream.endtime
+            for stream in self.stream
+            if stream.record
+        ]
+
+        return max(times) if times else None
 
     def _stream_indices(self, sid):
         """
@@ -3950,11 +4036,60 @@ class StreamCollection:
 
         return stream
 
+    def summary(self) -> str:
+        """
+        Return a description of the collection as text.
+
+        Returns
+        -------
+        str
+            A first line with the number of streams and records and the
+            time span, then one indented line per stream: source
+            identifier, number of records, sampling rate, time span and
+            number of samples (the records are described by
+            :meth:`Stream.summary`).
+        """
+        name = "StreamCollection"
+
+        if self.max_duration is not None:
+            name += f" (circular, {self.max_duration:g} s)"
+
+        records = self.records()
+
+        if not self.stream:
+            return f"{name}: no streams"
+
+        head = (
+            f"{name}: {_count(len(self), 'stream')}, "
+            f"{_count(len(records), 'record')}"
+        )
+
+        if records:
+            head += f", {_span_text(records)}"
+
+        lines = [head]
+        width = max(len(str(stream.sid)) for stream in self.stream)
+
+        for stream in self.stream:
+            if not stream.record:
+                lines.append(f"  {str(stream.sid):<{width}}  no records")
+                continue
+
+            lines.append(
+                f"  {str(stream.sid):<{width}}  "
+                f"{_count(len(stream), 'record')}, "
+                f"{_rates_text(stream.record)}, "
+                f"{_span_text(stream.record)}, "
+                f"{_count(stream.nsamp, 'sample')}"
+            )
+
+        return "\n".join(lines)
+
     def info(self) -> None:
         """
-        Print a human-readable description of the collection.
+        Print the description of the collection (see :meth:`summary`).
         """
-        print(self)
+        print(self.summary())
 
     def copy(self) -> StreamCollection:
         """
@@ -4175,10 +4310,10 @@ class StreamCollection:
     def select(
         self,
         sid: Any = None,
-        *,
-        eid: Any = None,
         starttime: Any = None,
         endtime: Any = None,
+        *,
+        eid: Any = None,
         duration: Optional[Real] = None,
     ) -> StreamCollection:
         """
@@ -4191,14 +4326,14 @@ class StreamCollection:
             code by code (see :mod:`shakelab.signals.codes`), e.g.
             ``"IV.*..HN?"``, ``"IV.{MODE,MIRA}"`` or ``"IV"`` (every
             channel of IV). Default: all channels.
-        eid : str or sequence of str, optional
-            Event identifier, or list of them, with the wildcards ``*``
-            (any text) and ``?`` (one character). Records without event
-            identifier match no pattern. Default: all records.
         starttime : Date or str, optional
             Start of the time window. Default: no lower bound.
         endtime : Date or str, optional
             End of the time window, included. Default: no upper bound.
+        eid : str or sequence of str, optional
+            Event identifier, or list of them, with the wildcards ``*``
+            (any text) and ``?`` (one character). Records without event
+            identifier match no pattern. Default: all records.
         duration : float, optional
             Length of the window in seconds after ``starttime``, instead
             of ``endtime``.
@@ -4471,7 +4606,7 @@ class StreamCollection:
         highpass: Optional[float] = None,
         lowpass: Optional[float] = None,
         order: int = 4,
-        minphase: bool = False,
+        causal: bool = False,
     ) -> None:
         """
         Filter every record (see :meth:`Record.filter`).
@@ -4481,7 +4616,7 @@ class StreamCollection:
                 highpass=highpass,
                 lowpass=lowpass,
                 order=order,
-                minphase=minphase,
+                causal=causal,
             )
 
     def resample(
@@ -4755,6 +4890,59 @@ class StreamCollection:
 # ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
+
+
+def _count(number: int, noun: str) -> str:
+    """
+    Return a count with its noun, in the plural when needed.
+    """
+    return f"{number} {noun}" + ("" if number == 1 else "s")
+
+
+def _span_text(records: Any) -> str:
+    """
+    Return the time span of records as text, ignoring missing times.
+    """
+    starts = [r.starttime for r in records if r.starttime is not None]
+    ends = [r.endtime for r in records if r.endtime is not None]
+
+    if not starts:
+        return "no start time"
+
+    end = max(ends) if ends else min(starts)
+
+    return f"{min(starts)} - {end}"
+
+
+def _rates_text(records: Any) -> str:
+    """
+    Return the sampling rates of records as text.
+    """
+    rates = sorted({r.rate for r in records if r.rate is not None})
+
+    if not rates:
+        return "no sampling rate"
+
+    return "/".join(f"{rate:g}" for rate in rates) + " Hz"
+
+
+def _record_line(record: Record) -> str:
+    """
+    Return the description of a record without its source identifier.
+    """
+    parts = [
+        _span_text([record]),
+        _rates_text([record]),
+        _count(record.nsamp, "sample"),
+    ]
+
+    if record.head.units is not None:
+        parts.append(f"units {record.head.units}")
+
+    if record.eid is not None:
+        parts.append(f"event {record.eid}")
+
+    return ", ".join(parts)
 
 
 def _is_seconds(value: Any) -> bool:

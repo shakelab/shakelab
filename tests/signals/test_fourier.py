@@ -174,10 +174,10 @@ def test_butterworth_zero_phase_amplitude(order):
 
 
 @pytest.mark.parametrize("btype", ["lowpass", "highpass"])
-def test_butterworth_minphase_same_amplitude(btype):
+def test_butterworth_causal_same_amplitude(btype):
     """The causal response has the same amplitude as the zero-phase."""
     freq = np.linspace(0.0, 20.0, 201)
-    causal = fourier.butterworth(freq, 2.0, 3, btype, minphase=True)
+    causal = fourier.butterworth(freq, 2.0, 3, btype, causal=True)
     zero_phase = fourier.butterworth(freq, 2.0, 3, btype)
 
     np.testing.assert_allclose(np.abs(causal), np.abs(zero_phase),
@@ -185,7 +185,7 @@ def test_butterworth_minphase_same_amplitude(btype):
     assert np.any(np.abs(np.angle(causal[1:])) > 0.1)
 
 
-def test_butterworth_minphase_is_causal():
+def test_butterworth_causal_response_is_causal():
     """
     The causal filter leaves no energy before an impulse.
 
@@ -199,7 +199,7 @@ def test_butterworth_minphase_is_causal():
     spectrum = fourier.fft(pulse, delta)
 
     causal = fourier.ifft(
-        spectrum * fourier.butterworth(freq, 5.0, 4, minphase=True),
+        spectrum * fourier.butterworth(freq, 5.0, 4, causal=True),
         delta, pulse.size,
     )
     symmetric = fourier.ifft(

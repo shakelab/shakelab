@@ -296,10 +296,12 @@ for a low-pass of corner $`f_c`$ ($`-3`$ dB at the corner). By
 default the filter is applied forward and backward
 (`scipy.signal.sosfiltfilt`): the phase cancels and the amplitude is
 squared, $`|H(f)|^2`$, so the corner is at $`-6`$ dB (amplitude 0.5)
-and the roll-off doubles. With `minphase=True` the filter is applied
+and the roll-off doubles. With `causal=True` the filter is applied
 once (`scipy.signal.sosfilt`): causal, with the amplitude $`|H(f)|`$
 ($`-3`$ dB at the corner) and the phase delay of a physical filter,
-as needed to keep onsets free of precursors. The corners must be
+as needed to keep onsets free of precursors. (A causal Butterworth
+filter is also minimum phase: its poles are inside the unit circle and
+its zeros on it.) The corners must be
 below the Nyquist frequency. (The filter of `Spectrum.filter` is the
 analog amplitude $`|H(f)|`$ in both cases; see
 [`spectral.md`](spectral.md).)
@@ -386,13 +388,21 @@ $`\Delta`$: to approximate a continuous convolution, multiply the
 result by `delta`. `deconvolve(divisor)` is the exact polynomial
 division of `scipy.signal.deconvolve` (the inverse of a full
 convolution, not a regularized spectral inverse): the quotient
-replaces the samples and the remainder is returned. `correlate(other)`
-computes the discrete cross-correlation (`scipy.signal.correlate`);
-with `mode="full"` the result has $`n + m - 1`$ samples, from lag
-$`-(m-1)`$ to lag $`n - 1`$ samples of the record with respect to
-`other`. Correlation results are sequences of lags: their start time
-is that of the record and their lag axis must be built from the
-lengths and `delta` (§6.7).
+replaces the samples and the remainder is returned.
+
+`correlate(other)` computes the discrete cross-correlation
+(`scipy.signal.correlate`) and, unlike the methods above, does not
+change the record: a correlation is a function of the lag
+$`\tau`$, not a waveform in time, so it is returned as two arrays,
+`lag` in seconds and `value`. A positive lag means that the record is
+delayed with respect to `other`, and the peak of the correlation is at
+the delay. When `other` is a record and both have a start time, the
+difference of the start times is included: the lag is between the
+absolute times of the two signals, and two records of the same signal
+peak at zero lag whatever their start. With an array as `other` only
+the samples count. `mode="full"` (default) gives the $`n + m - 1`$
+lags with some overlap, `"same"` $`n`$ lags centred on zero, `"valid"`
+only the lags of complete overlap. The values are not normalized.
 
 **Instrument response.** `deconvolve_response()` divides the spectrum
 of the record by the response $`H(f)`$ of the instrument, regularized
@@ -428,10 +438,18 @@ record = Record(
     location=(13.75, 45.65, 120.0),  # longitude, latitude[, elevation]
 )
 record.info()
-# starttime 2026-01-01T00:00:00.000000Z, duration 10.0s,
-# sampling rate 100.0 Hz, 1001 samples
+# Record XX.TEST..HHZ: 2026-01-01T00:00:00.000000Z -
+# 2026-01-01T00:00:10.000000Z, 100 Hz, 1001 samples, units m/s,
+# event test-1
+text = record.summary()             # the same text, as a string
 print(record.head)                  # all the header fields
 ```
+
+`summary()` returns the description of an object as text and `info()`
+prints it; `print(record)` gives the same text. The record is
+described on one line: source identifier, time span, sampling rate,
+number of samples, and the units and the event identifier when they
+are known.
 
 The samples are copied: changing `samples` afterwards does not change
 the record. They must be one-dimensional (a scalar becomes one
@@ -449,8 +467,8 @@ from shakelab.signals.io import reader
 collection = reader("waveforms.mseed", metadata="station.xml")
 z = collection["IV.MODE..HNZ"][0]   # first record of the vertical
 z.info()
-# starttime 2012-05-20T02:03:23.000000Z, duration 180.0s,
-# sampling rate 100.0 Hz, 18001 samples
+# Record IV.MODE..HNZ: 2012-05-20T02:03:23.000000Z -
+# 2012-05-20T02:06:23.000000Z, 100 Hz, 18001 samples
 
 acc = reader("acceleration.asc")[0][0]      # processed, cm/s**2, 200 Hz
 vel = reader("velocity.asc")[0][0]          # processed, cm/s
@@ -516,8 +534,8 @@ z[0], z[-1]                         # first and last sample
 len(z)                              # 18001
 segment = z[100:200]                # Record of 100 samples, a copy
 print(segment)
-# starttime 2012-05-20T02:03:24.000000Z, duration 0.99s,
-# sampling rate 100.0 Hz, 100 samples
+# Record IV.MODE..HNZ: 2012-05-20T02:03:24.000000Z -
+# 2012-05-20T02:03:24.990000Z, 100 Hz, 100 samples
 
 for value in z[:3]:                 # iterating over the samples
     print(value)
@@ -736,7 +754,7 @@ x.filter(highpass=0.5, lowpass=10.0)        # zero-phase band-pass
 x = acc.copy()
 x.filter(lowpass=1.0)               # zero-phase low-pass: -6 dB at 1 Hz
 x = acc.copy()
-x.filter(lowpass=1.0, minphase=True)        # causal: -3 dB, delayed
+x.filter(lowpass=1.0, causal=True)  # causal: -3 dB, delayed
 x = acc.copy()
 x.filter(highpass=0.1, order=2)     # order 2
 ```
@@ -809,10 +827,10 @@ x.convolve([1.0, -0.5])             # full: nsamp + 1 samples
 remainder = x.deconvolve([1.0, -0.5])       # back to acc, remainder ~0
 
 ref = acc.extract(40.0, 50.0)
-x = acc.copy()
-x.correlate(ref, mode="full")       # nsamp + ref.nsamp - 1 lags
-lags = (np.arange(x.nsamp) - (ref.nsamp - 1)) * x.delta
-print(lags[np.argmax(x.data)])      # 40.0 s: where ref sits in acc
+lag, value = acc.correlate(ref)     # nsamp + ref.nsamp - 1 lags
+delay = lag[np.argmax(value)]       # 0.0 s: ref is a part of acc
+lag, value = acc.correlate(ref.data)        # samples only, no times
+offset = lag[np.argmax(value)]      # 40.0 s: where ref sits in acc
 ```
 
 `method` (`"auto"`, `"direct"`, `"fft"`) selects the algorithm of
@@ -899,11 +917,17 @@ stream.append(a)                    # 0-59.99 s
 stream.append(b)                    # joined to the last record
 stream.append(c)                    # gap: a new record
 stream.info()
-# source identifier: IV.MODE..HNZ
-# number of records: 2
-# Record 0: starttime 2012-05-20T02:03:23.000000Z, duration 119.99s, ...
-# Record 1: starttime 2012-05-20T02:05:28.000000Z, duration 55.0s, ...
+# Stream IV.MODE..HNZ: 2 records, 2012-05-20T02:03:23.000000Z -
+# 2012-05-20T02:06:23.000000Z, 17501 samples
+#   0  2012-05-20T02:03:23.000000Z - 2012-05-20T02:05:22.990000Z,
+#      100 Hz, 12000 samples
+#   1  2012-05-20T02:05:28.000000Z - 2012-05-20T02:06:23.000000Z,
+#      100 Hz, 5501 samples
 ```
+
+The description of a stream (`summary()`, `info()`, `print`) has a
+first line with the channel, the number of records, the time span and
+the number of samples, then one line per record, by position.
 
 `append(record, enforce=False, fillvalue=0.0, merge_tolerance=None)`
 joins the record to the **last** record of the stream when §4 allows it
@@ -1018,7 +1042,7 @@ trimmed.cut(100.0, 110.0)           # in place: one record, 100-110 s
 print(len(trimmed))                 # 1
 ```
 
-`select(sid=None, eid=None, starttime=None, endtime=None,
+`select(sid=None, starttime=None, endtime=None, eid=None,
 duration=None)` returns a new stream with copies of the records of
 some events, within an optional window of absolute times, as
 `StreamCollection.select` (§8.3). Event identifiers are matched
@@ -1065,8 +1089,11 @@ collection = reader("waveforms.mseed", metadata="station.xml")
 collection = StreamCollection()
 collection.read("waveforms.mseed", metadata="station.xml")  # the same
 collection.info()
-# number of streams: 3
-# Stream 0: source identifier: IV.MODE..HNE ...
+# StreamCollection: 3 streams, 3 records, 2012-05-20T02:03:23.000000Z -
+# 2012-05-20T02:06:23.000000Z
+#   IV.MODE..HNE  1 record, 100 Hz, 2012-05-20T02:03:23.000000Z -
+#                 2012-05-20T02:06:23.000000Z, 18001 samples
+#   ...
 collection.write("{sta}.{cha}.mseed")       # one file per channel
 collection.write("event/", format="sac")   # SAC files in a folder
 ```
@@ -1121,6 +1148,8 @@ collection.get_stream("IV.MODE..HNZ")       # the same
 collection[:2]                      # new collection with the first two streams
 collection.sid                      # ['IV.MODE..HNE', ..., 'IV.MODE..HNZ']
 collection.nsamp                    # samples of all the records: 54003
+collection.starttime                # earliest start of a stream
+collection.endtime                  # latest end of a stream
 collection["IV.MODE..HNZ"][0]       # first record of a channel
 
 for stream in collection:           # streams
@@ -1130,6 +1159,14 @@ for stream in collection:           # streams
 for record in collection.records(): # all the records, stream by stream
     print(record.sid, record.peak)
 ```
+
+`starttime` and `endtime` span all the streams, as those of a stream
+span its records: they raise a `ValueError` if a record has no time,
+and are None for a collection without records. They give the window
+of the data at hand, for example `collection.extract(
+collection.starttime + 10.0, duration=60.0)`. The description of a
+collection (`summary()`, `info()`) has one line per stream; the
+records are described by the streams.
 
 A missing source identifier raises a `KeyError`, another key type a
 `TypeError`. As for streams, `in` follows the indexing:
@@ -1168,7 +1205,7 @@ collection.extract(starttime=0.0, endtime=10.0)        # TypeError: dates
 z_part = collection["IV.MODE..HNZ"].extract(0.0, 10.0)  # one channel: Stream
 ```
 
-`select(sid=None, eid=None, starttime=None, endtime=None,
+`select(sid=None, starttime=None, endtime=None, eid=None,
 duration=None)` chooses what to keep, as `extract` chooses when: the
 channels that match a pattern, or a list of patterns, of
 `shakelab.signals.codes` (`*`, `?`, `[...]`, `{A,B}`, code by code;
@@ -1185,8 +1222,7 @@ unbalanced braces do, instead of matching nothing.
 horizontal = collection.select("*.*.*.HN{N,E}")
 print(horizontal.sid)               # ['IV.MODE..HNE', 'IV.MODE..HNN']
 part = collection.select(["IV.MODE..HNZ", "IV.MODE..HNE"],
-                         starttime="2012-05-20T02:04:00",
-                         endtime="2012-05-20T02:04:10")
+                         "2012-05-20T02:04:00", "2012-05-20T02:04:10")
 print(part.sid, part[0][0].nsamp)   # 2 streams, 1001 samples each
 events = collection.select(eid="IT-2012-*")  # records of some events
 ```
@@ -1196,7 +1232,10 @@ strings), as in the reader: `select` is the selection of
 `io.reader`, applied to a collection in memory, so that
 `reader(source, select=p, starttime=a, endtime=b)` and
 `reader(source).select(p, starttime=a, endtime=b)` give the same
-data. Reading with the selection is cheaper, since the samples outside
+data. The window may follow the channels by position, as in the
+example above, or be given by name (`starttime=`, `endtime=`);
+`eid` and `duration` are always given by name. Reading with the
+selection is cheaper, since the samples outside
 it are not kept:
 
 ```python
@@ -1308,7 +1347,7 @@ safe.taper(1.0)                     # the collection is not touched
 | `cut`, `zero_padding`, `convolve`, `deconvolve`, `correlate` | ✓ | | |
 | `to_spectrum`, `from_spectrum`, `spectrogram` | ✓ | | |
 | `time_axis`, `overlaps`, `peak`, `duration` | ✓ | | |
-| `starttime`, `endtime`, `nsamp` | ✓ | ✓ | `nsamp` |
+| `starttime`, `endtime`, `nsamp`, `summary` | ✓ | ✓ | ✓ |
 | `sort`, `remove` | | ✓ | ✓ |
 | `merge`, `read`, `write` | | | ✓ |
 | `*` and `/` with a response | ✓ | | ✓ |
@@ -1504,10 +1543,34 @@ velocity and displacement of ESM (grey).*
   channel is cut to the same window. `duration` is the length in the
   sense of `Record.duration`, from the first to the last sample:
   `extract(t, duration=d)` on the grid gives a record of duration `d`.
+- **Windows by position.** `starttime` and `endtime` may be given by
+  position right after what the window applies to: the object itself
+  (`cut`, `extract`, `overlaps`) or the channels chosen (`select`, and
+  the clients of [`seedlink.md`](seedlink.md) and
+  [`fdsnws.md`](fdsnws.md)); elsewhere, as in the reader, by name.
+  The other options are given by name.
 - **Empty windows.** A record cannot drop itself, so a window without
   samples is a `ValueError` for a record (and for `merge=True`, which
   makes one); a stream or a collection drops the records without
   samples and may become empty, as `select` and the reader do.
+- **One name for the identifiers.** `sid` and `eid` keep their
+  singular name at every level: one value where there is one (the
+  channel of a record or a stream, the event of a record), the list of
+  the elements where there are many (`Stream.eid`, the events of the
+  records; `StreamCollection.sid`, the channels, as
+  `MetadataCollection.sid`).
+- **Descriptions.** Every object that can describe itself has
+  `summary()`, which returns the text, and `info()`, which prints it;
+  a container gives one line per element, so that a long stream or a
+  large collection stays readable.
+- **Results in their own domain.** `correlate` returns lags and
+  values instead of replacing the samples of the record: a
+  correlation is not a waveform in time, and an object with a false
+  time axis could be cut, written or merged as if it were one.
+- **Filters named by their effect.** `filter(causal=True)` names the
+  choice between a filter applied both ways (zero phase) and once
+  (causal); the causal Butterworth filter is also minimum phase, which
+  is a property of it rather than the choice made.
 - **Tolerances in samples.** Both tolerances are fractions of the
   sampling interval, so that they mean the same at 1 Hz and at
   1000 Hz: half a sample for joining (as libmseed), to absorb the
@@ -1527,10 +1590,10 @@ velocity and displacement of ESM (grey).*
 ## 14. Validation
 
 The containers are covered by the tests of `tests/signals/test_base.py`
-(122 tests: header, construction, indexing, times, windows on and off
+(126 tests: header, construction, indexing, times, windows on and off
 the grid, joining with gaps, overlaps and rounded time stamps,
 metadata, operators, processing, response correction, streams,
-collections, selection, views and copies) and `tests/signals/test_circular.py` (10 tests). The
+collections, selection, descriptions, views and copies) and `tests/signals/test_circular.py` (10 tests). The
 following checks were made on the test data of IV.MODE (raw counts,
 StationXML of INGV) and on the records processed by the Engineering
 Strong-Motion database (ESM 3.0, manual processing, 200 Hz):
@@ -1573,13 +1636,10 @@ compared with libmseed in the tests of `libio`.
 - **Partial processing on errors.** A processing method of a stream
   or collection stops at the first record that fails, leaving the
   previous ones processed.
-- **Correlation lags.** `correlate` keeps the start time of the record;
-  the lag axis is built by the caller (§6.7).
 - **Circular streams** are experimental (API, representation and
   performance may change).
 - **Interface asymmetries** (under review): the operators differ
-  between the classes (§10); `Stream.sid` is a string and
-  `StreamCollection.sid` a list.
+  between the classes (§10).
 
 ## 16. References
 

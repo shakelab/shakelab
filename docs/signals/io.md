@@ -342,8 +342,8 @@ print(data.sid)
 # ['IV.MODE..HNE', 'IV.MODE..HNN', 'IV.MODE..HNZ']
 record = data["IV.MODE..HNZ"][0]
 print(record)
-# starttime 2012-05-20T02:03:23.000000Z, duration 180.0s,
-# sampling rate 100.0 Hz, 18001 samples
+# Record IV.MODE..HNZ: 2012-05-20T02:03:23.000000Z -
+# 2012-05-20T02:06:23.000000Z, 100 Hz, 18001 samples
 ```
 
 `reader` always returns a `StreamCollection`, sorted, whatever the
@@ -432,8 +432,8 @@ data = reader("waveforms.mseed", select="*.*.*.HNZ",
               starttime="2012-05-20T02:04:00",
               endtime="2012-05-20T02:04:30")
 print(data.records()[0])
-# starttime 2012-05-20T02:04:00.000000Z, duration 30.0s,
-# sampling rate 100.0 Hz, 3001 samples
+# Record IV.MODE..HNZ: 2012-05-20T02:04:00.000000Z -
+# 2012-05-20T02:04:30.000000Z, 100 Hz, 3001 samples
 data = reader("waveforms.mseed", select="*.*.*.HNZ",
               starttime="2012-05-20T02:04:00", duration=30.0)
 print(data.records()[0].nsamp)
@@ -479,8 +479,8 @@ data = reader("archive/", layout="sds", select="IV.MODE..HNZ",
               starttime="2012-05-20T02:04:00",
               endtime="2012-05-20T02:05:00")
 print(data.records()[0])
-# starttime 2012-05-20T02:04:00.000000Z, duration 60.0s,
-# sampling rate 100.0 Hz, 6001 samples
+# Record IV.MODE..HNZ: 2012-05-20T02:04:00.000000Z -
+# 2012-05-20T02:05:00.000000Z, 100 Hz, 6001 samples
 
 data = reader("archive/", layout="sds", select="IV.*..HN?",
               starttime="2013-01-01", endtime="2013-01-02")
@@ -562,8 +562,8 @@ with open("waveforms.mseed", "rb") as fid:
 
 data = read_mseed_bytes(content)
 print(data.records()[0])
-# starttime 2012-05-20T02:03:23.000000Z, duration 45.34s,
-# sampling rate 100.0 Hz, 4535 samples
+# Record IV.MODE..HNE: 2012-05-20T02:03:23.000000Z -
+# 2012-05-20T02:04:08.340000Z, 100 Hz, 4535 samples
 read_mseed_bytes("waveforms.mseed")      # TypeError: bytes required
 ```
 

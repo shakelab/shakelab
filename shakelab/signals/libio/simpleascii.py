@@ -502,11 +502,24 @@ class SimpleAscii:
         }
         return cls(header, data)
 
-    def info(self) -> None:
-        """Print the header fields."""
-        print(repr(self))
+    def summary(self) -> str:
+        """
+        Return a description of the segment as text.
+
+        Returns
+        -------
+        str
+            The representation, then the header fields.
+        """
+        lines = []
+        lines.append(repr(self))
         for name in HEADER_FIELDS:
-            print(f"{name:>8} = {self.header.get(name)}")
+            lines.append(f"{name:>8} = {self.header.get(name)}")
+        return "\n".join(lines)
+
+    def info(self) -> None:
+        """Print the description of the segment (see :meth:`summary`)."""
+        print(self.summary())
 
     # -- helpers --------------------------------------------------------
 

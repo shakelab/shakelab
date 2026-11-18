@@ -652,27 +652,36 @@ class ChannelEpoch(_Epoch):
             names.append("extra")
         return names
 
-    def info(self) -> None:
-        """Print a summary of the channel epoch."""
-        print(f"{self.sid}  {self._interval()}")
+    def summary(self) -> str:
+        """
+        Return a description of the channel epoch as text.
+
+        Returns
+        -------
+        str
+            Source identifier and validity, then location, orientation,
+            sample rate, equipment and response, when known.
+        """
+        lines = []
+        lines.append(f"{self.sid}  {self._interval()}")
         if self.location is not None:
             loc = self.location
-            print(
+            lines.append(
                 f"  location: lon {loc.longitude} lat {loc.latitude} "
                 f"elev {loc.elevation} m, depth {self.depth} km"
             )
         if self.orientation is not None:
-            print(
+            lines.append(
                 f"  orientation: azimuth {self.orientation.azimuth}, "
                 f"dip {self.orientation.dip}"
             )
         if self.sample_rate is not None:
-            print(f"  sample rate: {self.sample_rate} Hz")
+            lines.append(f"  sample rate: {self.sample_rate} Hz")
         for label, item in (
             ("sensor", self.sensor), ("datalogger", self.datalogger)
         ):
             if item is not None:
-                print(f"  {label}: {item}")
+                lines.append(f"  {label}: {item}")
         if self.response is not None:
             sens = self.response.sensitivity
             text = (
@@ -680,7 +689,14 @@ class ChannelEpoch(_Epoch):
                 f" at {sens.frequency} Hz"
                 if sens is not None else "no sensitivity"
             )
-            print(f"  response: {len(self.response.stage)} stages, {text}")
+            lines.append(
+                f"  response: {len(self.response.stage)} stages, {text}"
+            )
+        return "\n".join(lines)
+
+    def info(self) -> None:
+        """Print the description of the channel epoch (see :meth:`summary`)."""
+        print(self.summary())
 
     def to_dict(self) -> dict:
         """
@@ -1019,9 +1035,18 @@ class MetadataCollection:
                     )
         return issues
 
-    def info(self) -> None:
-        """Print a summary of the stations and channels."""
-        print(
+    def summary(self) -> str:
+        """
+        Return a description of the collection as text.
+
+        Returns
+        -------
+        str
+            Numbers of stations, channels and epochs, one line per
+            station and one per channel epoch.
+        """
+        lines = []
+        lines.append(
             f"{len(self._stations)} stations, {len(self._channels)} "
             f"channels, {len(self)} epochs"
         )
@@ -1032,7 +1057,9 @@ class MetadataCollection:
                 f"elev {loc.elevation} m" if loc else "no coordinates"
             )
             site = f" ({station.site})" if station.site else ""
-            print(f"{station.code}{site}  {station._interval()}  {where}")
+            lines.append(
+                f"{station.code}{site}  {station._interval()}  {where}"
+            )
         for epoch in self:
             orientation = (
                 f"az {epoch.orientation.azimuth:g} "
@@ -1043,10 +1070,15 @@ class MetadataCollection:
                 f"{epoch.sample_rate:g} Hz" if epoch.sample_rate else "? Hz"
             )
             response = "response" if epoch.response else "no response"
-            print(
+            lines.append(
                 f"  {epoch.sid}  {epoch._interval()}  {rate}  "
                 f"{orientation}  {response}"
             )
+        return "\n".join(lines)
+
+    def info(self) -> None:
+        """Print the description of the collection (see :meth:`summary`)."""
+        print(self.summary())
 
     def copy(self) -> MetadataCollection:
         """Return a deep copy."""

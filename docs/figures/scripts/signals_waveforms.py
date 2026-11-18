@@ -130,7 +130,7 @@ def filters() -> Path:
     zero = acc.copy()
     zero.filter(lowpass=corner)
     causal = acc.copy()
-    causal.filter(lowpass=corner, minphase=True)
+    causal.filter(lowpass=corner, causal=True)
     t = acc.time_axis()
     right.plot(t, zero.data, color=style.SERIES[0], lw=1.4,
                label="zero-phase")

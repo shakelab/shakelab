@@ -438,12 +438,27 @@ def test_record_copy_is_independent():
 
 
 def test_record_text(capsys):
-    """str and info describe start, duration, rate and size."""
+    """summary, str and info give one line describing the record."""
     record = _sine()
+    record.sid = "XX.STA..HHZ"
 
-    assert "duration 0.99s" in str(record)
+    text = (
+        "Record XX.STA..HHZ: 2026-01-01T00:00:00.000000Z - "
+        "2026-01-01T00:00:00.990000Z, 100 Hz, 100 samples"
+    )
+    assert record.summary() == text
+    assert str(record) == text
     record.info()
-    assert "100 samples" in capsys.readouterr().out
+    assert capsys.readouterr().out == text + "\n"
+
+    record.eid = "ev1"
+    record.head.units = "m/s**2"
+    assert record.summary().endswith(
+        "100 samples, units m/s**2, event ev1"
+    )
+    assert Record().summary() == (
+        "Record None: no start time, no sampling rate, 0 samples"
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -1100,6 +1115,29 @@ def test_record_filter():
     np.testing.assert_allclose(record.data[middle], low[middle], atol=0.01)
 
 
+def test_record_filter_causal():
+    """causal=True filters once forward; the default both ways."""
+    from scipy import signal
+
+    record = _sine(nsamp=500)
+    sos = signal.butter(4, 5.0, btype="lowpass", fs=100.0, output="sos")
+
+    causal = record.copy()
+    causal.filter(lowpass=5.0, causal=True)
+    np.testing.assert_allclose(causal.data, signal.sosfilt(sos, record.data))
+
+    zero_phase = record.copy()
+    zero_phase.filter(lowpass=5.0)
+    np.testing.assert_allclose(
+        zero_phase.data, signal.sosfiltfilt(sos, record.data)
+    )
+
+    with pytest.raises(TypeError, match="causal"):
+        record.filter(lowpass=5.0, causal=1)
+    with pytest.raises(TypeError):
+        record.filter(lowpass=5.0, minphase=True)
+
+
 def test_record_filter_errors():
     """Invalid corners and parameters are rejected."""
     record = _sine()
@@ -1257,8 +1295,45 @@ def test_record_convolve_deconvolve_correlate():
     assert record.data.tolist() == [1.0, 2.0, 3.0]
     assert not np.any(remainder)
 
-    record.correlate([0.0, 1.0, 0.0])
-    assert record.data.tolist() == [0.0, 1.0, 2.0, 3.0, 0.0]
+    lag, value = record.correlate([0.0, 1.0, 0.0])
+    assert value.tolist() == [0.0, 1.0, 2.0, 3.0, 0.0]
+    assert lag.tolist() == [-2.0, -1.0, 0.0, 1.0, 2.0]
+    assert record.data.tolist() == [1.0, 2.0, 3.0]
+
+
+def test_record_correlate_lags():
+    """The correlation peaks at the delay, in absolute times."""
+    reference = Record(np.zeros(200), delta=0.01, time=START)
+    reference.data[50] = 1.0
+    delayed = reference.copy()
+    delayed.data[:] = 0.0
+    delayed.data[100] = 1.0             # 0.5 s after the reference
+
+    lag, value = delayed.correlate(reference)
+    assert lag.size == value.size == 399
+    assert lag[np.argmax(value)] == pytest.approx(0.5, abs=1e-12)
+    assert delayed.nsamp == 200 and delayed.data[100] == 1.0
+
+    # Starting 0.2 s later, the pulse at sample 80 is at the same
+    # absolute time as in the delayed record.
+    later = Record(np.zeros(200), delta=0.01, time=Date(START) + 0.2)
+    later.data[80] = 1.0
+    lag, value = later.correlate(reference)
+    assert lag[np.argmax(value)] == pytest.approx(0.5, abs=1e-12)
+
+    lag, value = delayed.correlate(reference.data)  # samples only
+    assert lag[np.argmax(value)] == pytest.approx(0.5, abs=1e-12)
+
+    for mode, size in (("same", 200), ("valid", 1)):
+        lag, value = delayed.correlate(reference, mode=mode)
+        assert lag.size == value.size == size
+    lag, value = delayed.correlate(reference, mode="same")
+    assert lag[np.argmax(value)] == pytest.approx(0.5, abs=1e-12)
+
+    with pytest.raises(ValueError, match="sampling interval"):
+        Record(data=[1.0, 2.0]).correlate([1.0])
+    with pytest.raises(ValueError, match="incompatible"):
+        delayed.correlate(Record(np.ones(5), delta=0.02))
 
 
 def test_record_spectrum_round_trip():
@@ -1349,11 +1424,21 @@ def test_stream_properties_and_text(capsys):
     assert stream.endtime == Date("2026-01-01T00:00:29")
     assert stream.eid == [None, None]
     assert repr(stream) == "Stream(sid='XX.STA..HHZ', records=2)"
-    assert "number of records: 2" in str(stream)
+    text = "\n".join([
+        "Stream XX.STA..HHZ: 2 records, 2026-01-01T00:00:00.000000Z - "
+        "2026-01-01T00:00:29.000000Z, 20 samples",
+        "  0  2026-01-01T00:00:00.000000Z - 2026-01-01T00:00:09.000000Z, "
+        "1 Hz, 10 samples",
+        "  1  2026-01-01T00:00:20.000000Z - 2026-01-01T00:00:29.000000Z, "
+        "1 Hz, 10 samples",
+    ])
+    assert stream.summary() == text
+    assert str(stream) == text
 
     stream.info()
-    assert "Record 1" in capsys.readouterr().out
+    assert capsys.readouterr().out == text + "\n"
     assert Stream().starttime is None
+    assert Stream("XX.STA..HHZ").summary() == "Stream XX.STA..HHZ: no records"
 
 
 def test_stream_indexing():
@@ -1592,11 +1677,11 @@ def test_stream_processing_applies_to_every_record(mode):
 
     stream.remove_mean()
     stream.detrend()
-    stream.filter(0.1, 20.0)
+    stream.filter(0.1, 20.0, causal=True)
     stream.taper(1.0)
     record.remove_mean()
     record.detrend()
-    record.filter(0.1, 20.0)
+    record.filter(0.1, 20.0, causal=True)
     record.taper(1.0)
     np.testing.assert_array_equal(stream[0].data, record.data)
 
@@ -1659,8 +1744,20 @@ def test_collection_read_and_access(mode, capsys):
     assert mode[np.int64(2)] is mode["IV.MODE..HNZ"]
     assert repr(mode) == "StreamCollection(streams=3)"
 
+    span = "2012-05-20T02:03:23.000000Z - 2012-05-20T02:06:23.000000Z"
+    text = "\n".join(
+        [f"StreamCollection: 3 streams, 3 records, {span}"]
+        + [
+            f"  IV.MODE..HN{c}  1 record, 100 Hz, {span}, 18001 samples"
+            for c in "ENZ"
+        ]
+    )
+    assert mode.summary() == text
+    assert str(mode) == text
+
     mode.info()
-    assert "number of streams: 3" in capsys.readouterr().out
+    assert capsys.readouterr().out == text + "\n"
+    assert StreamCollection().summary() == "StreamCollection: no streams"
 
     with pytest.raises(TypeError):
         mode[True]
@@ -1893,6 +1990,49 @@ def test_collection_select_time_window(mode):
     assert len(mode.select(endtime="2012-05-20T02:00:00")) == 0
 
 
+def test_select_window_by_position(mode):
+    """The window follows the channels, also by position."""
+    by_name = mode.select(
+        "IV.MODE..HNZ",
+        starttime="2012-05-20T02:04:00",
+        endtime="2012-05-20T02:04:10",
+    )
+    by_position = mode.select(
+        "IV.MODE..HNZ", "2012-05-20T02:04:00", "2012-05-20T02:04:10"
+    )
+    assert by_position.summary() == by_name.summary()
+
+    stream = mode["IV.MODE..HNZ"]
+    window = stream.select(None, "2012-05-20T02:04:00", "2012-05-20T02:04:10")
+    assert window[0].nsamp == 1001
+    assert mode.select("IV", "2012-05-20T02:04:00", duration=10).nsamp == (
+        3 * 1001
+    )
+
+
+def test_collection_time_span(mode):
+    """starttime and endtime of a collection span all its streams."""
+    assert mode.starttime == Date("2012-05-20T02:03:23")
+    assert mode.endtime == Date("2012-05-20T02:06:23")
+
+    collection = StreamCollection()
+    assert collection.starttime is None and collection.endtime is None
+    collection.append(Record(data=np.zeros(11), delta=1.0, time=START,
+                             sid="XX.A..HHZ"))
+    collection.append(Record(data=np.zeros(5), delta=1.0,
+                             time="2026-01-01T00:00:30", sid="XX.B..HHZ"))
+    assert collection.starttime == Date(START)
+    assert collection.endtime == Date("2026-01-01T00:00:34")
+
+    window = collection.extract(collection.starttime + 2, duration=3)
+    assert window["XX.A..HHZ"][0].nsamp == 4
+    assert "XX.B..HHZ" not in window
+
+    collection.append(Record(data=np.zeros(3), sid="XX.C..HHZ"))
+    with pytest.raises(ValueError, match="start time"):
+        collection.starttime
+
+
 def test_collection_select_matches_reader(mode):
     """select in memory gives what the reader gives at reading."""
     options = dict(
@@ -1921,7 +2061,7 @@ def test_collection_select_errors(mode):
             starttime="2012-05-20T02:05:00", endtime="2012-05-20T02:04:00"
         )
     with pytest.raises(TypeError):
-        mode.select("IV", "2012-05-20T02:04:00")
+        mode.select("IV", "2012-05-20T02:04:00", "2012-05-20T02:05:00", "ev1")
 
     collection = StreamCollection()
     collection.append(Record(data=[1.0, 2.0], sid="XX.STA..HHZ"))
@@ -1952,10 +2092,10 @@ def test_collection_processing_applies_to_every_stream(mode):
     record = mode["IV.MODE..HNE"][0].copy()
 
     collection.detrend()
-    collection.filter(0.1, 20.0)
+    collection.filter(0.1, 20.0, causal=True)
     collection.taper(1.0)
     record.detrend()
-    record.filter(0.1, 20.0)
+    record.filter(0.1, 20.0, causal=True)
     record.taper(1.0)
 
     np.testing.assert_array_equal(

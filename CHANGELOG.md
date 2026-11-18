@@ -9,6 +9,31 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.base.Record.correlate` no longer replaces the samples of
+  the record: it returns `(lag, value)`, the lags in seconds and the
+  correlation. A positive lag means that the record is delayed with
+  respect to the reference; when both are records with a start time,
+  the difference of the start times is included. The record kept its
+  start time with a lag-domain sequence as samples, whose lag axis had
+  to be built by the caller.
+- `filter(minphase=...)` is now `filter(causal=...)` on `Record`,
+  `Stream`, `StreamCollection` and `Spectrum`, and
+  `fourier.butterworth(..., causal=...)`: the option chooses between a
+  zero-phase and a causal filter (the causal Butterworth filter is also
+  minimum phase).
+- `starttime` and `endtime` can be given by position right after the
+  channels in `Stream.select` and `StreamCollection.select`
+  (`select(sid, starttime, endtime, *, eid, duration)`; `eid` is now
+  keyword-only) and in SeedLink `read`, `records` and
+  `Client.get_data` (`read(address, select, starttime, endtime, *,
+  duration, ...)`), as already in `cut`, `extract`, `overlaps` and the
+  FDSN client; they stay keyword-only where nothing selects channels
+  (`io.reader`, `Client.run`, `Client.start`).
+- `str()` and `info()` of `Record`, `Stream` and `StreamCollection`
+  give a new description: one line for a record (source identifier,
+  time span, sampling rate, samples, units and event when known), and
+  one line per element for streams and collections.
+
 - `signals.base.Record` indexing follows the rule of streams and
   collections: an integer gives one sample, a slice a new `Record` of
   the consecutive samples (a copy, starting at the time of its first
@@ -665,8 +690,16 @@ corrections. The format follows
 
 ### Added
 
-- `signals.base.StreamCollection.select(sid, *, eid, starttime,
-  endtime, duration)` and `Stream.select` return a new collection or
+- `StreamCollection.starttime` and `endtime`: earliest start and latest
+  end of the streams, as those of `Stream`.
+- `summary()`, returning the text that `info()` prints, on every object
+  of `signals` that describes itself: `Record`, `Stream`,
+  `StreamCollection`, `Header`, `Spectrum`, `Spectrogram`,
+  `ChannelEpoch`, `MetadataCollection`, `StageSet` and the format
+  classes `Sac`, `MSRecord`, `Dyna`, `SimpleAscii` and `TdmsFile`.
+
+- `signals.base.StreamCollection.select(sid, starttime, endtime, *,
+  eid, duration)` and `Stream.select` return a new collection or
   stream with copies of the channels and events that match a pattern
   or a list of patterns (event identifiers with `*` and `?`), cut to
   an optional time window: the selection of `io.reader`, which now

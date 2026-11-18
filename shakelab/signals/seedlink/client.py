@@ -852,9 +852,9 @@ class Client:
     def get_data(
         self,
         sid: str = "*",
-        *,
         starttime: Any = None,
         endtime: Any = None,
+        *,
         sensitivity: bool = False,
     ) -> StreamCollection:
         """
@@ -1686,10 +1686,10 @@ class Client:
 def read(
     address: str,
     select: Any,
-    *,
-    duration: Optional[Real] = None,
     starttime: Any = None,
     endtime: Any = None,
+    *,
+    duration: Optional[Real] = None,
     port: Optional[int] = None,
     protocol: str = "auto",
     metadata: Any = None,
@@ -1704,12 +1704,12 @@ def read(
         Server as ``HOST[:PORT]`` (see :class:`Client`).
     select : str or sequence of str
         Channel patterns (see :meth:`Client.select`).
-    duration : float, optional
-        Wall-clock seconds of data to collect from now (or from
-        ``starttime``).
     starttime, endtime : Date or str, optional
         Time window, bounds included. The server must still hold the
         past data.
+    duration : float, optional
+        Wall-clock seconds of data to collect from now (or from
+        ``starttime``).
     port : int, optional
         Server port, which takes precedence over the one in
         ``address`` (see :class:`Client`).
@@ -1818,14 +1818,14 @@ def archive(
 def records(
     address: str,
     select: Any,
+    starttime: Any = None,
+    endtime: Any = None,
     *,
     port: Optional[int] = None,
     protocol: str = "auto",
     metadata: Any = None,
     timeout: Real = 600.0,
     state_file: Any = None,
-    starttime: Any = None,
-    endtime: Any = None,
     fetch: bool = False,
     max_queue: int = 1000,
 ) -> Iterator[Record]:
@@ -1843,6 +1843,12 @@ def records(
         Server as ``HOST[:PORT]`` (see :class:`Client`).
     select : str or sequence of str
         Channel patterns (see :meth:`Client.select`).
+    starttime : Date or str, optional
+        Start of the time window (see :meth:`Client.run`).
+    endtime : Date or str, optional
+        End of the time window (see :meth:`Client.run`). Without
+        ``endtime`` or ``fetch`` the iteration lasts until the loop is
+        left.
     port : int, optional
         Server port, which takes precedence over the one in
         ``address`` (see :class:`Client`).
@@ -1854,12 +1860,6 @@ def records(
         Network timeout (see :class:`Client`).
     state_file : str or path-like, optional
         State file (see :class:`Client`).
-    starttime : Date or str, optional
-        Start of the time window (see :meth:`Client.run`).
-    endtime : Date or str, optional
-        End of the time window (see :meth:`Client.run`). Without
-        ``endtime`` or ``fetch`` the iteration lasts until the loop is
-        left.
     fetch : bool, optional
         Dial-up mode (see :meth:`Client.run`).
     max_queue : int, optional

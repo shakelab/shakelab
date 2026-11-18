@@ -369,7 +369,7 @@ def butterworth(
     corner: float,
     order: int = 4,
     btype: str = "lowpass",
-    minphase: bool = False,
+    causal: bool = False,
 ) -> np.ndarray:
     """
     Return the transfer function of a Butterworth filter.
@@ -385,7 +385,7 @@ def butterworth(
         Filter order (strictly positive).
     btype : str, optional
         ``"lowpass"`` or ``"highpass"``.
-    minphase : bool, optional
+    causal : bool, optional
         If False (default), return the zero-phase response, i.e. the
         real amplitude ``1 / sqrt(1 + (f / corner) ** (2 * order))``
         (low-pass) or ``1 / sqrt(1 + (corner / f) ** (2 * order))``
@@ -421,7 +421,7 @@ def butterworth(
     freq = np.asarray(freq, dtype=float)
     order = int(order)
 
-    if minphase:
+    if causal:
         b, a = _signal.butter(
             order, 2.0 * np.pi * corner, btype=btype, analog=True
         )

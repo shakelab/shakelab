@@ -411,7 +411,7 @@ All the processing methods work in place, as on records:
 x = spectrum.copy()
 x.filter(highpass=0.1, lowpass=20.0)        # Butterworth amplitude |H|
 x = spectrum.copy()
-x.filter(highpass=0.1, lowpass=20.0, minphase=True)  # causal response
+x.filter(highpass=0.1, lowpass=20.0, causal=True)  # causal response
 x = spectrum.copy()
 x.filter(highpass=0.5, lowpass=10.0, method="sharp")  # zero outside the band
 
@@ -770,7 +770,7 @@ record the same waves and low where incoherent noise dominates.
 ## 13. Validation
 
 The modules are covered by the tests of `tests/signals/`
-(`test_fourier.py`, 27 tests; `test_spectrum.py`, 17;
+(`test_fourier.py`, 27 tests; `test_spectrum.py`, 18;
 `test_spectrogram.py`, 25; `test_windowing.py`, 23;
 `test_crossspectral.py`, 20). The main checks:
 

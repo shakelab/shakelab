@@ -207,7 +207,7 @@ record.shift(0.5)                          # seconds
 
 All the operations change the data in place and are available on
 streams and collections as well, which apply them to every record.
-Filters are zero-phase by default (`minphase=True` for a causal
+Filters are zero-phase by default (`causal=True` for a causal
 filter); integration and differentiation work in the frequency domain
 by default.
 

@@ -649,13 +649,26 @@ class Sac:
         sac.data = np.asarray(record.data, dtype=np.float32)
         return sac
 
-    def info(self) -> None:
-        """Print the defined header fields."""
-        print(repr(self))
+    def summary(self) -> str:
+        """
+        Return a description of the file as text.
+
+        Returns
+        -------
+        str
+            The representation, then the defined header fields.
+        """
+        lines = []
+        lines.append(repr(self))
         for name in HEADER_FIELDS:
             value = self.head[name]
             if value is not None and not name.startswith(("UNUSED", "INT")):
-                print(f"{name:>12} = {value}")
+                lines.append(f"{name:>12} = {value}")
+        return "\n".join(lines)
+
+    def info(self) -> None:
+        """Print the description of the file (see :meth:`summary`)."""
+        print(self.summary())
 
     # -- helpers --------------------------------------------------------
 

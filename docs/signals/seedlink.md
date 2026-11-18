@@ -272,18 +272,19 @@ each channel joined:
 from shakelab.signals import seedlink
 
 data = seedlink.read("rtserve.example.org", "IV.MODE..HN?",
-                     starttime="2012-05-20T02:04:00",
-                     endtime="2012-05-20T02:05:00")
+                     "2012-05-20T02:04:00", "2012-05-20T02:05:00")
 print(data["IV.MODE..HNZ"][0])
-# starttime 2012-05-20T02:04:00.000000Z, duration 60.0s,
-# sampling rate 100.0 Hz, 6001 samples
+# Record IV.MODE..HNZ: 2012-05-20T02:04:00.000000Z -
+# 2012-05-20T02:05:00.000000Z, 100 Hz, 6001 samples
 recent = seedlink.read("rtserve.example.org", "IV.MODE..HNZ",
                        duration=60)          # the next 60 s
 seedlink.read("rtserve.example.org", "IV.MODE..HNZ")  # ValueError: no stop
 ```
 
 A past window needs the server to hold the data; the result is cut to
-the window. `archive` archives continuously (until interrupted, or for
+the window. `starttime` and `endtime` follow the channels, by position
+or by name (`starttime=...`), as in `get_data`, `records` and
+`StreamCollection.select`; the other options are given by name. `archive` archives continuously (until interrupted, or for
 `duration` seconds), and `records` iterates over the records as they
 arrive:
 
@@ -303,8 +304,8 @@ print(count)
 `records` runs a client in a background thread and passes the records
 through a queue of at most `max_queue` records (1000): if the loop is
 slower than the data, reception pauses and the data wait on the
-server. It accepts `starttime`, `endtime`, `fetch` and `state_file`,
-as the client.
+server. It accepts `starttime` and `endtime` (after the channels, as
+`read`), `fetch` and `state_file`, as the client.
 
 ## 9. Client
 
@@ -385,7 +386,7 @@ client.set_buffer(max_duration=60)             # last minute
 client.run(duration=30)
 
 data = client.get_data("IV.MODE..HNZ")         # copy, records joined
-vertical = client.get_data("*.*.*.HNZ", starttime="2012-05-20T02:05:30")
+vertical = client.get_data("*.*.*.HNZ", "2012-05-20T02:05:30")  # window
 print(len(data["IV.MODE..HNZ"]))
 # 1
 ```
@@ -402,7 +403,7 @@ records that arrive later would stay in counts.
 `max_duration` a circular one, and a collection given as argument is
 used as it is (§4). `client.buffer` is the buffer itself, for the
 callbacks and for a client that is not running; `get_data(sid,
-starttime=..., endtime=...)` the safe copy for any thread. If no buffer
+starttime, endtime)` the safe copy for any thread. If no buffer
 and no callback are set, `run` creates an unlimited buffer and returns it.
 
 ### 9.4 Archive
@@ -497,7 +498,8 @@ print(client.running)
 ```
 
 `run` and `start` take the same stop conditions (given by name, except
-`duration`):
+`duration`: nothing selects channels here, so the window is not taken
+by position):
 
 | Argument | Meaning |
 |---|---|

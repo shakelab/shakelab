@@ -511,6 +511,10 @@ def test_background_and_get_data(make_server, mode):
     )
     assert window.sid == ["IV.MODE..HNZ"]
     assert window["IV.MODE..HNZ"].nsamp == 101
+    # The window may also follow the channels by position.
+    assert client.get_data(
+        "*.*.*.*Z", START + 1.0, START + 2.0
+    ).summary() == window.summary()
 
 
 def test_background_error_reraised(make_server, mode):
@@ -627,15 +631,26 @@ def test_read_requires_stop_condition():
         read("localhost", "IV.MODE")
 
 
-@pytest.mark.parametrize("function", [
-    Client.run, Client.start, Client.get_data, read, client_module.records,
+@pytest.mark.parametrize("function, selection", [
+    (Client.run, None), (Client.start, None),
+    (Client.get_data, "sid"), (read, "select"),
+    (client_module.records, "select"),
 ])
-def test_time_window_names(function):
-    # Time windows are starttime and endtime, keyword-only, as in the
-    # rest of the library.
+def test_time_window_names(function, selection):
+    # Time windows are starttime and endtime: by position right after
+    # the selection of channels, by name only where nothing selects them
+    # (run and start begin with a duration).
     parameters = inspect.signature(function).parameters
+    names = list(parameters)
     for name in ("starttime", "endtime"):
-        assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+        kind = parameters[name].kind
+        if selection is None:
+            assert kind is inspect.Parameter.KEYWORD_ONLY
+        else:
+            assert kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    if selection is not None:
+        index = names.index(selection)
+        assert names[index + 1:index + 3] == ["starttime", "endtime"]
     assert "start" not in parameters and "end" not in parameters
 
 

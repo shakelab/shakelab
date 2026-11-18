@@ -332,19 +332,38 @@ class TdmsFile:
             )
         return tdms
 
-    def info(self) -> None:
-        """Print the groups and channels of the file."""
-        print(f"TDMS file: {self.path}")
-        print(f"File properties: {len(self.properties)}")
+    def summary(self) -> str:
+        """
+        Return a description of the file as text.
+
+        Returns
+        -------
+        str
+            Path, file properties, groups and channels (the first ten
+            of each group).
+        """
+        lines = [
+            f"TDMS file: {self.path}",
+            f"File properties: {len(self.properties)}",
+        ]
         for group in self.groups.values():
             channels = list(group.channels.values())
-            print(f"Group {group.name!r}: {len(group.properties)} "
-                  f"properties, {len(channels)} channels")
+            lines.append(
+                f"Group {group.name!r}: {len(group.properties)} "
+                f"properties, {len(channels)} channels"
+            )
             for channel in channels[:10]:
-                print(f"  {channel.name}: {channel.data.size} values, "
-                      f"{channel.data.dtype}")
+                lines.append(
+                    f"  {channel.name}: {channel.data.size} values, "
+                    f"{channel.data.dtype}"
+                )
             if len(channels) > 10:
-                print(f"  ... ({len(channels) - 10} more)")
+                lines.append(f"  ... ({len(channels) - 10} more)")
+        return "\n".join(lines)
+
+    def info(self) -> None:
+        """Print the description of the file (see :meth:`summary`)."""
+        print(self.summary())
 
     def _group(self, name: str) -> TdmsGroup:
         """Group of a name, created if needed."""

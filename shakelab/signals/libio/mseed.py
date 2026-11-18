@@ -1003,20 +1003,34 @@ class MSRecord:
             sid=self.sid,
         )
 
-    def info(self) -> None:
-        """Print the fixed-header fields and the blockettes."""
-        print(repr(self))
+    def summary(self) -> str:
+        """
+        Return a description of the record as text.
+
+        Returns
+        -------
+        str
+            The representation, then the fixed-header fields and the
+            blockettes.
+        """
+        lines = []
+        lines.append(repr(self))
         for name in HEADER_FIELDS:
             value = self.header[name]
             if value is not None and name != "UNUSED":
-                print(f"{name:>32} = {value}")
+                lines.append(f"{name:>32} = {value}")
         for block_type in sorted(self.blockette):
             fields = ", ".join(
                 f"{name}={value}"
                 for name, value in self.blockette[block_type].items()
                 if name != "RESERVED"
             )
-            print(f"{'BLOCKETTE ' + str(block_type):>32} : {fields}")
+            lines.append(f"{'BLOCKETTE ' + str(block_type):>32} : {fields}")
+        return "\n".join(lines)
+
+    def info(self) -> None:
+        """Print the description of the record (see :meth:`summary`)."""
+        print(self.summary())
 
     # -- helpers --------------------------------------------------------
 

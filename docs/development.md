@@ -1,6 +1,6 @@
 # ShakeLab development and architecture guidelines
 
-*Version 2.11, 18 November 2026*
+*Version 2.12, 18 November 2026*
 
 [ShakeLab documentation](README.md) › Development guidelines
 
@@ -430,9 +430,12 @@ conventions adopted so far are:
   to a `target` instead of returning the data return the number of
   bytes written (0: no data, no file);
 - time windows: `starttime` and `endtime`, `Date` objects or ISO 8601
-  strings, bounds included, keyword-only (the window methods of the
-  containers, `cut` and `extract`, take them first and also by
-  position); `duration` gives a length in seconds after `starttime`
+  strings, bounds included; they may be given by position right after
+  what the window applies to, the object itself (`cut`, `extract`,
+  `overlaps`) or the channels chosen (`select`, `get_data`, the
+  SeedLink `read` and `records`, the FDSN requests), and are
+  keyword-only elsewhere (`io.reader`, where the first argument is the
+  source; `run`, where it is a duration); `duration` gives a length in seconds after `starttime`
   instead of `endtime`; numbers of seconds from the start of the
   object are accepted only where that start is one (records, streams),
   and the two bounds of a window are of one kind (a time followed by a
@@ -465,7 +468,15 @@ conventions adopted so far are:
 - objects that can describe themselves have `summary()`, returning
   the text, and `info()`, printing it: a description of the object
   (for a client, its server, configuration and state), not of
-  something else;
+  something else; a container describes itself in a first line and
+  then one line per element;
+- names of identifiers stay singular at every level (`sid`, `eid`): a
+  string where there is one value, the list of the elements where
+  there are many (`StreamCollection.sid`, `Stream.eid`);
+- options name the choice the user makes, not a property of the result
+  (`filter(causal=True)`, not `minphase`), and results in another
+  domain are returned in it rather than written into an object of the
+  wrong kind (`Record.correlate` returns lags and values);
 - an argument of the wrong type raises `TypeError`, a value out of its
   domain `ValueError`.
 

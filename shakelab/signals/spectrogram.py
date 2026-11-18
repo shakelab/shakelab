@@ -1091,6 +1091,17 @@ class Spectrogram:
         )
 
     def __str__(self) -> str:
+        return self.summary()
+
+    def summary(self) -> str:
+        """
+        Return a description of the spectrogram as text.
+
+        Returns
+        -------
+        str
+            Source identifier, method, scaling, frequencies and times.
+        """
         if self.nfreq:
             band = (
                 f"{self.frequency.min():g}-{self.frequency.max():g} Hz"
@@ -1105,8 +1116,8 @@ class Spectrogram:
         )
 
     def info(self) -> None:
-        """Print a human-readable description of the spectrogram."""
-        print(self)
+        """Print the description of the spectrogram (see :meth:`summary`)."""
+        print(self.summary())
 
     @property
     def sid(self) -> Optional[str]:
