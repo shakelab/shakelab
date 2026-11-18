@@ -576,21 +576,33 @@ k = round((t_peak - z.time) / z.delta)      # back to the index
 
 `extract(starttime, endtime)` returns a new record with the samples of
 a window, bounds included; `cut(starttime, endtime)` trims the record
-itself. Bounds can be `Date`, strings or numbers of seconds from the
-start of the record, mixed; None is the start or the end of the
-record.
+itself and returns None. Streams and collections have the same pair
+(§7.4, §8.3). Bounds are `Date` objects or strings, or numbers of
+seconds from the start of the record; None is the start or the end of
+the record. `duration=` gives the length of the window after
+`starttime` (or after the start of the record), instead of `endtime`.
+Only the samples of the window are copied.
 
 ```python
 part = z.extract("2012-05-20T02:04:00", "2012-05-20T02:04:10")
 print(part.nsamp, part.time)        # 1001 2012-05-20T02:04:00.000000Z
 
 part = z.extract(37.0, 47.0)        # the same window, relative to the start
+part = z.extract("2012-05-20T02:04:00", duration=10.0)   # the same window
 head = z.extract(None, 10.0)        # first 10 s (1001 samples)
 tail = z.extract(170.0)             # last 10 s
 
 y = z.copy()
 y.cut(30.0, 90.0)                   # in place, returns None
-y2 = z.cut(30.0, 90.0, inplace=False)       # same as extract
+```
+
+The two bounds are of one kind: both times or both numbers. A time
+followed by a number would be read as a number of seconds from the
+start of the record, not from the time, which is rarely what is meant,
+so the mixture raises a `TypeError` that points to `duration`:
+
+```python
+z.extract("2012-05-20T02:04:00", 30.0)      # TypeError: use duration
 ```
 
 The window need not fall on the grid: the result starts at the first
@@ -603,9 +615,12 @@ print(w.time, w.nsamp)              # 2012-05-20T02:03:30.010000Z 100
 ```
 
 A window that contains no sample raises a `ValueError` (for example
-`z.extract(500, 600)`); a window partly outside the record is clipped
-to it. `snap_tolerance` (default `SNAP_TOLERANCE`) can be enlarged when
-the bounds come from times rounded more coarsely than the sampling.
+`z.extract(500, 600)`): a record cannot drop itself, as the records of
+a stream are dropped (§7.4). A window partly outside the record is
+clipped to it. `snap_tolerance` (default `SNAP_TOLERANCE`) can be
+enlarged when the bounds come from times rounded more coarsely than
+the sampling. The options after the window (`duration`,
+`snap_tolerance`) are given by name.
 
 ### 6.5 Joining records: append
 
@@ -967,12 +982,16 @@ repr(stream)                        # "Stream(sid='IV.MODE..HNZ', records=2)"
 `starttime` and `endtime` raise a `ValueError` if a record has no
 time, and are None for an empty stream.
 
-### 7.4 Extraction by time and event
+### 7.4 Time windows and selection of events
 
-`extract(starttime, endtime, eid=None, merge=False, enforce=False,
-fillvalue=0.0, snap_tolerance=..., merge_tolerance=None)` cuts every
-record to the window and returns new, independent data. Numbers are
-seconds from the start of the stream (its earliest record):
+`extract(starttime, endtime, duration=None, merge=False,
+enforce=False, fillvalue=0.0, snap_tolerance=..., merge_tolerance=None)`
+cuts every record to the window and returns new, independent data:
+a Stream, or with `merge=True` one Record. Numbers are seconds from
+the start of the stream (its earliest record); as for records, the two
+bounds are of one kind and `duration` gives a length after
+`starttime`. `cut` takes the same window and trims the stream in
+place.
 
 ```python
 gappy = Stream()
@@ -985,15 +1004,34 @@ one = gappy.extract(100.0, 140.0, merge=True, enforce=True,
                     fillvalue=np.nan)        # Record, NaN in the gap
 gappy.extract(100.0, 140.0, merge=True)     # ValueError: not contiguous
 empty = gappy.extract(500.0, 600.0)         # Stream without records
-none = gappy.extract(500.0, 600.0, merge=True)  # None
+gappy.extract(500.0, 600.0, merge=True)     # ValueError: no sample
 ```
 
-Records without samples in the window are skipped. With `eid` the
-window is applied to that record only, with numbers relative to its
-start, and the result is a record:
+Records without samples in the window are skipped, and the result may
+be an empty stream. With `merge=True` the result is a record, which
+cannot be empty: a window without samples raises a `ValueError`, as
+for a record. `cut` removes the records left without samples:
 
 ```python
-stream.extract(10.0, 12.0, eid="window-1")  # Record, 201 samples
+trimmed = gappy.copy()
+trimmed.cut(100.0, 110.0)           # in place: one record, 100-110 s
+print(len(trimmed))                 # 1
+```
+
+`select(sid=None, eid=None, starttime=None, endtime=None,
+duration=None)` returns a new stream with copies of the records of
+some events, within an optional window of absolute times, as
+`StreamCollection.select` (§8.3). Event identifiers are matched
+exactly, or with the wildcards `*` (any text) and `?` (one
+character); a list gives alternatives, and records without identifier
+match no pattern. One record by event identifier is taken by indexing:
+
+```python
+stream.select(eid="window-*")       # Stream of copies of the windows
+stream.select(eid=["window-1", "window-2"],
+              starttime="2012-05-20T02:05:23", duration=10.0)
+                                    # first 10 s of window-2
+stream["window-1"].extract(0.0, 2.0)        # Record, numbers from its start
 ```
 
 ### 7.5 Processing and metadata
@@ -1067,8 +1105,9 @@ merged.merge(collection)            # the same data again
 print([len(stream) for stream in merged])   # [2, 2, 2]: stored twice
 
 joined = StreamCollection()
-joined.merge(collection.extract(starttime=0.0, endtime=100.0))
-joined.merge(collection.extract(starttime=50.0), enforce=True)
+t0 = collection["IV.MODE..HNZ"].starttime
+joined.merge(collection.extract(starttime=t0, duration=100.0))
+joined.merge(collection.extract(starttime=t0 + 50.0), enforce=True)
 print([len(stream) for stream in joined])   # [1, 1, 1]: overlaps resolved
 ```
 
@@ -1105,35 +1144,42 @@ ordered.sort(reverse=True)          # from HNZ to HNE, latest records first
 ordered.sort(sort_records=False)    # streams only
 ```
 
-### 8.3 Selection by time and by channel
+### 8.3 Selection by time, channel and event
 
-`extract(sid=None, starttime=None, endtime=None, eid=None, merge=False,
+`extract(starttime=None, endtime=None, duration=None, merge=False,
 ...)` cuts every stream to a window and returns a new collection
-(streams without samples in the window are left out); with `sid` it
-extracts from one stream and returns what `Stream.extract` returns.
-Numbers are seconds from the start of each stream.
+(streams without samples in the window are left out); with
+`merge=True` each stream holds one record. `cut` takes the same window
+and trims the collection in place, removing the streams left empty.
+The bounds of a collection are absolute times (`Date` objects or
+strings), and `duration` gives a length after `starttime`: a number of
+seconds would count from the start of each stream, and channels that
+start at different times would be cut to different windows, so it
+raises a `TypeError`.
 
 ```python
 window = collection.extract(starttime="2012-05-20T02:04:00",
                             endtime="2012-05-20T02:04:10")
 print(window.sid, window[0][0].nsamp)       # 3 streams, 1001 samples each
+window = collection.extract(starttime="2012-05-20T02:04:00",
+                            duration=10.0)   # the same window
 joined = collection.extract(merge=True, enforce=True)  # one record per stream
-z_part = collection.extract(sid="IV.MODE..HNZ", starttime=0.0,
-                            endtime=10.0)    # Stream
-z_rec = collection.extract(sid="IV.MODE..HNZ", starttime=0.0,
-                           endtime=10.0, merge=True)   # Record
+collection.extract(starttime=0.0, endtime=10.0)        # TypeError: dates
+z_part = collection["IV.MODE..HNZ"].extract(0.0, 10.0)  # one channel: Stream
 ```
 
-`select(sid="*", starttime=None, endtime=None)` keeps the channels
-that match a pattern, or a list of patterns, of
+`select(sid=None, eid=None, starttime=None, endtime=None,
+duration=None)` chooses what to keep, as `extract` chooses when: the
+channels that match a pattern, or a list of patterns, of
 `shakelab.signals.codes` (`*`, `?`, `[...]`, `{A,B}`, code by code;
-codes missing at the end match anything), within an optional time
-window with the bounds included. It returns a new collection with
-copies of the selected records, cut to the window; records without
-samples in the window are left out, and a selection that matches
-nothing is an empty collection. A set that is not closed (`HN[Z`),
-empty or nested raises a `ValueError`, as unbalanced braces do,
-instead of matching nothing.
+codes missing at the end match anything), the records of some events
+(identifiers matched exactly or with `*` and `?`, as for streams,
+§7.4), within an optional time window with the bounds included. It
+returns a new collection with copies of the selected records, cut to
+the window; records without samples in the window are left out, and a
+selection that matches nothing is an empty collection. A set that is
+not closed (`HN[Z`), empty or nested raises a `ValueError`, as
+unbalanced braces do, instead of matching nothing.
 
 ```python
 horizontal = collection.select("*.*.*.HN{N,E}")
@@ -1142,6 +1188,7 @@ part = collection.select(["IV.MODE..HNZ", "IV.MODE..HNE"],
                          starttime="2012-05-20T02:04:00",
                          endtime="2012-05-20T02:04:10")
 print(part.sid, part[0][0].nsamp)   # 2 streams, 1001 samples each
+events = collection.select(eid="IT-2012-*")  # records of some events
 ```
 
 The window bounds are absolute times (`Date` objects or ISO 8601
@@ -1219,8 +1266,8 @@ the container), or new and independent data. The channel metadata
 | `record.data[[i, j]]`, `record.data[mask]` | NumPy array (copy) | no |
 | `record[i:j]` | new Record | no |
 | `Record(data=array)`, `record.data = array` | — | no: the array is copied |
-| `record.copy()`, `record.extract()`, `cut(inplace=False)` | new Record | no |
-| `record.cut()`, processing methods | None (changed in place) | — |
+| `record.copy()`, `record.extract()` | new Record | no |
+| `cut()` on records, streams and collections, processing methods | None (changed in place) | — |
 | `record + x`, `record * x`, `record / response` | new Record | no |
 | `record.to_spectrum()`, `record.spectrogram()` | new object, copy of the header | no |
 | `stream[i]`, `stream[eid]`, `stream.get_record()` | stored Record | yes |
@@ -1228,7 +1275,7 @@ the container), or new and independent data. The channel metadata
 | `for record in stream`, `stream.records()` | stored Records | yes |
 | `stream.remove(key)` | the Record taken out | (no longer in the stream) |
 | `stream.append(record)` | — | no: a copy is stored |
-| `stream.copy()`, `stream.extract()` | new Stream or Record | no |
+| `stream.copy()`, `stream.extract()`, `stream.select()` | new Stream (Record with `merge=True`) | no |
 | `collection[i]`, `collection[sid]`, `get_stream()` | stored Stream | yes |
 | `collection[i:j]` | new collection of the stored Streams | yes |
 | `for stream in collection`, `collection.records()` | stored Streams, Records | yes |
@@ -1299,8 +1346,9 @@ as separate blocks (never concatenated, to avoid copying a growing
 array) and are trimmed as new data arrive; overlaps are rejected
 unless `enforce=True`. Processing methods raise
 `NotImplementedError`: applied block by block they would create edge
-effects at every block. Slices and `extract` return standard streams,
-which can be processed.
+effects at every block. `cut` raises it too, since the buffer keeps
+its own window. Slices, `extract` and `select` return standard
+streams, which can be processed.
 
 ## 12. Workflows
 
@@ -1444,6 +1492,22 @@ velocity and displacement of ESM (grey).*
   sample, so that `extract(t1, t2)` of a record covering both bounds
   starts at `t1` and ends at `t2`, and the end time of a record is a
   time of the record.
+- **Windows: when, and what.** `cut` and `extract` choose a time
+  window, in place or on a copy, with the same arguments at every
+  level; `select` chooses channels and events (and, as the reader, a
+  window); indexing takes one element by position or identifier. A
+  window has bounds of one kind: numbers of seconds from the start of
+  the object on records and streams, absolute times everywhere, and
+  `duration` for a length after `starttime`. A time followed by a
+  number is refused rather than read as seconds from the start of the
+  object; a collection takes absolute times only, so that every
+  channel is cut to the same window. `duration` is the length in the
+  sense of `Record.duration`, from the first to the last sample:
+  `extract(t, duration=d)` on the grid gives a record of duration `d`.
+- **Empty windows.** A record cannot drop itself, so a window without
+  samples is a `ValueError` for a record (and for `merge=True`, which
+  makes one); a stream or a collection drops the records without
+  samples and may become empty, as `select` and the reader do.
 - **Tolerances in samples.** Both tolerances are fractions of the
   sampling interval, so that they mean the same at 1 Hz and at
   1000 Hz: half a sample for joining (as libmseed), to absorb the
@@ -1463,10 +1527,10 @@ velocity and displacement of ESM (grey).*
 ## 14. Validation
 
 The containers are covered by the tests of `tests/signals/test_base.py`
-(109 tests: header, construction, indexing, times, windows on and off
+(122 tests: header, construction, indexing, times, windows on and off
 the grid, joining with gaps, overlaps and rounded time stamps,
 metadata, operators, processing, response correction, streams,
-collections, selection, views and copies) and `tests/signals/test_circular.py` (9 tests). The
+collections, selection, views and copies) and `tests/signals/test_circular.py` (10 tests). The
 following checks were made on the test data of IV.MODE (raw counts,
 StationXML of INGV) and on the records processed by the Engineering
 Strong-Motion database (ESM 3.0, manual processing, 200 Hz):
@@ -1514,10 +1578,8 @@ compared with libmseed in the tests of `libio`.
 - **Circular streams** are experimental (API, representation and
   performance may change).
 - **Interface asymmetries** (under review): the operators differ
-  between the classes (§10); `cut` exists only on records;
-  `extract` returns a Stream, a Record or None depending on its
-  arguments; `Stream.sid` is a string and `StreamCollection.sid` a
-  list.
+  between the classes (§10); `Stream.sid` is a string and
+  `StreamCollection.sid` a list.
 
 ## 16. References
 

@@ -974,6 +974,71 @@ def test_record_cut_errors():
         record.extract(20, 30)
 
 
+def test_record_cut_is_in_place_only():
+    """cut changes the record and returns None; extract makes a copy."""
+    record = Record(data=np.arange(10), delta=1.0, time=START)
+
+    assert record.extract(2, 4).data.tolist() == [2, 3, 4]
+    assert record.cut(2, 4) is None
+    assert record.data.tolist() == [2, 3, 4]
+
+    with pytest.raises(TypeError, match="inplace"):
+        record.cut(0, 1, inplace=False)
+    with pytest.raises(TypeError):
+        record.extract(0, 1, 1e-6)          # options by name only
+
+
+def test_record_extract_copies_the_window_only():
+    """The extracted record is independent; an empty record is copied."""
+    record = Record(
+        data=np.arange(10.0), delta=1.0, time=START, sid="XX.STA..HHZ"
+    )
+    part = record.extract(2, 4)
+
+    part.data[0] = 99.0
+    assert record.data[2] == 2.0
+    assert part.sid == "XX.STA..HHZ"
+    assert part.head.meta is record.head.meta
+
+    empty = Record()
+    assert empty.extract(0, 1) is not empty
+    assert empty.extract(0, 1).nsamp == 0
+    assert empty.cut(0, 1) is None
+
+
+def test_record_window_duration():
+    """duration is a length after starttime, or after the record start."""
+    record = Record(data=np.arange(10), delta=1.0, time=START)
+
+    assert record.extract(2, duration=3).data.tolist() == [2, 3, 4, 5]
+    assert record.extract(
+        "2026-01-01T00:00:02", duration=3
+    ).data.tolist() == [2, 3, 4, 5]
+    assert record.extract(duration=1).data.tolist() == [0, 1]
+    assert record.overlaps(8, 9)
+
+    with pytest.raises(ValueError, match="not both"):
+        record.extract(2, 4, duration=3)
+    with pytest.raises(ValueError, match="duration"):
+        record.extract(2, duration=-1)
+    with pytest.raises(TypeError, match="duration"):
+        record.extract(2, duration="3")
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [("2026-01-01T00:00:02", 5), (2, "2026-01-01T00:00:05"),
+     (Date("2026-01-01T00:00:02"), 5.0)],
+)
+def test_record_window_bounds_of_one_kind(bounds):
+    """A time and a number of seconds are not mixed in one window."""
+    record = Record(data=np.arange(10), delta=1.0, time=START)
+
+    for method in (record.extract, record.cut, record.overlaps):
+        with pytest.raises(TypeError, match="duration"):
+            method(*bounds)
+
+
 # ----------------------------------------------------------------------------
 # Record: processing
 # ----------------------------------------------------------------------------
@@ -1403,10 +1468,109 @@ def test_stream_extract_skips_records_without_samples():
 
     assert len(stream.extract(2.2, 2.8)) == 0
     assert len(stream.extract(12, 18)) == 0
-    assert stream.extract(12, 18, merge=True) is None
+    with pytest.raises(ValueError, match="no sample"):
+        stream.extract(12, 18, merge=True)
 
     with pytest.raises(ValueError):
         stream.extract(5, 3)
+
+
+def test_stream_extract_returns_stream_or_merged_record():
+    """A Stream, or one Record with merge; no event argument."""
+    stream = _two_record_stream()
+
+    assert type(stream.extract(0, 25)) is Stream
+    assert isinstance(stream.extract(0, 5, merge=True), Record)
+
+    with pytest.raises(TypeError):
+        stream.extract(0, 5, eid="ev1")
+    with pytest.raises(TypeError):
+        stream.extract(0, 5, None, True)    # options by name only
+
+
+def test_stream_cut_in_place():
+    """cut trims the records in place and drops those left empty."""
+    stream = _two_record_stream()
+    first = stream[0]
+
+    assert stream.cut(8, 21) is None
+    assert [r.data.tolist() for r in stream] == [[8, 9], [100, 101]]
+    assert stream[0] is first
+
+    stream.cut(25, 30)
+    assert len(stream) == 0
+
+
+def test_stream_window_duration_and_kinds():
+    """duration counts from starttime; times and seconds do not mix."""
+    stream = _two_record_stream()
+
+    assert [r.data.tolist() for r in stream.extract(8, duration=13)] == [
+        [8, 9], [100, 101]
+    ]
+    assert stream.extract(duration=1)[0].data.tolist() == [0, 1]
+    assert stream.extract(
+        "2026-01-01T00:00:20", duration=1
+    )[0].data.tolist() == [100, 101]
+
+    with pytest.raises(TypeError, match="duration"):
+        stream.extract("2026-01-01T00:00:20", 5)
+    with pytest.raises(TypeError, match="duration"):
+        stream.cut(5, "2026-01-01T00:00:20")
+    with pytest.raises(ValueError, match="not both"):
+        stream.extract(0, 5, duration=1)
+
+
+def _event_stream():
+    """Stream with records of events ev1, ev2, ev10, ev[1] and none."""
+    stream = Stream("XX.STA..HHZ")
+    for k, eid in enumerate(["ev1", "ev2", "ev10", "ev[1]", None]):
+        stream.append(
+            Record(
+                data=np.arange(10.0) + 100 * k,
+                delta=1.0,
+                time=Date(START) + 60 * k,
+                eid=eid,
+            )
+        )
+    return stream
+
+
+def test_stream_select_events():
+    """eid takes identifiers or lists, with the wildcards * and ?."""
+    stream = _event_stream()
+
+    assert stream.select(eid="ev1").eid == ["ev1"]
+    assert stream.select(eid=["ev2", "ev1"]).eid == ["ev1", "ev2"]
+    assert stream.select(eid="ev?").eid == ["ev1", "ev2"]
+    assert stream.select(eid="ev1*").eid == ["ev1", "ev10"]
+    assert stream.select(eid="ev[1]").eid == ["ev[1]"]
+    assert stream.select(eid="*").eid == ["ev1", "ev2", "ev10", "ev[1]"]
+    assert stream.select().eid == stream.eid
+    assert len(stream.select(eid="EV1")) == 0
+
+    with pytest.raises(TypeError, match="eid"):
+        stream.select(eid=1)
+
+
+def test_stream_select_copies_and_window():
+    """select returns a new stream of copies, cut to the window."""
+    stream = _event_stream()
+    selection = stream.select(
+        eid="ev*", starttime="2026-01-01T00:01:05", duration=60
+    )
+
+    assert type(selection) is Stream
+    assert selection.sid == stream.sid
+    assert selection.eid == ["ev2", "ev10"]
+    assert [r.nsamp for r in selection] == [5, 6]
+    assert selection[0] is not stream[1]
+    assert stream[1].nsamp == 10
+
+    assert stream.select("XX.STA..HH?").eid == stream.eid
+    assert len(stream.select("XX.OTHER")) == 0
+    with pytest.raises(TypeError, match="starttime"):
+        stream.select(starttime=5.0)
 
 
 def test_stream_extract_absolute_times(mode):
@@ -1595,24 +1759,97 @@ def test_collection_remove_sort_copy_merge():
     assert collection.sid == ["XX.B..HHZ", "XX.D..HHZ"]
 
 
-def test_collection_extract_one_or_all_streams(mode):
-    """Extraction from one stream, or from every stream."""
-    one = mode.extract("IV.MODE..HNZ", 10, 20)
-    assert isinstance(one, Stream)
-    assert one[0].nsamp == 1001
-
-    every = mode.extract(starttime=10, endtime=20)
+def test_collection_extract_every_stream(mode):
+    """Extraction from every stream, with absolute times."""
+    every = mode.extract(
+        starttime="2012-05-20T02:03:33", endtime="2012-05-20T02:03:43"
+    )
     assert isinstance(every, StreamCollection)
     assert every.sid == mode.sid
     assert all(stream[0].nsamp == 1001 for stream in every)
 
-    merged = mode.extract(starttime=10, endtime=20, merge=True)
+    same = mode.extract(starttime="2012-05-20T02:03:33", duration=10)
+    assert [s[0].nsamp for s in same] == [1001] * 3
+
+    merged = mode.extract(
+        starttime="2012-05-20T02:03:33", duration=10, merge=True
+    )
     assert [len(stream) for stream in merged] == [1, 1, 1]
 
     empty = mode.extract(
         starttime="2013-01-01T00:00:00", endtime="2013-01-01T00:01:00"
     )
     assert len(empty) == 0
+
+
+def test_collection_extract_takes_dates_only(mode):
+    """Seconds, sid and eid are refused: windows are absolute."""
+    with pytest.raises(TypeError, match="starttime"):
+        mode.extract(starttime=10, endtime=20)
+    with pytest.raises(TypeError, match="endtime"):
+        mode.extract(starttime="2012-05-20T02:03:33", endtime=10)
+    with pytest.raises(TypeError):
+        mode.extract("IV.MODE..HNZ", 10, 20)
+    with pytest.raises(TypeError):
+        mode.extract(sid="IV.MODE..HNZ")
+    with pytest.raises(TypeError):
+        mode.extract(eid="ev1")
+    with pytest.raises(ValueError, match="requires starttime"):
+        mode.extract(duration=10)
+
+
+def test_collection_windows_are_aligned():
+    """The same absolute window for channels starting at other times."""
+    collection = StreamCollection()
+    for station, start in (("A", START), ("B", "2026-01-01T00:00:03")):
+        collection.append(
+            Record(data=np.arange(100.0), delta=0.1, time=start,
+                   sid=f"XX.{station}..HHZ")
+        )
+    window = collection.extract(
+        starttime="2026-01-01T00:00:04", duration=1
+    )
+
+    assert [s[0].starttime for s in window] == [
+        Date("2026-01-01T00:00:04")
+    ] * 2
+    assert [s[0].endtime for s in window] == [
+        Date("2026-01-01T00:00:05")
+    ] * 2
+
+
+def test_collection_cut_in_place():
+    """cut trims every stream and removes the streams left empty."""
+    collection = StreamCollection()
+    for station, start in (("A", START), ("B", "2026-01-01T00:01:00")):
+        collection.append(
+            Record(data=np.arange(100.0), delta=0.1, time=start,
+                   sid=f"XX.{station}..HHZ")
+        )
+    stored = collection[0][0]
+
+    assert collection.cut(starttime=START, duration=2) is None
+    assert collection.sid == ["XX.A..HHZ"]
+    assert collection[0][0] is stored
+    assert stored.nsamp == 21
+
+    with pytest.raises(TypeError, match="starttime"):
+        collection.cut(0, 1)
+
+
+def test_collection_select_events_and_duration():
+    """select takes eid patterns and a duration, as streams do."""
+    collection = StreamCollection()
+    collection.append(_event_stream())
+
+    assert collection.select(eid="ev?")[0].eid == ["ev1", "ev2"]
+    assert len(collection.select(eid="none")) == 0
+
+    window = collection.select(starttime=START, duration=5)
+    assert [r.nsamp for r in window.records()] == [6]
+
+    with pytest.raises(ValueError, match="requires starttime"):
+        collection.select(duration=5)
 
 
 def test_collection_select_channels(mode):

@@ -418,7 +418,8 @@ the end match anything (the patterns of `shakelab.signals.codes`,
 described in [`waveforms.md`](waveforms.md) §8.3). `starttime` and
 `endtime` keep the samples between two times, bounds included: records
 outside the window are dropped, the others cut to it as by
-`Record.cut`.
+`Record.cut`. `duration` gives the length of the window in seconds
+after `starttime`, instead of `endtime`.
 
 ```python
 data = reader("waveforms.mseed", select="IV.MODE..HN{E,N}")
@@ -433,12 +434,17 @@ data = reader("waveforms.mseed", select="*.*.*.HNZ",
 print(data.records()[0])
 # starttime 2012-05-20T02:04:00.000000Z, duration 30.0s,
 # sampling rate 100.0 Hz, 3001 samples
+data = reader("waveforms.mseed", select="*.*.*.HNZ",
+              starttime="2012-05-20T02:04:00", duration=30.0)
+print(data.records()[0].nsamp)
+# 3001
 ```
 
 Times are `Date` objects or ISO 8601 strings, in UTC. A date without
 the time of day is midnight: `starttime="2012-05-20"`,
 `endtime="2012-05-20"` is an instant, not the whole day (use
-`endtime="2012-05-21"`, or `"2012-05-20T23:59:59.999"`). A window
+`endtime="2012-05-21"`, `"2012-05-20T23:59:59.999"`, or
+`duration=86400`). A window
 that falls between two samples keeps the samples inside it:
 
 ```python
@@ -456,7 +462,8 @@ to avoid that for archives, use `layout` (§8.5). The time window
 some formats, which gives the time of the first sample to files that
 do not have it (text tables, TDMS); both can be given in one call.
 The same selection on a collection already in memory is
-`StreamCollection.select(sid, starttime=..., endtime=...)`
+`StreamCollection.select(sid, starttime=..., endtime=...)`, with the
+same `duration`
 ([`waveforms.md`](waveforms.md) §8.3): reading with `select` and the
 window, or reading everything and then calling `select` with the same
 arguments, gives the same data.

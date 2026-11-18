@@ -178,6 +178,16 @@ def test_circular_processing_is_refused(vertical, method, args):
         getattr(stream, method)(*args)
 
 
+def test_circular_cut_is_refused(vertical):
+    """A circular stream keeps its window: cut points to extract."""
+    stream = CircularStream(max_duration=60.0)
+    stream.append(vertical.extract(0, 4.99))
+
+    with pytest.raises(NotImplementedError, match="extract"):
+        stream.cut(0, 1)
+    assert stream.extract(0, 1)[0].nsamp == 101
+
+
 def test_circular_validation():
     """Durations, record types and reverse sorting are validated."""
     with pytest.raises(ValueError):

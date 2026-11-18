@@ -487,7 +487,7 @@ class Client:
                 end = item.endtime - margin
                 if not record.overlaps(start, end):
                     continue
-                record = record.cut(start, end, inplace=False)
+                record = record.extract(start, end)
             stream_collection.append(record)
 
         return stream_collection
@@ -1005,7 +1005,7 @@ def _add_piece(
                 if not record.overlaps(item.starttime, end):
                     continue
                 received.append(
-                    record.cut(item.starttime, end, inplace=False)
+                    record.extract(item.starttime, end)
                 )
 
 
@@ -1021,9 +1021,7 @@ def _select_records(received: StreamCollection, requests: list) -> list:
                     continue
                 pairs.append(
                     (
-                        record.cut(
-                            item.starttime, item.endtime, inplace=False
-                        ),
+                        record.extract(item.starttime, item.endtime),
                         item,
                     )
                 )

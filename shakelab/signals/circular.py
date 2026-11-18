@@ -425,6 +425,22 @@ class CircularStream(Stream):
             "process the resulting Record"
         )
 
+    def cut(self, *args: Any, **kwargs: Any) -> None:
+        """
+        Refuse cutting the buffer in place.
+
+        Raises
+        ------
+        NotImplementedError
+            Always: a circular stream keeps its own time window, set by
+            ``max_duration``; a part of it is taken with
+            :meth:`Stream.extract`.
+        """
+        raise NotImplementedError(
+            "a CircularStream keeps its own time window; take a part of "
+            "it with stream.extract(starttime, endtime)"
+        )
+
     remove_mean = _processing_not_supported
     detrend = _processing_not_supported
     filter = _processing_not_supported

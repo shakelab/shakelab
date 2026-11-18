@@ -20,6 +20,29 @@ corrections. The format follows
   `__iter__` (it relied on indexing), and `x in record` compares a
   number with the samples using NumPy; another operand raises a
   `TypeError` (`"ev01" in record` returned False).
+- Time windows of `signals.base`: `cut` (in place, returns None) and
+  `extract` (a copy) exist on `Record`, `Stream` and
+  `StreamCollection`, with a new `duration` (seconds after
+  `starttime`) instead of `endtime`; the options after the window are
+  keyword-only. `Record.cut` has no `inplace` any more (use
+  `extract`), and `Record.extract` copies only the samples of the
+  window (it copied the whole record first).
+- The two bounds of a window are both times or both numbers of
+  seconds: `record.extract("2012-05-20T02:04:00", 30)` raises a
+  `TypeError` that points to `duration`; the number was read as
+  seconds from the start of the record, not from the time.
+- `StreamCollection.extract` and `cut` take absolute times only: a
+  number was read as seconds from the start of each stream, so that
+  channels starting at different times were cut to different windows.
+  `StreamCollection.extract` has no `sid` and no `eid` any more (use
+  `collection[sid].extract(...)` or `select`), and always returns a
+  collection.
+- `Stream.extract` returns a Stream, or a Record with `merge=True`; it
+  has no `eid` any more (use `stream[eid].extract(...)` or `select`).
+  With `merge=True` and no sample in the window it raises a
+  `ValueError` (it returned None), as `Record.extract` does.
+- `signals.circular.CircularStream.cut` raises `NotImplementedError`:
+  the buffer keeps its own window.
 - `signals.base.StreamCollection.read` and
   `signals.metadata.MetadataCollection.read` add the content of a file
   to the collection and return None, as every method that changes an
@@ -642,10 +665,15 @@ corrections. The format follows
 
 ### Added
 
-- `signals.base.StreamCollection.select(sid, *, starttime, endtime)`
-  returns a new collection with copies of the channels that match a
-  pattern or a list of patterns, cut to an optional time window: the
-  selection of `io.reader`, which now shares its implementation.
+- `signals.base.StreamCollection.select(sid, *, eid, starttime,
+  endtime, duration)` and `Stream.select` return a new collection or
+  stream with copies of the channels and events that match a pattern
+  or a list of patterns (event identifiers with `*` and `?`), cut to
+  an optional time window: the selection of `io.reader`, which now
+  shares its implementation.
+- `signals.io.reader(..., duration=...)`: the length of the time
+  window after `starttime`, instead of `endtime` (also with
+  `layout="sds"`).
 - `exploration.yarray`: `slab-yarray fdd`, the frequency domain
   decomposition from the command line: processing options with the
   names of the `FDDConfig` parameters, peaks (`--peak-range`,

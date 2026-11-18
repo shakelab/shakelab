@@ -233,6 +233,7 @@ def reader(
     select: Any = None,
     starttime: Any = None,
     endtime: Any = None,
+    duration: Optional[float] = None,
     metadata: Any = None,
     stream_collection: Optional[StreamCollection] = None,
     **options: Any,
@@ -270,9 +271,12 @@ def reader(
     starttime, endtime : Date or str, optional
         Time window to keep, bounds included: records outside it are
         dropped and the others cut to it (see
-        :meth:`~shakelab.signals.base.Record.cut`). The names differ
-        from the ``start`` option of some formats (the start time of
-        records without one, e.g. text tables).
+        :meth:`~shakelab.signals.base.Record.cut`). They differ from
+        the ``first_sample_time`` option of some formats (the start
+        time of records without one, e.g. text tables).
+    duration : float, optional
+        Length of the time window in seconds after ``starttime``,
+        instead of ``endtime``.
     metadata : MetadataCollection, ChannelEpoch, path or sequence, optional
         Channel metadata assigned to the records read, as with
         :meth:`~shakelab.signals.base.StreamCollection.set_metadata`.
@@ -348,7 +352,7 @@ def reader(
     )
 
     patterns = None if select is None else _sid_patterns(select, "select")
-    start, end = _time_bounds(starttime, endtime)
+    start, end = _time_bounds(starttime, endtime, duration)
     metadata = _as_metadata(metadata)
     name = None if format is None else _format_name(format)
     if layout is None:
@@ -1038,7 +1042,8 @@ def _archive_files(
         )
     if start is None or end is None:
         raise ValueError(
-            f"layout={layout!r} requires starttime and endtime"
+            f"layout={layout!r} requires starttime and endtime (or "
+            "duration)"
         )
     if list_file is not None:
         raise ValueError("list_file cannot be used with layout")

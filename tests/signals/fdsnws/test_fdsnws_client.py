@@ -420,8 +420,8 @@ def test_corrected_across_a_gap(client, server, tmp_path):
                            select="IV.MODE..HNZ")
     raw = collection[0][0]
     pieces = StreamCollection()
-    pieces.append(raw.cut(raw.starttime, gap, inplace=False))
-    pieces.append(raw.cut(gap + 1.0, raw.endtime, inplace=False))
+    pieces.append(raw.extract(raw.starttime, gap))
+    pieces.append(raw.extract(gap + 1.0, raw.endtime))
     path = tmp_path / "gap.mseed"
     io.writer(pieces, path, format="mseed")
     server.replies["/fdsnws/dataselect/1/query"] = lambda req: (
@@ -435,7 +435,7 @@ def test_corrected_across_a_gap(client, server, tmp_path):
     first, second = _records(collection)
 
     def rms(record, start, end):
-        part = record.cut(start, end, inplace=False)
+        part = record.extract(start, end)
         return np.sqrt(np.mean(part.data ** 2))
 
     for record, start in ((first, gap - 5.0), (second, gap + 1.0)):

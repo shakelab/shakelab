@@ -1,6 +1,6 @@
 # ShakeLab development and architecture guidelines
 
-*Version 2.10, 18 November 2026*
+*Version 2.11, 18 November 2026*
 
 [ShakeLab documentation](README.md) › Development guidelines
 
@@ -430,8 +430,15 @@ conventions adopted so far are:
   to a `target` instead of returning the data return the number of
   bytes written (0: no data, no file);
 - time windows: `starttime` and `endtime`, `Date` objects or ISO 8601
-  strings, bounds included, keyword-only; the time of the first sample
-  of data that do not have one (text tables, TDMS) is
+  strings, bounds included, keyword-only (the window methods of the
+  containers, `cut` and `extract`, take them first and also by
+  position); `duration` gives a length in seconds after `starttime`
+  instead of `endtime`; numbers of seconds from the start of the
+  object are accepted only where that start is one (records, streams),
+  and the two bounds of a window are of one kind (a time followed by a
+  number raises `TypeError`); a window in place is `cut`, on a copy
+  `extract`, a choice of channels or events `select`; the time of the
+  first sample of data that do not have one (text tables, TDMS) is
   `first_sample_time`, a different concept;
 - servers: one address, read by `shakelab.libutils.address`
   (`host[:port]`, IPv6 in brackets, and for web services
