@@ -324,8 +324,104 @@ def test_record_time_properties():
     assert record.duration == pytest.approx(1.0)
     assert record.starttime == Date(START)
     assert record.endtime == Date("2026-01-01T00:00:01")
-    assert record[2:4].tolist() == [2, 3]
+    assert record[2:4].data.tolist() == [2, 3]
     assert record.peak == 10
+
+
+def test_record_index_selects_sample():
+    """An integer index returns one sample."""
+    record = Record(data=np.arange(5.0), delta=0.1, time=START)
+
+    assert record[1] == 1.0
+    assert record[-1] == 4.0
+    assert record[np.int64(2)] == 2.0
+
+    with pytest.raises(IndexError):
+        record[5]
+
+
+def test_record_slice_returns_record():
+    """A slice is an independent record starting at its first sample."""
+    record = Record(
+        data=np.arange(10.0), delta=0.1, time=START,
+        sid="XX.STA..HHZ", eid="ev01", units="m/s",
+    )
+    part = record[2:5]
+
+    assert isinstance(part, Record)
+    assert part.data.tolist() == [2.0, 3.0, 4.0]
+    assert part.starttime == Date("2026-01-01T00:00:00.2")
+    assert part.delta == record.delta
+    assert (part.sid, part.eid, part.head.units) == (
+        "XX.STA..HHZ", "ev01", "m/s"
+    )
+    assert part.head.meta is record.head.meta
+
+    part.data[0] = 99.0
+    assert record.data[2] == 2.0
+
+    assert record[-3:].starttime == Date("2026-01-01T00:00:00.7")
+    assert record[:].data.tolist() == record.data.tolist()
+    assert record[0:10:1].starttime == record.starttime
+
+    empty = record[5:2]
+    assert isinstance(empty, Record)
+    assert empty.nsamp == 0
+
+
+def test_record_slice_without_time_axis():
+    """Without start time a slice needs no sampling interval."""
+    assert Record(data=[1, 2, 3])[1:].data.tolist() == [2, 3]
+
+    record = Record(data=[1, 2, 3], time=START)
+    assert record[:2].starttime == Date(START)
+    with pytest.raises(ValueError, match="sampling interval"):
+        record[1:]
+
+
+@pytest.mark.parametrize(
+    "key", [slice(None, None, 2), slice(None, None, -1)]
+)
+def test_record_slice_step_is_rejected(key):
+    """A slice step other than 1 would change the sampling: rejected."""
+    record = Record(data=np.arange(10.0), delta=0.1, time=START)
+
+    with pytest.raises(ValueError, match="resample"):
+        record[key]
+
+
+@pytest.mark.parametrize(
+    "key", [[0, 2], np.array([True, False, True]), True, 1.0, "ev01"]
+)
+def test_record_numpy_indexing_is_on_data(key):
+    """Lists, masks and other keys are refused: index record.data."""
+    record = Record(data=[1.0, 2.0, 3.0], delta=0.1, time=START)
+
+    with pytest.raises(TypeError, match=r"record\.data"):
+        record[key]
+
+
+def test_record_iterates_over_samples():
+    """Iterating over a record gives its samples, as NumPy does."""
+    record = Record(data=[1.0, 2.0, 3.0], delta=0.1, time=START)
+
+    assert "__iter__" in vars(Record)
+    assert list(record) == [1.0, 2.0, 3.0]
+    assert list(Record()) == []
+
+
+def test_record_membership_compares_samples():
+    """``in`` looks for a number among the samples; nothing else."""
+    record = Record(data=[1.0, 2.0, 3.0], delta=0.1, time=START, eid="ev01")
+
+    assert 2.0 in record
+    assert np.int64(3) in record
+    assert 4.0 not in record
+    assert 1.0 not in Record()
+
+    for value in ("ev01", Date(START), True, None):
+        with pytest.raises(TypeError, match="overlaps"):
+            value in record
 
 
 def test_record_copy_is_independent():
@@ -1517,6 +1613,84 @@ def test_collection_extract_one_or_all_streams(mode):
         starttime="2013-01-01T00:00:00", endtime="2013-01-01T00:01:00"
     )
     assert len(empty) == 0
+
+
+def test_collection_select_channels(mode):
+    """select takes a pattern or a list of patterns of signals.codes."""
+    assert mode.select("IV.MODE..HN[EN]").sid == [
+        "IV.MODE..HNE", "IV.MODE..HNN"
+    ]
+    assert mode.select(["IV.MODE..HNZ", "XX"]).sid == ["IV.MODE..HNZ"]
+    assert mode.select("IV").sid == mode.sid
+    assert mode.select().sid == mode.sid
+    assert len(mode.select("IV.MIRA")) == 0
+
+
+def test_collection_select_returns_copies(mode):
+    """The selected records are copies in a new collection."""
+    selection = mode.select("IV.MODE..HNZ")
+
+    assert isinstance(selection, StreamCollection)
+    assert type(selection[0]) is Stream
+    assert selection[0] is not mode["IV.MODE..HNZ"]
+    assert selection[0][0] is not mode["IV.MODE..HNZ"][0]
+
+    selection[0][0].data[0] += 1.0
+    assert mode["IV.MODE..HNZ"][0].data[0] != selection[0][0].data[0]
+
+
+def test_collection_select_time_window(mode):
+    """Window bounds are absolute and included; empty records go."""
+    selection = mode.select(
+        "IV.MODE..HNZ",
+        starttime="2012-05-20T02:04:00",
+        endtime="2012-05-20T02:04:10",
+    )
+    record = selection[0][0]
+
+    assert record.nsamp == 1001
+    assert record.starttime == Date("2012-05-20T02:04:00")
+    assert mode["IV.MODE..HNZ"][0].nsamp == 18001
+
+    assert mode.select(starttime="2012-05-20T02:06:00").nsamp == 3 * 2301
+    assert len(mode.select(endtime="2012-05-20T02:00:00")) == 0
+
+
+def test_collection_select_matches_reader(mode):
+    """select in memory gives what the reader gives at reading."""
+    options = dict(
+        starttime="2012-05-20T02:04:00.005",
+        endtime="2012-05-20T02:04:30",
+    )
+    read = reader(str(DATA / "MODE.mseed"), select="IV.*..HN[ZE]", **options)
+    selected = mode.select("IV.*..HN[ZE]", **options)
+
+    assert selected.sid == read.sid
+    for first, second in zip(selected.records(), read.records()):
+        assert first.starttime == second.starttime
+        np.testing.assert_array_equal(first.data, second.data)
+
+
+def test_collection_select_errors(mode):
+    """Invalid patterns and windows are rejected."""
+    with pytest.raises(TypeError, match="sid"):
+        mode.select(5)
+    with pytest.raises(ValueError):
+        mode.select("IV..")
+    with pytest.raises(TypeError, match="starttime"):
+        mode.select(starttime=10.0)
+    with pytest.raises(ValueError, match="precedes"):
+        mode.select(
+            starttime="2012-05-20T02:05:00", endtime="2012-05-20T02:04:00"
+        )
+    with pytest.raises(TypeError):
+        mode.select("IV", "2012-05-20T02:04:00")
+
+    collection = StreamCollection()
+    collection.append(Record(data=[1.0, 2.0], sid="XX.STA..HHZ"))
+    assert collection.select("XX").nsamp == 2
+    with pytest.raises(ValueError, match="start time"):
+        collection.select(starttime="2026-01-01T00:00:00")
 
 
 def test_collection_response_correction(mode, mode_response):

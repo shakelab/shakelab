@@ -132,12 +132,19 @@ collection = StreamCollection()
 collection.append(record)              # stored as a copy
 stream = collection["XX.TEST..HHZ"]
 part = record.extract("2026-01-01T00:00:02", "2026-01-01T00:00:05")
+first = record[:100]                   # Record of the first 100 samples
+vertical = collection.select("*.*.*.HHZ",
+                             starttime="2026-01-01T00:00:02")
 ```
 
 Records of the same channel are kept in their stream in the order
 they are appended, and a record contiguous with the last one is joined
-to it (within half a sample); `extract` returns a new object with a time window, `cut`
-trims in place. The time axis (`time_axis()`), peak value (`peak`),
+to it (within half a sample); `extract` returns a new object with a
+time window, `cut` trims in place, and a slice of a record is a new
+record of consecutive samples (`record.data` holds the samples as a
+NumPy array). `select` returns the channels of a collection that match
+a pattern, within an optional time window, as the reader does. The
+time axis (`time_axis()`), peak value (`peak`),
 duration and end time are available on every record.
 
 ### 3.3 Channel metadata

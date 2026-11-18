@@ -75,6 +75,7 @@ from shakelab.libutils.timeN import Date
 from shakelab.libutils.utils import warn_external
 from shakelab.signals import fourier
 from shakelab.signals import metadata
+from shakelab.signals.codes import SidPattern, parse_sid_pattern
 from shakelab.signals import response
 from shakelab.signals.header import Header
 
@@ -189,11 +190,102 @@ class Record:
         """
         return self.nsamp
 
-    def __getitem__(self, item: Any) -> Any:
+    def __getitem__(self, key: Any) -> Any:
         """
-        Return one or more waveform samples.
+        Return one sample, or a record of consecutive samples.
+
+        Parameters
+        ----------
+        key : int or slice
+            An integer selects one sample. A slice with step 1 (or
+            none) returns a new :class:`Record` with the selected
+            samples, starting at the time of its first sample.
+
+        Returns
+        -------
+        number or Record
+            Selected sample, or independent record of the selected
+            samples.
+
+        Raises
+        ------
+        TypeError
+            If the key is not an integer or a slice (NumPy indexing,
+            such as lists or masks, is done on :attr:`data`).
+        ValueError
+            If the slice step is not 1: taking every n-th sample would
+            change the sampling without an anti-alias filter (see
+            :meth:`resample`).
+        IndexError
+            If the integer index is out of range.
+
+        Notes
+        -----
+        Unlike a slice of :attr:`data`, which is a view, a sliced record
+        is a copy: changing it leaves this record unchanged.
         """
-        return self.data[item]
+        if isinstance(key, slice):
+            if key.step not in (None, 1):
+                raise ValueError(
+                    "record slices must have step 1; use resample to "
+                    "change the sampling, or record.data[::step] for "
+                    "the samples"
+                )
+
+            start, stop, _ = key.indices(self.nsamp)
+            stop = max(stop, start)
+
+            if self.time is not None and start and self.delta is None:
+                raise ValueError(
+                    "sampling interval is required to slice a record "
+                    "with a start time"
+                )
+
+            record = Record()
+            record.head = self.head.copy(parent=record)
+            record.data = self.data[start:stop]
+
+            if self.time is not None and start:
+                record.time = self.time + start * self.delta
+
+            return record
+
+        if isinstance(key, Integral) and not isinstance(
+            key, (bool, np.bool_)
+        ):
+            return self.data[key]
+
+        raise TypeError(
+            "record indices must be integers or slices; use "
+            "record.data[...] for NumPy indexing"
+        )
+
+    def __iter__(self) -> Iterator[Any]:
+        """
+        Iterate over the waveform samples.
+        """
+        return iter(self.data)
+
+    def __contains__(self, value: Any) -> bool:
+        """
+        Tell whether a value is one of the waveform samples.
+
+        As in indexing, the elements of a record are its samples: a
+        number is compared with them. To ask whether a time falls
+        within the record use :meth:`overlaps`.
+
+        Raises
+        ------
+        TypeError
+            If ``value`` is not a number.
+        """
+        if not self._is_numeric_scalar(value):
+            raise TypeError(
+                "only numbers can be searched among the samples of a "
+                "record; use record.overlaps(time, time) for a time"
+            )
+
+        return bool(np.any(self.data == value))
 
     def __str__(self) -> str:
         return (
@@ -3917,6 +4009,77 @@ class StreamCollection:
             for stream in self.stream:
                 stream.sort(reverse=reverse)
 
+    def select(
+        self,
+        sid: Any = "*",
+        *,
+        starttime: Any = None,
+        endtime: Any = None,
+    ) -> StreamCollection:
+        """
+        Return the data of some channels, within a time window.
+
+        Parameters
+        ----------
+        sid : str or sequence of str, optional
+            Source identifier pattern, or list of patterns, matched
+            code by code (see :mod:`shakelab.signals.codes`), e.g.
+            ``"IV.*..HN?"``, ``"IV.{MODE,MIRA}"`` or ``"IV"`` (every
+            channel of IV). Default: all channels.
+        starttime : Date or str, optional
+            Start of the time window. Default: no lower bound.
+        endtime : Date or str, optional
+            End of the time window, included. Default: no upper bound.
+
+        Returns
+        -------
+        StreamCollection
+            New collection (of standard streams) with copies of the
+            selected records, cut to the window. Records without
+            samples in the window are left out, as are channels left
+            without records; with no match the collection is empty.
+
+        Raises
+        ------
+        TypeError
+            If a pattern is not a string, or a window bound is not a
+            Date or a string.
+        ValueError
+            If a pattern is invalid, the window is reversed, or a record
+            without start time would have to be cut.
+
+        Notes
+        -----
+        The selection is the one of :func:`shakelab.signals.io.reader`:
+        ``reader(source, select=p, starttime=a, endtime=b)`` gives the
+        same data as ``reader(source).select(p, starttime=a,
+        endtime=b)``. Window bounds are absolute times, as in the
+        reader.
+
+        Examples
+        --------
+        >>> data.select("IV.*..HN?")
+        >>> data.select(["IV.MODE", "IV.MIRA..HN?"],
+        ...             starttime="2012-05-20T02:03:00",
+        ...             endtime="2012-05-20T02:06:00")
+        """
+        patterns = _sid_patterns(sid, "sid")
+        start, end = _time_bounds(starttime, endtime)
+
+        collection = StreamCollection()
+
+        for stream in self.stream:
+            records = _select_records(
+                stream.record, patterns, start, end, copy=True
+            )
+
+            if records:
+                selected = Stream(sid=stream.sid)
+                selected._replace_records(records)
+                collection.stream.append(selected)
+
+        return collection
+
     def extract(
         self,
         sid: Optional[str] = None,
@@ -4348,6 +4511,96 @@ class StreamCollection:
 # ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
+
+
+def _sid_patterns(value: Any, name: str) -> list[SidPattern]:
+    """
+    Patterns of a source identifier pattern or list of patterns.
+
+    ``name`` is the argument named in the error message.
+    """
+    if isinstance(value, str):
+        value = [value]
+    elif not isinstance(value, (list, tuple)):
+        raise TypeError(f"{name} must be a pattern or a list of patterns")
+
+    patterns = []
+    for item in value:
+        patterns.extend(parse_sid_pattern(item))
+
+    return patterns
+
+
+def _time_bounds(
+    starttime: Any,
+    endtime: Any,
+) -> tuple[Optional[Date], Optional[Date]]:
+    """
+    Bounds of an absolute time window, as dates (or None).
+    """
+    bounds = []
+
+    for name, value in (("starttime", starttime), ("endtime", endtime)):
+        if value is not None and not isinstance(value, (Date, str)):
+            raise TypeError(
+                f"{name} must be a Date or an ISO 8601 string"
+            )
+        bounds.append(None if value is None else Date(value))
+
+    if None not in bounds and bounds[0] > bounds[1]:
+        raise ValueError("the end of the time window precedes its start")
+
+    return bounds[0], bounds[1]
+
+
+def _select_records(
+    records: Any,
+    patterns: Optional[list[SidPattern]],
+    start: Optional[Date],
+    end: Optional[Date],
+    copy: bool = False,
+) -> list[Record]:
+    """
+    Records of the selected channels, cut to a time window.
+
+    Records without samples in the window are left out. With ``copy``
+    the records kept are copies, otherwise they are cut in place.
+    """
+    kept = []
+
+    for record in records:
+        if patterns is not None and not any(
+            pattern.matches(record.sid) for pattern in patterns
+        ):
+            continue
+
+        if start is not None or end is not None:
+            if record.time is None:
+                raise ValueError(
+                    f"{record.sid}: a record without start time cannot "
+                    "be cut to a time window"
+                )
+
+            if record.nsamp == 0 or (
+                (start is not None and record.endtime < start)
+                or (end is not None and record.time > end)
+            ):
+                continue
+
+            if copy:
+                record = record.copy()
+
+            try:
+                record.cut(start, end)
+            except ValueError:
+                continue    # no sample within the window
+
+        elif copy:
+            record = record.copy()
+
+        kept.append(record)
+
+    return kept
 
 
 def _taper_time(value: Any) -> float:

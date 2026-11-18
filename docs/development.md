@@ -1,6 +1,6 @@
 # ShakeLab development and architecture guidelines
 
-*Version 2.9, 17 November 2026*
+*Version 2.10, 18 November 2026*
 
 [ShakeLab documentation](README.md) › Development guidelines
 
@@ -444,7 +444,15 @@ conventions adopted so far are:
   (`io`, `fdsnws`, `seedlink`), and `True` in the services to download
   them;
 - channel selection: `select`, with the patterns of
-  `shakelab.signals.codes` (`NET.STA.LOC.CHA`, `*`, `?`, `[...]`);
+  `shakelab.signals.codes` (`NET.STA.LOC.CHA`, `*`, `?`, `[...]`), a
+  pattern or a list of patterns, with the same meaning while reading
+  (`io.reader`) and on collections in memory (`select` methods, which
+  return copies);
+- containers: a container is a sequence of its elements (a record of
+  samples, a stream of records, a collection of streams); an integer
+  gives one element, a slice a new object of the same class, and `in`
+  follows the indexing, with an operand of the wrong kind raising
+  `TypeError` instead of answering False;
 - options with a fixed set of values are enumerations, and their
   string values are accepted wherever the enumeration is;
 - objects that can describe themselves have `summary()`, returning

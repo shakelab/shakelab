@@ -9,6 +9,17 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.base.Record` indexing follows the rule of streams and
+  collections: an integer gives one sample, a slice a new `Record` of
+  the consecutive samples (a copy, starting at the time of its first
+  sample). A slice was a NumPy view of the samples. Slices with a step
+  other than 1 raise a `ValueError` (they would change the sampling
+  without an anti-alias filter), and other keys (lists, masks) a
+  `TypeError`: NumPy indexing is done on `record.data`.
+- `signals.base.Record` iterates over its samples with its own
+  `__iter__` (it relied on indexing), and `x in record` compares a
+  number with the samples using NumPy; another operand raises a
+  `TypeError` (`"ev01" in record` returned False).
 - `signals.base.StreamCollection.read` and
   `signals.metadata.MetadataCollection.read` add the content of a file
   to the collection and return None, as every method that changes an
@@ -631,6 +642,10 @@ corrections. The format follows
 
 ### Added
 
+- `signals.base.StreamCollection.select(sid, *, starttime, endtime)`
+  returns a new collection with copies of the channels that match a
+  pattern or a list of patterns, cut to an optional time window: the
+  selection of `io.reader`, which now shares its implementation.
 - `exploration.yarray`: `slab-yarray fdd`, the frequency domain
   decomposition from the command line: processing options with the
   names of the `FDDConfig` parameters, peaks (`--peak-range`,

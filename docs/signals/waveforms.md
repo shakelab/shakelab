@@ -505,24 +505,49 @@ z.overlaps("2012-05-20T02:04:00", None)     # True
 
 ### 6.3 Samples: indexing, slicing, iteration
 
-Indexing a record indexes its samples: `record[...]` is
-`record.data[...]`, a NumPy array or scalar (not a record; a record
-with a time window is obtained with `extract`, §6.4).
+A record is a sequence of samples, as a stream is a sequence of
+records: `len` counts them, an integer selects one, iteration and `in`
+visit them. A slice is a new record, as a slice of a stream is a new
+stream: it holds a copy of the samples and starts at the time of its
+first sample.
 
 ```python
 z[0], z[-1]                         # first and last sample
-z[100:200]                          # samples 100-199: a view on the data
-z[::2]                              # every second sample: a view
-z[[0, 10, 20]]                      # NumPy fancy indexing: a copy
-z[z.data > 0]                       # boolean mask: a copy
 len(z)                              # 18001
+segment = z[100:200]                # Record of 100 samples, a copy
+print(segment)
+# starttime 2012-05-20T02:03:24.000000Z, duration 0.99s,
+# sampling rate 100.0 Hz, 100 samples
 
 for value in z[:3]:                 # iterating over the samples
     print(value)
+
+z[0] in z                           # True: compares with the samples
 ```
 
-A record has no `__iter__` of its own: `for value in record` works
-through the indexing and visits the samples (§15).
+```python
+z[::2]                              # ValueError: step 1 only
+z[[0, 10, 20]]                      # TypeError: index z.data instead
+```
+
+A slice step other than 1 raises a `ValueError`: taking every second
+sample would halve the sampling rate without an anti-alias filter (to
+change the sampling use `resample`, §6.7). NumPy indexing (lists of indices, masks, steps) is done on the
+samples, `record.data`, and gives arrays: the record refuses those
+keys with a `TypeError` pointing there.
+
+```python
+z.data[100:200]                     # array: a view on the data
+z.data[::2]                         # every second sample: a view
+z.data[[0, 10, 20]]                 # NumPy fancy indexing: a copy
+z.data[z.data > 0]                  # boolean mask: a copy
+```
+
+`in` takes a number and compares it with the samples; any other
+operand raises a `TypeError`, so that `"ev01" in record` (an event
+identifier, as in a stream) does not answer `False` without notice.
+Whether a time falls within the record is asked to `overlaps`
+(§6.2): `z.overlaps(t, t)`.
 
 The samples are in `record.data`. Assigning to its elements or slices
 changes the record in place; assigning a new array to `data` replaces
@@ -537,8 +562,8 @@ x.data = x.data[1000:2000]          # 1000 samples; time unchanged!
 ```
 
 The last line keeps the start time of the original record, so the
-samples are now at the wrong times: to take a part of a record use
-`extract` or `cut`, which update the start time. The sample at a time
+samples are now at the wrong times: to take a part of a record use a
+slice, `extract` or `cut`, which update the start time. The sample at a time
 and the time of a sample follow from §1:
 
 ```python
@@ -1099,11 +1124,33 @@ z_rec = collection.extract(sid="IV.MODE..HNZ", starttime=0.0,
                            endtime=10.0, merge=True)   # Record
 ```
 
-Channels are selected when reading, with the patterns of
-`shakelab.signals.codes` (`*`, `?`, `[...]`, `{A,B}`, code by code),
-together with a time window. A set that is not closed (`HN[Z`), empty
-or nested raises a `ValueError`, as unbalanced braces do, instead of
-matching nothing:
+`select(sid="*", starttime=None, endtime=None)` keeps the channels
+that match a pattern, or a list of patterns, of
+`shakelab.signals.codes` (`*`, `?`, `[...]`, `{A,B}`, code by code;
+codes missing at the end match anything), within an optional time
+window with the bounds included. It returns a new collection with
+copies of the selected records, cut to the window; records without
+samples in the window are left out, and a selection that matches
+nothing is an empty collection. A set that is not closed (`HN[Z`),
+empty or nested raises a `ValueError`, as unbalanced braces do,
+instead of matching nothing.
+
+```python
+horizontal = collection.select("*.*.*.HN{N,E}")
+print(horizontal.sid)               # ['IV.MODE..HNE', 'IV.MODE..HNN']
+part = collection.select(["IV.MODE..HNZ", "IV.MODE..HNE"],
+                         starttime="2012-05-20T02:04:00",
+                         endtime="2012-05-20T02:04:10")
+print(part.sid, part[0][0].nsamp)   # 2 streams, 1001 samples each
+```
+
+The window bounds are absolute times (`Date` objects or ISO 8601
+strings), as in the reader: `select` is the selection of
+`io.reader`, applied to a collection in memory, so that
+`reader(source, select=p, starttime=a, endtime=b)` and
+`reader(source).select(p, starttime=a, endtime=b)` give the same
+data. Reading with the selection is cheaper, since the samples outside
+it are not kept:
 
 ```python
 horizontal = reader("waveforms.mseed", select="*.*.*.HN{N,E}",
@@ -1112,19 +1159,14 @@ horizontal = reader("waveforms.mseed", select="*.*.*.HN{N,E}",
 print(horizontal.sid)               # ['IV.MODE..HNE', 'IV.MODE..HNN']
 ```
 
-A collection already in memory has no selection method (§15); the
-same patterns are matched with `match_sid`:
+The stored streams of some channels, not copies, are taken with
+indexing or `match_sid`:
 
 ```python
 from shakelab.signals.codes import match_sid
 
-horizontal = StreamCollection()
-for stream in collection:
-    if match_sid(stream.sid, "IV.MODE..HN[NE]"):
-        horizontal.append(stream)   # copies of the records
-
-vertical = [stream for stream in collection
-            if stream.sid.endswith("Z")]    # list of the stored streams
+stored = [stream for stream in collection
+          if match_sid(stream.sid, "IV.MODE..HN[NE]")]
 ```
 
 ### 8.4 Arithmetic
@@ -1173,8 +1215,9 @@ the container), or new and independent data. The channel metadata
 
 | Operation | Returns | Samples shared with the container |
 |---|---|---|
-| `record.data`, `record[i:j]`, `record[::k]` | NumPy array (view) | yes |
-| `record[[i, j]]`, `record[mask]` | NumPy array (copy) | no |
+| `record.data`, `record.data[i:j]`, `record.data[::k]` | NumPy array (view) | yes |
+| `record.data[[i, j]]`, `record.data[mask]` | NumPy array (copy) | no |
+| `record[i:j]` | new Record | no |
 | `Record(data=array)`, `record.data = array` | — | no: the array is copied |
 | `record.copy()`, `record.extract()`, `cut(inplace=False)` | new Record | no |
 | `record.cut()`, processing methods | None (changed in place) | — |
@@ -1190,7 +1233,7 @@ the container), or new and independent data. The channel metadata
 | `collection[i:j]` | new collection of the stored Streams | yes |
 | `for stream in collection`, `collection.records()` | stored Streams, Records | yes |
 | `collection.append()`, `collection.merge()` | — | no: copies are stored |
-| `collection.copy()`, `collection.extract()`, `collection / response` | new StreamCollection | no |
+| `collection.copy()`, `collection.extract()`, `collection.select()`, `collection / response` | new StreamCollection | no |
 | `set_metadata(collection)` | — | one copy of each epoch, shared by the records of the call |
 
 So a processing method called on a stored object changes the
@@ -1374,6 +1417,18 @@ velocity and displacement of ESM (grey).*
   caller; reading the stored objects back (indexing, iteration,
   slicing, `records()`) gives the stored ones, as for Python lists, so
   that they can be processed in place.
+- **One indexing rule at every level.** A record is a sequence of
+  samples, a stream of records, a collection of streams: an integer
+  gives one element and a slice a new object of the same class. A
+  sliced record is a copy, because the samples of a record are always
+  its own; slices with a step are refused, since they would change
+  the sampling without an anti-alias filter. `in` follows the
+  indexing, and an operand of the wrong kind is an error rather than
+  `False`.
+- **Selection in memory as at reading.** `StreamCollection.select`
+  and the reader share one implementation, so the same patterns and
+  window give the same data whether they are applied while reading or
+  afterwards; the result holds copies, as `MetadataCollection.select`.
 - **Metadata shared by reference.** A channel epoch, with its response
   of tens of stages, is shared by all the records of that epoch and
   by their copies, instead of being copied with every record; changes
@@ -1408,10 +1463,10 @@ velocity and displacement of ESM (grey).*
 ## 14. Validation
 
 The containers are covered by the tests of `tests/signals/test_base.py`
-(97 tests: header, construction, times, windows on and off the grid,
-joining with gaps, overlaps and rounded time stamps, metadata,
-operators, processing, response correction, streams, collections,
-views and copies) and `tests/signals/test_circular.py` (9 tests). The
+(109 tests: header, construction, indexing, times, windows on and off
+the grid, joining with gaps, overlaps and rounded time stamps,
+metadata, operators, processing, response correction, streams,
+collections, selection, views and copies) and `tests/signals/test_circular.py` (9 tests). The
 following checks were made on the test data of IV.MODE (raw counts,
 StationXML of INGV) and on the records processed by the Engineering
 Strong-Motion database (ESM 3.0, manual processing, 200 Hz):
@@ -1445,9 +1500,6 @@ compared with libmseed in the tests of `libio`.
   sampling intervals differ by more than a relative $`10^{-9}`$ (a
   digitizer with a slightly different declared rate) are not kept as
   separate records: `Stream.append` raises a `ValueError`.
-- **No in-memory selection by channel**: `select` exists in the reader
-  and in `MetadataCollection`, not in `StreamCollection` (use
-  `match_sid`, §8.3).
 - **Units.** The units of the header are updated by the response
   corrections but not by integration, differentiation or the
   arithmetic operators.
@@ -1461,9 +1513,8 @@ compared with libmseed in the tests of `libio`.
   the lag axis is built by the caller (§6.7).
 - **Circular streams** are experimental (API, representation and
   performance may change).
-- **Interface asymmetries** (under review): `record[...]` returns
-  samples while streams and collections return objects; the operators
-  differ between the classes (§10); `cut` exists only on records;
+- **Interface asymmetries** (under review): the operators differ
+  between the classes (§10); `cut` exists only on records;
   `extract` returns a Stream, a Record or None depending on its
   arguments; `Stream.sid` is a string and `StreamCollection.sid` a
   list.

@@ -74,7 +74,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from shakelab.libutils.timeN import Date
 from shakelab.libutils.utils import check_target, warn_external
-from shakelab.signals.codes import SidPattern, parse_sid_pattern
+from shakelab.signals.codes import SidPattern
 from shakelab.signals.libio.common import NotWaveformError
 
 if TYPE_CHECKING:
@@ -341,8 +341,14 @@ def reader(
     """
     # Arguments and metadata are checked first, so that an error stops
     # before the data.
-    patterns = _patterns(select)
-    start, end = _window(starttime, endtime)
+    from shakelab.signals.base import (
+        _select_records,
+        _sid_patterns,
+        _time_bounds,
+    )
+
+    patterns = None if select is None else _sid_patterns(select, "select")
+    start, end = _time_bounds(starttime, endtime)
     metadata = _as_metadata(metadata)
     name = None if format is None else _format_name(format)
     if layout is None:
@@ -391,7 +397,7 @@ def reader(
 
     if selecting:
         collection = _collection(
-            _selected(collection.records(), patterns, start, end)
+            _select_records(collection.records(), patterns, start, end)
         )
     if layout is not None and not len(collection):
         warn_external(
@@ -1015,69 +1021,6 @@ def _collection(records: list[Record]) -> StreamCollection:
         collection.stream[-1].record.append(record)
 
     return collection
-
-
-def _patterns(select: Any) -> Optional[list[SidPattern]]:
-    """Patterns of ``select`` (a string or a sequence), or None."""
-    if select is None:
-        return None
-    if isinstance(select, str):
-        select = [select]
-    elif not isinstance(select, (list, tuple)):
-        raise TypeError("select must be a pattern or a list of patterns")
-    patterns = []
-    for item in select:
-        patterns.extend(parse_sid_pattern(item))
-    return patterns
-
-
-def _window(
-    starttime: Any,
-    endtime: Any,
-) -> tuple[Optional[Date], Optional[Date]]:
-    """Bounds of the time window, as dates."""
-    bounds = []
-    for name, value in (("starttime", starttime), ("endtime", endtime)):
-        if value is not None and not isinstance(value, (Date, str)):
-            raise TypeError(
-                f"{name} must be a Date or an ISO 8601 string"
-            )
-        bounds.append(None if value is None else Date(value))
-    if None not in bounds and bounds[0] > bounds[1]:
-        raise ValueError("the end of the time window precedes its start")
-    return bounds[0], bounds[1]
-
-
-def _selected(
-    records: list[Record],
-    patterns: Optional[list[SidPattern]],
-    start: Optional[Date],
-    end: Optional[Date],
-) -> list[Record]:
-    """Records of the selected channels, cut to the time window."""
-    kept = []
-    for record in records:
-        if patterns is not None and not any(
-            pattern.matches(record.sid) for pattern in patterns
-        ):
-            continue
-        if start is not None or end is not None:
-            if record.time is None:
-                raise ValueError(
-                    f"{record.sid}: a record without start time cannot "
-                    "be cut to a time window"
-                )
-            if (
-                (start is not None and record.endtime < start)
-                or (end is not None and record.time > end)
-            ):
-                continue
-            try:
-                record.cut(start, end)
-            except ValueError:
-                continue    # no sample within the window
-        kept.append(record)
-    return kept
 
 
 def _archive_files(

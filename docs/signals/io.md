@@ -455,6 +455,11 @@ to avoid that for archives, use `layout` (§8.5). The time window
 `starttime`, `endtime` differs from the `first_sample_time` option of
 some formats, which gives the time of the first sample to files that
 do not have it (text tables, TDMS); both can be given in one call.
+The same selection on a collection already in memory is
+`StreamCollection.select(sid, starttime=..., endtime=...)`
+([`waveforms.md`](waveforms.md) §8.3): reading with `select` and the
+window, or reading everything and then calling `select` with the same
+arguments, gives the same data.
 
 ### 8.5 Archives
 
