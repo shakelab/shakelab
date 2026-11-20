@@ -62,6 +62,7 @@ Conventions
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from fractions import Fraction
 from numbers import Integral, Number, Real
@@ -75,6 +76,7 @@ from shakelab.libutils.timeN import Date
 from shakelab.libutils.utils import warn_external
 from shakelab.signals import fourier
 from shakelab.signals import metadata
+from shakelab.signals.codes import SidPattern, parse_sid_pattern
 from shakelab.signals import response
 from shakelab.signals.header import Header
 
@@ -189,17 +191,105 @@ class Record:
         """
         return self.nsamp
 
-    def __getitem__(self, item: Any) -> Any:
+    def __getitem__(self, key: Any) -> Any:
         """
-        Return one or more waveform samples.
+        Return one sample, or a record of consecutive samples.
+
+        Parameters
+        ----------
+        key : int or slice
+            An integer selects one sample. A slice with step 1 (or
+            none) returns a new :class:`Record` with the selected
+            samples, starting at the time of its first sample.
+
+        Returns
+        -------
+        number or Record
+            Selected sample, or independent record of the selected
+            samples.
+
+        Raises
+        ------
+        TypeError
+            If the key is not an integer or a slice (NumPy indexing,
+            such as lists or masks, is done on :attr:`data`).
+        ValueError
+            If the slice step is not 1: taking every n-th sample would
+            change the sampling without an anti-alias filter (see
+            :meth:`resample`).
+        IndexError
+            If the integer index is out of range.
+
+        Notes
+        -----
+        Unlike a slice of :attr:`data`, which is a view, a sliced record
+        is a copy: changing it leaves this record unchanged.
         """
-        return self.data[item]
+        if isinstance(key, slice):
+            if key.step not in (None, 1):
+                raise ValueError(
+                    "record slices must have step 1; use resample to "
+                    "change the sampling, or record.data[::step] for "
+                    "the samples"
+                )
+
+            start, stop, _ = key.indices(self.nsamp)
+            stop = max(stop, start)
+
+            if self.time is not None and start and self.delta is None:
+                raise ValueError(
+                    "sampling interval is required to slice a record "
+                    "with a start time"
+                )
+
+            record = Record()
+            record.head = self.head.copy(parent=record)
+            record.data = self.data[start:stop]
+
+            if self.time is not None and start:
+                record.time = self.time + start * self.delta
+
+            return record
+
+        if isinstance(key, Integral) and not isinstance(
+            key, (bool, np.bool_)
+        ):
+            return self.data[key]
+
+        raise TypeError(
+            "record indices must be integers or slices; use "
+            "record.data[...] for NumPy indexing"
+        )
+
+    def __iter__(self) -> Iterator[Any]:
+        """
+        Iterate over the waveform samples.
+        """
+        return iter(self.data)
+
+    def __contains__(self, value: Any) -> bool:
+        """
+        Tell whether a value is one of the waveform samples.
+
+        As in indexing, the elements of a record are its samples: a
+        number is compared with them. To ask whether a time falls
+        within the record use :meth:`overlaps`.
+
+        Raises
+        ------
+        TypeError
+            If ``value`` is not a number.
+        """
+        if not self._is_numeric_scalar(value):
+            raise TypeError(
+                "only numbers can be searched among the samples of a "
+                "record; use record.overlaps(time, time) for a time"
+            )
+
+        return bool(np.any(self.data == value))
 
     def __str__(self) -> str:
-        return (
-            f"starttime {self.starttime}, duration {self.duration}s, "
-            f"sampling rate {self.rate} Hz, {self.nsamp} samples\n"
-        )
+        return self.summary()
 
     @staticmethod
     def _is_numeric_scalar(value):
@@ -413,11 +503,24 @@ class Record:
         """
         return [self]
 
+    def summary(self) -> str:
+        """
+        Return a description of the record as text.
+
+        Returns
+        -------
+        str
+            One line: source identifier, time span, sampling rate,
+            number of samples, and the units and the event identifier
+            when they are known.
+        """
+        return f"Record {self.sid}: {_record_line(self)}"
+
     def info(self) -> None:
         """
-        Print a human-readable description of the record.
+        Print the description of the record (see :meth:`summary`).
         """
-        print(self)
+        print(self.summary())
 
     def __add__(self, value: Any) -> Record:
         """
@@ -451,15 +554,7 @@ class Record:
             return record
 
         if isinstance(value, Record):
-            appended = record.append(
-                value.copy(),
-            )
-
-            if not appended:
-                raise ValueError(
-                    "records cannot be concatenated"
-                )
-
+            record.append(value.copy())
             return record
 
         raise TypeError(
@@ -749,9 +844,19 @@ class Record:
         self,
         starttime=None,
         endtime=None,
+        duration=None,
     ):
         """
         Convert a requested time window to record-relative seconds.
+
+        Parameters
+        ----------
+        starttime, endtime : Date, str, float or None
+            Window bounds: both times, or both seconds from the record
+            start (see :func:`_check_bound_kinds`).
+        duration : float, optional
+            Window length after ``starttime`` (or after the record
+            start), instead of ``endtime``.
 
         Returns
         -------
@@ -763,6 +868,9 @@ class Record:
         ValueError
             If the requested interval is invalid.
         """
+        _check_bound_kinds(starttime, endtime, duration)
+        duration = _window_duration(duration)
+
         relative_start = 0.0
         relative_end = self.duration
 
@@ -777,6 +885,9 @@ class Record:
                 endtime,
                 "endtime",
             )
+
+        if duration is not None:
+            relative_end = relative_start + duration
 
         if relative_end < relative_start:
             raise ValueError(
@@ -911,9 +1022,13 @@ class Record:
         enforce: bool = False,
         fillvalue: float = 0.0,
         merge_tolerance: Optional[float] = None,
-    ) -> bool:
+    ) -> None:
         """
         Append another record to the current record.
+
+        The record must follow the current one without a gap or an
+        overlap, unless ``enforce`` is True; records that cannot be
+        joined are kept separate by :meth:`Stream.append`.
 
         Parameters
         ----------
@@ -931,17 +1046,14 @@ class Record:
             a fraction of one sampling interval. Default is
             :data:`MERGE_TOLERANCE` (half a sample).
 
-        Returns
-        -------
-        bool
-            ``True`` when the record was appended, otherwise ``False``.
-
         Raises
         ------
         TypeError
             If ``record`` is not a Record.
         ValueError
-            If metadata or sampling parameters are incompatible.
+            If metadata or sampling parameters are incompatible, or if
+            the records are not contiguous (a gap, an overlap or an
+            offset off the sampling grid) and ``enforce`` is False.
 
         Notes
         -----
@@ -954,6 +1066,31 @@ class Record:
         For overlapping records with ``enforce=True``, samples from the
         new record take precedence from its start time onward.
         """
+        if self._join(record, enforce, fillvalue, merge_tolerance):
+            return
+        offset = self._time_difference(
+            record.starttime, self.endtime + self.delta
+        )
+        if np.isclose(offset / self.delta, round(offset / self.delta),
+                      rtol=0.0, atol=MERGE_TOLERANCE
+                      if merge_tolerance is None else merge_tolerance):
+            kind = "gap" if offset > 0 else "overlap"
+            detail = f"{kind} of {abs(offset):.6g} s"
+        else:
+            detail = "offset off the sampling grid"
+        raise ValueError(
+            f"records are not contiguous ({detail}); join them with "
+            f"enforce=True or keep them separate in a Stream"
+        )
+
+    def _join(
+        self,
+        record: Record,
+        enforce: bool,
+        fillvalue: float,
+        merge_tolerance: Optional[float],
+    ) -> bool:
+        """Append ``record`` if possible; return whether it was joined."""
         if not isinstance(record, Record):
             raise TypeError(
                 "record must be a Record instance"
@@ -1077,7 +1214,9 @@ class Record:
 
         return True
 
-    def _sample_window(self, starttime, endtime, snap_tolerance):
+    def _sample_window(
+        self, starttime, endtime, snap_tolerance, duration=None
+    ):
         """
         Return the indices of the first and last samples in a window.
 
@@ -1087,6 +1226,8 @@ class Record:
             Window bounds (see :meth:`cut`).
         snap_tolerance : float
             Snapping tolerance, as a fraction of the sampling interval.
+        duration : float, optional
+            Window length, instead of ``endtime`` (see :meth:`cut`).
 
         Returns
         -------
@@ -1100,6 +1241,7 @@ class Record:
         relative_start, relative_end = self._relative_time_window(
             starttime=starttime,
             endtime=endtime,
+            duration=duration,
         )
 
         index_start = max(
@@ -1116,48 +1258,70 @@ class Record:
 
         return index_start, index_end
 
+    def _window_indices(self, starttime, endtime, duration, snap_tolerance):
+        """
+        Check a window and return the indices of its samples.
+
+        See :meth:`_sample_window`; raises ``ValueError`` when no sample
+        falls within the window.
+        """
+        snap_tolerance = _snap_tolerance(snap_tolerance)
+
+        if self.delta is None:
+            raise ValueError(
+                "sampling interval is required to cut a record"
+            )
+
+        window = self._sample_window(
+            starttime, endtime, snap_tolerance, duration
+        )
+
+        if window is None:
+            raise ValueError(
+                "no sample of the record falls within the requested "
+                "time window"
+            )
+
+        return window
+
     def cut(
         self,
         starttime: Any = None,
         endtime: Any = None,
-        inplace: bool = True,
+        *,
+        duration: Optional[Real] = None,
         snap_tolerance: float = SNAP_TOLERANCE,
-    ) -> Optional[Record]:
+    ) -> None:
         """
-        Cut the record to the samples within a time window.
+        Cut the record, in place, to the samples within a time window.
 
         Parameters
         ----------
         starttime : Date, str or float, optional
-            Start of the window. Numerical values are interpreted as
-            seconds from record start. Default is the record start.
+            Start of the window. Numerical values are seconds from the
+            record start. Default is the record start.
         endtime : Date, str or float, optional
-            End of the window, included. Numerical values are
-            interpreted as seconds from record start. Default is the
-            record end.
-        inplace : bool, optional
-            If ``True``, modify the current record. If ``False``, return
-            an independent Record. Default is ``True``.
+            End of the window, included. Numerical values are seconds
+            from the record start. Default is the record end.
+        duration : float, optional
+            Length of the window in seconds, after ``starttime`` (or
+            after the record start), instead of ``endtime``.
         snap_tolerance : float, optional
             Times closer than this to a sample, as a fraction of one
             sampling interval, are treated as coinciding with it.
             Default is :data:`SNAP_TOLERANCE`.
 
-        Returns
-        -------
-        Record or None
-            When ``inplace=False``, return the cut record. When
-            ``inplace=True``, return ``None``.
-
         Raises
         ------
         TypeError
-            If ``inplace`` is not a boolean or ``snap_tolerance`` is not a
-            real number.
+            If a bound is of an unsupported type, if one bound is a time
+            and the other a number of seconds, or if ``snap_tolerance``
+            or ``duration`` is not a real number.
         ValueError
-            If the snap_tolerance is invalid, the sampling interval is
-            missing, the window is reversed, or no sample of the record
-            falls within the window.
+            If the snap_tolerance or the duration is invalid, both
+            ``endtime`` and ``duration`` are given, the sampling
+            interval is missing, the window is reversed, or no sample
+            of the record falls within the window.
 
         Notes
         -----
@@ -1166,74 +1330,40 @@ class Record:
         ``starttime`` and the last sample at or before ``endtime``. The
         window does not need to be aligned with the sampling grid; the
         start time of the result is the time of its first sample.
+
+        A time and a number of seconds are not mixed in one window:
+        ``cut("2012-05-20T02:04:00", 30)`` would end 30 s after the
+        record start, not after ``starttime``. A length after a time is
+        given by ``duration``. An empty record is left unchanged.
         """
-        if not isinstance(inplace, bool):
-            raise TypeError(
-                "inplace must be a boolean"
-            )
-
-        if (
-            not isinstance(snap_tolerance, Real)
-            or isinstance(snap_tolerance, (bool, np.bool_))
-        ):
-            raise TypeError(
-                "snap_tolerance must be a real number"
-            )
-
-        snap_tolerance = float(snap_tolerance)
-
-        if not np.isfinite(snap_tolerance) or snap_tolerance < 0.0:
-            raise ValueError(
-                "snap_tolerance must be finite and non-negative"
-            )
-
         if self.nsamp == 0:
-            if inplace:
-                return None
+            _snap_tolerance(snap_tolerance)
+            return
 
-            return self.copy()
-
-        if self.delta is None:
-            raise ValueError(
-                "sampling interval is required to cut a record"
-            )
-
-        window = self._sample_window(starttime, endtime, snap_tolerance)
-
-        if window is None:
-            raise ValueError(
-                "no sample of the record falls within the requested "
-                "time window"
-            )
-
-        index_start, index_end = window
-
-        target = self if inplace else self.copy()
+        index_start, index_end = self._window_indices(
+            starttime, endtime, duration, snap_tolerance
+        )
 
         # The final requested sample is included.
-        target.data = self.data[index_start:index_end + 1]
+        self.data = self.data[index_start:index_end + 1]
 
         if self.time is not None:
-            target.time = (
-                self.time
-                + index_start * self.delta
-            )
-
-        if inplace:
-            return None
-
-        return target
+            self.time = self.time + index_start * self.delta
 
     def extract(
         self,
         starttime: Any = None,
         endtime: Any = None,
+        *,
+        duration: Optional[Real] = None,
         snap_tolerance: float = SNAP_TOLERANCE,
     ) -> Record:
         """
         Return an independent record with the samples of a time window.
 
-        See :meth:`cut`, of which this is the non-destructive variant.
+        See :meth:`cut`, of which this is the non-destructive variant:
+        the arguments, the errors and the window are the same. Only the
+        samples of the window are copied.
 
         Parameters
         ----------
@@ -1241,6 +1371,8 @@ class Record:
             Start of the window.
         endtime : Date, str or float, optional
             End of the window, included.
+        duration : float, optional
+            Length of the window in seconds, instead of ``endtime``.
         snap_tolerance : float, optional
             Times closer than this to a sample, as a fraction of one
             sampling interval, are treated as coinciding with it.
@@ -1248,14 +1380,18 @@ class Record:
         Returns
         -------
         Record
-            Extracted record.
+            Extracted record (a copy of an empty record is returned for
+            an empty record).
         """
-        return self.cut(
-            starttime=starttime,
-            endtime=endtime,
-            inplace=False,
-            snap_tolerance=snap_tolerance,
+        if self.nsamp == 0:
+            _snap_tolerance(snap_tolerance)
+            return self.copy()
+
+        index_start, index_end = self._window_indices(
+            starttime, endtime, duration, snap_tolerance
         )
+
+        return self[index_start:index_end + 1]
 
     def remove_mean(self) -> None:
         """
@@ -1312,7 +1448,7 @@ class Record:
         highpass: Optional[float] = None,
         lowpass: Optional[float] = None,
         order: int = 4,
-        minphase: bool = False,
+        causal: bool = False,
     ) -> None:
         """
         Apply a Butterworth filter to the waveform data.
@@ -1325,10 +1461,11 @@ class Record:
             Low-pass corner frequency in hertz.
         order : int, optional
             Butterworth filter order. Default is 4.
-        minphase : bool, optional
-            If ``False``, apply forward-backward zero-phase filtering.
-            If ``True``, apply a single-pass causal filter. Default is
-            ``False``.
+        causal : bool, optional
+            If ``False``, filter forward and backward: zero phase, with
+            the amplitude squared. If ``True``, filter once forward: a
+            causal (and minimum-phase) filter, which delays the signal.
+            Default is ``False``.
 
         Raises
         ------
@@ -1340,10 +1477,6 @@ class Record:
         Notes
         -----
         The operation is performed in place.
-
-        Despite the historical parameter name, ``minphase=True`` applies
-        a causal single-pass Butterworth filter. It does not construct a
-        true minimum-phase equivalent filter.
         """
         if self.nsamp == 0:
             return
@@ -1368,8 +1501,8 @@ class Record:
         if order <= 0:
             raise ValueError("order must be strictly positive")
 
-        if not isinstance(minphase, bool):
-            raise TypeError("minphase must be a boolean")
+        if not isinstance(causal, bool):
+            raise TypeError("causal must be a boolean")
 
         nyquist = 0.5 * self.rate
 
@@ -1435,7 +1568,7 @@ class Record:
             output="sos",
         )
 
-        if minphase:
+        if causal:
             self.data = signal.sosfilt(
                 sos,
                 self.data,
@@ -1639,22 +1772,32 @@ class Record:
 
         self.delta = new_delta
 
-    def taper(self, time: float = 0.1) -> None:
+    def taper(self, time: Any = 0.1) -> None:
         """
-        Apply a symmetric Tukey taper to the waveform.
+        Apply a Tukey (cosine) taper to the waveform.
 
         Parameters
         ----------
-        time : float, optional
-            Taper duration at each end of the record, in seconds.
-            A negative value applies a full cosine taper. Default is
-            0.1 seconds.
+        time : float or tuple of float, optional
+            Taper duration at each end of the record, in seconds, or
+            the pair ``(start, end)`` of durations at the beginning and
+            at the end (0 leaves that end unchanged). A negative value
+            (not in a pair) applies a full cosine taper. Default is 0.1
+            seconds.
+
+        Raises
+        ------
+        TypeError
+            If ``time`` is not a real number or a pair of them.
+        ValueError
+            If the sampling interval is missing, or a duration is not
+            finite or, in a pair, negative.
 
         Notes
         -----
-        The operation is performed in place. If the requested taper
-        duration exceeds half the record duration, a full cosine taper is
-        applied.
+        The operation is performed in place. Each cosine part covers at
+        most half the record: a longer duration gives the half cosine
+        of a full (Hann) taper at that end.
         """
         if self.nsamp == 0:
             return
@@ -1664,36 +1807,46 @@ class Record:
                 "sampling interval is required for tapering"
             )
 
-        if (
-            not isinstance(time, Real)
-            or isinstance(time, (bool, np.bool_))
-        ):
-            raise TypeError(
-                "time must be a real number"
-            )
+        if isinstance(time, (tuple, list)):
+            if len(time) != 2:
+                raise ValueError(
+                    "time must be a duration or a pair (start, end)"
+                )
+            start, end = (_taper_time(value) for value in time)
+            if start < 0.0 or end < 0.0:
+                raise ValueError(
+                    "taper durations in a pair must be non-negative"
+                )
+            half = self.nsamp // 2
+            window = np.ones(self.nsamp)
+            if start > 0.0:
+                window[:half] = tukey_window(
+                    self.nsamp, self._taper_alpha(start)
+                )[:half]
+            if end > 0.0:
+                window[half:] = tukey_window(
+                    self.nsamp, self._taper_alpha(end)
+                )[half:]
+            self.data = self.data * window
+            return
 
-        time = float(time)
-
-        if not np.isfinite(time):
-            raise ValueError(
-                "time must be finite"
-            )
+        time = _taper_time(time)
 
         if time < 0.0:
             alpha = 1.0
         elif time == 0.0:
             return
         else:
-            total_window = self.nsamp * self.delta
-            alpha = min(
-                2.0 * time / total_window,
-                1.0,
-            )
+            alpha = self._taper_alpha(time)
 
         self.data = self.data * tukey_window(
             self.nsamp,
             alpha,
         )
+
+    def _taper_alpha(self, time: float) -> float:
+        """Tukey parameter of a cosine part of ``time`` seconds."""
+        return min(2.0 * time / (self.nsamp * self.delta), 1.0)
 
     def zero_padding(self, time: Optional[float] = None) -> None:
         """
@@ -2282,37 +2435,49 @@ class Record:
 
     def correlate(
         self,
-        record: Record,
+        record: Any,
         mode: str = "full",
         method: str = "auto",
-    ) -> None:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Cross-correlate the waveform with another sequence.
+        Cross-correlate the waveform with another one.
+
+        The record is not changed: the correlation is a function of the
+        lag, not a waveform in time, and is returned with its lags.
 
         Parameters
         ----------
         record : Record or array-like
-            Reference waveform.
+            Reference waveform, sampled as this record.
         mode : {"full", "same", "valid"}, optional
-            Output-size mode accepted by :func:`scipy.signal.correlate`.
-            Default is ``"full"``.
+            Lags returned, as in :func:`scipy.signal.correlate`: every
+            lag with some overlap (``"full"``, default), as many as the
+            samples of this record, centred (``"same"``), or only those
+            with complete overlap (``"valid"``).
         method : {"auto", "direct", "fft"}, optional
             Correlation method. Default is ``"auto"``.
+
+        Returns
+        -------
+        lag : numpy.ndarray
+            Lags in seconds. A positive lag means that this record is
+            delayed with respect to the reference: the peak of the
+            correlation is at the delay. When both have a start time,
+            the difference of the start times is included, so the lag
+            is between the absolute times of the two signals.
+        value : numpy.ndarray
+            Correlation (not normalized) at each lag.
 
         Raises
         ------
         ValueError
-            If the reference waveform is invalid or has an incompatible
-            sampling interval.
+            If the record has no sampling interval, the reference is
+            invalid or has an incompatible sampling interval.
 
-        Notes
-        -----
-        The operation is performed in place.
-
-        The output is a lag-domain sequence rather than an ordinary
-        absolute-time waveform. For backward compatibility, the original
-        start time is preserved. Lag coordinates should be calculated
-        explicitly from the input lengths and sampling interval.
+        Examples
+        --------
+        >>> lag, value = x.correlate(reference)
+        >>> delay = lag[np.argmax(value)]
         """
         mode = str(mode).lower()
         method = str(method).lower()
@@ -2320,13 +2485,16 @@ class Record:
         self._validate_signal_mode(mode)
         self._validate_signal_method(method)
 
-        if self.nsamp == 0:
-            return
+        if self.delta is None:
+            raise ValueError(
+                "sampling interval is required for a correlation"
+            )
+
+        offset = 0.0
 
         if isinstance(record, Record):
             if (
-                self.delta is not None
-                and record.delta is not None
+                record.delta is not None
                 and not np.isclose(
                     self.delta,
                     record.delta,
@@ -2338,17 +2506,28 @@ class Record:
                     "records have incompatible sampling intervals"
                 )
 
+            if self.time is not None and record.time is not None:
+                offset = self._time_difference(self.time, record.time)
+
         reference = self._as_waveform_data(
             record,
             name="correlation reference",
         )
 
-        self.data = signal.correlate(
+        if self.nsamp == 0:
+            return np.zeros(0), np.zeros(0, dtype=self.data.dtype)
+
+        value = signal.correlate(
             self.data,
             reference,
             mode=mode,
             method=method,
         )
+        lag = signal.correlation_lags(
+            self.nsamp, reference.size, mode=mode
+        ) * self.delta + offset
+
+        return lag, value
 
     def convolve_response(
         self, resp: Any = None, stages: Any = None
@@ -2582,6 +2761,17 @@ class Stream:
         """
         return iter(self.record)
 
+    def __contains__(self, item: Any) -> bool:
+        """
+        Tell whether a record is in the stream.
+
+        A string is an event identifier (``"ev01" in stream``), as in
+        indexing; any other object must be one of the stored records.
+        """
+        if isinstance(item, str):
+            return item in self.eid
+        return any(record is item for record in self.record)
+
     def __getitem__(self, key: Any) -> Any:
         """
         Return one record, or a stream of records.
@@ -2635,22 +2825,7 @@ class Stream:
         return f"Stream(sid={self.sid!r}, records={len(self.record)})"
 
     def __str__(self) -> str:
-        if not self.record:
-            return f"empty stream: source identifier {self.sid}"
-
-        lines = [
-            f"source identifier: {self.sid}",
-            f"number of records: {len(self)}",
-        ]
-
-        for index, record in enumerate(self.record):
-            description = str(record).rstrip()
-
-            lines.append(
-                f"Record {index}: {description}"
-            )
-
-        return "\n".join(lines)
+        return self.summary()
 
     @property
     def eid(self) -> list:
@@ -2805,11 +2980,45 @@ class Stream:
 
         return self.record[indices[0]]
 
+    def summary(self) -> str:
+        """
+        Return a description of the stream as text.
+
+        Returns
+        -------
+        str
+            A first line with the source identifier, the number of
+            records, the time span and the number of samples, then one
+            indented line per record (as :meth:`Record.summary`).
+        """
+        name = type(self).__name__
+        max_duration = getattr(self, "max_duration", None)
+
+        if max_duration is not None:
+            name += f" (circular, {max_duration:g} s)"
+
+        if not self.record:
+            return f"{name} {self.sid}: no records"
+
+        lines = [
+            f"{name} {self.sid}: {_count(len(self), 'record')}, "
+            f"{_span_text(self.record)}, "
+            f"{_count(self.nsamp, 'sample')}",
+        ]
+        width = len(str(len(self) - 1))
+
+        for index, record in enumerate(self.record):
+            lines.append(
+                f"  {index:>{width}}  {_record_line(record)}"
+            )
+
+        return "\n".join(lines)
+
     def info(self) -> None:
         """
-        Print a human-readable description of the stream.
+        Print the description of the stream (see :meth:`summary`).
         """
-        print(self)
+        print(self.summary())
 
     def copy(self) -> Stream:
         """
@@ -2923,11 +3132,8 @@ class Stream:
             self.record.append(record)
             return
 
-        merged = self.record[-1].append(
-            record,
-            enforce=enforce,
-            fillvalue=fillvalue,
-            merge_tolerance=merge_tolerance,
+        merged = self.record[-1]._join(
+            record, enforce, fillvalue, merge_tolerance
         )
 
         if not merged:
@@ -3026,11 +3232,175 @@ class Stream:
 
         self._replace_records(records)
 
+    def _absolute_window(self, starttime, endtime, duration):
+        """
+        Convert a window to absolute dates (or None).
+
+        Numerical bounds are seconds from the start of the stream (its
+        earliest record); ``duration`` counts from ``starttime``, or
+        from the start of the stream.
+        """
+        _check_bound_kinds(starttime, endtime, duration)
+        duration = _window_duration(duration)
+
+        start = self._absolute_time(starttime, "starttime")
+        end = self._absolute_time(endtime, "endtime")
+
+        if duration is not None:
+            if start is None:
+                start = self._absolute_time(0.0, "starttime")
+            end = start + duration
+
+        if start is not None and end is not None and end < start:
+            raise ValueError("endtime precedes starttime")
+
+        return start, end
+
+    def _absolute_time(self, value, name):
+        """
+        Convert a window bound to an absolute Date.
+
+        Numerical values are seconds from the start of the stream;
+        ``None`` is returned unchanged.
+        """
+        if value is None or isinstance(value, Date):
+            return value
+
+        if isinstance(value, str):
+            return Date(value)
+
+        if _is_seconds(value):
+            value = float(value)
+
+            if not np.isfinite(value):
+                raise ValueError(f"{name} must be finite")
+
+            if self.starttime is None:
+                raise ValueError(
+                    "relative times require a stream with records"
+                )
+
+            return self.starttime + value
+
+        raise TypeError(
+            f"{name} must be a Date, string, or relative time in "
+            "seconds"
+        )
+
+    def _window_records(self, start, end, snap_tolerance):
+        """
+        Independent copies of the parts of the records in a window.
+
+        ``start`` and ``end`` are absolute dates (or None); records
+        without samples in the window are skipped.
+        """
+        snap_tolerance = _snap_tolerance(snap_tolerance)
+        selected = []
+
+        for record in self.record:
+            if record._sample_window(start, end, snap_tolerance) is None:
+                continue
+
+            selected.append(
+                record.extract(start, end, snap_tolerance=snap_tolerance)
+            )
+
+        return selected
+
+    @staticmethod
+    def _merged_record(records, enforce, fillvalue, merge_tolerance):
+        """
+        Join records into one, in place on the first of them.
+
+        Raises ``ValueError`` when there are no records or two of them
+        cannot be joined under the requested policy.
+        """
+        if not isinstance(enforce, bool):
+            raise TypeError(
+                "enforce must be a boolean"
+            )
+
+        if not records:
+            raise ValueError(
+                "no sample of the stream falls within the requested "
+                "time window"
+            )
+
+        output = records[0]
+
+        for record in records[1:]:
+            merged = output._join(
+                record, enforce, fillvalue, merge_tolerance
+            )
+
+            if not merged:
+                raise ValueError(
+                    "selected records are not contiguous; use "
+                    "enforce=True or merge=False"
+                )
+
+        return output
+
+    def cut(
+        self,
+        starttime: Any = None,
+        endtime: Any = None,
+        *,
+        duration: Optional[Real] = None,
+        snap_tolerance: float = SNAP_TOLERANCE,
+    ) -> None:
+        """
+        Cut every record, in place, to a time window.
+
+        Parameters
+        ----------
+        starttime : Date, str or float, optional
+            Start of the window. Numerical values are seconds from the
+            start of the stream (its earliest record).
+        endtime : Date, str or float, optional
+            End of the window, included. Numerical values are seconds
+            from the start of the stream.
+        duration : float, optional
+            Length of the window in seconds, after ``starttime`` (or
+            after the start of the stream), instead of ``endtime``.
+        snap_tolerance : float, optional
+            Times closer than this to a sample, as a fraction of one
+            sampling interval, coincide with it. Default is
+            :data:`SNAP_TOLERANCE`.
+
+        Raises
+        ------
+        TypeError
+            If a bound is of an unsupported type, or one bound is a time
+            and the other a number of seconds.
+        ValueError
+            If the window is reversed, or both ``endtime`` and
+            ``duration`` are given.
+
+        Notes
+        -----
+        Records without samples in the window are removed, so the
+        stream may become empty. See :meth:`Record.cut` for the window.
+        """
+        start, end = self._absolute_window(starttime, endtime, duration)
+        snap_tolerance = _snap_tolerance(snap_tolerance)
+        kept = []
+
+        for record in self.record:
+            if record._sample_window(start, end, snap_tolerance) is None:
+                continue
+
+            record.cut(start, end, snap_tolerance=snap_tolerance)
+            kept.append(record)
+
+        self._replace_records(kept)
+
     def extract(
         self,
         starttime: Any = None,
         endtime: Any = None,
-        eid: Optional[str] = None,
+        *,
+        duration: Optional[Real] = None,
         merge: bool = False,
         enforce: bool = False,
         fillvalue: float = 0.0,
@@ -3048,10 +3418,9 @@ class Stream:
         endtime : Date, str or float, optional
             End of the requested time window, included. Numerical
             values are seconds from the start of the stream.
-        eid : str, optional
-            Restrict extraction to the record associated with this event
-            identifier; numerical times are then relative to that
-            record.
+        duration : float, optional
+            Length of the window in seconds, after ``starttime`` (or
+            after the start of the stream), instead of ``endtime``.
         merge : bool, optional
             If ``False``, return a new Stream containing all extracted
             record segments. If ``True``, merge the selected segments
@@ -3073,27 +3442,28 @@ class Stream:
 
         Returns
         -------
-        Stream, Record or None
-            A new Stream of independent segments when ``merge=False``.
-            A merged Record when ``merge=True`` and at least one record
-            has samples in the window; ``None`` when ``merge=True`` and
-            no record has samples in the window.
-
-            When ``eid`` is provided, an extracted Record is returned.
+        Stream or Record
+            A new Stream of independent segments (empty when no record
+            has samples in the window); with ``merge=True``, one
+            Record.
 
         Raises
         ------
         TypeError
-            If ``merge`` or ``enforce`` is not a boolean.
-        KeyError
-            If ``eid`` is missing or ambiguous.
+            If ``merge`` or ``enforce`` is not a boolean, a bound is of
+            an unsupported type, or one bound is a time and the other a
+            number of seconds.
         ValueError
-            If selected records cannot be merged under the requested
-            policy, or if the window is reversed.
+            If the window is reversed, both ``endtime`` and ``duration``
+            are given, or, with ``merge=True``, no record has samples in
+            the window or the segments cannot be joined under the
+            requested policy.
 
         Notes
         -----
-        Records without samples in the window are skipped.
+        Records without samples in the window are skipped. A record of
+        one event is extracted with ``stream[eid].extract(...)``; the
+        records of some events with :meth:`select`.
         """
         if not isinstance(merge, bool):
             raise TypeError(
@@ -3105,102 +3475,82 @@ class Stream:
                 "enforce must be a boolean"
             )
 
-        if eid is not None:
-            record = self.get_record(eid)
+        start, end = self._absolute_window(starttime, endtime, duration)
+        selected = self._window_records(start, end, snap_tolerance)
 
-            return record.extract(
-                starttime=starttime,
-                endtime=endtime,
-                snap_tolerance=snap_tolerance,
+        if merge:
+            return self._merged_record(
+                selected, enforce, fillvalue, merge_tolerance
             )
 
-        starttime = self._absolute_time(starttime, "starttime")
-        endtime = self._absolute_time(endtime, "endtime")
+        stream = Stream(sid=deepcopy(self.sid))
+        stream._replace_records(selected)
 
-        if (
-            starttime is not None
-            and endtime is not None
-            and endtime < starttime
-        ):
-            raise ValueError("endtime precedes starttime")
+        return stream
 
-        selected = []
-
-        for record in self.record:
-            if record._sample_window(
-                starttime,
-                endtime,
-                snap_tolerance,
-            ) is None:
-                continue
-
-            selected.append(
-                record.extract(
-                    starttime=starttime,
-                    endtime=endtime,
-                    snap_tolerance=snap_tolerance,
-                )
-            )
-
-        if not merge:
-            stream = Stream(sid=deepcopy(self.sid))
-            stream._replace_records(selected)
-
-            return stream
-
-        if not selected:
-            return None
-
-        output = selected[0]
-
-        for record in selected[1:]:
-            merged = output.append(
-                record,
-                enforce=enforce,
-                fillvalue=fillvalue,
-                merge_tolerance=merge_tolerance,
-            )
-
-            if not merged:
-                raise ValueError(
-                    "selected records are not contiguous; use "
-                    "enforce=True or merge=False"
-                )
-
-        return output
-
-    def _absolute_time(self, value, name):
+    def select(
+        self,
+        sid: Any = None,
+        starttime: Any = None,
+        endtime: Any = None,
+        *,
+        eid: Any = None,
+        duration: Optional[Real] = None,
+    ) -> Stream:
         """
-        Convert a window bound to an absolute Date.
+        Return the records of some events, within a time window.
 
-        Numerical values are seconds from the start of the stream;
-        ``None`` is returned unchanged.
+        Parameters
+        ----------
+        sid : str or sequence of str, optional
+            Source identifier pattern, or list of patterns (see
+            :meth:`StreamCollection.select`). Default: no selection by
+            channel.
+        starttime : Date or str, optional
+            Start of the time window. Default: no lower bound.
+        endtime : Date or str, optional
+            End of the time window, included. Default: no upper bound.
+        eid : str or sequence of str, optional
+            Event identifier, or list of them, with the wildcards ``*``
+            (any text) and ``?`` (one character). Records without event
+            identifier match no pattern. Default: all records.
+        duration : float, optional
+            Length of the window in seconds after ``starttime``, instead
+            of ``endtime``.
+
+        Returns
+        -------
+        Stream
+            New stream (a standard Stream also for a circular stream)
+            with copies of the selected records, cut to the window.
+
+        Raises
+        ------
+        TypeError
+            If a pattern is not a string, or a window bound is not a
+            Date or a string.
+        ValueError
+            If a pattern or the window is invalid.
+
+        Examples
+        --------
+        >>> stream.select(eid="2012-*")
+        >>> stream.select(eid=["ev01", "ev03"],
+        ...               starttime="2012-05-20T02:03:00", duration=60)
         """
-        if value is None or isinstance(value, Date):
-            return value
+        patterns = None if sid is None else _sid_patterns(sid, "sid")
+        events = _eid_patterns(eid)
+        start, end = _time_bounds(starttime, endtime, duration)
 
-        if isinstance(value, str):
-            return Date(value)
-
-        if isinstance(value, Real) and not isinstance(
-            value, (bool, np.bool_)
-        ):
-            value = float(value)
-
-            if not np.isfinite(value):
-                raise ValueError(f"{name} must be finite")
-
-            if self.starttime is None:
-                raise ValueError(
-                    "relative times require a stream with records"
-                )
-
-            return self.starttime + value
-
-        raise TypeError(
-            f"{name} must be a Date, string, or relative time in "
-            "seconds"
+        stream = Stream(sid=deepcopy(self.sid))
+        stream._replace_records(
+            _select_records(
+                self.record, patterns, start, end, copy=True,
+                events=events,
+            )
         )
+
+        return stream
 
     # -- processing applied to every record -----------------------------
 
@@ -3223,7 +3573,7 @@ class Stream:
         highpass: Optional[float] = None,
         lowpass: Optional[float] = None,
         order: int = 4,
-        minphase: bool = False,
+        causal: bool = False,
     ) -> None:
         """
         Filter every record (see :meth:`Record.filter`).
@@ -3233,7 +3583,7 @@ class Stream:
                 highpass=highpass,
                 lowpass=lowpass,
                 order=order,
-                minphase=minphase,
+                causal=causal,
             )
 
     def resample(
@@ -3252,7 +3602,7 @@ class Stream:
                 antialias=antialias,
             )
 
-    def taper(self, time: float = 0.1) -> None:
+    def taper(self, time: Any = 0.1) -> None:
         """
         Taper every record (see :meth:`Record.taper`).
         """
@@ -3427,6 +3777,18 @@ class StreamCollection:
         """
         return iter(self.stream)
 
+    def __contains__(self, item: Any) -> bool:
+        """
+        Tell whether a stream is in the collection.
+
+        A string is a source identifier (``"IV.MODE..HNZ" in data``),
+        as in indexing; any other object must be one of the stored
+        streams.
+        """
+        if isinstance(item, str):
+            return item in self.sid
+        return any(stream is item for stream in self.stream)
+
     def __getitem__(self, key: Any) -> Any:
         """
         Return one stream, or a collection of streams.
@@ -3478,21 +3840,7 @@ class StreamCollection:
         return f"StreamCollection(streams={len(self.stream)})"
 
     def __str__(self) -> str:
-        if not self.stream:
-            return "empty stream collection"
-
-        lines = [
-            f"number of streams: {len(self)}",
-        ]
-
-        for index, stream in enumerate(self.stream):
-            description = str(stream).rstrip()
-
-            lines.append(
-                f"Stream {index}: {description}"
-            )
-
-        return "\n".join(lines)
+        return self.summary()
 
     @property
     def sid(self) -> list:
@@ -3523,6 +3871,54 @@ class StreamCollection:
             stream.nsamp
             for stream in self.stream
         )
+
+    @property
+    def starttime(self) -> Optional[Date]:
+        """
+        Earliest start time of the streams.
+
+        Returns
+        -------
+        Date or None
+            Earliest start time, or ``None`` for a collection without
+            records.
+
+        Raises
+        ------
+        ValueError
+            If one or more records have no start time.
+        """
+        times = [
+            stream.starttime
+            for stream in self.stream
+            if stream.record
+        ]
+
+        return min(times) if times else None
+
+    @property
+    def endtime(self) -> Optional[Date]:
+        """
+        Latest end time of the streams.
+
+        Returns
+        -------
+        Date or None
+            Latest end time, or ``None`` for a collection without
+            records.
+
+        Raises
+        ------
+        ValueError
+            If one or more records have no valid time axis.
+        """
+        times = [
+            stream.endtime
+            for stream in self.stream
+            if stream.record
+        ]
+
+        return max(times) if times else None
 
     def _stream_indices(self, sid):
         """
@@ -3640,11 +4036,60 @@ class StreamCollection:
 
         return stream
 
+    def summary(self) -> str:
+        """
+        Return a description of the collection as text.
+
+        Returns
+        -------
+        str
+            A first line with the number of streams and records and the
+            time span, then one indented line per stream: source
+            identifier, number of records, sampling rate, time span and
+            number of samples (the records are described by
+            :meth:`Stream.summary`).
+        """
+        name = "StreamCollection"
+
+        if self.max_duration is not None:
+            name += f" (circular, {self.max_duration:g} s)"
+
+        records = self.records()
+
+        if not self.stream:
+            return f"{name}: no streams"
+
+        head = (
+            f"{name}: {_count(len(self), 'stream')}, "
+            f"{_count(len(records), 'record')}"
+        )
+
+        if records:
+            head += f", {_span_text(records)}"
+
+        lines = [head]
+        width = max(len(str(stream.sid)) for stream in self.stream)
+
+        for stream in self.stream:
+            if not stream.record:
+                lines.append(f"  {str(stream.sid):<{width}}  no records")
+                continue
+
+            lines.append(
+                f"  {str(stream.sid):<{width}}  "
+                f"{_count(len(stream), 'record')}, "
+                f"{_rates_text(stream.record)}, "
+                f"{_span_text(stream.record)}, "
+                f"{_count(stream.nsamp, 'sample')}"
+            )
+
+        return "\n".join(lines)
+
     def info(self) -> None:
         """
-        Print a human-readable description of the collection.
+        Print the description of the collection (see :meth:`summary`).
         """
-        print(self)
+        print(self.summary())
 
     def copy(self) -> StreamCollection:
         """
@@ -3821,9 +4266,9 @@ class StreamCollection:
             If ``True``, also sort records within each stream. Default is
             ``True``.
         reverse : bool, optional
-            If ``True``, sort streams from descending to ascending source
-            identifier. The same ordering is requested for records.
-            Default is ``False``.
+            If ``True``, sort the streams by descending source identifier
+            and, with ``sort_records``, the records of each stream by
+            descending start time. Default is ``False``.
 
         Raises
         ------
@@ -3862,36 +4307,167 @@ class StreamCollection:
             for stream in self.stream:
                 stream.sort(reverse=reverse)
 
-    def extract(
+    def select(
         self,
-        sid: Optional[str] = None,
+        sid: Any = None,
         starttime: Any = None,
         endtime: Any = None,
-        eid: Optional[str] = None,
+        *,
+        eid: Any = None,
+        duration: Optional[Real] = None,
+    ) -> StreamCollection:
+        """
+        Return the data of some channels and events, within a window.
+
+        Parameters
+        ----------
+        sid : str or sequence of str, optional
+            Source identifier pattern, or list of patterns, matched
+            code by code (see :mod:`shakelab.signals.codes`), e.g.
+            ``"IV.*..HN?"``, ``"IV.{MODE,MIRA}"`` or ``"IV"`` (every
+            channel of IV). Default: all channels.
+        starttime : Date or str, optional
+            Start of the time window. Default: no lower bound.
+        endtime : Date or str, optional
+            End of the time window, included. Default: no upper bound.
+        eid : str or sequence of str, optional
+            Event identifier, or list of them, with the wildcards ``*``
+            (any text) and ``?`` (one character). Records without event
+            identifier match no pattern. Default: all records.
+        duration : float, optional
+            Length of the window in seconds after ``starttime``, instead
+            of ``endtime``.
+
+        Returns
+        -------
+        StreamCollection
+            New collection (of standard streams) with copies of the
+            selected records, cut to the window. Records without
+            samples in the window are left out, as are channels left
+            without records; with no match the collection is empty.
+
+        Raises
+        ------
+        TypeError
+            If a pattern is not a string, or a window bound is not a
+            Date or a string.
+        ValueError
+            If a pattern is invalid, the window is reversed, both
+            ``endtime`` and ``duration`` are given, ``duration`` is
+            given without ``starttime``, or a record without start time
+            would have to be cut.
+
+        Notes
+        -----
+        The selection is the one of :func:`shakelab.signals.io.reader`:
+        ``reader(source, select=p, starttime=a, endtime=b)`` gives the
+        same data as ``reader(source).select(p, starttime=a,
+        endtime=b)``. Window bounds are absolute times, as in the
+        reader.
+
+        Examples
+        --------
+        >>> data.select("IV.*..HN?")
+        >>> data.select(["IV.MODE", "IV.MIRA..HN?"],
+        ...             starttime="2012-05-20T02:03:00", duration=180)
+        >>> data.select(eid="IT-2012-*")
+        """
+        patterns = None if sid is None else _sid_patterns(sid, "sid")
+        events = _eid_patterns(eid)
+        start, end = _time_bounds(starttime, endtime, duration)
+
+        collection = StreamCollection()
+
+        for stream in self.stream:
+            records = _select_records(
+                stream.record, patterns, start, end, copy=True,
+                events=events,
+            )
+
+            if records:
+                selected = Stream(sid=stream.sid)
+                selected._replace_records(records)
+                collection.stream.append(selected)
+
+        return collection
+
+    def cut(
+        self,
+        starttime: Any = None,
+        endtime: Any = None,
+        *,
+        duration: Optional[Real] = None,
+        snap_tolerance: float = SNAP_TOLERANCE,
+    ) -> None:
+        """
+        Cut every stream, in place, to a time window.
+
+        Parameters
+        ----------
+        starttime : Date or str, optional
+            Start of the window. Default: the start of each stream.
+        endtime : Date or str, optional
+            End of the window, included. Default: the end of each
+            stream.
+        duration : float, optional
+            Length of the window in seconds after ``starttime``, instead
+            of ``endtime``.
+        snap_tolerance : float, optional
+            Times closer than this to a sample, as a fraction of one
+            sampling interval, coincide with it. Default is
+            :data:`SNAP_TOLERANCE`.
+
+        Raises
+        ------
+        TypeError
+            If a bound is not a Date or a string.
+        ValueError
+            If the window is reversed, both ``endtime`` and ``duration``
+            are given, or ``duration`` is given without ``starttime``.
+
+        Notes
+        -----
+        The bounds are absolute times: numbers of seconds would count
+        from a different start in each stream. Records without samples
+        in the window are removed, and so are the streams left empty.
+        """
+        start, end = _time_bounds(
+            starttime, endtime, duration, collection=True
+        )
+
+        for stream in self.stream:
+            stream.cut(start, end, snap_tolerance=snap_tolerance)
+
+        self.stream = [stream for stream in self.stream if len(stream)]
+
+    def extract(
+        self,
+        starttime: Any = None,
+        endtime: Any = None,
+        *,
+        duration: Optional[Real] = None,
         merge: bool = False,
         enforce: bool = False,
         fillvalue: float = 0.0,
         snap_tolerance: float = SNAP_TOLERANCE,
         merge_tolerance: Optional[float] = None,
-    ) -> Any:
+    ) -> StreamCollection:
         """
-        Extract waveform data from one stream or from all streams.
+        Extract the waveform data of every stream within a time window.
 
         Parameters
         ----------
-        sid : str, optional
-            Source identifier of the stream to extract. If omitted, the
-            same extraction is applied to every stream.
-        starttime : Date, str or float, optional
-            Start of the requested time window. Numerical values are
-            seconds from the start of each stream.
-        endtime : Date, str or float, optional
-            End of the requested time window, included.
-        eid : str, optional
-            Restrict extraction to one event identifier. Without
-            ``sid``, streams without that identifier are skipped.
+        starttime : Date or str, optional
+            Start of the requested time window. Default: the start of
+            each stream.
+        endtime : Date or str, optional
+            End of the requested time window, included. Default: the
+            end of each stream.
+        duration : float, optional
+            Length of the window in seconds after ``starttime``, instead
+            of ``endtime``.
         merge : bool, optional
-            If ``True``, merge selected records into one Record per
+            If ``True``, merge the selected records into one Record per
             stream. Default is ``False``.
         enforce : bool, optional
             Allow gaps and overlaps to be resolved when merging.
@@ -3908,38 +4484,59 @@ class StreamCollection:
 
         Returns
         -------
-        Stream, Record, StreamCollection or None
-            With ``sid``, the result of :meth:`Stream.extract`. Without
-            ``sid``, a new collection (of standard streams) holding the
-            extracted data of every stream that has samples in the
-            window.
+        StreamCollection
+            New collection (of standard streams) holding the extracted
+            data of every stream that has samples in the window; with
+            ``merge=True`` each stream holds one record.
+
+        Raises
+        ------
+        TypeError
+            If ``merge`` or ``enforce`` is not a boolean, or a bound is
+            not a Date or a string.
+        ValueError
+            If the window is reversed, both ``endtime`` and ``duration``
+            are given, ``duration`` is given without ``starttime``, or
+            the segments of a stream cannot be joined.
+
+        Notes
+        -----
+        The bounds are absolute times: numbers of seconds would count
+        from a different start in each stream. One channel is extracted
+        with ``collection[sid].extract(...)``, some channels or events
+        with :meth:`select`.
         """
-        options = dict(
-            starttime=starttime,
-            endtime=endtime,
-            eid=eid,
-            merge=merge,
-            enforce=enforce,
-            fillvalue=fillvalue,
-            snap_tolerance=snap_tolerance,
-            merge_tolerance=merge_tolerance,
+        if not isinstance(merge, bool):
+            raise TypeError(
+                "merge must be a boolean"
+            )
+
+        if not isinstance(enforce, bool):
+            raise TypeError(
+                "enforce must be a boolean"
+            )
+
+        start, end = _time_bounds(
+            starttime, endtime, duration, collection=True
         )
-
-        if sid is not None:
-            return self.get_stream(sid).extract(**options)
-
         collection = StreamCollection()
 
         for stream in self.stream:
-            if eid is not None and not stream._record_indices(eid):
+            selected = stream._window_records(start, end, snap_tolerance)
+
+            if not selected:
                 continue
 
-            result = stream.extract(**options)
+            if merge:
+                selected = [
+                    Stream._merged_record(
+                        selected, enforce, fillvalue, merge_tolerance
+                    )
+                ]
 
-            if result is None or len(result) == 0:
-                continue
-
-            collection.append(result)
+            result = Stream(sid=deepcopy(stream.sid))
+            result._replace_records(selected)
+            collection.stream.append(result)
 
         return collection
 
@@ -3972,7 +4569,8 @@ class StreamCollection:
 
         Notes
         -----
-        Streams and records are not copied automatically.
+        The records are copied, as by :meth:`append`: the other
+        collection is left unchanged and shares no data with this one.
         """
         if not isinstance(collection, StreamCollection):
             raise TypeError(
@@ -4008,7 +4606,7 @@ class StreamCollection:
         highpass: Optional[float] = None,
         lowpass: Optional[float] = None,
         order: int = 4,
-        minphase: bool = False,
+        causal: bool = False,
     ) -> None:
         """
         Filter every record (see :meth:`Record.filter`).
@@ -4018,7 +4616,7 @@ class StreamCollection:
                 highpass=highpass,
                 lowpass=lowpass,
                 order=order,
-                minphase=minphase,
+                causal=causal,
             )
 
     def resample(
@@ -4037,7 +4635,7 @@ class StreamCollection:
                 antialias=antialias,
             )
 
-    def taper(self, time: float = 0.1) -> None:
+    def taper(self, time: Any = 0.1) -> None:
         """
         Taper every record (see :meth:`Record.taper`).
         """
@@ -4202,9 +4800,12 @@ class StreamCollection:
         format: Optional[str] = None,
         metadata: Any = None,
         **options: Any,
-    ) -> StreamCollection:
+    ) -> None:
         """
         Read waveform data into the collection.
+
+        The records read are added to the collection; to read into a new
+        collection use :func:`shakelab.signals.io.reader`.
 
         Parameters
         ----------
@@ -4220,11 +4821,6 @@ class StreamCollection:
         **options
             Options of the format reader (e.g. ``byte_order`` for SAC,
             ``mseed_backend`` for MiniSEED).
-
-        Returns
-        -------
-        StreamCollection
-            The collection itself, with the records read.
 
         Notes
         -----
@@ -4248,8 +4844,6 @@ class StreamCollection:
             **options,
         )
 
-        return self
-
     def write(
         self,
         target: Any,
@@ -4264,8 +4858,10 @@ class StreamCollection:
         Parameters
         ----------
         target : str or path-like
-            Output file, directory, or file name template with fields
-            such as ``{station}``, ``{channel}`` and ``{start}``.
+            Output file, directory (with ``format``), or file name
+            template with the fields of
+            :func:`shakelab.signals.io.writer` (``{net}``, ``{sta}``,
+            ``{loc}``, ``{cha}``, ``{start}``, ...).
         format : str, optional
             Waveform format; inferred from ``target`` if omitted.
         owrite : bool, optional
@@ -4282,7 +4878,8 @@ class StreamCollection:
         Examples
         --------
         >>> collection.write("waveforms.mseed", encoding=11)
-        >>> collection.write("{station}.{channel}.{start}.sac")
+        >>> collection.write("{net}.{sta}.{loc}.{cha}.sac")
+        >>> collection.write("output/", format="sac")
         """
         # Local import: io sits above this module.
         from shakelab.signals import io
@@ -4293,6 +4890,272 @@ class StreamCollection:
 # ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
+
+
+def _count(number: int, noun: str) -> str:
+    """
+    Return a count with its noun, in the plural when needed.
+    """
+    return f"{number} {noun}" + ("" if number == 1 else "s")
+
+
+def _span_text(records: Any) -> str:
+    """
+    Return the time span of records as text, ignoring missing times.
+    """
+    starts = [r.starttime for r in records if r.starttime is not None]
+    ends = [r.endtime for r in records if r.endtime is not None]
+
+    if not starts:
+        return "no start time"
+
+    end = max(ends) if ends else min(starts)
+
+    return f"{min(starts)} - {end}"
+
+
+def _rates_text(records: Any) -> str:
+    """
+    Return the sampling rates of records as text.
+    """
+    rates = sorted({r.rate for r in records if r.rate is not None})
+
+    if not rates:
+        return "no sampling rate"
+
+    return "/".join(f"{rate:g}" for rate in rates) + " Hz"
+
+
+def _record_line(record: Record) -> str:
+    """
+    Return the description of a record without its source identifier.
+    """
+    parts = [
+        _span_text([record]),
+        _rates_text([record]),
+        _count(record.nsamp, "sample"),
+    ]
+
+    if record.head.units is not None:
+        parts.append(f"units {record.head.units}")
+
+    if record.eid is not None:
+        parts.append(f"event {record.eid}")
+
+    return ", ".join(parts)
+
+
+def _is_seconds(value: Any) -> bool:
+    """Tell whether a window bound is a number of seconds."""
+    return isinstance(value, Real) and not isinstance(
+        value, (bool, np.bool_)
+    )
+
+
+def _check_bound_kinds(starttime: Any, endtime: Any, duration: Any) -> None:
+    """
+    Check that the bounds of a window are of one kind.
+
+    Both bounds are times (Date or string) or both numbers of seconds;
+    ``endtime`` and ``duration`` are alternatives.
+    """
+    if (
+        starttime is not None
+        and endtime is not None
+        and _is_seconds(starttime) != _is_seconds(endtime)
+    ):
+        raise TypeError(
+            "starttime and endtime must both be times or both be "
+            "seconds; for a length after starttime use duration"
+        )
+
+    if endtime is not None and duration is not None:
+        raise ValueError("give endtime or duration, not both")
+
+
+def _window_duration(value: Any) -> Optional[float]:
+    """Check a window length in seconds; None is returned unchanged."""
+    if value is None:
+        return None
+
+    if not _is_seconds(value):
+        raise TypeError("duration must be a real number of seconds")
+
+    value = float(value)
+
+    if not np.isfinite(value) or value < 0.0:
+        raise ValueError("duration must be finite and non-negative")
+
+    return value
+
+
+def _snap_tolerance(value: Any) -> float:
+    """Check a snapping tolerance and return it as a float."""
+    if not _is_seconds(value):
+        raise TypeError("snap_tolerance must be a real number")
+
+    value = float(value)
+
+    if not np.isfinite(value) or value < 0.0:
+        raise ValueError("snap_tolerance must be finite and non-negative")
+
+    return value
+
+
+def _eid_patterns(value: Any) -> Optional[list]:
+    """
+    Regular expressions of event identifier patterns, or None.
+
+    A pattern is a string with the wildcards ``*`` (any text) and ``?``
+    (one character); every other character is literal.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        value = [value]
+    elif not isinstance(value, (list, tuple)):
+        raise TypeError("eid must be a pattern or a list of patterns")
+
+    patterns = []
+    for item in value:
+        if not isinstance(item, str):
+            raise TypeError("eid patterns must be strings")
+        text = re.escape(item).replace(r"\*", ".*").replace(r"\?", ".")
+        patterns.append(re.compile(text, re.DOTALL))
+
+    return patterns
+
+
+def _sid_patterns(value: Any, name: str) -> list[SidPattern]:
+    """
+    Patterns of a source identifier pattern or list of patterns.
+
+    ``name`` is the argument named in the error message.
+    """
+    if isinstance(value, str):
+        value = [value]
+    elif not isinstance(value, (list, tuple)):
+        raise TypeError(f"{name} must be a pattern or a list of patterns")
+
+    patterns = []
+    for item in value:
+        patterns.extend(parse_sid_pattern(item))
+
+    return patterns
+
+
+def _time_bounds(
+    starttime: Any,
+    endtime: Any,
+    duration: Any = None,
+    collection: bool = False,
+) -> tuple[Optional[Date], Optional[Date]]:
+    """
+    Bounds of an absolute time window, as dates (or None).
+
+    ``duration`` (seconds after ``starttime``, which it requires) is an
+    alternative to ``endtime``. With ``collection`` the error for a
+    number explains why a collection refuses it.
+    """
+    bounds = []
+
+    for name, value in (("starttime", starttime), ("endtime", endtime)):
+        if value is not None and not isinstance(value, (Date, str)):
+            hint = (
+                "; seconds would count from a different start in each "
+                "stream (use a Date, or duration for a length)"
+                if collection and _is_seconds(value) else ""
+            )
+            raise TypeError(
+                f"{name} must be a Date or an ISO 8601 string{hint}"
+            )
+        bounds.append(None if value is None else Date(value))
+
+    _check_bound_kinds(starttime, endtime, duration)
+    duration = _window_duration(duration)
+
+    if duration is not None:
+        if bounds[0] is None:
+            raise ValueError("duration requires starttime")
+        bounds[1] = bounds[0] + duration
+
+    if None not in bounds and bounds[0] > bounds[1]:
+        raise ValueError("the end of the time window precedes its start")
+
+    return bounds[0], bounds[1]
+
+
+def _eid_matches(eid: Optional[str], patterns: list) -> bool:
+    """Tell whether an event identifier matches one of the patterns."""
+    return eid is not None and any(
+        pattern.fullmatch(eid) for pattern in patterns
+    )
+
+
+def _select_records(
+    records: Any,
+    patterns: Optional[list[SidPattern]],
+    start: Optional[Date],
+    end: Optional[Date],
+    copy: bool = False,
+    events: Optional[list] = None,
+) -> list[Record]:
+    """
+    Records of the selected channels and events, cut to a time window.
+
+    Records without samples in the window are left out. With ``copy``
+    the records kept are copies, otherwise they are cut in place.
+    ``events`` are the patterns of :func:`_eid_patterns`.
+    """
+    kept = []
+
+    for record in records:
+        if patterns is not None and not any(
+            pattern.matches(record.sid) for pattern in patterns
+        ):
+            continue
+
+        if events is not None and not _eid_matches(record.eid, events):
+            continue
+
+        if start is not None or end is not None:
+            if record.time is None:
+                raise ValueError(
+                    f"{record.sid}: a record without start time cannot "
+                    "be cut to a time window"
+                )
+
+            if record.nsamp == 0 or (
+                (start is not None and record.endtime < start)
+                or (end is not None and record.time > end)
+            ):
+                continue
+
+            try:
+                if copy:
+                    record = record.extract(start, end)
+                else:
+                    record.cut(start, end)
+            except ValueError:
+                continue    # no sample within the window
+
+        elif copy:
+            record = record.copy()
+
+        kept.append(record)
+
+    return kept
+
+
+def _taper_time(value: Any) -> float:
+    """Check a taper duration and return it as a float."""
+    if not isinstance(value, Real) or isinstance(value, (bool, np.bool_)):
+        raise TypeError("time must be a real number")
+    value = float(value)
+    if not np.isfinite(value):
+        raise ValueError("time must be finite")
+    return value
 
 
 def tukey_window(N: int, alpha: float = 0.5) -> np.ndarray:

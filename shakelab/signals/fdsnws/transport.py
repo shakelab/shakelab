@@ -351,6 +351,16 @@ def _send(url: str, data: Optional[bytes], target: Any, timeout: Real):
                 "python.org: 'Install Certificates.command').",
                 url=url,
             ) from None
+        if isinstance(reason, ssl.SSLError) and url.startswith("https:"):
+            # Usually a server that serves plain HTTP: retrying over
+            # HTTPS would fail again.
+            netloc = url.split("/")[2]
+            raise FdsnError(
+                f"{netloc} does not answer over HTTPS ({reason}); if it "
+                f"serves plain HTTP, write its address as "
+                f"http://{netloc}",
+                url=url,
+            ) from None
         failure = FdsnError(f"cannot reach {url}: {reason}", url=url)
         raise _Retry(failure, None) from None
     except (TimeoutError, socket.timeout) as error:

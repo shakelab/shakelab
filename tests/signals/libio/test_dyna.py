@@ -35,6 +35,7 @@ import pytest
 from shakelab.libutils.timeN import Date
 from shakelab.signals.base import Record
 from shakelab.signals.io import reader
+from shakelab.signals.libio.common import NotWaveformError
 from shakelab.signals.libio.dyna import (
     HEADER_FIELDS,
     Dyna,
@@ -256,8 +257,9 @@ def test_response_spectra(path, data_type, units, first):
 
 def test_dynaread_rejects_spectra():
     """``dynaread`` reads waveforms only."""
-    with pytest.raises(ValueError, match="RESPONSE SPECTRUM"):
+    with pytest.raises(NotWaveformError, match="RESPONSE SPECTRUM"):
         dynaread(SA)
+    assert issubclass(NotWaveformError, ValueError)
 
 
 def test_spectrum_text_round_trip():

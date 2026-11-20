@@ -39,9 +39,14 @@ the ShakeLab SeedLink client.
 - Spectral maxima, dispersion curves and the density of the maxima,
   to identify the modes of propagation.
 - Frequency domain decomposition (FDD): singular values with their
-  statistics over time, resonance peaks and mode shapes.
+  statistics over time, resonance peaks and mode shapes; enhanced FDD
+  for natural frequencies and damping ratios.
 - Uncertainty of the beam power and of the station coordinates.
-- Real-time monitoring of an array with the SeedLink client.
+- Result files in JSON Lines, to which successive analyses are
+  appended, with the bulky arrays in optional `.npz` files and an
+  export of tables to CSV.
+- Real-time monitoring of an array with the SeedLink client
+  (beamforming and FDD).
 - Survey planning: array response, resolution and aliasing limits,
   Monte Carlo performance of the estimators and operational envelopes.
 - Figures for every result (`shakelab.graphics.yarray`).
@@ -122,6 +127,11 @@ metres, for each station (`NET.STA.LOC`):
 array = ArrayData(data, coordinates={"XX.A01.": (0.0, 0.0),
                                      "XX.A02.": (25.0, -10.0)})
 ```
+
+Stations whose position is neither in the metadata nor given are added
+without one. The frequency domain decomposition works without
+positions; beamforming and the array response need them all and say
+which are missing (`array.has_positions` checks it in advance).
 
 **From an array file.** For data without usable metadata, such as SAC
 files of a temporary survey, a JSON array file lists the stations,
@@ -235,9 +245,16 @@ density = result.density(coordinate="log_velocity")
 density.summary()                       # mode, median, quantiles
 density.peaks(2)                        # candidate modes
 
-result.write("result.pkl")
-result = BeamformingResult("result.pkl")
+result.write("result.jsonl")
+result = BeamformingResult("result.jsonl")
 ```
+
+Results are written as JSON Lines, a text file with the configuration
+in its first line and one line per result written, so that successive
+analyses are appended without rewriting the file. The bulky arrays
+(the spectra of the beamforming, all the singular values and vectors
+of the FDD) go to `.npz` files next to it; `arrays=False` leaves them
+out, and `to_csv` exports the maxima as a table.
 
 With many blocks the maxima scatter around the dispersion curves of
 the different modes. Their density at each frequency, in velocity,
@@ -290,11 +307,33 @@ radial or transverse to an azimuth (for instance the axis of a
 valley), horizontal or all three. Results are written and joined like
 those of the beamforming.
 
+The peaks of the FDD are as precise as the frequency step, and give no
+damping. The enhanced FDD refines each mode from its own spectrum:
+around the peak it keeps the lines whose shape matches the mode (the
+bell), transforms them to the free decay of the mode and measures its
+period and logarithmic decrement:
+
+```python
+from shakelab.graphics.yarray import plot_efdd
+
+fdd = FDD(array, config)
+result = fdd.process()
+modes = fdd.efdd(result.peaks(), mac=0.8)   # windows of 100 cycles
+modes[0].info()                              # frequency and damping
+plot_efdd(modes[0])                          # bell and fitted decay
+```
+
+The figures of the decomposition show the singular values with their
+spread (`plot_singular_values`), the shape of a mode along the array or
+the height of a building (`plot_mode_shape`) and the MAC between modes
+(`plot_mac`). `modes_to_csv("modes.csv", modes)` writes the modes to a
+table: frequency, damping, MAC and the shape of every channel.
+
 ### 3.6 Real-time monitoring
 
 During an acquisition, the SeedLink client receives the data in a
-background thread and calls an `ArrayMonitor` at regular intervals.
-At each call the monitor copies the latest window of data from the
+background thread and calls a monitor at regular intervals. At each
+call the monitor copies the latest window of data from the
 client buffer and processes it in its own thread, so that the
 reception is never delayed; the results can be queried at any time
 while the acquisition runs, or written to a file:
@@ -302,13 +341,14 @@ while the acquisition runs, or written to a file:
 ```python
 from shakelab.signals.io import metadata_reader
 from shakelab.signals.seedlink import Client
-from shakelab.exploration.yarray import ArrayMonitor
+from shakelab.exploration.yarray import BeamformingMonitor
 
-client = Client("rtserve.example.org", metadata=metadata_reader("array.xml"))
+metadata = metadata_reader("array.xml")
+client = Client("rtserve.example.org", metadata=metadata)
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=600)
 
-monitor = ArrayMonitor(config, window=300, output="monitor.pkl")
+monitor = BeamformingMonitor(config, window=300, output="monitor.jsonl")
 client.every(60, monitor)
 client.start()
 
@@ -321,6 +361,19 @@ processed (`on_skip`), for example because too few stations have data.
 With `clock="data"` the calls follow the time of the data instead of
 the wall clock, which allows to replay an archive through a SeedLink
 server.
+
+The frequency domain decomposition has its own monitor, `FDDMonitor`,
+with the same options and queries. Since its results can be joined
+only when they have the same channels, it always processes the same
+stations, those of its first result or those given in advance, and
+skips the windows in which one of them is missing or has gaps:
+
+```python
+from shakelab.exploration.yarray import FDDMonitor
+
+monitor = FDDMonitor(fdd_config, window=1800, output="fdd.jsonl")
+client.every(300, monitor)
+```
 
 ### 3.7 Plan a survey
 
@@ -353,31 +406,43 @@ factors that limit it.
 ## 4. Command line
 
 The `slab-yarray` command runs the same processing without writing
-Python. The data are given as an array file (`--input`) or as
+Python, with one subcommand for each analysis: `beamforming`, `fdd`
+and `response`. The data are given as an array file (`--input`) or as
 waveforms with metadata (`--data`, `--metadata`, `--select`); the
 configuration comes from a JSON file, and any option on the command
 line replaces the corresponding value of the file. Figures can be
 shown or saved, also from a result written before (`--result`):
 
 ```sh
-slab-yarray --input array.json --config capon.json -o result.pkl \
-    --plot-dispersion --show
-slab-yarray --data "data/*.mseed" --metadata array.xml \
-    --select "XX.*..HH?" --config capon.json --components rayleigh_angular
-slab-yarray --result result.pkl --plot-density
+slab-yarray beamforming --input array.json --config capon.json \
+    -o result.jsonl --plot-dispersion --show
+slab-yarray beamforming --data "data/*.mseed" --metadata array.xml \
+    --select "XX.*..HH?" --config capon.json \
+    --components rayleigh_angular
+slab-yarray beamforming --result result.jsonl --plot-density
+
+slab-yarray fdd --input array.json --config fdd.json -o fdd.jsonl \
+    --plot-singular-values --plot-mode-shape --show
+slab-yarray fdd --input array.json --config fdd.json --efdd \
+    --modes-csv modes.csv --plot-efdd --save-figures figures
+
 slab-yarray response --input array.json --plot-all --show
 ```
 
-The subcommand `slab-yarray response` computes the array response
+`slab-yarray fdd` prints the modes at the peaks of the first singular
+value (or at the frequencies given with `--modes`) and, with `--efdd`,
+their natural frequencies and damping ratios; `--modes-csv` writes
+them to a table. The subcommand `response` computes the array response
 and its limits; the Monte Carlo experiments, which need many more
-choices, are available from Python only. `slab-yarray --help` lists
-all the options.
+choices, are available from Python only. `slab-yarray <subcommand>
+--help` lists all the options.
 
 ## 5. Structure
 
 The package is organized in layers: the data and the configuration
-at the bottom, then the estimators and the beamforming, and on top the
-applications (command line, real-time monitor, figures). Each module
+at the bottom, then the estimators, the processing (beamforming, FDD)
+and the planning, and on top the applications (command line,
+real-time monitor, figures). Each module
 has a single task:
 
 | Module | Main objects | Role |
@@ -386,20 +451,21 @@ has a single task:
 | `config` | `BeamformingConfig`, `FDDConfig`, `PerformanceConfig` | processing and planning parameters |
 | `estimators` | | Bartlett, Capon and MUSIC on cross-spectral matrices |
 | `beamforming` | `Beamformer`, `BeamformingResult`, `DispersionCurve` | f-k processing and its results |
-| `fdd` | `FDD`, `FDDResult`, `Mode` | frequency domain decomposition, resonances and shapes |
+| `fdd` | `FDD`, `FDDResult`, `Mode`, `EFDDDetails`, `modes_to_csv` | frequency domain decomposition, resonances and shapes; enhanced FDD (frequency and damping) |
 | `statistics` | | density of the maxima, summaries, peaks |
 | `response` | `ArrayResponse`, `ResponseAnalysis` | array response and limits; entry point of planning |
 | `performance` | `PerformanceResult` | Monte Carlo performance of the estimators |
 | `operational` | `OperationalAssessment` | usable frequency-velocity envelope |
-| `monitor` | `ArrayMonitor` | real-time processing with the SeedLink client |
+| `monitor` | `BeamformingMonitor`, `FDDMonitor` | real-time processing with the SeedLink client |
 | `io` | | array files and result files |
-| `cli` | | the `slab-yarray` command |
+| `cli` | | the `slab-yarray` command (`beamforming`, `fdd`, `response`) |
 
-The numerical modules do no file input/output and no plotting, so
-they can be used in any context. The generic spectral tools on which
-they rely (windows, Fourier coefficients, cross-spectral matrices) are
-in `shakelab.signals` (`windowing`, `crossspectral`, `fourier.dft`),
-where they are shared with other array methods. The figures are in
+The numerical modules do no plotting and keep no global state, so they
+can be used in any context; files are read and written by `io`. The
+generic spectral tools on which they rely (windows, Fourier
+coefficients, cross-spectral matrices) are in `shakelab.signals`
+(`windowing`, `crossspectral`, `fourier.dft`), where they are shared
+with other array methods. The figures are in
 `shakelab.graphics.yarray`; matplotlib is needed only to draw them.
 
 ## 6. Conventions
@@ -425,6 +491,9 @@ of ShakeLab are in [`docs/conventions.md`](../../../docs/conventions.md).
   squared per hertz (Bartlett and Capon); data not corrected for the
   instrument response give counts squared per hertz. MUSIC gives a
   pseudo-power without units.
+- **Singular values** of the FDD have the units of the power;
+  **mode shapes** are real, with unit norm and their largest component
+  positive.
 - **Times** are ShakeLab `Date` objects; the time of a block is the
   centre of its covariance window.
 
@@ -437,12 +506,17 @@ of ShakeLab are in [`docs/conventions.md`](../../../docs/conventions.md).
 - [`examples/exploration/yarray/`](../../../examples/README.md#exploration):
   one script per topic (array data, configuration, estimators,
   components, Rayleigh waves, transforms, uncertainty, results,
-  density, command line, real time, planning, FDD).
+  density, command line, real time, planning, processing times, FDD
+  and enhanced FDD).
 - `shakelab.signals.io`, `shakelab.signals.fdsnws` and
   `shakelab.signals.seedlink`: reading, downloading and receiving the
   data in real time.
 
 ## 8. References
+
+Brincker, R., Ventura, C. E., and Andersen, P. (2001). Damping
+estimation by frequency domain decomposition. Proceedings of the 19th
+International Modal Analysis Conference (IMAC), 698-703.
 
 Brincker, R., Zhang, L., and Andersen, P. (2001). Modal identification
 of output-only systems using frequency domain decomposition. Smart

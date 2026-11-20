@@ -22,7 +22,7 @@ Synthetic plane waves of known velocity, azimuth, polarization and
 ellipticity are recovered by every estimator and component mode; the
 beam power of a random plane wave equals its power spectral density;
 the results on the SESAME excerpt are compared with the independent
-YArray implementation of August 2026 (same maxima, power scaled by the
+YARRAY implementation of August 2026 (same maxima, power scaled by the
 new spectral-density normalization).
 """
 
@@ -684,6 +684,16 @@ def test_beamformer_needs_array_and_complete_config():
                                             grid_size=10)).process()
 
 
+def test_beamformer_needs_positions():
+    """Stations without a position cannot be beamformed."""
+    array = _harmonic_array()
+    stations = list(array)
+    stations[1] = StationData(stations[1].sid, stations[1].records)
+
+    with pytest.raises(ValueError, match="needs the station positions"):
+        Beamformer(ArrayData(stations), _config()).process()
+
+
 def _halves(array, config):
     """Results of the two halves of an array, processed by windows."""
     beamformer = Beamformer(array, config)
@@ -744,33 +754,81 @@ def test_result_files(tmp_path):
     array = _harmonic_array(nsamp=24000)
     config = _config()
     first, second = _halves(array, config)
-    path = tmp_path / "out" / "result.pkl"
+    path = tmp_path / "out" / "result.jsonl"
     first.write(path)
     second.write(path, append=True)
     joined = BeamformingResult(path)
+    expected = first.copy()
+    expected.append(second)
 
     assert joined.nblocks == first.nblocks + second.nblocks
     assert joined.config == config
-    assert len(joined.maxima) == len(first.maxima) + len(second.maxima)
+    assert joined.block_times == expected.block_times
+    assert [item.__dict__ for item in joined.maxima] == [
+        item.__dict__ for item in expected.maxima
+    ]
     np.testing.assert_array_equal(
         joined.spectrum(6.0).power[:first.spectrum(6.0).nblocks],
         first.spectrum(6.0).power,
     )
+    assert joined.stations_at(6.0, 0) == first.sids
+    np.testing.assert_array_equal(joined.coordinates, first.coordinates)
+    assert len(list((tmp_path / "out" / "result_arrays").iterdir())) == 2
+
+    light = BeamformingResult(path, arrays=False)
+
+    assert light.spectra is None
+    assert len(light.maxima) == len(joined.maxima)
 
     with pytest.raises(FileExistsError):
         first.write(path)
 
-    with pytest.raises(ValueError, match="configurations"):
+    with pytest.raises(ValueError, match="configuration"):
         beamform(array, _changed(config, maxima=2)).write(path, append=True)
 
     with pytest.raises(ValueError, match="empty"):
-        BeamformingResult().write(tmp_path / "empty.pkl")
+        BeamformingResult().write(tmp_path / "empty.jsonl")
 
-    other = tmp_path / "other.pkl"
-    other.write_bytes(b"\x80\x04N.")
+    with pytest.raises(ValueError, match="jsonl"):
+        first.write(tmp_path / "result.json")
 
-    with pytest.raises(ValueError, match="not a YArray result"):
+    other = tmp_path / "other.jsonl"
+    other.write_text('{"a": 1}\n')
+
+    with pytest.raises(ValueError, match="not a YARRAY result"):
         BeamformingResult(other)
+
+
+def test_result_without_spectra_and_csv(tmp_path):
+    """
+    Light files and the CSV table of the maxima.
+
+    Without arrays the file holds the maxima only; the CSV has one row
+    per maximum, with velocity and slowness and empty missing values.
+    """
+    result = beamform(_harmonic_array(), _config(spectra=False,
+                                                 maxima=2))
+    path = tmp_path / "result.jsonl"
+    result.write(path, arrays=True)
+    lines = path.read_text().splitlines()
+
+    assert len(lines) == 2
+    assert json.loads(lines[1])["arrays"] is None
+    assert not (tmp_path / "result_arrays").exists()
+
+    table = tmp_path / "maxima.csv"
+    result.to_csv(table)
+    rows = table.read_text().splitlines()
+
+    assert rows[0].split(",")[:9] == [
+        "block", "time", "frequency", "component", "rank", "wavenumber",
+        "azimuth", "velocity", "slowness",
+    ]
+    assert len(rows) == len(result.maxima) + 1
+    assert rows[1].endswith(",,,")
+
+    with pytest.raises(FileExistsError):
+        result.to_csv(table)
 
 
 def test_dispersion_and_density(capsys):
@@ -852,7 +910,7 @@ def _sesame_array():
 )
 def test_reference_august_2026(case):
     """
-    Maxima equal those of the YArray implementation of August 2026.
+    Maxima equal those of the YARRAY implementation of August 2026.
 
     The reference (``data/reference.json``) was computed by the
     original code of 12 August 2026 on the same data. Wavevectors,
@@ -862,7 +920,9 @@ def test_reference_august_2026(case):
     square, so that the new spectral density is ``N * delta / 2`` times
     the old power (squared for the RTBF objective; MUSIC is unchanged
     up to the same factor, inverse, being a reciprocal of a projection
-    without the matrix scale).
+    without the matrix scale). The original code took the sampling
+    interval of the SAC files in single precision (0.008750000037 s
+    instead of 0.00875 s): the powers agree to a relative 1e-6.
     """
     reference = json.loads(
         (DATA / "reference.json").read_text()
@@ -893,7 +953,8 @@ def test_reference_august_2026(case):
         else:
             ratio = factor
 
-        assert new.power == pytest.approx(old["power"] * ratio, rel=1e-8)
+        assert new.power == pytest.approx(old["power"] * ratio, rel=1e-6,
+                                          abs=0.0)
 
         if old["power_standard_error"] is not None:
             assert new.power_standard_error == pytest.approx(

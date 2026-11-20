@@ -34,7 +34,8 @@ import numpy as np
 import pytest
 
 from shakelab.libutils.timeN import Date
-from shakelab.signals.base import Record
+from shakelab.signals.base import Record, Stream
+from shakelab.signals.libio.common import NotWaveformError
 from shakelab.signals.libio.sac import (
     FOOTER_FIELDS,
     HEADER_SIZE,
@@ -179,7 +180,7 @@ def test_not_a_time_series(name, tmp_path):
 
     raw = Sac.from_bytes(content)
     np.testing.assert_array_equal(raw.data2, sac.data2)
-    with pytest.raises(ValueError, match="not an evenly sampled"):
+    with pytest.raises(NotWaveformError, match="not an evenly sampled"):
         sacread(content)
 
 
@@ -198,6 +199,46 @@ def test_header_version_7():
     assert record.time - Date("1981-03-29T10:38:14") == pytest.approx(
         9.4600001234, abs=1e-9
     )
+
+
+@pytest.mark.parametrize("rate", [100.0, 3.0, 30.0, 125.0, 1000.0, 0.1])
+def test_sampling_interval_of_version_6(rate):
+    """The 32-bit interval is read as the intended decimal value."""
+    record = Record(data=np.zeros(10), delta=1.0 / rate)
+
+    restored = _round_trip(record)
+
+    assert restored.delta == 1.0 / rate
+
+
+def test_sampling_interval_without_decimal_value():
+    """Other intervals keep their 32-bit representation."""
+    delta = float(np.float32(1.0 / 99.99987654321))
+    restored = _round_trip(Record(data=np.zeros(10), delta=delta))
+
+    assert np.float32(restored.delta) == np.float32(delta)
+
+
+def test_sampling_interval_not_from_a_file():
+    """A double-precision interval set in memory is not changed."""
+    record = Record(data=np.zeros(10), delta=0.0123456789)
+    assert Sac.from_shakelab(record).to_shakelab().delta == 0.0123456789
+
+
+def test_merge_with_the_same_channel():
+    """A record read from SAC joins the rest of its channel."""
+    time = Date("2026-03-01T10:00:00")
+    first = Record(data=np.arange(100.0), delta=0.01, time=time,
+                   sid="XX.STA..HHZ")
+    second = Record(data=np.arange(100.0), delta=0.01, time=time + 1.0,
+                    sid="XX.STA..HHZ")
+
+    stream = Stream()
+    stream.append(_round_trip(first))
+    stream.append(second)
+
+    assert len(stream) == 1
+    assert stream[0].endtime == second.endtime
 
 
 def test_truncated_file():
@@ -263,6 +304,30 @@ def test_metadata_written():
     assert sac.head["IZTYPE"] == 9
 
 
+def test_write_version_7():
+    """Version 7 stores the interval and the times in double precision."""
+    delta = 1.0 / 99.99987654321
+    record = Record(data=np.arange(10.0), delta=delta,
+                    time="2026-03-01T10:20:30.123456", sid="XX.STA..HHZ")
+    buffer = _io.BytesIO()
+    sacwrite(buffer, record, version=7)
+    content = buffer.getvalue()
+
+    assert len(content) == HEADER_SIZE + 4 * 10 + 8 * len(FOOTER_FIELDS)
+    assert Sac.from_bytes(content).head["NVHDR"] == 7
+    restored = sacread(content)
+    assert restored.delta == delta
+    assert restored.time == record.time
+    assert restored.endtime == record.endtime
+
+
+def test_invalid_header_version():
+    """Only versions 6 and 7 are written."""
+    record = Record(data=[1.0], delta=1.0)
+    with pytest.raises(ValueError, match="version"):
+        sacwrite(_io.BytesIO(), record, version=5)
+
+
 def _io_bytes(record):
     """SAC content of a record."""
     buffer = _io.BytesIO()
@@ -282,7 +347,7 @@ def test_existing_file(tmp_path):
     record = Record(data=[1.0], delta=1.0, time="2026-01-01T00:00:00")
     sacwrite(path, record)
 
-    with pytest.raises(FileExistsError):
+    with pytest.raises(FileExistsError, match=r"\(use owrite=True\)"):
         sacwrite(path, record)
     sacwrite(path, record, owrite=True)
 

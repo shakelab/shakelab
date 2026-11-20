@@ -184,6 +184,20 @@ def test_spectrum_filter_butterworth():
     assert spectrum.amplitude[0] == pytest.approx(1.0)
 
 
+def test_spectrum_filter_causal():
+    """causal=True applies the causal response, same amplitude."""
+    from shakelab.signals import fourier
+
+    spectrum = Spectrum(np.ones(501), delta=0.01, nsamp=1000)
+    spectrum.filter(lowpass=10.0, order=3, causal=True)
+    expected = fourier.butterworth(
+        spectrum.frequency, 10.0, 3, causal=True
+    )
+
+    np.testing.assert_allclose(spectrum.data, expected)
+    assert np.any(np.abs(np.angle(spectrum.data[1:])) > 0.1)
+
+
 def test_spectrum_filter_sharp_and_errors():
     """The sharp filter zeroes the stop band; bad options raise."""
     spectrum = Spectrum(np.ones(501), delta=0.01, nsamp=1000)

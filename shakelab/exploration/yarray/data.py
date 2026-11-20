@@ -23,7 +23,9 @@ Array data.
 The array-processing methods of :mod:`shakelab.exploration.yarray`
 work on an :class:`ArrayData`: the waveforms of a set of stations, with
 the position of every station in a local metric frame and the
-orientation of every recorded component. Each station
+orientation of every recorded component. Positions are optional: the
+wavenumber methods (beamforming, array response) need them, the
+frequency domain decomposition does not. Each station
 (:class:`StationData`) has one, two or three components on a common
 time axis.
 
@@ -376,9 +378,10 @@ class StationData:
     records : sequence of Record
         One to three records on the same time axis (same start time,
         sampling interval and number of samples).
-    coordinates : array-like
+    coordinates : array-like, optional
         Position ``(x, y[, z])`` in metres in the frame of the array
-        (East, North, Up); a missing ``z`` is zero.
+        (East, North, Up); a missing ``z`` is zero. None if the position
+        is unknown (default).
     orientation : array-like, optional
         Matrix ``(n_components, 3)`` whose rows are the directions of
         the positive motion of the records, as (east, north, up). They
@@ -400,8 +403,9 @@ class StationData:
     ValueError
         If the records are not one to three, are empty, contain
         non-finite samples, are not on the same time axis or have
-        different units, or if coordinates, orientation or covariance
-        are invalid.
+        different units, if coordinates, orientation or covariance
+        are invalid, or if a covariance or a location is given without
+        coordinates.
 
     Notes
     -----
@@ -410,7 +414,7 @@ class StationData:
 
     sid: str
     records: Sequence[Record]
-    coordinates: Any
+    coordinates: Any = None
     orientation: Any = None
     coordinate_covariance: Any = None
     location: Optional[WgsPoint] = None
@@ -435,6 +439,15 @@ class StationData:
         ):
             raise TypeError(f"station {sid}: location must be a WgsPoint")
 
+        if self.coordinates is None and (
+            self.coordinate_covariance is not None
+            or self.location is not None
+        ):
+            raise ValueError(
+                f"station {sid}: a coordinate covariance or a location "
+                "needs coordinates"
+            )
+
         _check_records(sid, records)
         _common_units(records, f"station {sid}")
 
@@ -446,9 +459,12 @@ class StationData:
         context = f"station {sid}"
         object.__setattr__(self, "sid", sid)
         object.__setattr__(self, "records", records)
-        object.__setattr__(
-            self, "coordinates", _as_coordinates(self.coordinates, context)
-        )
+        if self.coordinates is not None:
+            object.__setattr__(
+                self, "coordinates",
+                _as_coordinates(self.coordinates, context),
+            )
+
         object.__setattr__(
             self,
             "orientation",
@@ -474,6 +490,11 @@ class StationData:
     def ncomp(self) -> int:
         """Number of components."""
         return len(self.records)
+
+    @property
+    def has_position(self) -> bool:
+        """Whether the position of the station is known."""
+        return self.coordinates is not None
 
     @property
     def nsamp(self) -> int:
@@ -917,9 +938,11 @@ class ArrayData:
             by all the channels of each station.
         coordinates : mapping, optional
             Station positions ``{sid: (x, y[, z])}`` in metres, in the
-            frame of the array, for every added station (``sid`` is
-            ``NET.STA.LOC``). Default: the positions of the records
-            (:attr:`Record.location`), in the ENU frame of the array.
+            frame of the array (``sid`` is ``NET.STA.LOC``); stations
+            not in the mapping have no position. Default: the
+            positions of the records (:attr:`Record.location`), in the
+            ENU frame of the array; stations without a location have no
+            position.
         orientations : mapping, optional
             Orientation matrices ``{sid: matrix}`` overriding those of
             the metadata for some stations, rows in the order Z, N, E
@@ -944,8 +967,8 @@ class ArrayData:
         ValueError
             If no channel is selected, a station has channels of
             different instruments or more than three, a station has a
-            gap with ``gaps="raise"``, positions or orientations are
-            missing, an identifier is already in the array, or the
+            gap with ``gaps="raise"``, orientations are missing, an
+            identifier is already in the array, or the
             sampling interval or the units differ from those of the
             array.
         """
@@ -988,15 +1011,9 @@ class ArrayData:
             raise ValueError("no station covers the time window")
 
         if coordinates is not None:
-            missing = sorted(set(channels) - set(coordinates))
-
-            if missing:
-                raise ValueError(
-                    "coordinates are missing for stations "
-                    + ", ".join(missing)
-                )
-
-            positions = {sid: (coordinates[sid], None) for sid in channels}
+            positions = {
+                sid: (coordinates.get(sid), None) for sid in channels
+            }
 
         else:
             positions = self._geographic_positions(channels)
@@ -1007,8 +1024,9 @@ class ArrayData:
                 records=records,
                 coordinates=positions[sid][0],
                 orientation=_station_value(orientations, sid),
-                coordinate_covariance=_station_value(
-                    coordinate_covariance, sid
+                coordinate_covariance=(
+                    None if positions[sid][0] is None
+                    else _station_value(coordinate_covariance, sid)
                 ),
                 location=positions[sid][1],
             )
@@ -1045,7 +1063,8 @@ class ArrayData:
 
         The coordinates of the stations with a geographic position are
         recomputed; for an array in local coordinates the reference is
-        only the geographic position of their origin.
+        only the geographic position of their origin. Stations without
+        a position keep none.
 
         Parameters
         ----------
@@ -1061,10 +1080,11 @@ class ArrayData:
             positions.
         """
         stations = list(self._stations.values())
-        located = [st for st in stations if st.location is not None]
+        placed = [st for st in stations if st.has_position]
+        located = [st for st in placed if st.location is not None]
 
-        if located and len(located) != len(stations):
-            missing = sorted(st.sid for st in stations if st.location is None)
+        if located and len(located) != len(placed):
+            missing = sorted(st.sid for st in placed if st.location is None)
             raise ValueError(
                 "stations " + ", ".join(missing) + " have no geographic "
                 "position: the coordinates cannot be recomputed"
@@ -1083,7 +1103,7 @@ class ArrayData:
         frame = _frame(reference, [st.location for st in located])
         self._frame = frame
         self._stations = {
-            st.sid: dataclasses.replace(
+            st.sid: st if st.location is None else dataclasses.replace(
                 st, coordinates=geo_to_enu(st.location, frame)
             )
             for st in stations
@@ -1226,10 +1246,32 @@ class ArrayData:
         return tuple(self._stations)
 
     @property
+    def has_positions(self) -> bool:
+        """Whether the position of every station is known."""
+        return all(st.has_position for st in self._stations.values())
+
+    @property
     def coordinates(self) -> np.ndarray:
-        """Station coordinates ``(n_stations, 3)``, in metres."""
+        """
+        Station coordinates ``(n_stations, 3)``, in metres.
+
+        Raises
+        ------
+        ValueError
+            If the position of some stations is unknown (see
+            :attr:`has_positions`).
+        """
         if not self._stations:
             return np.empty((0, 3))
+
+        missing = [st.sid for st in self._stations.values()
+                   if not st.has_position]
+
+        if missing:
+            raise ValueError(
+                "the position of stations " + ", ".join(missing)
+                + " is unknown: give metadata or coordinates"
+            )
 
         return np.stack([st.coordinates for st in self._stations.values()])
 
@@ -1496,10 +1538,11 @@ class ArrayData:
         ]
 
         for station in self._stations.values():
-            x, y, z = station.coordinates
-            line = (
-                f"  {station.sid:<16} {station.ncomp} comp  "
-                f"x {x:10.2f}  y {y:10.2f}  z {z:8.2f} m"
+            line = f"  {station.sid:<16} {station.ncomp} comp  " + (
+                "x {:10.2f}  y {:10.2f}  z {:8.2f} m".format(
+                    *station.coordinates
+                )
+                if station.has_position else "no position"
             )
 
             if not synchronized:
@@ -1571,18 +1614,12 @@ class ArrayData:
             sid: _station_location(sid, records)
             for sid, records in channels.items()
         }
-        missing = sorted(sid for sid, point in locations.items()
-                         if point is None)
+        located = {sid: point for sid, point in locations.items()
+                   if point is not None}
 
-        if missing:
-            raise ValueError(
-                "the location of stations " + ", ".join(missing)
-                + " is unknown: give metadata or coordinates"
-            )
-
-        if self._frame is None:
+        if located and self._frame is None:
             local = sorted(st.sid for st in self._stations.values()
-                           if st.location is None)
+                           if st.has_position and st.location is None)
 
             if local:
                 raise ValueError(
@@ -1591,10 +1628,11 @@ class ArrayData:
                     "new stations, or a reference (set_reference)"
                 )
 
-            self._frame = _frame(next(iter(locations.values())), [])
+            self._frame = _frame(next(iter(located.values())), [])
 
         return {
-            sid: (geo_to_enu(point, self._frame), point)
+            sid: (None, None) if point is None
+            else (geo_to_enu(point, self._frame), point)
             for sid, point in locations.items()
         }
 

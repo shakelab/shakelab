@@ -118,6 +118,9 @@ def test_find_datacenter_errors():
     """Unknown names and wrong types are rejected."""
     with pytest.raises(ValueError, match="unknown data center"):
         registry.find_datacenter("NOWHERE")
+    with pytest.raises(ValueError, match="'https://NOWHERE' or "
+                       "'http://NOWHERE'"):
+        registry.find_datacenter("NOWHERE")
     with pytest.raises(TypeError):
         registry.find_datacenter(1)
 
@@ -159,12 +162,51 @@ def test_service_root(url, expected):
     assert registry.service_root(url) == expected
 
 
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("INGV", False), ("earthscope", False), ("localhost", True),
+        ("example.org", True), ("192.168.1.10:8080", True),
+        ("https://example.org", True),
+    ],
+)
+def test_is_address(text, expected):
+    """Registry names have no dot, colon or slash."""
+    assert registry.is_address(text) is expected
+
+
+def test_service_addresses_without_scheme():
+    """https if the scheme is omitted; a separate port prevails."""
+    assert registry.service_root("a.org/fdsnws/station/1/query") == (
+        "https://a.org/fdsnws/station/1/"
+    )
+    urls = registry.service_urls("http://a.org:8080", 8081)
+    assert urls["event"] == "http://a.org:8081/fdsnws/event/1/"
+
+
 def test_address_errors():
     """Only http and https addresses."""
     with pytest.raises(ValueError):
         registry.service_root("ftp://a.org/fdsnws/station/1/")
     with pytest.raises(TypeError):
         registry.service_urls(None)
+
+
+@pytest.mark.parametrize(
+    "url, message",
+    [
+        ("http://", "without host"),
+        ("https:///fdsnws/station/1/", "without host"),
+        ("http://a.org:80x", "invalid port"),
+        ("http://a.org:99999", "invalid port"),
+    ],
+)
+def test_address_without_host_or_with_invalid_port(url, message):
+    """Addresses are checked when the client is created."""
+    with pytest.raises(ValueError, match=message):
+        registry.service_urls(url)
+    with pytest.raises(ValueError, match=message):
+        registry.service_root(url)
 
 
 # ----------------------------------------------------------------------------

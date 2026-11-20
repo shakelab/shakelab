@@ -1,6 +1,8 @@
 # ShakeLab development and architecture guidelines
 
-*Version 2.3, 14 November 2026*
+*Version 2.12, 18 November 2026*
+
+[ShakeLab documentation](README.md) › Development guidelines
 
 This document defines the design philosophy of ShakeLab and the
 principles that all contributions follow. Parts I to III state
@@ -367,12 +369,24 @@ missing mandatory information, unavailable optional information,
 invalid configuration, external service failures and internal
 programming errors. Use the most specific built-in exception
 (`ValueError`, `TypeError`, `NotImplementedError`, ...) or a ShakeLab
-exception when callers need to distinguish the case.
+exception when callers need to distinguish the case. A ShakeLab
+exception derives from the built-in exception it specializes (a file
+without waveforms raises `NotWaveformError`, a `ValueError`), so that
+code handling the general case keeps working.
 
 Never catch exceptions broadly to let execution continue, and never
 replace an invalid operation with a scientifically different fallback.
 A fallback is acceptable only when it preserves the intended meaning
 and is explicit.
+
+Never return a wrong or incomplete result silently. Where the data do
+not allow the intended operation (margins missing around a window,
+channels without metadata, files without waveforms in a folder), the
+operation either raises or does what it can and says what it left out.
+Warnings raised deep in the library are attributed to the caller's
+code (`shakelab.libutils.utils.warn_external`); one call gives one
+warning that lists all the cases (one per channel in real-time
+streams), not one per record.
 
 Raise an exception when the result would be wrong. Issue a warning
 (`warnings.warn`, with an appropriate category) when the result is
@@ -404,15 +418,65 @@ conventions adopted so far are:
   and `target` (file or folder) as argument names, `format` for the
   format, `owrite` to overwrite existing files (False by default); the
   data are the first argument of a writer; the arguments after the
-  first (after `target` in writers) are keyword-only;
+  first (after `target` in writers) are keyword-only; an existing file
+  without `owrite` gives the same `FileExistsError` everywhere
+  (`shakelab.libutils.utils.check_target`: `<file> exists (use
+  owrite=True)`), and the commands have `--owrite` and show it in the
+  message;
+- return values: methods that change an object in place (`read`,
+  `append`, `cut`, `filter`...) return None, and raise when they cannot
+  do what was asked rather than returning a flag (`Record.append`
+  raises for records that cannot be joined); functions that download
+  to a `target` instead of returning the data return the number of
+  bytes written (0: no data, no file);
 - time windows: `starttime` and `endtime`, `Date` objects or ISO 8601
-  strings, bounds included;
+  strings, bounds included; they may be given by position right after
+  what the window applies to, the object itself (`cut`, `extract`,
+  `overlaps`) or the channels chosen (`select`, `get_data`, the
+  SeedLink `read` and `records`, the FDSN requests), and are
+  keyword-only elsewhere (`io.reader`, where the first argument is the
+  source; `run`, where it is a duration); `duration` gives a length in seconds after `starttime`
+  instead of `endtime`; numbers of seconds from the start of the
+  object are accepted only where that start is one (records, streams),
+  and the two bounds of a window are of one kind (a time followed by a
+  number raises `TypeError`); a window in place is `cut`, on a copy
+  `extract`, a choice of channels or events `select`; the time of the
+  first sample of data that do not have one (text tables, TDMS) is
+  `first_sample_time`, a different concept;
+- servers: one address, read by `shakelab.libutils.address`
+  (`host[:port]`, IPv6 in brackets, and for web services
+  `[scheme://]host[:port][/prefix]` with `https` if the scheme is
+  omitted, never falling back to plain HTTP); a `port` given separately
+  takes precedence over the one in the address; the same form on the
+  command line, with `--port`;
+- metadata attached to data: `metadata=` accepts metadata at hand (a
+  `MetadataCollection` or files) wherever data are read or received
+  (`io`, `fdsnws`, `seedlink`), and `True` in the services to download
+  them;
 - channel selection: `select`, with the patterns of
-  `shakelab.signals.codes` (`NET.STA.LOC.CHA`, `*`, `?`, `[...]`);
+  `shakelab.signals.codes` (`NET.STA.LOC.CHA`, `*`, `?`, `[...]`), a
+  pattern or a list of patterns, with the same meaning while reading
+  (`io.reader`) and on collections in memory (`select` methods, which
+  return copies);
+- containers: a container is a sequence of its elements (a record of
+  samples, a stream of records, a collection of streams); an integer
+  gives one element, a slice a new object of the same class, and `in`
+  follows the indexing, with an operand of the wrong kind raising
+  `TypeError` instead of answering False;
 - options with a fixed set of values are enumerations, and their
   string values are accepted wherever the enumeration is;
 - objects that can describe themselves have `summary()`, returning
-  the text, and `info()`, printing it;
+  the text, and `info()`, printing it: a description of the object
+  (for a client, its server, configuration and state), not of
+  something else; a container describes itself in a first line and
+  then one line per element;
+- names of identifiers stay singular at every level (`sid`, `eid`): a
+  string where there is one value, the list of the elements where
+  there are many (`StreamCollection.sid`, `Stream.eid`);
+- options name the choice the user makes, not a property of the result
+  (`filter(causal=True)`, not `minphase`), and results in another
+  domain are returned in it rather than written into an object of the
+  wrong kind (`Record.correlate` returns lags and values);
 - an argument of the wrong type raises `TypeError`, a value out of its
   domain `ValueError`.
 
@@ -507,6 +571,10 @@ an existing module already owns the concept. Avoid generic dumping
 grounds such as an ever-growing `utils.py`: a helper that acquires
 domain meaning moves to the concept that owns it.
 
+Modules of a subpackage do not import the subpackage's own
+`__init__`: definitions shared by its modules live in a dedicated
+module (`signals/libio/common.py`).
+
 Dated or numbered copies of a module (`providers_20260825.py`) and
 example scripts do not belong in the package tree: history lives in
 git, examples in `examples/` at the repository root.
@@ -569,9 +637,9 @@ information between places:
   links to the documents below;
 - `README.md` in every folder of the package: an introduction to that
   part of ShakeLab for its users (model below);
-- `docs/`: user-facing guides, organized by subpackage as the package
-  (`docs/exploration/yarray.md`, ...), with the library-wide
-  [conventions](conventions.md) and these guidelines at the top level;
+- `docs/`: user-facing documentation, organized by subpackage as the
+  package (below), with the library-wide [conventions](conventions.md)
+  and these guidelines at the top level;
 - `examples/` (repository root): short scripts organized by subpackage
   as the package, with an index in `examples/README.md`. They
   illustrate interfaces, configurations and functionality, with
@@ -586,6 +654,61 @@ information between places:
 The development history and the state of the work (blocks, commits,
 open points) belong to the changelog and to the project notes, never
 to READMEs or guides.
+
+#### Organization of `docs/`
+
+- [`docs/README.md`](README.md) is the single entry point: what
+  ShakeLab is and the principles that guide it, told for its users, a
+  short presentation of the subpackages, and the map of the whole
+  documentation, linking every document. The root `README.md` links
+  to it.
+- Every documented subpackage has a folder with an overview named
+  after it (`docs/signals/signals.md`,
+  `docs/exploration/exploration.md`): a discursive introduction to the
+  subpackage, how its parts work together, and links to its guides,
+  to the READMEs of its folders and to its examples. The quick start
+  stays in the README of the package; the overview links to it.
+- Guides, one per topic, sit in the folder of their subpackage
+  (`docs/signals/waveforms.md`, `docs/exploration/yarray.md`): theory
+  where needed, complete use with a concrete example for every method,
+  design choices, validation and limitations.
+- Every document starts, above its title, with a navigation line back
+  to the entry point and to the overview of its subpackage:
+  `[ShakeLab documentation](../README.md) › [Signals](signals.md) ›
+  Waveforms`.
+- No other `README.md` is used inside `docs/`.
+
+#### Figures
+
+Figures support the explanations that need a picture (waveforms,
+filters, spectra, spectrograms, array responses). They are didactic:
+each shows the user what a concept, a method or an option does, or
+when to choose one over another; comparisons that a sentence or a
+table states as well (for example a numerical agreement with a
+reference implementation) stay in the text. They are reproducible:
+
+- the images are in `docs/figures/`, organized as the guides
+  (`docs/figures/signals/waveforms_filters.png`), and are committed;
+- the scripts that make them are in `docs/figures/scripts/`, one per
+  guide (`signals_waveforms.py`, one function per figure), with a
+  common style module (`style.py`) and `make_figures.py`, which
+  regenerates all of them or those of one guide;
+- the scripts run on the test data of the repository (an exception to
+  the rule of generic names, which holds for examples), use
+  `shakelab.graphics` where it offers the plot and matplotlib
+  otherwise, and are deterministic (`seed`);
+- PNG on an opaque white background, of moderate size (a few hundred
+  kB at most, 1600 px wide for a full-width figure); SVG only for
+  schematic drawings;
+- schematic drawings (how the parts of a module work together, the
+  flow of the data) are block diagrams with few blocks, each with a
+  name and at most one short line, arrows that follow the flows, and
+  shaded areas that group what belongs together (a thread, a
+  module); the details stay in the text;
+- each figure has a caption in the guide that states the data and
+  their source (`*Figure 3. ...*`, below the image);
+- figures are regenerated by hand when the code they show changes;
+  the test suite does not run the scripts.
 
 #### Equations and names in the documentation
 
@@ -606,9 +729,10 @@ lines stay within 79 characters. Names of the code
 they correspond to (`` $`k_R`$ (`resolution_radius`) ``). Docstrings
 stay in plain text.
 
-Package names written as words in the documentation (titles and text)
-are in capitals, for example YARRAY; in the code, in paths and in
-commands they keep the lower-case name of the module (`yarray`,
+Package names written as words are in capitals, for example YARRAY,
+in the documentation (titles and text) and in the docstrings, comments
+and messages of the code; in the code itself, in paths and in commands
+they keep the lower-case name of the module (`yarray`,
 `shakelab.exploration.yarray`, `slab-yarray`).
 
 #### Folder READMEs

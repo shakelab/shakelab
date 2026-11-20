@@ -33,9 +33,10 @@ Conventions
 
 from __future__ import annotations
 
+import os
 import sys
 import warnings
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 
@@ -51,6 +52,8 @@ __all__ = [
     "serialize_ndarray",
     "deserialize_complex",
     "warn_external",
+    "check_target",
+    "command_message",
 ]
 
 _NULL_STRINGS = frozenset({"", "None", "none", "NaN", "nan"})
@@ -373,3 +376,78 @@ def warn_external(message: str, category: type = UserWarning) -> None:
         frame = frame.f_back
         level += 1
     warnings.warn(message, category, stacklevel=level)
+
+
+# ----------------------------------------------------------------------------
+# Output files
+# ----------------------------------------------------------------------------
+
+
+def check_target(
+    target: Any,
+    owrite: bool,
+    *,
+    append: Optional[bool] = None,
+) -> None:
+    """
+    Refuse to replace an existing file unless asked to.
+
+    Every writer of ShakeLab calls it before writing, so that an
+    existing file gives the same error everywhere (the commands show it
+    with ``--owrite`` in place of ``owrite=True``).
+
+    Parameters
+    ----------
+    target : str or path-like
+        File to write.
+    owrite : bool
+        Whether an existing file may be replaced.
+    append : bool, optional
+        For writers that can add to a file: whether they add to it.
+        None (default) for writers that cannot.
+
+    Raises
+    ------
+    FileExistsError
+        If ``target`` exists and neither ``owrite`` nor ``append`` is
+        True: ``"<file> exists (use owrite=True)"`` (``or append=True``
+        for writers that can add to a file).
+
+    Examples
+    --------
+    >>> check_target("waveforms.mseed", owrite=False)
+    """
+    if owrite or append or not os.path.exists(target):
+        return
+    hint = "owrite=True" if append is None else "owrite=True or append=True"
+    raise FileExistsError(f"{os.fspath(target)} exists (use {hint})")
+
+
+def command_message(error: BaseException) -> str:
+    """
+    Return the message of an error as a command line shows it.
+
+    The options of the Python interface named in the message are given
+    as the options of the commands (``owrite=True`` → ``--owrite``,
+    ``append=True`` → ``--append``).
+
+    Parameters
+    ----------
+    error : BaseException
+        Error caught by a command.
+
+    Returns
+    -------
+    str
+        Message for the terminal.
+
+    Examples
+    --------
+    >>> command_message(FileExistsError("a.mseed exists (use owrite=True)"))
+    'a.mseed exists (use --owrite)'
+    """
+    message = str(error)
+    if isinstance(error, FileExistsError):
+        message = message.replace("owrite=True", "--owrite")
+        message = message.replace("append=True", "--append")
+    return message

@@ -71,6 +71,7 @@ from typing import Any, Callable, Iterator, Optional
 
 import numpy as np
 
+from shakelab.libutils.address import parse_address
 from shakelab.libutils.timeN import Date
 from shakelab.signals import metadata as _metadata
 from shakelab.signals.base import (
@@ -168,7 +169,7 @@ class SeedLinkEvent:
         Description.
     sid : str or None
         Channel of a gap or overlap.
-    start, end : Date or None
+    starttime, endtime : Date or None
         Interval of a gap or overlap: from the expected start of the
         record to its actual start.
     """
@@ -177,8 +178,8 @@ class SeedLinkEvent:
     time: Date
     message: str = ""
     sid: Optional[str] = None
-    start: Optional[Date] = None
-    end: Optional[Date] = None
+    starttime: Optional[Date] = None
+    endtime: Optional[Date] = None
 
 
 @dataclass(frozen=True)
@@ -218,13 +219,13 @@ class StreamInfo:
     ----------
     sid : str
         Source identifier ``NET.STA.LOC.CHA``.
-    start, end : Date or None
+    starttime, endtime : Date or None
         Time span of the data held by the server.
     """
 
     sid: str
-    start: Optional[Date] = None
-    end: Optional[Date] = None
+    starttime: Optional[Date] = None
+    endtime: Optional[Date] = None
 
 
 @dataclass(frozen=True)
@@ -292,10 +293,13 @@ class Client:
 
     Parameters
     ----------
-    host : str
-        Server host name or address.
+    address : str
+        Server as ``HOST[:PORT]`` (``rtserve.example.org``,
+        ``rtserve.example.org:18001``, ``[::1]:18000``); default port
+        18000. See :func:`shakelab.libutils.address.parse_address`.
     port : int, optional
-        Server port. Default is 18000.
+        Server port, which takes precedence over the one in
+        ``address``.
     protocol : {"auto", "3.1", "4.0"}, optional
         Protocol version. ``"auto"`` (default) uses version 4 when the
         server supports it, version 3.1 otherwise.
@@ -320,6 +324,8 @@ class Client:
 
     Attributes
     ----------
+    address : str
+        Server as ``HOST:PORT``.
     host : str
     port : int
     server : str or None
@@ -343,8 +349,9 @@ class Client:
 
     def __init__(
         self,
-        host: str,
-        port: int = DEFAULT_PORT,
+        address: str,
+        *,
+        port: Optional[int] = None,
         protocol: str = "auto",
         metadata: Any = None,
         timeout: Real = 600.0,
@@ -352,10 +359,9 @@ class Client:
         reconnect: bool = True,
         state_file: Any = None,
     ) -> None:
-        if not isinstance(host, str):
-            raise TypeError("host must be a string")
-        if isinstance(port, bool) or not isinstance(port, int):
-            raise TypeError("port must be an integer")
+        server = parse_address(
+            address, port=port, default_port=DEFAULT_PORT
+        )
         if not isinstance(reconnect, bool):
             raise TypeError("reconnect must be a boolean")
         if state_file is not None and not isinstance(
@@ -363,8 +369,9 @@ class Client:
         ):
             raise TypeError("state_file must be a path")
 
-        self.host = host
-        self.port = port
+        self.host: str = server.host
+        self.port: int = server.port
+        self.address: str = server.netloc
         self.timeout = _positive(timeout, "timeout")
         self.keepalive = (
             None if keepalive is None
@@ -396,6 +403,7 @@ class Client:
         self._run_end: dict = {}
         self._metadata_cache: dict = {}
         self._missing_metadata: set = set()
+        self._missing_sensitivity: set = set()
 
         self._lock = threading.RLock()
         self._stop_request = threading.Event()
@@ -406,7 +414,7 @@ class Client:
     def __repr__(self) -> str:
         state = "running" if self.running else "idle"
         return (
-            f"Client({self.host}:{self.port}, {len(self._patterns)} "
+            f"Client({self.address}, {len(self._patterns)} "
             f"pattern(s), {state})"
         )
 
@@ -609,7 +617,11 @@ class Client:
         """Archive of the records (None if not set)."""
         return self._archive
 
-    def on_record(self, func: Callable) -> Callable:
+    def on_record(
+        self,
+        func: Callable,
+        sensitivity: bool = False,
+    ) -> Callable:
         """
         Call a function at every record received.
 
@@ -617,17 +629,26 @@ class Client:
         ----------
         func : callable
             Called as ``func(client, record)`` after the record is added
-            to the buffer.
+            to the buffer. The record is the one received, in counts;
+            changing it does not change the buffer.
+        sensitivity : bool, optional
+            If True, ``func`` receives a copy divided by the sensitivity
+            of the channel metadata (see
+            :meth:`~shakelab.signals.base.Record.remove_sensitivity`);
+            records of channels without a sensitivity are not passed,
+            with one warning per channel. Default is False.
 
         Returns
         -------
         callable
             ``func`` itself, so that the method can be used as a
-            decorator.
+            decorator (without ``sensitivity``).
         """
         self._require_idle()
         _require_callable(func)
-        self._record_callbacks.append(func)
+        if not isinstance(sensitivity, bool):
+            raise TypeError("sensitivity must be a boolean")
+        self._record_callbacks.append((func, sensitivity))
         return func
 
     def every(
@@ -698,8 +719,9 @@ class Client:
     def run(
         self,
         duration: Optional[Real] = None,
-        start: Any = None,
-        end: Any = None,
+        *,
+        starttime: Any = None,
+        endtime: Any = None,
         fetch: bool = False,
     ) -> Optional[StreamCollection]:
         """
@@ -709,12 +731,12 @@ class Client:
         ----------
         duration : float, optional
             Wall-clock seconds after which the run stops.
-        start : Date or str, optional
+        starttime : Date or str, optional
             Start of the data requested: the server sends the data it
             still holds from this time on. If omitted, the transfer
             starts from the next packet (or resumes from the last one
             received in an earlier run).
-        end : Date or str, optional
+        endtime : Date or str, optional
             End of the data requested. A past end time implies
             ``fetch=True``: the run stops when the server has sent the
             data. In real time it stops when the wall clock and every
@@ -746,7 +768,7 @@ class Client:
         """
         if self.running:
             raise RuntimeError("the client is already running")
-        settings = self._prepare(duration, start, end, fetch)
+        settings = self._prepare(duration, starttime, endtime, fetch)
         self._stop_request.clear()
         self._loop(settings)
         return self.buffer
@@ -754,8 +776,9 @@ class Client:
     def start(
         self,
         duration: Optional[Real] = None,
-        start: Any = None,
-        end: Any = None,
+        *,
+        starttime: Any = None,
+        endtime: Any = None,
         fetch: bool = False,
     ) -> None:
         """
@@ -767,7 +790,7 @@ class Client:
         """
         if self.running:
             raise RuntimeError("the client is already running")
-        settings = self._prepare(duration, start, end, fetch)
+        settings = self._prepare(duration, starttime, endtime, fetch)
         self._stop_request.clear()
         self._error = None
         self._thread = threading.Thread(
@@ -829,8 +852,10 @@ class Client:
     def get_data(
         self,
         sid: str = "*",
-        start: Any = None,
-        end: Any = None,
+        starttime: Any = None,
+        endtime: Any = None,
+        *,
+        sensitivity: bool = False,
     ) -> StreamCollection:
         """
         Return a copy of the buffer, safe from any thread.
@@ -840,8 +865,16 @@ class Client:
         sid : str, optional
             Pattern of the source identifiers to copy (see
             :meth:`select`). Default is every channel.
-        start, end : Date or str, optional
-            Time window to extract.
+        starttime, endtime : Date or str, optional
+            Time window to extract, bounds included.
+        sensitivity : bool, optional
+            If True, divide the copy by the sensitivity of the channel
+            metadata (see
+            :meth:`~shakelab.signals.base.Record.remove_sensitivity`):
+            physical units without a correction of the whole response.
+            Channels without a sensitivity are left out, with one
+            warning per channel. The buffer is not changed. Default is
+            False.
 
         Returns
         -------
@@ -856,6 +889,8 @@ class Client:
         RuntimeError
             If no buffer is set.
         """
+        if not isinstance(sensitivity, bool):
+            raise TypeError("sensitivity must be a boolean")
         patterns = parse_sid_pattern(sid)
         with self._lock:
             self._flush()
@@ -867,11 +902,19 @@ class Client:
                 for stream in self._buffer
                 if any(pattern.matches(stream.sid) for pattern in patterns)
             ]
-        if start is not None or end is not None:
+        if starttime is not None or endtime is not None:
             collection = collection.extract(
-                starttime=_as_date(start, "start"),
-                endtime=_as_date(end, "end"),
+                starttime=_as_date(starttime, "starttime"),
+                endtime=_as_date(endtime, "endtime"),
             )
+        if sensitivity:
+            collection.stream = [
+                stream for stream in collection
+                if all(
+                    self._physical(record, inplace=True) is not None
+                    for record in stream
+                )
+            ]
         return collection
 
     def status(self, sid: str = "*") -> list:
@@ -916,11 +959,78 @@ class Client:
             for key, value in sorted(channels.items())
         ]
 
+    def summary(self) -> str:
+        """
+        Return a description of the client as text.
+
+        Returns
+        -------
+        str
+            Server, protocol, state, patterns, destinations of the
+            records and, once data have arrived, the reception status of
+            the channels (as :meth:`status`).
+        """
+        state = "running" if self.running else "idle"
+        if self.protocol is None:
+            server = (
+                f"not contacted yet (protocol {self._requested_protocol})"
+            )
+        else:
+            # The server line of version 3 ends with its capabilities.
+            name = (self.server or "unknown").split(" :: ")[0]
+            server = f"{name}, protocol {self.protocol}"
+            if self.organization:
+                server += f" ({self.organization})"
+
+        with self._lock:
+            buffer = self._buffer
+            if buffer is None:
+                buffered = "none"
+            elif buffer.max_duration is None:
+                buffered = f"unlimited, {len(buffer)} channel(s)"
+            else:
+                buffered = (
+                    f"circular, {buffer.max_duration:g} s, "
+                    f"{len(buffer)} channel(s)"
+                )
+        if self._archive is None:
+            archived = "none"
+        elif self._archive.layout == "sds":
+            archived = f"SDS, {self._archive.template}"
+        else:
+            archived = self._archive.template
+        callbacks = ", ".join(
+            f"{count} {name}" for count, name in (
+                (len(self._record_callbacks), "per record"),
+                (len(self._timers), "timer(s)"),
+                (len(self._event_callbacks), "for events"),
+            ) if count
+        )
+        metadata = (
+            "none" if self._metadata is None
+            else f"{len(self._metadata)} channel(s)"
+        )
+
+        lines = [
+            f"SeedLink client {self.address}, {state}",
+            f"  server    : {server}",
+            f"  patterns  : {', '.join(self.selection) or 'none'}",
+            f"  buffer    : {buffered}",
+            f"  archive   : {archived}",
+            f"  callbacks : {callbacks or 'none'}",
+            f"  metadata  : {metadata}",
+            f"  state file: {self.state_file or 'none'}",
+        ]
+        statuses = self.status()
+        if statuses:
+            lines.append(_status_table(statuses))
+        return "\n".join(lines)
+
     def info(self) -> None:
         """
-        Print the reception status of the channels as a table.
+        Print the description of the client (see :meth:`summary`).
         """
-        print(_status_table(self.status()))
+        print(self.summary())
 
     def stations(self, pattern: str = "*") -> list:
         """
@@ -1000,7 +1110,9 @@ class Client:
                 "the configuration cannot change while the client runs"
             )
 
-    def _prepare(self, duration, start, end, fetch) -> _RunSettings:
+    def _prepare(
+        self, duration, starttime, endtime, fetch
+    ) -> _RunSettings:
         """Validate the run parameters."""
         if not self._patterns:
             raise ValueError("no channel selected: call select() first")
@@ -1009,13 +1121,13 @@ class Client:
         if not isinstance(fetch, bool):
             raise TypeError("fetch must be a boolean")
 
-        start = _as_date(start, "start")
-        end = _as_date(end, "end")
+        start = _as_date(starttime, "starttime")
+        end = _as_date(endtime, "endtime")
         start_ns = start.to_unix_ns() if start is not None else None
         end_ns = end.to_unix_ns() if end is not None else None
         if start_ns is not None and end_ns is not None:
             if end_ns <= start_ns:
-                raise ValueError("end must follow start")
+                raise ValueError("endtime must follow starttime")
         if end_ns is not None and end_ns <= Date.now().to_unix_ns():
             fetch = True
 
@@ -1100,8 +1212,8 @@ class Client:
         self.protocol = connection.version
         self._apply_state(connection.version)
         logger.info(
-            "connected to %s:%d (%s), protocol %s",
-            self.host, self.port, connection.server, connection.version,
+            "connected to %s (%s), protocol %s",
+            self.address, connection.server, connection.version,
         )
 
         for command in self._request_commands(connection, settings):
@@ -1367,8 +1479,13 @@ class Client:
             if self._buffer is not None:
                 self._store(record)
 
-        for func in self._record_callbacks:
-            func(self, record)
+        for func, sensitivity in self._record_callbacks:
+            if not sensitivity:
+                func(self, record)
+                continue
+            converted = self._physical(record)
+            if converted is not None:
+                func(self, converted)
         self._run_data_timers(end_ns)
 
     def _store(self, record: Record) -> None:
@@ -1377,10 +1494,12 @@ class Client:
 
         Records for an unlimited buffer wait in a list, joined in one
         array when the buffer is read: appending each packet to the
-        stream would copy its whole data every time.
+        stream would copy its whole data every time. They are copies,
+        as the records appended to a circular buffer, so that the
+        callbacks cannot change the buffer.
         """
         if self._buffer.max_duration is None:
-            self._pending.setdefault(record.sid, []).append(record)
+            self._pending.setdefault(record.sid, []).append(record.copy())
             return
         try:
             self._buffer.append(record)
@@ -1395,6 +1514,30 @@ class Client:
             for record in _join_contiguous(records):
                 self._buffer.append(record)
         self._pending.clear()
+
+    def _physical(
+        self,
+        record: Record,
+        inplace: bool = False,
+    ) -> Optional[Record]:
+        """
+        Record (a copy unless ``inplace``) divided by its sensitivity, or
+        None (one warning per channel) if the channel has none.
+        """
+        converted = record if inplace else record.copy()
+        try:
+            converted.remove_sensitivity()
+        except ValueError as error:
+            if record.sid not in self._missing_sensitivity:
+                self._missing_sensitivity.add(record.sid)
+                warnings.warn(
+                    f"{record.sid} not converted to physical units "
+                    f"({error}): its records are left out",
+                    _metadata.MetadataWarning,
+                    stacklevel=3,
+                )
+            return None
+        return converted
 
     def _assign_metadata(self, record: Record) -> None:
         """Assign the channel metadata (one warning per channel)."""
@@ -1430,8 +1573,8 @@ class Client:
             kind,
             message=f"{record.sid}: {kind} of {abs(offset):.1f} samples",
             sid=record.sid,
-            start=Date.from_unix_ns(expected),
-            end=record.time,
+            starttime=Date.from_unix_ns(expected),
+            endtime=record.time,
         )
         return kind
 
@@ -1459,10 +1602,10 @@ class Client:
                 f"invalid state file {self.state_file}: {error}"
             ) from None
 
-        if server != f"{self.host}:{self.port}":
+        if server != self.address:
             logger.warning(
-                "state file %s belongs to %s, not to %s:%d: ignored",
-                self.state_file, server, self.host, self.port,
+                "state file %s belongs to %s, not to %s: ignored",
+                self.state_file, server, self.address,
             )
             return None
         return protocol, sequences
@@ -1490,7 +1633,7 @@ class Client:
         content = {
             "format": STATE_FORMAT,
             "version": STATE_VERSION,
-            "server": f"{self.host}:{self.port}",
+            "server": self.address,
             "protocol": self.protocol,
             "updated": Date.now().iso8601,
             "sequence": dict(sorted(self._sequence.items())),
@@ -1541,12 +1684,13 @@ class Client:
 
 
 def read(
-    host: str,
+    address: str,
     select: Any,
+    starttime: Any = None,
+    endtime: Any = None,
+    *,
     duration: Optional[Real] = None,
-    start: Any = None,
-    end: Any = None,
-    port: int = DEFAULT_PORT,
+    port: Optional[int] = None,
     protocol: str = "auto",
     metadata: Any = None,
     timeout: Real = 600.0,
@@ -1556,17 +1700,19 @@ def read(
 
     Parameters
     ----------
-    host : str
-        Server host name or address.
+    address : str
+        Server as ``HOST[:PORT]`` (see :class:`Client`).
     select : str or sequence of str
         Channel patterns (see :meth:`Client.select`).
+    starttime, endtime : Date or str, optional
+        Time window, bounds included. The server must still hold the
+        past data.
     duration : float, optional
         Wall-clock seconds of data to collect from now (or from
-        ``start``).
-    start, end : Date or str, optional
-        Time window. The server must still hold the past data.
+        ``starttime``).
     port : int, optional
-        Server port (see :class:`Client`).
+        Server port, which takes precedence over the one in
+        ``address`` (see :class:`Client`).
     protocol : {"auto", "3.1", "4.0"}, optional
         Protocol version (see :class:`Client`).
     metadata : MetadataCollection, path or sequence of paths, optional
@@ -1582,38 +1728,42 @@ def read(
     Raises
     ------
     ValueError
-        If neither ``duration`` nor ``end`` is given.
+        If neither ``duration`` nor ``endtime`` is given.
 
     Examples
     --------
     >>> sc = read("rtserve.example.org", "IV.MODE.*.HH?", duration=60)
     >>> sc = read("rtserve.example.org", ["IV.MODE.*.HHZ"],
-    ...           start="2026-11-05T08:00:00", end="2026-11-05T08:10:00")
+    ...           starttime="2026-11-05T08:00:00",
+    ...           endtime="2026-11-05T08:10:00")
     """
-    if duration is None and end is None:
-        raise ValueError("duration or end is required")
+    if duration is None and endtime is None:
+        raise ValueError("duration or endtime is required")
     client = Client(
-        host, port=port, protocol=protocol, metadata=metadata,
+        address, port=port, protocol=protocol, metadata=metadata,
         timeout=timeout,
     )
     client.select(select)
     client.set_buffer()
-    collection = client.run(duration=duration, start=start, end=end)
-    if start is not None or end is not None:
+    collection = client.run(
+        duration=duration, starttime=starttime, endtime=endtime
+    )
+    if starttime is not None or endtime is not None:
         collection = collection.extract(
-            starttime=_as_date(start, "start"),
-            endtime=_as_date(end, "end"),
+            starttime=_as_date(starttime, "starttime"),
+            endtime=_as_date(endtime, "endtime"),
         )
     return collection
 
 
 def archive(
-    host: str,
+    address: str,
     select: Any,
     path: Any,
+    *,
     rotate: Any = None,
     layout: Optional[str] = None,
-    port: int = DEFAULT_PORT,
+    port: Optional[int] = None,
     protocol: str = "auto",
     state_file: Any = None,
     timeout: Real = 600.0,
@@ -1627,8 +1777,8 @@ def archive(
 
     Parameters
     ----------
-    host : str
-        Server host name or address.
+    address : str
+        Server as ``HOST[:PORT]`` (see :class:`Client`).
     select : str or sequence of str
         Channel patterns (see :meth:`Client.select`).
     path : str or path-like
@@ -1639,7 +1789,8 @@ def archive(
     layout : {"sds"}, optional
         Archive layout (see :meth:`Client.set_archive`).
     port : int, optional
-        Server port (see :class:`Client`).
+        Server port, which takes precedence over the one in
+        ``address`` (see :class:`Client`).
     protocol : {"auto", "3.1", "4.0"}, optional
         Protocol version (see :class:`Client`).
     state_file : str or path-like, optional
@@ -1656,7 +1807,7 @@ def archive(
     ...         layout="sds", state_file="archive.state")
     """
     client = Client(
-        host, port=port, protocol=protocol, timeout=timeout,
+        address, port=port, protocol=protocol, timeout=timeout,
         state_file=state_file,
     )
     client.select(select)
@@ -1665,15 +1816,16 @@ def archive(
 
 
 def records(
-    host: str,
+    address: str,
     select: Any,
-    port: int = DEFAULT_PORT,
+    starttime: Any = None,
+    endtime: Any = None,
+    *,
+    port: Optional[int] = None,
     protocol: str = "auto",
     metadata: Any = None,
     timeout: Real = 600.0,
     state_file: Any = None,
-    start: Any = None,
-    end: Any = None,
     fetch: bool = False,
     max_queue: int = 1000,
 ) -> Iterator[Record]:
@@ -1687,12 +1839,19 @@ def records(
 
     Parameters
     ----------
-    host : str
-        Server host name or address.
+    address : str
+        Server as ``HOST[:PORT]`` (see :class:`Client`).
     select : str or sequence of str
         Channel patterns (see :meth:`Client.select`).
+    starttime : Date or str, optional
+        Start of the time window (see :meth:`Client.run`).
+    endtime : Date or str, optional
+        End of the time window (see :meth:`Client.run`). Without
+        ``endtime`` or ``fetch`` the iteration lasts until the loop is
+        left.
     port : int, optional
-        Server port (see :class:`Client`).
+        Server port, which takes precedence over the one in
+        ``address`` (see :class:`Client`).
     protocol : {"auto", "3.1", "4.0"}, optional
         Protocol version (see :class:`Client`).
     metadata : MetadataCollection, path or sequence of paths, optional
@@ -1701,12 +1860,6 @@ def records(
         Network timeout (see :class:`Client`).
     state_file : str or path-like, optional
         State file (see :class:`Client`).
-    start : Date or str, optional
-        Start of the time window (see :meth:`Client.run`).
-    end : Date or str, optional
-        End of the time window (see :meth:`Client.run`). Without
-        ``end`` or ``fetch`` the iteration lasts until the loop is
-        left.
     fetch : bool, optional
         Dial-up mode (see :meth:`Client.run`).
     max_queue : int, optional
@@ -1728,7 +1881,7 @@ def records(
         raise ValueError("max_queue must be positive")
 
     client = Client(
-        host, port=port, protocol=protocol, metadata=metadata,
+        address, port=port, protocol=protocol, metadata=metadata,
         timeout=timeout, state_file=state_file,
     )
     client.select(select)
@@ -1743,7 +1896,7 @@ def records(
                 continue
 
     client.on_record(enqueue)
-    client.start(start=start, end=end, fetch=fetch)
+    client.start(starttime=starttime, endtime=endtime, fetch=fetch)
     try:
         while True:
             try:
@@ -1809,8 +1962,8 @@ def _parse_info_xml(text: str) -> list:
                     stream.get("location", "").strip(),
                     stream.get("seedname", "").strip(),
                 )),
-                start=_info_time(stream.get("begin_time")),
-                end=_info_time(stream.get("end_time")),
+                starttime=_info_time(stream.get("begin_time")),
+                endtime=_info_time(stream.get("end_time")),
             )
             for stream in element.iter("stream")
             if stream.get("type", "D").strip() == "D"
@@ -1855,8 +2008,8 @@ def _parse_info_json(text: str) -> list:
                 sid=".".join((
                     network, code, location, channel.replace("_", "")
                 )),
-                start=_info_time(stream.get("start_time")),
-                end=_info_time(stream.get("end_time")),
+                starttime=_info_time(stream.get("start_time")),
+                endtime=_info_time(stream.get("end_time")),
             ))
         result.append((station, streams))
     return result

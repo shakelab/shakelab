@@ -24,6 +24,8 @@ frequency: the peaks of the first singular value are the resonances
 first singular vector is the shape of each mode.
 """
 
+import matplotlib.pyplot as plt
+
 from shakelab.exploration.yarray import (
     ArrayData,
     FDD,
@@ -31,6 +33,7 @@ from shakelab.exploration.yarray import (
     FDDResult,
     mac,
 )
+from shakelab.graphics.yarray import plot_singular_values
 
 array = ArrayData("array.json")
 
@@ -62,7 +65,13 @@ second = result.mode(peaks[1])
 print(mac(first.shape, second.shape))         # 1: same shape, 0: orthogonal
 
 # Files: results of successive windows accumulated in one file.
-result.write("fdd.pkl")
+result.write("fdd.jsonl")
 fdd.process("2026-11-01T10:00", "2026-11-01T11:00").write(
-    "fdd.pkl", append=True)
-joined = FDDResult("fdd.pkl")
+    "fdd.jsonl", append=True)
+joined = FDDResult("fdd.jsonl")               # with fdd_arrays/*.npz
+light = FDDResult("fdd.jsonl", arrays=False)  # first value and vector
+joined.to_csv("fdd.csv")                      # optional table
+
+# Singular values with their spread over the blocks, and the peaks.
+plot_singular_values(result, count=3)
+plt.show()

@@ -33,10 +33,12 @@ Array processing (`shakelab.exploration.yarray`, guide in
 | [`exploration/yarray/08_uncertainty.py`](exploration/yarray/08_uncertainty.py) | Empirical standard error of the power, uncertain station coordinates |
 | [`exploration/yarray/09_results.py`](exploration/yarray/09_results.py) | Results: maxima, spectra, dispersion curve, joining successive windows, files |
 | [`exploration/yarray/10_density.py`](exploration/yarray/10_density.py) | Density of the maxima: summary, peaks, figure |
-| [`exploration/yarray/11_command_line.sh`](exploration/yarray/11_command_line.sh) | `slab-yarray` and `slab-yarray response`, command by command (shell script) |
-| [`exploration/yarray/12_realtime.py`](exploration/yarray/12_realtime.py) | Real-time monitoring of an array with the SeedLink client and `ArrayMonitor` |
+| [`exploration/yarray/11_command_line.sh`](exploration/yarray/11_command_line.sh) | `slab-yarray beamforming`, `fdd` and `response`, command by command (shell script) |
+| [`exploration/yarray/12_realtime.py`](exploration/yarray/12_realtime.py) | Real-time monitoring of an array with the SeedLink client and `BeamformingMonitor` |
 | [`exploration/yarray/13_response.py`](exploration/yarray/13_response.py) | Geometric response of an array or of a planned layout: limits, velocities, search domain, uncertain positions |
 | [`exploration/yarray/14_performance.py`](exploration/yarray/14_performance.py) | Monte Carlo performance of the estimators; SNR-windows sweep |
 | [`exploration/yarray/15_operational.py`](exploration/yarray/15_operational.py) | Frequency-velocity envelope with criteria, limiting factors and recommendations |
 | [`exploration/yarray/16_profiling.py`](exploration/yarray/16_profiling.py) | Processing times of the main choices of a configuration |
 | [`exploration/yarray/17_fdd.py`](exploration/yarray/17_fdd.py) | Frequency domain decomposition: singular values, resonance peaks, mode shapes, MAC, files |
+| [`exploration/yarray/18_realtime_fdd.py`](exploration/yarray/18_realtime_fdd.py) | Real-time frequency domain decomposition with `FDDMonitor`: fixed stations, joined results |
+| [`exploration/yarray/19_efdd.py`](exploration/yarray/19_efdd.py) | Enhanced FDD: natural frequencies and damping ratios of the modes of a building, bell and free decay |

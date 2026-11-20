@@ -68,7 +68,8 @@ def test_parse_sid_pattern():
 
 @pytest.mark.parametrize("pattern", [
     "", "  ", "A.B.C.D.E", "IV..*.HHZ", "IV.MO DE", "IV.MODE.00.",
-    "IV.{MODE,}",
+    "IV.{MODE,}", "IV.MODE..HN[Z", "IV.MODE..HNZ]", "IV.MODE..HN[]",
+    "IV.MODE..HN[!]", "IV.MODE..H[N[Z]]",
 ])
 def test_parse_invalid(pattern):
     with pytest.raises(ValueError):
@@ -92,6 +93,7 @@ def test_parse_types():
     ("OX.CAE.00.HHZ", "OX.CAE..HHZ", False),
     ("OX.CAE..HHZ", "OX.C*", True),
     ("OX.CAE..HHZ", "O*.*", True),
+    ("OX.CAE..HHZ", "OX.CAE..HH[!NE]", True),
     (None, "*", False),
     ("OX.CAE", "*", False),
 ])

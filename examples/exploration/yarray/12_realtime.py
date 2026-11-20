@@ -18,13 +18,13 @@
 """
 Real-time array monitoring with the SeedLink client.
 
-The client receives the data in a background thread and calls an
-ArrayMonitor at regular intervals; the monitor processes the last
-seconds of data in its own thread, so that the reception is never
+The client receives the data in a background thread and calls a
+BeamformingMonitor at regular intervals; the monitor processes the
+last seconds of data in its own thread, so that the reception is never
 delayed, and can be queried meanwhile.
 """
 
-from shakelab.exploration.yarray import ArrayMonitor, BeamformingConfig
+from shakelab.exploration.yarray import BeamformingConfig, BeamformingMonitor
 from shakelab.signals.io import metadata_reader
 from shakelab.signals.seedlink import Client
 
@@ -38,7 +38,7 @@ client = Client("rtserve.example.org", metadata=metadata_reader("array.xml"))
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=600)
 
-monitor = ArrayMonitor(config, window=300, output="monitor.pkl")
+monitor = BeamformingMonitor(config, window=300, output="monitor.jsonl")
 
 
 @monitor.on_result

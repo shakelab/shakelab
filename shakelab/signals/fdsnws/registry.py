@@ -35,12 +35,17 @@ from __future__ import annotations
 import json
 from typing import Any, NamedTuple, Optional
 
+from shakelab.libutils.address import parse_address
+
 __all__ = [
     "DataCenter",
+    "DEFAULT_SCHEME",
     "REGISTRY_URL",
+    "SCHEMES",
     "SERVICES",
     "datacenters",
     "find_datacenter",
+    "is_address",
     "parse_registry",
     "service_root",
     "service_urls",
@@ -50,6 +55,11 @@ REGISTRY_URL = "https://www.fdsn.org/ws/datacenters/1/query"
 
 # Services used by the client, with their names in the registry.
 SERVICES = ("dataselect", "station", "event", "availability")
+
+# Schemes of the service addresses; addresses without one use https
+# (servers that serve plain HTTP only must be written with http://).
+SCHEMES = ("http", "https")
+DEFAULT_SCHEME = "https"
 
 
 class DataCenter(NamedTuple):
@@ -336,21 +346,29 @@ def find_datacenter(name: str) -> DataCenter:
     for center in _CURRENT.values():
         if center.name.upper() == key:
             return center
+    hint = (
+        f"; for a server by address, write 'https://{name.strip()}' "
+        f"or 'http://{name.strip()}'"
+    )
     raise ValueError(
-        f"unknown data center {name!r}; known: "
+        f"unknown data center {name!r}{hint}; known: "
         f"{', '.join(datacenters())}"
     )
 
 
-def service_urls(base: str) -> dict:
+def service_urls(base: str, port: Optional[int] = None) -> dict:
     """
     Return the standard service addresses of a host.
 
     Parameters
     ----------
     base : str
-        ``http://`` or ``https://`` address of the host, with an
-        optional port and path prefix (e.g. ``https://example.org``).
+        Address of the host: ``[scheme://]host[:port][/prefix]``
+        (e.g. ``example.org``, ``http://example.org:8080``), with
+        ``https`` if the scheme is omitted (see
+        :func:`shakelab.libutils.address.parse_address`).
+    port : int, optional
+        Port, which takes precedence over the one in ``base``.
 
     Returns
     -------
@@ -360,10 +378,10 @@ def service_urls(base: str) -> dict:
     Raises
     ------
     ValueError
-        If the address does not start with ``http://`` or
-        ``https://``.
+        If the scheme is not ``http`` or ``https``, or the address has
+        no host or an invalid port.
     """
-    return _standard(_check_url(base).rstrip("/"), SERVICES)
+    return _standard(_check_url(base, port), SERVICES)
 
 
 def service_root(url: str) -> str:
@@ -375,7 +393,7 @@ def service_root(url: str) -> str:
     url : str
         Address of a service (``.../fdsnws/station/1/``), with or
         without the final ``/`` or a method name (``query``,
-        ``queryauth``).
+        ``queryauth``); ``https`` if the scheme is omitted.
 
     Returns
     -------
@@ -387,7 +405,8 @@ def service_root(url: str) -> str:
     TypeError
         If ``url`` is not a string.
     ValueError
-        If it does not start with ``http://`` or ``https://``.
+        If the scheme is not ``http`` or ``https``, or the address has
+        no host or an invalid port.
     """
     url = _check_url(url)
     for method in ("queryauth", "query"):
@@ -448,13 +467,32 @@ def _service_kind(name: str) -> Optional[str]:
     return None
 
 
-def _check_url(url: Any) -> str:
+def _check_url(url: Any, port: Optional[int] = None) -> str:
+    """Address of a server or service, with the scheme (https if none)."""
     if not isinstance(url, str):
         raise TypeError("service addresses must be strings")
-    url = url.strip()
-    if not url.lower().startswith(("http://", "https://")):
-        raise ValueError(
-            f"service addresses must start with http:// or https://: "
-            f"{url!r}"
-        )
-    return url
+    return str(parse_address(
+        url, port=port, schemes=SCHEMES, default_scheme=DEFAULT_SCHEME
+    ))
+
+
+def is_address(text: str) -> bool:
+    """
+    Return whether a text names a server by address.
+
+    Parameters
+    ----------
+    text : str
+        Data center name or address.
+
+    Returns
+    -------
+    bool
+        True for texts with a scheme, a dot, a colon or a slash, and for
+        ``localhost``: the names of the registry have none of them.
+    """
+    text = text.strip()
+    return (
+        any(char in text for char in ".:/")
+        or text.lower() == "localhost"
+    )

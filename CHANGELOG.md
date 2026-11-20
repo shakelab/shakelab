@@ -18,6 +18,256 @@ corrections. The format follows
 
 ### Changed
 
+- `signals.base.Record.correlate` no longer replaces the samples of
+  the record: it returns `(lag, value)`, the lags in seconds and the
+  correlation. A positive lag means that the record is delayed with
+  respect to the reference; when both are records with a start time,
+  the difference of the start times is included. The record kept its
+  start time with a lag-domain sequence as samples, whose lag axis had
+  to be built by the caller.
+- `filter(minphase=...)` is now `filter(causal=...)` on `Record`,
+  `Stream`, `StreamCollection` and `Spectrum`, and
+  `fourier.butterworth(..., causal=...)`: the option chooses between a
+  zero-phase and a causal filter (the causal Butterworth filter is also
+  minimum phase).
+- `starttime` and `endtime` can be given by position right after the
+  channels in `Stream.select` and `StreamCollection.select`
+  (`select(sid, starttime, endtime, *, eid, duration)`; `eid` is now
+  keyword-only) and in SeedLink `read`, `records` and
+  `Client.get_data` (`read(address, select, starttime, endtime, *,
+  duration, ...)`), as already in `cut`, `extract`, `overlaps` and the
+  FDSN client; they stay keyword-only where nothing selects channels
+  (`io.reader`, `Client.run`, `Client.start`).
+- `str()` and `info()` of `Record`, `Stream` and `StreamCollection`
+  give a new description: one line for a record (source identifier,
+  time span, sampling rate, samples, units and event when known), and
+  one line per element for streams and collections.
+
+- `signals.base.Record` indexing follows the rule of streams and
+  collections: an integer gives one sample, a slice a new `Record` of
+  the consecutive samples (a copy, starting at the time of its first
+  sample). A slice was a NumPy view of the samples. Slices with a step
+  other than 1 raise a `ValueError` (they would change the sampling
+  without an anti-alias filter), and other keys (lists, masks) a
+  `TypeError`: NumPy indexing is done on `record.data`.
+- `signals.base.Record` iterates over its samples with its own
+  `__iter__` (it relied on indexing), and `x in record` compares a
+  number with the samples using NumPy; another operand raises a
+  `TypeError` (`"ev01" in record` returned False).
+- Time windows of `signals.base`: `cut` (in place, returns None) and
+  `extract` (a copy) exist on `Record`, `Stream` and
+  `StreamCollection`, with a new `duration` (seconds after
+  `starttime`) instead of `endtime`; the options after the window are
+  keyword-only. `Record.cut` has no `inplace` any more (use
+  `extract`), and `Record.extract` copies only the samples of the
+  window (it copied the whole record first).
+- The two bounds of a window are both times or both numbers of
+  seconds: `record.extract("2012-05-20T02:04:00", 30)` raises a
+  `TypeError` that points to `duration`; the number was read as
+  seconds from the start of the record, not from the time.
+- `StreamCollection.extract` and `cut` take absolute times only: a
+  number was read as seconds from the start of each stream, so that
+  channels starting at different times were cut to different windows.
+  `StreamCollection.extract` has no `sid` and no `eid` any more (use
+  `collection[sid].extract(...)` or `select`), and always returns a
+  collection.
+- `Stream.extract` returns a Stream, or a Record with `merge=True`; it
+  has no `eid` any more (use `stream[eid].extract(...)` or `select`).
+  With `merge=True` and no sample in the window it raises a
+  `ValueError` (it returned None), as `Record.extract` does.
+- `signals.circular.CircularStream.cut` raises `NotImplementedError`:
+  the buffer keeps its own window.
+- `signals.base.StreamCollection.read` and
+  `signals.metadata.MetadataCollection.read` add the content of a file
+  to the collection and return None, as every method that changes an
+  object. `StreamCollection.read` returned the collection;
+  `MetadataCollection.read` replaced the content unless
+  `append=True`, and has no `append` any more (a new collection is
+  made by the constructor or `io.metadata_reader`).
+- `signals.base.Record.append` returns None and raises a `ValueError`
+  that says why (gap, overlap or offset off the sampling grid) when the
+  records cannot be joined without `enforce=True`. It returned False
+  and left the record unchanged, so that data could be lost without
+  notice. `Stream.append` still keeps such records separate.
+- Existing files: every writer of `signals` and YARRAY gives the same
+  error, `FileExistsError("<file> exists (use owrite=True)")` (new
+  `libutils.utils.check_target`); `io`, the format writers and
+  `libutils.ascii` said "File exists: <file>". The commands
+  `slab-fdsn`, `slab-seedlink` and `slab-yarray` suggest `--owrite`
+  (new `libutils.utils.command_message`). `slab-seedlink get` raises
+  this error for an existing file (it was a `ValueError`) and takes
+  `--owrite`, which replaces the file.
+- `signals.seedlink.Client.info()` prints a description of the client
+  (address, state, server and protocol, patterns, buffer, archive,
+  callbacks, metadata, state file), followed by the reception status of
+  the channels; it printed the status only. New `Client.summary()`
+  returns the text.
+- `signals.seedlink`: time windows are `starttime` and `endtime`, as in
+  the rest of the library (they were `start` and `end`) in `read`,
+  `records`, `Client.run`, `Client.start` and `Client.get_data`, and in
+  the attributes of `SeedLinkEvent` and `StreamInfo`. They are
+  keyword-only, as the arguments after `select` of `read`, `records`
+  and after `path` of `archive`. The command line keeps `--start` and
+  `--end`, as `slab-fdsn` and `slab-yarray`.
+- Server addresses (new `libutils.address.parse_address`, used by
+  every network client): `signals.seedlink.Client`, `read`, `records`
+  and `archive` take the server as one address `HOST[:PORT]` (IPv6 in
+  brackets) in place of `host` and `port`, as on the command line;
+  `port=` stays, keyword-only, and takes precedence over the port in
+  the address. Before, `Client("host:18001")` was accepted with the
+  port in the host name and failed only when connecting.
+  `signals.fdsnws.Client` takes addresses without a scheme
+  (`Client("example.org:8080")`, `https` by default; servers that
+  serve plain HTTP only need `http://`) and `port=`; an HTTPS
+  connection to a server that answers in plain HTTP gives an
+  `FdsnError` that suggests the `http://` address, without retries.
+  `slab-seedlink` and `slab-fdsn` take `--port`.
+- `signals.libio.ascii.asciiread` and `signals.libio.tdms.tdmsread`,
+  `tdms_to_matrix`: the time of the first sample is
+  `first_sample_time` (it was `start`), distinct from the time window
+  `starttime`, `endtime` of `io.reader`. `asciiwrite` writes the key
+  `first_sample_time`; `start` and the other keys are still read.
+- `signals.fdsnws.Client.get_waveforms`: `metadata` also takes metadata
+  already at hand (a `MetadataCollection` or StationXML files), which
+  are attached and used by `correct` without a request to the station
+  service. `slab-fdsn waveforms --metadata FILE --correct` downloads
+  the metadata once (it downloaded them twice).
+- `signals.seedlink.Client.get_data` and `Client.on_record` take
+  `sensitivity=True` to give copies of the records divided by the
+  sensitivity of the channel metadata (physical units without the
+  whole response correction); channels without a sensitivity are left
+  out with one `MetadataWarning` each. The buffer keeps the samples as
+  received.
+- `signals.circular.CircularStream.remove_sensitivity` is refused, as
+  the other processing methods: the records arriving later stayed in
+  counts, and the joined copy mixed units under the units of the first
+  record.
+- `signals.fdsnws`: an unknown data center name that looks like an
+  address (`"192.168.1.10:8080"`) gives an error that suggests the
+  `http://` scheme.
+- `signals.base.Record.taper` (and `Stream.taper`,
+  `StreamCollection.taper`) takes a pair `(start, end)` of durations to
+  taper the two ends differently (0 leaves an end unchanged).
+- `signals.base.Stream` and `StreamCollection` support `in` with the
+  keys of indexing: `"ev1" in stream` (event identifier),
+  `"IV.MODE..HNZ" in collection` (source identifier), or a stored
+  object. Before, a string was compared with the records or streams
+  and the result was always False.
+- `signals.libio.sac`: `sacwrite`, `Sac.write` and `Sac.to_bytes`
+  take `version=7` to write the double-precision footer of SAC 102
+  (sampling interval, times and coordinates in double precision);
+  version 6 remains the default.
+
+- Documentation: `docs/development.md` version 2.8 records the rules
+  on silent omissions and on ShakeLab exceptions (§16), the
+  conventions for time windows, server addresses and given metadata
+  (§17), and the shared modules of a subpackage (§21); version 2.9 the
+  conventions for existing files, return values and `info()` (§17).
+- Documentation: guide to the SeedLink client
+  (`docs/signals/seedlink.md`: the protocol in versions 3.1 and 4.0,
+  selection, the order and thread of the destinations and callbacks,
+  buffers, reconnection and resumption, archives, data and wall-clock
+  time; `read`, `archive`, `records`, `Client`, `slab-seedlink`), with
+  a figure of the receiving thread
+  (`docs/figures/scripts/signals_seedlink.py`); the guide to input and
+  output now states how the archive templates of SeedLink differ from
+  those of `io.writer`.
+- Documentation: guide to the FDSN web services
+  (`docs/signals/fdsnws.md`: the services and their replies, data
+  centers and the registry, translation of channel patterns, corrected
+  downloads with margins, long windows in chunks, retries and errors;
+  `Client`, waveforms, metadata, events, availability, `slab-fdsn`).
+- Documentation: guide to input and output (`docs/signals/io.md`:
+  supported formats and what they keep, conversion to records,
+  recognition of the format from the content, SDS archives, file name
+  templates, MiniSEED backends and encodings; `reader`, `writer`,
+  `read_mseed_bytes`, `metadata_reader`, the format modules of `libio`
+  used directly, metadata in waveform files), with three figures
+  (`docs/figures/scripts/signals_io.py`).
+- Documentation: guide to spectra and spectrograms
+  (`docs/signals/spectral.md`: scaling of the Fourier transform,
+  resolution, leakage and smoothing, power spectral densities and
+  Welch averaging, windowed, wavelet and Stockwell transforms with
+  their edge effects, cross-spectral matrices; `Spectrum`,
+  `Spectrogram`, Fourier primitives, windows and cross-spectra), with
+  six figures (`docs/figures/scripts/signals_spectral.py`).
+- Documentation: guide to channel metadata and instrument responses
+  (`docs/signals/response.md`: stages and their conventions,
+  normalization, digital stages and time corrections, water level,
+  prefilter and padding, metadata collections and epochs, correction
+  of data, validation against evalresp), with six figures
+  (`docs/figures/scripts/signals_response.py`).
+- Documentation: entry point `docs/README.md` (ideas behind ShakeLab,
+  subpackages, map of the documentation), overviews of `signals` and
+  `exploration` (`docs/signals/signals.md`,
+  `docs/exploration/exploration.md`) and a navigation line at the top
+  of every document; figures of the guides in `docs/figures/`, made by
+  the scripts in `docs/figures/scripts/` (`make_figures.py`) from the
+  test data, the first six in the waveforms guide; organization of
+  `docs/` and figures in `docs/development.md` §23 (version 2.5; figures
+  are didactic, version 2.6).
+- Documentation: guide to the waveform containers of `signals`
+  (`docs/signals/waveforms.md`: time and sampling, records, streams and
+  collections, tolerances, views and copies, processing, workflows,
+  validation and limits); the README of `signals` states that a stream
+  keeps its records in insertion order.
+- Documentation: READMEs of `signals` (overview, quick start, common
+  tasks, command line, formats, structure, conventions), of
+  `signals/libio` (with the common scheme of the format modules and
+  how to add a format), of `signals/seedlink` and of `signals/fdsnws`;
+  docstrings of the packages `shakelab.signals` and
+  `shakelab.signals.libio`, which replace the placeholder files (the
+  stray attribute `shakelab.signals.name` is removed).
+- `exploration.yarray`: `slab-yarray` has three symmetric subcommands,
+  `beamforming`, `fdd` and `response`; the beamforming, run before
+  without a subcommand, is now `slab-yarray beamforming` (a subcommand
+  is required). The options to show and save figures are the same in
+  all three (`--show` also as `--no-show`).
+- Documentation: YARRAY guide and README reviewed as a whole (FDD in
+  the overview, layers and modules, scope of `slab-yarray`, contents
+  with subsections, guidance and processing times of the FDD and of
+  the enhanced FDD).
+- Documentation: package names written as words are in capitals
+  (YARRAY) also in docstrings, comments and messages of the code
+  (`docs/development.md` §23, version 2.4).
+
+- `exploration.yarray`: result files are JSON Lines instead of pickle
+  (format version 2; no pickle is read or written). The first line is
+  a header with the kind (`"beamforming"`, `"fdd"`), the complete
+  configuration, the frequencies and the units (FDD: also the channels
+  and coordinates); each result written is one line, so that appending
+  (`append=True`, the `output` of the monitors, `slab-yarray
+  --append`) adds a line and checks the header. Beamforming lines hold
+  block times, stations and coordinates of the blocks and the table of
+  the maxima (with velocity and slowness); FDD lines the first
+  singular value and vector of every block. The spectra of the
+  beamforming and all the singular values and kept vectors of the FDD
+  go to compressed `.npz` files (folder `<name>_arrays`), written and
+  read by default (`write(..., arrays=False)`, `BeamformingResult(file,
+  arrays=False)`, `FDDResult(file, arrays=False)`; a result read
+  without arrays keeps only the first singular value and vector). A
+  name ending in `.json` is refused. `io.write_result`,
+  `io.read_result`, `io.read_result_header`, `io.result_path` and
+  `io.write_table` replace `write_result_state` and
+  `read_result_states`.
+
+- `exploration.yarray`: `ArrayMonitor` is now the base of the
+  real-time monitors and is not used directly (TypeError);
+  `BeamformingMonitor(config, window, ...)` is the former
+  `ArrayMonitor`, with the same options. The worker thread is named
+  after the class.
+- `exploration.yarray`: station positions are optional. `StationData`
+  takes `coordinates=None` (a coordinate covariance or a location then
+  is an error) and has `has_position`; `ArrayData.add` adds the
+  stations without metadata location or explicit coordinates without
+  a position, instead of raising; `ArrayData.has_positions` is new and
+  `ArrayData.coordinates` raises ValueError if a position is unknown.
+  `Beamformer.process`, `ArrayGeometry` and `ArrayResponse` need every
+  position (ValueError naming the stations); the FDD does not, and
+  writes NaN coordinates for the channels without a position. In the
+  array file `coordinates` is optional. `set_reference` leaves the
+  stations without a position unchanged.
+
 - Documentation: the equations of the YARRAY guide are written in
   LaTeX and rendered by GitHub (displayed `math` blocks and inline
   symbols; vectors and matrices in Unicode bold, which GitHub shows
@@ -449,6 +699,70 @@ corrections. The format follows
 
 ### Added
 
+- `StreamCollection.starttime` and `endtime`: earliest start and latest
+  end of the streams, as those of `Stream`.
+- `summary()`, returning the text that `info()` prints, on every object
+  of `signals` that describes itself: `Record`, `Stream`,
+  `StreamCollection`, `Header`, `Spectrum`, `Spectrogram`,
+  `ChannelEpoch`, `MetadataCollection`, `StageSet` and the format
+  classes `Sac`, `MSRecord`, `Dyna`, `SimpleAscii` and `TdmsFile`.
+
+- `signals.base.StreamCollection.select(sid, starttime, endtime, *,
+  eid, duration)` and `Stream.select` return a new collection or
+  stream with copies of the channels and events that match a pattern
+  or a list of patterns (event identifiers with `*` and `?`), cut to
+  an optional time window: the selection of `io.reader`, which now
+  shares its implementation.
+- `signals.io.reader(..., duration=...)`: the length of the time
+  window after `starttime`, instead of `endtime` (also with
+  `layout="sds"`).
+- `exploration.yarray`: `slab-yarray fdd`, the frequency domain
+  decomposition from the command line: processing options with the
+  names of the `FDDConfig` parameters, peaks (`--peak-range`,
+  `--prominence`, `--peak-count`) or given frequencies (`--modes`),
+  enhanced FDD (`--efdd`, `--mac`, `--cycles`, `--duration`,
+  `--levels`), table of the modes (`--modes-csv`), figures
+  (`--plot-singular-values`, `--plot-mode-shape`, `--plot-mac`,
+  `--plot-efdd`, also from the section `graphics` of the configuration
+  file); results written, appended and read as for the beamforming.
+- `exploration.yarray`: `modes_to_csv(target, modes, owrite=False)`
+  writes modes with the same channels to a CSV table (frequency,
+  method, singular value, MAC, blocks, damping, shape of every channel
+  and its standard deviation).
+
+- `exploration.yarray.FDD.efdd(frequencies, mac=0.8, cycles=100,
+  duration=None, levels=(0.1, 0.9), ...)`: enhanced FDD (Brincker,
+  Ventura and Andersen, 2001). For each mode a local spectrum with
+  fixed windows (cycles of the mode or a duration; Hann, 50% overlap)
+  gives the bell of lines whose vector matches the shape at the peak
+  (MAC at least `mac`); its inverse transform is the free-decay
+  correlation, whose extrema (logarithmic decrement) and zero
+  crossings (damped period) give damping ratio and natural frequency.
+  Returns `Mode` objects with `method="efdd"`, `damping` and
+  `Mode.efdd` (`EFDDDetails`: local spectrum, bell, correlation,
+  extrema, crossings, regression). Validated on a simulated shear
+  frame (2% damping: 2.0-2.2% on average, frequencies within 0.3%).
+- `graphics.yarray`: `plot_singular_values` (singular values with
+  their spread and the peaks), `plot_mode_shape` (along the main
+  direction of the stations, a coordinate, the height of a building
+  or the station index), `plot_mac` (MAC between modes), `plot_efdd`
+  (bell and fitted decay). Examples `17_fdd.py` (figure) and new
+  `19_efdd.py`; guide (Sections 9, 12, 17-19) and README.
+- `exploration.yarray`: `BeamformingResult.to_csv` (table of the
+  maxima) and `FDDResult.to_csv` (first singular value and vector of
+  every block), optional exports for spreadsheets; `slab-yarray
+  --csv` (also of a `--result`) and `--no-arrays`. Monitors: `arrays`
+  (arrays of the results in `output`) and `log`, a JSON Lines file
+  with one line per analysis, skipped window or error (wall time,
+  event, window, duration and stations, or reason).
+- `exploration.yarray.FDDMonitor(config, window, stations=None,
+  gaps="raise", ...)`: periodic frequency domain decomposition of the
+  data of a SeedLink client, with the options and queries of the
+  beamforming monitor (`result()` joins `FDDResult`). Results join only
+  with the same channels: the monitor processes the stations given in
+  `stations` (in that order) or those of its first result, ignores the
+  others and skips the windows in which one of them is missing or, with
+  the default `gaps="raise"`, has gaps; `FDDMonitor.stations`.
 - `exploration.yarray`: frequency domain decomposition (FDD), new
   module `fdd`. `FDDConfig` (same frequencies and windows as
   `BeamformingConfig`, plus `subfrequencies`, `bandwidth`,
@@ -806,6 +1120,47 @@ corrections. The format follows
 
 ### Fixed
 
+- `signals.io.reader`: a valid file without waveforms (a DYNA response
+  or Fourier spectrum, a SAC spectrum or x-y file) found in a folder or
+  pattern stopped the whole reading with `ValueError`; such files are
+  now skipped with one `IoWarning`, as files of unknown format. Named
+  explicitly, they raise `NotWaveformError` (new in
+  `signals.libio.common`, a subclass of `ValueError`, raised by
+  `Sac.to_shakelab`, `Dyna.to_shakelab`, `sacread` and `dynaread`).
+- `signals.base.StreamCollection`: the docstrings of `merge` (records
+  are copied), `sort` (`reverse`) and `write` (fields of the file name
+  templates) were wrong.
+- `signals.codes.parse_sid_pattern` (and every selection: `io.reader`,
+  `MetadataCollection.select`, `fdsnws`, `seedlink`): a set that is not
+  closed (`"HN[Z"`), empty or nested was taken literally and selected
+  nothing without error; it now raises a `ValueError`, as unbalanced
+  braces do.
+- `signals.fdsnws`: service addresses without a host (`"http://"`) or
+  with an invalid port were accepted and failed only at the first
+  request; they are rejected when the client is created.
+- `signals.seedlink.Client`: the records of an unlimited buffer were
+  the objects passed to the `on_record` callbacks, so that a callback
+  changing a record changed the buffer; the buffer now keeps copies,
+  as the circular buffer does.
+- `signals.fdsnws.Client.get_waveforms` with `correct=True` or filters:
+  the taper of the margins was applied to the ends of the received
+  records, so that where the server had no data in a margin (a window
+  at the start of the data, a gap) it fell inside the window and
+  attenuated it (peak acceleration of IV.MODE..HNZ four times too
+  small, without warning). The taper now covers only the part of the
+  records outside the window, never less than 10 samples
+  (`TAPER_MINIMUM`, needed to smooth the step that the correction
+  would amplify), and records without the whole margin are reported in
+  one `FdsnWarning`.
+- `signals.libio.sac`: the sampling interval of version-6 files, a
+  32-bit float, was read as such (0.01 s as 0.009999999776 s), so that
+  a record read from SAC could not be joined with the same channel
+  read from MiniSEED and its end time moved by a few microseconds. The
+  record now gets the decimal value with the fewest significant
+  digits, as interval or as rate, that has the same 32-bit
+  representation (0.01 for 100 Hz, 1/3 for 3 Hz).
+- `signals.response.StageResponse.from_json` could not read the
+  complex poles and zeros written by `to_json` (`TypeError`).
 - `exploration.yarray.ArrayMonitor` skipped every window of the
   circular buffer of the SeedLink client ("no station covers the time
   window"): the packets were never joined (see `Client.get_data` and

@@ -37,7 +37,35 @@ shapes.
   :meth:`FDDResult.singular_values`, :meth:`FDDResult.peaks` and
   :meth:`FDDResult.mode`;
 - :class:`Mode`: shape of a mode at a frequency;
-- :func:`mac`: modal assurance criterion between two shapes.
+- :meth:`FDD.efdd`: enhanced FDD, natural frequency and damping of
+  modes (:class:`EFDDDetails` with the steps of the estimate);
+- :func:`mac`: modal assurance criterion between two shapes;
+- :func:`modes_to_csv`: table of modes (frequency, damping, shapes).
+
+Enhanced FDD
+------------
+Close to a mode, the first singular value is the auto spectrum of an
+equivalent single-degree-of-freedom system. The enhanced FDD
+(Brincker, Ventura and Andersen, 2001) takes, around the peak, the
+lines whose singular vector matches the shape at the peak (MAC at
+least ``mac``, searched on both sides up to the first line below it;
+the singular value of the best matching vector of each line), sets the
+other lines to zero and transforms this bell back to the time domain:
+the result is the normalized autocorrelation of the free decay of the
+mode. The logarithmic decrement comes from a linear regression of
+``2 ln |r_k|`` on the index ``k`` of the extrema (peaks and troughs,
+quadratic interpolation) whose amplitude is between the ``levels``,
+the damped frequency from a regression of the zero crossings (linear
+interpolation) on their index; then ``zeta = delta / sqrt(4 pi^2 +
+delta^2)`` and ``f_n = f_d / sqrt(1 - zeta^2)``.
+
+The transform needs equally spaced lines from one spectral estimate
+with one window: the enhanced FDD computes a local spectrum around
+each mode with fixed windows (Welch, Hann taper, 50% overlap, all the
+windows averaged), whose duration is a number of cycles of the mode
+(``cycles``, default 100) or given (``duration``), whatever the windows
+of the configuration. Leakage widens the bell and overestimates the
+damping; a bell truncated by a high ``mac`` underestimates it.
 
 Phase and sign
 --------------
@@ -61,6 +89,10 @@ Analysis Conference, 110-116.
 Ermert, L., Poggi, V., Burjanek, J., and Faeh, D. (2014). Fundamental
 and higher two-dimensional resonance modes of an Alpine valley.
 Geophysical Journal International, 198(2), 795-811.
+
+Brincker, R., Ventura, C. E., and Andersen, P. (2001). Damping
+estimation by frequency domain decomposition. Proceedings of the 19th
+International Modal Analysis Conference (IMAC), 698-703.
 """
 
 from __future__ import annotations
@@ -69,7 +101,6 @@ import math
 import os
 import textwrap
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Optional, Sequence
 
 import numpy as np
@@ -81,20 +112,32 @@ from shakelab.exploration.yarray.config import (
     WindowType,
 )
 from shakelab.exploration.yarray.data import ArrayData
+from shakelab.libutils.timeN import Date
 from shakelab.libutils.utils import warn_external
 from shakelab.signals import fourier
 from shakelab.signals.crossspectral import CrossSpectra
 
 __all__ = [
+    "EFDDDetails",
     "FDD",
     "FDDResult",
     "FDDWarning",
     "Mode",
     "mac",
+    "modes_to_csv",
 ]
 
 # Kind of the result states in the result files (see :mod:`.io`).
 _KIND = "fdd"
+
+# Enhanced FDD: default number of cycles of the mode in a window, band
+# of the local spectrum and band in which the peak is searched around
+# the given frequency (relative to it), smallest number of extrema and
+# zero crossings for the regressions.
+_EFDD_CYCLES = 100.0
+_EFDD_BAND = 0.5
+_EFDD_SEARCH = 0.05
+_EFDD_MIN_POINTS = 3
 
 
 # ----------------------------------------------------------------------------
@@ -186,6 +229,64 @@ def _log(values: np.ndarray) -> np.ndarray:
 
 
 @dataclass(frozen=True, eq=False)
+class EFDDDetails:
+    """
+    Steps of an enhanced FDD estimate (see :meth:`FDD.efdd`).
+
+    Parameters
+    ----------
+    duration : float
+        Duration of the windows of the local spectrum, in seconds.
+    windows : int
+        Number of windows averaged.
+    peak_frequency : float
+        Frequency of the peak of the singular value, in Hz.
+    frequency : numpy.ndarray
+        Lines of the local spectrum, in Hz.
+    values : numpy.ndarray
+        First singular value at each line.
+    bell_values : numpy.ndarray
+        Singular value of the vector that best matches the shape at the
+        peak, at each line.
+    bell : numpy.ndarray
+        Lines of the bell (boolean).
+    lag : numpy.ndarray
+        Time lags of the correlation, in seconds (half the window).
+    correlation : numpy.ndarray
+        Normalized autocorrelation of the bell.
+    extrema : numpy.ndarray
+        Extrema of the correlation ``(n, 2)``: lag and value, from the
+        lag zero.
+    used : numpy.ndarray
+        Extrema used for the decrement (boolean).
+    crossings : numpy.ndarray
+        Zero crossings used for the damped frequency, in seconds.
+    decrement : float
+        Logarithmic decrement.
+    intercept : float
+        Intercept of the regression of ``2 ln |r_k|`` on ``k``.
+    damped_frequency : float
+        Damped frequency, in Hz.
+    """
+
+    duration: float
+    windows: int
+    peak_frequency: float
+    frequency: np.ndarray
+    values: np.ndarray
+    bell_values: np.ndarray
+    bell: np.ndarray
+    lag: np.ndarray
+    correlation: np.ndarray
+    extrema: np.ndarray
+    used: np.ndarray
+    crossings: np.ndarray
+    decrement: float
+    intercept: float
+    damped_frequency: float
+
+
+@dataclass(frozen=True, eq=False)
 class Mode:
     """
     Shape of a mode at a frequency.
@@ -218,11 +319,13 @@ class Mode:
         Component of each channel.
     coordinates : numpy.ndarray
         Position ``(n_channels, 3)`` of each channel in metres (East,
-        North, Up).
+        North, Up); NaN for stations without a position.
     damping : float or None
         Damping ratio (None: not estimated).
     method : str
-        Method of the estimate (``"fdd"``).
+        Method of the estimate (``"fdd"`` or ``"efdd"``).
+    efdd : EFDDDetails or None
+        Steps of the enhanced FDD (None for ``"fdd"``).
     """
 
     frequency: float
@@ -238,6 +341,7 @@ class Mode:
     coordinates: np.ndarray
     damping: Optional[float] = None
     method: str = "fdd"
+    efdd: Optional[EFDDDetails] = None
 
     @property
     def channels(self) -> tuple[str, ...]:
@@ -264,8 +368,19 @@ class Mode:
                 "" if self.damping is None
                 else f", damping {100.0 * self.damping:.2f}%"
             ),
-            "  channel                          shape      std",
         ]
+
+        if self.efdd is not None:
+            details = self.efdd
+            lines.append(
+                f"  EFDD: peak {details.peak_frequency:.4g} Hz, bell of "
+                f"{int(details.bell.sum())} lines, windows of "
+                f"{details.duration:.4g} s ({details.windows}), "
+                f"decrement {details.decrement:.4g}, damped frequency "
+                f"{details.damped_frequency:.4g} Hz"
+            )
+
+        lines.append("  channel                          shape      std")
 
         for label, value, spread in zip(self.channels, self.shape,
                                         self.shape_std):
@@ -276,6 +391,73 @@ class Mode:
     def info(self) -> None:
         """Print the summary (see :meth:`summary`)."""
         print(self.summary())
+
+
+def modes_to_csv(target: Any, modes: Sequence, owrite: bool = False) -> None:
+    """
+    Write modes with the same channels to a CSV table.
+
+    One row per mode: frequency, method, index of the singular value,
+    singular value and the standard deviation of its logarithm, mean
+    MAC, number of blocks, damping ratio (empty if not estimated) and,
+    for each channel, the shape and its standard deviation among the
+    blocks (columns ``"<station> <component>"`` and ``... std``).
+
+    Parameters
+    ----------
+    target : str or path-like
+        CSV file; folders are created.
+    modes : sequence of Mode
+        Modes (:meth:`FDDResult.mode`, :meth:`FDD.efdd`), all with the
+        same channels.
+    owrite : bool, optional
+        Overwrite an existing file. Default False.
+
+    Raises
+    ------
+    TypeError
+        If an element is not a Mode.
+    ValueError
+        If there are no modes or their channels differ.
+    FileExistsError
+        If the file exists and ``owrite`` is False.
+
+    Examples
+    --------
+    >>> modes = [result.mode(value) for value in result.peaks()]
+    >>> modes_to_csv("modes.csv", modes)
+    """
+    from shakelab.exploration.yarray.io import write_table
+
+    modes = list(modes)
+
+    if not modes:
+        raise ValueError("no modes to write")
+
+    if not all(isinstance(mode, Mode) for mode in modes):
+        raise TypeError("the modes must be Mode objects")
+
+    channels = modes[0].channels
+
+    if any(mode.channels != channels for mode in modes):
+        raise ValueError("the modes must have the same channels")
+
+    columns = {
+        "frequency": [mode.frequency for mode in modes],
+        "method": [mode.method for mode in modes],
+        "index": [mode.index for mode in modes],
+        "value": [mode.value for mode in modes],
+        "value_log_std": [mode.value_std for mode in modes],
+        "mac": [mode.mac for mode in modes],
+        "blocks": [mode.blocks for mode in modes],
+        "damping": [mode.damping for mode in modes],
+    }
+
+    for column, label in enumerate(channels):
+        columns[label] = [mode.shape[column] for mode in modes]
+        columns[f"{label} std"] = [mode.shape_std[column] for mode in modes]
+
+    write_table(target, columns, owrite=owrite)
 
 
 # ----------------------------------------------------------------------------
@@ -298,6 +480,9 @@ class FDDResult:
     source : str or path-like, optional
         Result file to read (see :meth:`read`). Default: an empty
         result.
+    arrays : bool, optional
+        Read also all the singular values and the kept vectors of the
+        file, if it has them (see :meth:`read`). Default True.
 
     Attributes
     ----------
@@ -306,17 +491,20 @@ class FDDResult:
     block_times : dict
         Centres of the blocks (Date), by frequency.
     values : dict
-        Singular values ``(n_blocks, n_channels)`` in decreasing order,
-        by frequency.
+        Singular values ``(n_blocks, n_values)`` in decreasing order,
+        by frequency: all of them (``n_values`` = number of channels),
+        or only the first for a file read without its arrays.
     vectors : dict
         First singular vectors ``(n_blocks, n_channels, n_vectors)``
-        with normalized phase and sign, by frequency.
+        with normalized phase and sign, by frequency (only the first
+        for a file read without its arrays).
     stations : tuple of str
         Station of each channel.
     components : tuple of str
         Component of each channel.
     coordinates : numpy.ndarray
-        Position ``(n_channels, 3)`` of each channel in metres.
+        Position ``(n_channels, 3)`` of each channel in metres; NaN for
+        stations without a position.
     units : str or None
         Units of the data (None if unknown).
 
@@ -325,10 +513,10 @@ class FDDResult:
     >>> result = FDD(array, config).process()
     >>> result.peaks(fmin=0.2, fmax=0.8)
     >>> result.mode(0.32).info()
-    >>> result.write("fdd.pkl")
+    >>> result.write("fdd.jsonl")
     """
 
-    def __init__(self, source: Any = None) -> None:
+    def __init__(self, source: Any = None, arrays: bool = True) -> None:
         self.config: Optional[FDDConfig] = None
         self.block_times: dict = {}
         self.values: dict = {}
@@ -339,7 +527,7 @@ class FDDResult:
         self.units: Optional[str] = None
 
         if source is not None:
-            self.read(source)
+            self.read(source, arrays=arrays)
 
     def __repr__(self) -> str:
         if self.config is None:
@@ -395,15 +583,16 @@ class FDDResult:
         frequency : numpy.ndarray
             Frequencies in Hz, ``(n_freq,)``.
         mean : numpy.ndarray
-            Geometric mean among the blocks, ``(n_freq, n_channels)``
-            (NaN at frequencies without blocks).
+            Geometric mean among the blocks, ``(n_freq, n_values)``
+            (NaN at frequencies without blocks; ``n_values`` is 1 for a
+            file read without its arrays).
         log_std : numpy.ndarray
             Standard deviation of the natural logarithm among the
             blocks (NaN with fewer than two blocks): the band
             ``mean * exp(+/- log_std)``.
         """
         frequency = self.frequencies
-        shape = (frequency.size, self.nchannels)
+        shape = (frequency.size, self._nvalues())
         mean = np.full(shape, np.nan)
         spread = np.full(shape, np.nan)
 
@@ -465,9 +654,10 @@ class FDDResult:
         if self.config is None:
             raise ValueError("the result is empty")
 
-        if not 0 <= index < self.nchannels:
+        if not 0 <= index < self._nvalues():
             raise ValueError(
-                f"index must be in [0, {self.nchannels - 1}]"
+                f"index must be in [0, {self._nvalues() - 1}] (a file "
+                "read without its arrays holds only the first value)"
             )
 
         if not prominence >= 1.0:
@@ -623,26 +813,40 @@ class FDDResult:
 
     # -- files ----------------------------------------------------------
 
-    def read(self, source: Any) -> None:
+    def read(self, source: Any, arrays: bool = True) -> None:
         """
         Add the results of a file.
 
         Parameters
         ----------
         source : str or path-like
-            File written by :meth:`write` (trusted origin only: pickle).
+            Result file (JSON Lines) written by :meth:`write`.
+        arrays : bool, optional
+            Read also all the singular values and the kept vectors
+            (``.npz`` files of the analyses), when every analysis of
+            the file has them; otherwise only the first singular value
+            and vector of each block. Default True.
 
         Raises
         ------
         ValueError
             If the file does not hold FDD results or they are not
             compatible.
+        FileNotFoundError
+            If the arrays of an analysis are missing (read with
+            ``arrays=False``).
         """
-        from shakelab.exploration.yarray.io import read_result_states
+        from shakelab.exploration.yarray.io import read_result
 
+        header, entries = read_result(source, arrays=arrays)
+
+        if header.get("kind") != _KIND:
+            raise ValueError(f"{source}: not an FDD result file")
+
+        complete = all(entry["arrays"] is not None for entry in entries)
         self.append([
-            FDDResult._from_state(state)
-            for state in read_result_states(source)
+            FDDResult._from_entry(header, entry, complete)
+            for entry in entries
         ])
 
     def write(
@@ -650,14 +854,24 @@ class FDDResult:
         target: Any,
         append: bool = False,
         owrite: bool = False,
+        arrays: bool = True,
     ) -> None:
         """
-        Write the result to a file (pickle).
+        Write the result to a file (JSON Lines).
+
+        The first line of the file is a header (format, configuration,
+        frequencies, units, channels and their coordinates); each
+        result written is one more line, with the block times and the
+        first singular value and vector of every block (real and
+        imaginary parts). All the singular values and the kept vectors
+        go to a ``.npz`` file in the folder ``<name>_arrays`` next to
+        the file, referred to by the line.
 
         Parameters
         ----------
         target : str or path-like
-            File; folders are created.
+            File (suffix ``.jsonl`` suggested; ``.json`` is refused);
+            folders are created.
         append : bool, optional
             Add the result to the file (created if missing), to
             accumulate successive analyses; the file must hold results
@@ -665,33 +879,86 @@ class FDDResult:
         owrite : bool, optional
             Overwrite an existing file (ignored with ``append``).
             Default False.
+        arrays : bool, optional
+            Write the ``.npz`` file too. Default True.
 
         Raises
         ------
         ValueError
-            If the result is empty, or ``append`` and the file holds
-            results that are not compatible.
+            If the result is empty, the name ends in ``.json``, or
+            ``append`` and the file holds results that are not
+            compatible.
         FileExistsError
             If the file exists and neither ``append`` nor ``owrite`` is
             set.
         """
-        from shakelab.exploration.yarray.io import (
-            read_result_states,
-            write_result_state,
-        )
+        from shakelab.exploration.yarray.io import write_result
 
         if self.config is None:
             raise ValueError("an empty result cannot be written")
 
-        path = Path(target).expanduser()
+        frequencies = sorted(self.block_times)
+        write_result(
+            self._header(), self._entry(), target,
+            arrays={
+                **{f"values_{row}": self.values[value]
+                   for row, value in enumerate(frequencies)},
+                **{f"vectors_{row}": self.vectors[value]
+                   for row, value in enumerate(frequencies)},
+            } if arrays else None,
+            times=self.block_times, append=append, owrite=owrite,
+        )
 
-        if append and path.exists() and path.stat().st_size > 0:
-            first = FDDResult._from_state(
-                read_result_states(path, first=True)[0]
-            )
-            _check_compatible(first, self, context=f"{path}: ")
+    def to_csv(self, target: Any, owrite: bool = False) -> None:
+        """
+        Write the first singular value and vector of every block to CSV.
 
-        write_result_state(self._state(), path, append=append, owrite=owrite)
+        One row per frequency and block: frequency, block, time, first
+        singular value and, for each channel, the real and imaginary
+        parts of the first singular vector (columns ``"<station>
+        <component> real"`` and ``... imag``). The configuration is not
+        written: the result file (:meth:`write`) is the complete
+        record.
+
+        Parameters
+        ----------
+        target : str or path-like
+            CSV file; folders are created.
+        owrite : bool, optional
+            Overwrite an existing file. Default False.
+
+        Raises
+        ------
+        ValueError
+            If the result is empty.
+        FileExistsError
+            If the file exists and ``owrite`` is False.
+        """
+        from shakelab.exploration.yarray.io import write_table
+
+        if self.config is None:
+            raise ValueError("an empty result cannot be written")
+
+        frequencies = sorted(self.block_times)
+        rows = [(value, block) for value in frequencies
+                for block in range(len(self.block_times[value]))]
+        columns = {
+            "frequency": [value for value, _ in rows],
+            "block": [block for _, block in rows],
+            "time": [self.block_times[value][block]
+                     for value, block in rows],
+            "value": [self.values[value][block, 0]
+                      for value, block in rows],
+        }
+
+        for column, label in enumerate(self.channels):
+            for part in ("real", "imag"):
+                columns[f"{label} {part}"] = [
+                    getattr(self.vectors[value][block, column, 0], part)
+                    for value, block in rows
+                ]
+
+        write_table(target, columns, owrite=owrite)
 
     # -- summary --------------------------------------------------------
 
@@ -761,30 +1028,74 @@ class FDDResult:
         return result
 
     @classmethod
-    def _from_state(cls, state: dict) -> FDDResult:
-        """Result from the state of a file."""
-        if state.get("kind") != _KIND:
-            raise ValueError("not an FDD result")
+    def _from_entry(
+        cls,
+        header: dict,
+        entry: dict,
+        complete: bool,
+    ) -> FDDResult:
+        """Result of one line of a file (with its arrays if complete)."""
+        frequencies = [float(value) for value in header["frequencies"]]
+        nchannels = len(header["stations"])
+        arrays = entry["arrays"] if complete else None
+        values, vectors = {}, {}
+
+        for row, value in enumerate(frequencies):
+            if arrays is not None:
+                values[value] = np.asarray(arrays[f"values_{row}"])
+                vectors[value] = np.asarray(arrays[f"vectors_{row}"])
+                continue
+
+            first = entry["values"][row]
+            values[value] = np.array(first, dtype=float).reshape(-1, 1)
+            vectors[value] = (
+                np.array(entry["vectors"]["real"][row], dtype=float)
+                + 1j * np.array(entry["vectors"]["imag"][row], dtype=float)
+            ).reshape(len(first), nchannels, 1)
 
         return cls._from_parts(
-            FDDConfig(state["config"]), state["block_times"],
-            state["values"], state["vectors"], state["stations"],
-            state["components"], state["coordinates"], state["units"],
+            FDDConfig(header["config"]),
+            {
+                value: [Date(time) for time in times]
+                for value, times in zip(frequencies, entry["block_times"])
+            },
+            values, vectors, header["stations"], header["components"],
+            np.array(header["coordinates"], dtype=float).reshape(-1, 3),
+            header["units"],
         )
 
-    def _state(self) -> dict:
-        """State written to a file."""
+    def _header(self) -> dict:
+        """Header of the result files."""
         return {
             "kind": _KIND,
             "config": self.config.to_dict(),
-            "block_times": dict(self.block_times),
-            "values": dict(self.values),
-            "vectors": dict(self.vectors),
-            "stations": self.stations,
-            "components": self.components,
-            "coordinates": np.array(self.coordinates),
+            "frequencies": [float(value) for value in self.frequencies],
             "units": self.units,
+            "stations": list(self.stations),
+            "components": list(self.components),
+            "coordinates": self.coordinates,
         }
+
+    def _entry(self) -> dict:
+        """Line of the result files: first value and vector per block."""
+        frequencies = sorted(self.block_times)
+        first = [self.vectors[value][:, :, 0] for value in frequencies]
+        return {
+            "block_times": [self.block_times[value]
+                            for value in frequencies],
+            "values": [self.values[value][:, 0] for value in frequencies],
+            "vectors": {
+                "real": [item.real for item in first],
+                "imag": [item.imag for item in first],
+            },
+        }
+
+    def _nvalues(self) -> int:
+        """Number of singular values kept for each block."""
+        for value in self.values.values():
+            return int(value.shape[1])
+
+        return self.nchannels
 
     def _adopt(self, other: FDDResult) -> None:
         """Take the content of a result (as a copy)."""
@@ -815,13 +1126,30 @@ def _check_compatible(
                                                other.components):
         raise ValueError(context + "the results have different channels")
 
-    if not np.allclose(first.coordinates, other.coordinates):
+    if not np.allclose(first.coordinates, other.coordinates,
+                       equal_nan=True):
         raise ValueError(
             context + "the results have different station coordinates"
         )
 
     if first.units != other.units:
         raise ValueError(context + "the results have different units")
+
+    if (first._nvalues(), _nvectors(first)) != (other._nvalues(),
+                                               _nvectors(other)):
+        raise ValueError(
+            context + "the results keep different numbers of singular "
+            "values or vectors (a file read without its arrays keeps "
+            "only the first)"
+        )
+
+
+def _nvectors(result: FDDResult) -> int:
+    """Number of singular vectors kept for each block."""
+    for value in result.vectors.values():
+        return int(value.shape[2])
+
+    return 0
 
 
 def _readonly(value: Any) -> np.ndarray:
@@ -978,7 +1306,10 @@ class FDD:
         nsta, ncomp, nsamp = motion.shape
         stations = tuple(sid for sid in array.sids for _ in names)
         components = names * nsta
-        coordinates = np.repeat(array.coordinates, ncomp, axis=0)
+        coordinates = np.repeat(np.stack([
+            st.coordinates if st.has_position else np.full(3, np.nan)
+            for st in array
+        ]), ncomp, axis=0)
         delta = array.delta
         frequency = _frequencies(config, delta)
         window = config.window
@@ -1035,6 +1366,141 @@ class FDD:
             coordinates, array.units,
         )
 
+    def efdd(
+        self,
+        frequencies: Any,
+        mac: float = 0.8,
+        cycles: Optional[float] = None,
+        duration: Optional[float] = None,
+        levels: tuple = (0.1, 0.9),
+        starttime: Any = None,
+        endtime: Any = None,
+        gaps: str = "drop",
+    ) -> list[Mode]:
+        """
+        Estimate natural frequency and damping of modes (enhanced FDD).
+
+        For each frequency a local spectrum is computed with fixed
+        windows (see the module notes), on the components of the
+        configuration (its normalization and windows are not used);
+        the bell of the mode around the nearest peak is transformed to
+        its autocorrelation, whose decay gives damping and frequency.
+
+        Parameters
+        ----------
+        frequencies : float or sequence of float
+            Approximate frequencies of the modes, in Hz (for example
+            :meth:`FDDResult.peaks`); the peak is searched within 5%.
+        mac : float, optional
+            Smallest MAC between the shape at the peak and the vectors
+            of the lines of the bell, in ``(0, 1]``. Default is 0.8.
+        cycles : float, optional
+            Duration of the windows in cycles of each mode. Default is
+            100 (unless ``duration`` is given).
+        duration : float, optional
+            Duration of the windows in seconds, for all the modes
+            (instead of ``cycles``).
+        levels : tuple of float, optional
+            Amplitudes ``(low, high)`` of the extrema of the normalized
+            correlation used for the decrement; the regression stops at
+            the first extremum below ``low``. Default ``(0.1, 0.9)``.
+        starttime, endtime : Date or str, optional
+            Window of the data. Default: the window common to all the
+            stations.
+        gaps : {"drop", "raise"}, optional
+            Stations that do not cover the window (see
+            :meth:`process`).
+
+        Returns
+        -------
+        list of Mode
+            One mode for each frequency (``method="efdd"``): natural
+            frequency, shape at the peak, singular value at the peak,
+            mean MAC of the bell, ``damping`` and the details of the
+            estimate (:attr:`Mode.efdd`).
+
+        Raises
+        ------
+        TypeError
+            If both ``cycles`` and ``duration`` are given.
+        ValueError
+            If array or configuration are missing, an option is out of
+            range, a frequency is not below the Nyquist frequency, the
+            data are shorter than the windows, or the correlation has
+            too few extrema or crossings (windows too short, or a bell
+            too narrow).
+        """
+        if self._array is None:
+            raise ValueError("the processor has no array")
+
+        if self._config is None:
+            raise ValueError("the processor has no configuration")
+
+        if cycles is not None and duration is not None:
+            raise TypeError("give cycles or duration, not both")
+
+        if not 0.0 < mac <= 1.0:
+            raise ValueError("mac must be in (0, 1]")
+
+        low, high = (float(value) for value in levels)
+
+        if not 0.0 < low < high <= 1.0:
+            raise ValueError("levels must satisfy 0 < low < high <= 1")
+
+        for name, value in (("cycles", cycles), ("duration", duration)):
+            if value is not None and not value > 0.0:
+                raise ValueError(f"{name} must be positive")
+
+        targets = np.atleast_1d(np.asarray(frequencies, dtype=float))
+        config = self._config
+        array = self._array.window(starttime, endtime, gaps=gaps)
+        names = _MODE_COMPONENTS[config.components]
+        directions = [_direction(name, config.azimuth) for name in names]
+        motion = array.matrix(directions)
+        nsta, ncomp, nsamp = motion.shape
+        motion = motion.reshape(nsta * ncomp, nsamp)
+        stations = tuple(sid for sid in array.sids for _ in names)
+        coordinates = np.repeat(np.stack([
+            st.coordinates if st.has_position else np.full(3, np.nan)
+            for st in array
+        ]), ncomp, axis=0)
+        delta = array.delta
+        modes = []
+
+        for target in targets:
+            if not 0.0 < target < 0.5 / delta:
+                raise ValueError(
+                    f"frequency {target:g} Hz is not in (0, Nyquist)"
+                )
+
+            length = duration if duration is not None else (
+                (_EFDD_CYCLES if cycles is None else cycles) / target
+            )
+            shape, value, bell_mac, details = _efdd_mode(
+                motion, delta, target, length, mac, low, high,
+            )
+            frequency = details.damped_frequency / math.sqrt(
+                1.0 - _damping(details.decrement) ** 2
+            )
+            modes.append(Mode(
+                frequency=frequency,
+                shape=_readonly(shape),
+                shape_std=_readonly(np.full(shape.size, np.nan)),
+                value=value,
+                value_std=math.nan,
+                mac=bell_mac,
+                blocks=1,
+                index=0,
+                stations=stations,
+                components=names * nsta,
+                coordinates=_readonly(coordinates),
+                damping=_damping(details.decrement),
+                method="efdd",
+                efdd=details,
+            ))
+
+        return modes
+
 
 def _direction(name: str, azimuth: Optional[float]) -> tuple:
     """Direction (east, north, up) of a component."""
@@ -1072,3 +1538,176 @@ def _frequencies(config: FDDConfig, delta: float) -> np.ndarray:
         raise ValueError("no FFT frequency falls in the frequency range")
 
     return grid
+
+
+# ----------------------------------------------------------------------------
+# Enhanced FDD
+# ----------------------------------------------------------------------------
+
+
+def _damping(decrement: float) -> float:
+    """Damping ratio of a logarithmic decrement."""
+    return decrement / math.sqrt(4.0 * math.pi ** 2 + decrement ** 2)
+
+
+def _efdd_mode(
+    motion: np.ndarray,
+    delta: float,
+    target: float,
+    duration: float,
+    threshold: float,
+    low: float,
+    high: float,
+) -> tuple:
+    """Shape, value, mean MAC of the bell and details of one mode."""
+    nfft = int(round(duration / delta))
+
+    if nfft > motion.shape[1]:
+        raise ValueError(
+            f"the data ({motion.shape[1] * delta:g} s) are shorter than "
+            f"the windows of the mode at {target:g} Hz "
+            f"({nfft * delta:g} s): use fewer cycles or a shorter "
+            "duration"
+        )
+
+    step = 1.0 / (nfft * delta)
+    half = nfft // 2
+    first = max(1, int(math.floor(target * (1.0 - _EFDD_BAND) / step)))
+    last = min(half, int(math.ceil(target * (1.0 + _EFDD_BAND) / step)))
+    lines = np.arange(first, last + 1)
+    frequency = lines * step
+    spectra = CrossSpectra.from_data(
+        motion, delta, frequency, duration=nfft * delta, overlap=0.5,
+        window=("tukey", 1.0),
+    )
+    values = np.empty((lines.size, motion.shape[0]))
+    vectors = np.empty((lines.size, motion.shape[0], motion.shape[0]),
+                       dtype=complex)
+
+    for row in range(lines.size):
+        singular, singular_vectors = spectra.decompose(row)
+        values[row] = singular[0]
+        vectors[row] = singular_vectors[0]
+
+    near = np.abs(frequency - target) <= _EFDD_SEARCH * target
+
+    if not near.any():
+        near = np.abs(frequency - target) == np.abs(frequency - target).min()
+
+    candidates = np.flatnonzero(near)
+    peak = int(candidates[np.argmax(values[candidates, 0])])
+    reference = vectors[peak, :, 0]
+    bell = np.zeros(lines.size, dtype=bool)
+    bell_values = np.empty(lines.size)
+    bell_macs = np.empty(lines.size)
+
+    for row in range(lines.size):
+        macs = [mac(reference, vectors[row, :, k])
+                for k in range(vectors.shape[2])]
+        best = int(np.argmax(macs))
+        bell_values[row] = values[row, best]
+        bell_macs[row] = macs[best]
+
+    for direction in (-1, 1):
+        row = peak
+
+        while 0 <= row < lines.size and bell_macs[row] >= threshold:
+            bell[row] = True
+            row += direction
+
+    spectrum = np.zeros(half + 1)
+    spectrum[lines[bell]] = bell_values[bell]
+    correlation = np.fft.irfft(spectrum, n=nfft)[:half]
+    correlation = correlation / correlation[0]
+    lag = np.arange(half) * delta
+    extrema = _extrema(correlation, delta)
+    amplitude = np.abs(extrema[:, 1])
+    below = np.flatnonzero(amplitude < low)
+    end = below[0] if below.size else extrema.shape[0]
+    used = np.zeros(extrema.shape[0], dtype=bool)
+    used[:end] = amplitude[:end] <= high
+
+    if used.sum() < _EFDD_MIN_POINTS:
+        raise ValueError(
+            f"mode at {target:g} Hz: {int(used.sum())} extrema of the "
+            f"correlation between the levels ({low:g}, {high:g}), at "
+            f"least {_EFDD_MIN_POINTS} are needed (bell too narrow or "
+            "windows too short)"
+        )
+
+    index = np.flatnonzero(used)
+    slope, intercept = np.polyfit(
+        index, 2.0 * np.log(amplitude[index]), 1
+    )
+    crossings = _crossings(correlation, delta)
+    crossings = crossings[crossings <= extrema[index[-1], 0]]
+
+    if crossings.size < 2:
+        raise ValueError(
+            f"mode at {target:g} Hz: too few zero crossings of the "
+            "correlation"
+        )
+
+    period = np.polyfit(np.arange(crossings.size), crossings, 1)[0]
+    shape = _align(reference[None, :])[0].real
+    shape = shape / np.linalg.norm(shape)
+    details = EFDDDetails(
+        duration=nfft * delta,
+        windows=int(spectra.realizations(peak)[0]),
+        peak_frequency=float(frequency[peak]),
+        frequency=_readonly(frequency),
+        values=_readonly(values[:, 0]),
+        bell_values=_readonly(bell_values),
+        bell=_readonly_bool(bell),
+        lag=_readonly(lag),
+        correlation=_readonly(correlation),
+        extrema=_readonly(extrema),
+        used=_readonly_bool(used),
+        crossings=_readonly(crossings),
+        decrement=float(-slope),
+        intercept=float(intercept),
+        damped_frequency=float(1.0 / (2.0 * period)),
+    )
+    return (shape, float(values[peak, 0]), float(bell_macs[bell].mean()),
+            details)
+
+
+def _extrema(correlation: np.ndarray, delta: float) -> np.ndarray:
+    """Lag zero and the extrema of a correlation (quadratic fit)."""
+    rows = [(0.0, float(correlation[0]))]
+    slope = np.diff(correlation)
+
+    for index in range(1, correlation.size - 1):
+        if slope[index - 1] * slope[index] > 0.0 or (
+            slope[index - 1] == 0.0
+        ):
+            continue
+
+        before, value, after = correlation[index - 1:index + 2]
+        curvature = before - 2.0 * value + after
+
+        if curvature == 0.0:
+            continue
+
+        offset = 0.5 * (before - after) / curvature
+        rows.append((
+            (index + offset) * delta,
+            float(value - 0.25 * (before - after) * offset),
+        ))
+
+    return np.array(rows)
+
+
+def _crossings(correlation: np.ndarray, delta: float) -> np.ndarray:
+    """Zero crossings of a correlation (linear interpolation)."""
+    index = np.flatnonzero(correlation[:-1] * correlation[1:] < 0.0)
+    before = correlation[index]
+    after = correlation[index + 1]
+    return (index + before / (before - after)) * delta
+
+
+def _readonly_bool(value: Any) -> np.ndarray:
+    """Return a read-only boolean copy."""
+    array = np.array(value, dtype=bool)
+    array.setflags(write=False)
+    return array

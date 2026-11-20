@@ -37,6 +37,8 @@ from shakelab.libutils import utils
 from shakelab.libutils.utils import (
     a_round,
     cast_value,
+    check_target,
+    command_message,
     deserialize_complex,
     is_empty,
     lin_stat,
@@ -252,3 +254,25 @@ def test_warn_external_points_to_the_caller():
     assert len(caught) == 1
     assert caught[0].category is RuntimeWarning
     assert caught[0].filename == __file__
+
+
+def test_check_target(tmp_path):
+    """One error for existing files, with the option that allows them."""
+    path = tmp_path / "out.mseed"
+    check_target(path, owrite=False)
+    path.write_text("x")
+    with pytest.raises(FileExistsError,
+                       match=r"out.mseed exists \(use owrite=True\)$"):
+        check_target(path, owrite=False)
+    with pytest.raises(FileExistsError,
+                       match=r"\(use owrite=True or append=True\)$"):
+        check_target(path, owrite=False, append=False)
+    check_target(path, owrite=True)
+    check_target(path, owrite=False, append=True)
+
+
+def test_command_message():
+    """Commands show their options in place of the Python arguments."""
+    error = FileExistsError("a exists (use owrite=True or append=True)")
+    assert command_message(error) == "a exists (use --owrite or --append)"
+    assert command_message(ValueError("owrite=True")) == "owrite=True"

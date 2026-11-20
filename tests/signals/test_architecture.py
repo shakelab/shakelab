@@ -158,3 +158,36 @@ def test_module_imports(name):
         # Experimental modules announce themselves with a FutureWarning.
         warnings.simplefilter("ignore", FutureWarning)
         importlib.import_module(name)
+
+
+def test_info_prints_summary():
+    """Objects that describe themselves have summary() and info()."""
+    missing = []
+    for name, path in sorted(_modules().items()):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            methods = {
+                item.name: item for item in node.body
+                if isinstance(item, ast.FunctionDef)
+            }
+            info = methods.get("info")
+            # info(item) of the SeedLink protocol is a server request.
+            if info is None or len(info.args.args) != 1:
+                continue
+            body = [
+                statement for statement in info.body
+                if not (
+                    isinstance(statement, ast.Expr)
+                    and isinstance(statement.value, ast.Constant)
+                )
+            ]
+            prints_summary = (
+                len(body) == 1
+                and ast.unparse(body[0]) == "print(self.summary())"
+            )
+            if "summary" not in methods or not prints_summary:
+                missing.append(f"{name}.{node.name}")
+
+    assert not missing, "info() without summary(): " + ", ".join(missing)

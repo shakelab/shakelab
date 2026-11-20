@@ -76,6 +76,20 @@ def test_waveforms_corrected(server, tmp_path):
     assert np.abs(record.data).max() == pytest.approx(0.3273, rel=1e-2)
 
 
+def test_waveforms_corrected_with_metadata_file(server, tmp_path):
+    """With --metadata and --correct the metadata are downloaded once."""
+    xml = tmp_path / "mode.xml"
+    code = main(["waveforms", server.url, "IV.MODE..HNZ", *WINDOW,
+                 "--correct", "--pad", "30", "--metadata", str(xml),
+                 "-o", str(tmp_path / "z.sac")])
+    assert code == 0
+    stations = [r for r in server.requests
+                if r.path == "/fdsnws/station/1/query"]
+    assert len(stations) == 1
+    (record,) = io.reader(str(tmp_path / "z.sac")).records()
+    assert np.abs(record.data).max() == pytest.approx(0.3273, rel=1e-2)
+
+
 def test_waveforms_format_needs_processing(server, tmp_path, capsys):
     """A format other than MiniSEED needs a correction or a filter."""
     code = main(["waveforms", server.url, "IV.MODE", *WINDOW,
@@ -108,6 +122,14 @@ def test_metadata_table(server, capsys):
     assert [line.split()[0] for line in out.splitlines()] == [
         "IV.MODE", "IV.MOXX"
     ]
+
+
+def test_port_takes_precedence(server, capsys):
+    """--port replaces the port written in the address."""
+    port = server.url.split(":")[2].split("/")[0]
+    assert main(["metadata", "http://127.0.0.1:1", "IV.MODE..HNZ",
+                 "--port", port]) == 0
+    assert capsys.readouterr().out.startswith("IV.MODE..HNZ")
 
 
 def test_metadata_to_file(server, tmp_path):

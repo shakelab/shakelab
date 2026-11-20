@@ -57,12 +57,16 @@ from shakelab.graphics.yarray import (  # noqa: E402
     plot_array_response,
     plot_density,
     plot_dispersion,
+    plot_efdd,
     plot_ellipticity,
+    plot_mac,
+    plot_mode_shape,
     plot_operational,
     plot_performance,
     plot_performance_sweep,
     plot_resolution,
     plot_search_domain,
+    plot_singular_values,
     plot_spectrum,
     plot_velocity_limits,
 )
@@ -357,3 +361,91 @@ def test_plot_performance(performance):
         plot_operational(assessment, "power")
     with pytest.raises(TypeError):
         plot_performance(sweep)
+
+
+# ----------------------------------------------------------------------------
+# Frequency domain decomposition
+# ----------------------------------------------------------------------------
+
+
+def _fdd_tests():
+    """The module of the FDD tests (shear frame helpers)."""
+    import importlib.util
+
+    path = (Path(__file__).parents[1] / "exploration" / "yarray"
+            / "test_yarray_fdd.py")
+    spec = importlib.util.spec_from_file_location("_fdd_tests", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module")
+def fdd_frame():
+    """FDD result and enhanced FDD modes of a shear frame (shared)."""
+    from shakelab.exploration.yarray.fdd import FDD
+
+    frame = _fdd_tests()
+    fdd = FDD(frame._array(frame._response(duration=600.0)),
+              frame._config())
+    result = fdd.process()
+    yield result, fdd.efdd(result.peaks())
+    plt.close("all")
+
+
+def test_plot_singular_values(fdd_frame):
+    """Three singular values with bands, and the peaks."""
+    result, _ = fdd_frame
+    figure, axis = plot_singular_values(result)
+
+    assert len(axis.get_lines()) == 3 + len(result.peaks())
+    assert len(axis.collections) == 3
+    assert axis.get_yscale() == "log"
+
+    with pytest.raises(TypeError):
+        plot_singular_values("result")
+    with pytest.raises(ValueError):
+        plot_singular_values(result, count=0)
+
+
+def test_plot_mode_shape(fdd_frame):
+    """Profile, height on the vertical axis, index, errors."""
+    result, modes = fdd_frame
+    mode = result.mode(result.peaks()[0])
+    _, axis = plot_mode_shape(mode)
+
+    np.testing.assert_allclose(axis.get_lines()[0].get_xdata(),
+                               [0.0, 3.0, 6.0, 9.0])
+
+    _, axis = plot_mode_shape(modes[0], along="z")
+    assert axis.get_ylabel() == "Up (m)"
+    assert "damping" in axis.get_title()
+
+    _, axis = plot_mode_shape(mode, along="index")
+    assert [label.get_text() for label in axis.get_xticklabels()] == [
+        "XX.F00.", "XX.F01.", "XX.F02.", "XX.F03."
+    ]
+
+    with pytest.raises(ValueError):
+        plot_mode_shape(mode, along="radial")
+    with pytest.raises(TypeError):
+        plot_mode_shape(result)
+
+
+def test_plot_mac_and_efdd(fdd_frame):
+    """MAC matrix of the modes and the steps of the enhanced FDD."""
+    result, modes = fdd_frame
+    _, axis = plot_mac(modes)
+    image = axis.get_images()[0].get_array()
+
+    np.testing.assert_allclose(np.diag(image), 1.0)
+    assert np.all(image[~np.eye(len(modes), dtype=bool)] < 0.05)
+
+    figure, axes = plot_efdd(modes[0])
+    assert len(axes) == 2
+    assert axes[1].get_xlabel() == "Lag (s)"
+
+    with pytest.raises(ValueError):
+        plot_mac([])
+    with pytest.raises(ValueError, match="enhanced"):
+        plot_efdd(result.mode(result.peaks()[0]))

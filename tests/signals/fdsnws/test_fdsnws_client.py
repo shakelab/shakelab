@@ -87,6 +87,38 @@ def test_client_from_registry():
     assert client.services["event"] == "https://example.org/fdsnws/event/1/"
 
 
+@pytest.mark.parametrize(
+    "address, kwargs, expected",
+    [
+        ("example.org", {}, "https://example.org/fdsnws/station/1/"),
+        ("example.org:8080/prefix", {},
+         "https://example.org:8080/prefix/fdsnws/station/1/"),
+        ("http://158.110.30.85:8080", {},
+         "http://158.110.30.85:8080/fdsnws/station/1/"),
+        ("http://example.org:8080", {"port": 8081},
+         "http://example.org:8081/fdsnws/station/1/"),
+        ("localhost", {"port": 8080},
+         "https://localhost:8080/fdsnws/station/1/"),
+        ("[::1]:8080", {}, "https://[::1]:8080/fdsnws/station/1/"),
+    ],
+)
+def test_client_from_address(address, kwargs, expected):
+    """Addresses with or without scheme (https by default) and port."""
+    client = Client(address, **kwargs)
+    assert client.name is None
+    assert client.services["station"] == expected
+
+
+def test_plain_http_server_over_https(server):
+    """A server that serves plain HTTP: the error suggests http://."""
+    address = server.url.split("://")[1].split("/")[0]
+    client = Client(address, retries=3, timeout=10.0)
+    with pytest.raises(FdsnError, match=f"write its address as "
+                       f"http://{address}"):
+        client.version("station")
+    assert server.requests == []
+
+
 def test_client_from_services():
     """Services only, without a data center."""
     client = Client(station="https://example.org/fdsnws/station/1/query")
@@ -108,6 +140,9 @@ def test_client_from_services():
         (("INGV",), {"retries": -1}, ValueError),
         (("INGV",), {"retries": 1.0}, TypeError),
         ((), {"station": "ftp://example.org"}, ValueError),
+        (("INGV",), {"port": 8080}, ValueError),
+        ((), {"port": 8080, "station": "example.org"}, ValueError),
+        (("example.org",), {"port": "8080"}, TypeError),
     ],
 )
 def test_client_errors(args, kwargs, error):
@@ -278,6 +313,42 @@ def test_waveforms_with_metadata(client, server):
     assert record.location.latitude == pytest.approx(44.629722)
 
 
+@pytest.mark.parametrize("given", ["collection", "file"])
+def test_waveforms_with_given_metadata(client, server, given):
+    """Metadata given by the user are used without a request."""
+    path = os.path.join(SIGNALS_DATA, "MODE.xml")
+    metadata = io.metadata_reader(path) if given == "collection" else path
+
+    collection = client.get_waveforms(
+        "IV.MODE..HNZ", T0, T1, metadata=metadata, correct=True, pad=30.0
+    )
+
+    assert all(r.path != "/fdsnws/station/1/query" for r in server.requests)
+    (record,) = _records(collection)
+    assert record.head.units == "m/s**2"
+    assert np.abs(record.data).max() == pytest.approx(ESM_PGA_HNZ, rel=5e-3)
+
+
+def test_waveforms_with_given_metadata_missing_a_channel(client):
+    """Channels missing from the given metadata are reported."""
+    metadata = io.metadata_reader(os.path.join(SIGNALS_DATA, "MODE.xml"))
+    metadata = metadata.select("IV.MODE..HN[ZN]")
+
+    with pytest.warns(FdsnWarning, match="no metadata for IV.MODE..HNE"):
+        attached = client.get_waveforms("IV.MODE..HN?", T0, T1,
+                                        metadata=metadata)
+    assert len(_records(attached)) == 3
+    with pytest.warns(FdsnWarning, match="left out.*IV.MODE..HNE"):
+        corrected = client.get_waveforms("IV.MODE..HN?", T0, T1,
+                                         metadata=metadata, correct=True,
+                                         pad=30.0)
+    assert [r.sid for r in _records(corrected)] == [
+        "IV.MODE..HNN", "IV.MODE..HNZ"
+    ]
+    with pytest.raises(TypeError):
+        client.get_waveforms("IV.MODE..HNZ", T0, T1, metadata=None)
+
+
 def test_waveforms_corrected(client, server):
     """
     Corrected records: margins requested, physical units, PGA of ESM.
@@ -309,6 +380,69 @@ def test_waveforms_corrected_and_filtered(client):
     (record,) = _records(collection)
     pga = np.abs(record.data).max()
     assert pga == pytest.approx(ESM_PGA_HNZ, rel=1e-2)
+
+
+def test_corrected_without_data_in_the_margin(client):
+    """
+    Without data before the window, the taper does not enter it.
+
+    The window begins at the start of the data, with a margin longer
+    than the time of the peak: the PGA must not be attenuated, and a
+    warning tells that the margin is missing.
+    """
+    with pytest.warns(FdsnWarning, match=r"IV.MODE..HNZ \(before and after\)"):
+        collection = client.get_waveforms(
+            "IV.MODE..HNZ", "2012-05-20T02:03:23", T1, correct=True,
+            pad=60.0,
+        )
+    (record,) = _records(collection)
+    assert record.time == Date("2012-05-20T02:03:23")
+    pga = np.abs(record.data).max()
+    assert pga == pytest.approx(ESM_PGA_HNZ, rel=5e-3)
+
+
+def test_corrected_with_whole_margins_without_warning(client):
+    """Margins covered by the data give no warning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        client.get_waveforms("IV.MODE..HNZ", T0, T1, correct=True, pad=30.0)
+
+
+def test_corrected_across_a_gap(client, server, tmp_path):
+    """The records on both sides of a gap are not tapered inside it."""
+    gap = Date("2012-05-20T02:05:00")
+    complete = client.get_waveforms(
+        "IV.MODE..HNZ", T0, T1, correct=True, pad=30.0
+    )
+    (reference,) = _records(complete)
+
+    collection = io.reader(os.path.join(SIGNALS_DATA, "MODE.mseed"),
+                           select="IV.MODE..HNZ")
+    raw = collection[0][0]
+    pieces = StreamCollection()
+    pieces.append(raw.extract(raw.starttime, gap))
+    pieces.append(raw.extract(gap + 1.0, raw.endtime))
+    path = tmp_path / "gap.mseed"
+    io.writer(pieces, path, format="mseed")
+    server.replies["/fdsnws/dataselect/1/query"] = lambda req: (
+        200, path.read_bytes(), {}
+    )
+
+    with pytest.warns(FdsnWarning, match=r"\(after\).*\(before\)"):
+        collection = client.get_waveforms(
+            "IV.MODE..HNZ", T0, T1, correct=True, pad=30.0
+        )
+    first, second = _records(collection)
+
+    def rms(record, start, end):
+        part = record.extract(start, end)
+        return np.sqrt(np.mean(part.data ** 2))
+
+    for record, start in ((first, gap - 5.0), (second, gap + 1.0)):
+        ratio = rms(record, start, start + 4.0) / rms(
+            reference, start, start + 4.0
+        )
+        assert ratio == pytest.approx(1.0, abs=0.2)
 
 
 def test_default_pad(client, server):

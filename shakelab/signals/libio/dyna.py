@@ -66,6 +66,7 @@ import numpy as np
 
 from shakelab.libutils.ascii import read_text, write_text
 from shakelab.libutils.timeN import Date
+from shakelab.signals.libio.common import NotWaveformError
 
 if TYPE_CHECKING:
     from shakelab.signals.base import Record
@@ -479,15 +480,16 @@ class Dyna:
 
         Raises
         ------
+        NotWaveformError
+            If the file holds a spectrum (a :class:`ValueError`).
         ValueError
-            If the file holds a spectrum, or the sampling interval is
-            missing.
+            If the sampling interval is missing.
         """
         from shakelab.signals.base import Record
         from shakelab.signals.metadata import ChannelEpoch
 
         if not self.is_timeseries:
-            raise ValueError(
+            raise NotWaveformError(
                 f"the DYNA file holds a {self.header.get('DATA_TYPE')!r}"
                 ", not a waveform; read it with Dyna"
             )
@@ -573,12 +575,25 @@ class Dyna:
             header[peak_time] = k * delta
         return cls(header, data)
 
-    def info(self) -> None:
-        """Print the defined header fields."""
-        print(repr(self))
+    def summary(self) -> str:
+        """
+        Return a description of the file as text.
+
+        Returns
+        -------
+        str
+            The representation, then the defined header fields.
+        """
+        lines = []
+        lines.append(repr(self))
         for name, value in self.header.items():
             if value is not None:
-                print(f"{name:>40} = {value}")
+                lines.append(f"{name:>40} = {value}")
+        return "\n".join(lines)
+
+    def info(self) -> None:
+        """Print the description of the file (see :meth:`summary`)."""
+        print(self.summary())
 
     # -- helpers --------------------------------------------------------
 

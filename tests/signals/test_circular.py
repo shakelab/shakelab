@@ -166,6 +166,7 @@ def test_circular_selections_are_standard_streams(vertical):
         ("integrate", ()),
         ("differentiate", ()),
         ("shift", (0.5,)),
+        ("remove_sensitivity", ()),
     ],
 )
 def test_circular_processing_is_refused(vertical, method, args):
@@ -175,6 +176,16 @@ def test_circular_processing_is_refused(vertical, method, args):
 
     with pytest.raises(NotImplementedError):
         getattr(stream, method)(*args)
+
+
+def test_circular_cut_is_refused(vertical):
+    """A circular stream keeps its window: cut points to extract."""
+    stream = CircularStream(max_duration=60.0)
+    stream.append(vertical.extract(0, 4.99))
+
+    with pytest.raises(NotImplementedError, match="extract"):
+        stream.cut(0, 1)
+    assert stream.extract(0, 1)[0].nsamp == 101
 
 
 def test_circular_validation():

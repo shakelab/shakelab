@@ -60,7 +60,7 @@ from typing import (Any, Callable, Iterator, Mapping, Optional, Sequence,
 
 import numpy as np
 
-from shakelab.libutils.utils import cast_value, is_empty
+from shakelab.libutils.utils import cast_value, check_target, is_empty
 
 __all__ = [
     "AsciiTable",
@@ -618,8 +618,7 @@ def write_text(target: Any, content: str, owrite: bool = False) -> None:
         If ``target`` is neither a path nor a file object.
     """
     if isinstance(target, (str, os.PathLike)):
-        if os.path.exists(target) and not owrite:
-            raise FileExistsError(f"File exists: {target}")
+        check_target(target, owrite)
         with open(target, "w", encoding="utf-8") as fid:
             fid.write(content)
     elif hasattr(target, "write"):

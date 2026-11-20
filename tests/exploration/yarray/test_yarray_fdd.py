@@ -27,6 +27,8 @@ frequencies and the modes its mode shapes.
 
 from __future__ import annotations
 
+import csv
+import dataclasses
 import warnings
 
 import numpy as np
@@ -47,6 +49,7 @@ from shakelab.exploration.yarray.fdd import (
     FDDWarning,
     Mode,
     mac,
+    modes_to_csv,
 )
 from shakelab.signals.base import Record
 
@@ -292,6 +295,106 @@ def test_processor_errors():
         FDD(config={"fmin": 1.0})
 
 
+def test_without_positions():
+    """
+    The decomposition needs no positions.
+
+    The coordinates of the result are NaN for the stations without a
+    position, and such results can still be joined.
+    """
+    motion = _response(duration=300.0)
+    located = _array(motion)
+    stations = list(located)
+    stations[2] = StationData(stations[2].sid, stations[2].records)
+    array = ArrayData(stations)
+    result = FDD(array, _config()).process()
+    reference = FDD(located, _config()).process()
+
+    assert not array.has_positions
+    assert np.isnan(result.coordinates[2]).all()
+    np.testing.assert_array_equal(result.coordinates[[0, 1, 3]],
+                                  reference.coordinates[[0, 1, 3]])
+    np.testing.assert_allclose(
+        result.values[result.frequencies[5]],
+        reference.values[reference.frequencies[5]],
+    )
+
+    joined = result.copy()
+    joined.append(result)
+
+    assert joined.nblocks == 2 * result.nblocks
+    assert np.isnan(result.mode(1.5).coordinates[2]).all()
+
+
+# ----------------------------------------------------------------------------
+# Enhanced FDD
+# ----------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def frame_modes():
+    """Enhanced FDD of the four modes of the shear frame (shared)."""
+    fdd = FDD(_array(_response()), _config())
+    return fdd, fdd.efdd(_shear_frame()[0])
+
+
+def test_efdd_of_the_shear_frame(frame_modes):
+    """
+    Natural frequencies, damping and shapes of the shear frame.
+
+    With 20 minutes of data and 2% damping the estimates of six
+    realizations scatter by about 10% in damping and 0.3% in frequency
+    around the true values (diary, 2026-11-16): the bounds are four
+    times wider than that scatter.
+    """
+    frequency, shapes = _shear_frame()
+    _, modes = frame_modes
+
+    for k, mode in enumerate(modes):
+        assert mode.method == "efdd"
+        assert mode.frequency == pytest.approx(frequency[k], rel=0.005)
+        assert mode.damping == pytest.approx(DAMPING, abs=0.006)
+        assert mac(mode.shape, shapes[:, k]) > 0.999
+        assert mode.mac > 0.95
+
+        details = mode.efdd
+        assert details.duration == pytest.approx(
+            100.0 / frequency[k], abs=DELTA
+        )
+        assert details.bell[np.argmin(np.abs(
+            details.frequency - details.peak_frequency
+        ))]
+        assert details.used.sum() >= 3
+        assert np.all(np.abs(details.extrema[details.used, 1]) <= 0.9)
+        assert details.correlation[0] == 1.0
+        assert mode.damping == pytest.approx(
+            details.decrement / np.hypot(2.0 * np.pi, details.decrement)
+        )
+        assert mode.frequency > details.damped_frequency
+
+    assert "EFDD" in modes[0].summary()
+
+
+def test_efdd_options_and_errors(frame_modes):
+    """Fixed duration, levels and invalid options."""
+    fdd, _ = frame_modes
+    mode = fdd.efdd(4.3, duration=40.0, levels=(0.2, 0.8))[0]
+
+    assert mode.efdd.duration == pytest.approx(40.0)
+    assert mode.frequency == pytest.approx(_shear_frame()[0][1], rel=0.01)
+
+    with pytest.raises(TypeError):
+        fdd.efdd(4.3, cycles=50, duration=40.0)
+    for options in ({"mac": 0.0}, {"levels": (0.9, 0.1)}, {"cycles": -1},
+                    {"duration": 2000.0}):
+        with pytest.raises(ValueError):
+            fdd.efdd(4.3, **options)
+    with pytest.raises(ValueError, match="Nyquist"):
+        fdd.efdd(30.0)
+    with pytest.raises(ValueError):
+        FDD(config=_config()).efdd(4.3)
+
+
 # ----------------------------------------------------------------------------
 # Results
 # ----------------------------------------------------------------------------
@@ -299,7 +402,7 @@ def test_processor_errors():
 
 def test_result_files_and_append(tmp_path, frame_result):
     """Write, append, read back joined; incompatible results fail."""
-    path = tmp_path / "fdd.pkl"
+    path = tmp_path / "fdd.jsonl"
     frame_result.write(path)
     frame_result.write(path, append=True)
     joined = FDDResult(path)
@@ -327,7 +430,70 @@ def test_result_files_and_append(tmp_path, frame_result):
     with pytest.raises(ValueError):
         BeamformingResult(path)
     with pytest.raises(ValueError):
-        FDDResult().write(tmp_path / "empty.pkl")
+        FDDResult().write(tmp_path / "empty.jsonl")
+
+
+def test_light_result_files(tmp_path, frame_result):
+    """
+    Without its arrays a file gives the first value and vector.
+
+    The first singular value and vector of every block are in the
+    JSON Lines file, exactly; all the values and the kept vectors are
+    in the .npz files. Peaks and the first mode are the same; light
+    and complete results do not join.
+    """
+    path = tmp_path / "fdd.jsonl"
+    frame_result.write(path)
+    complete = FDDResult(path)
+    light = FDDResult(path, arrays=False)
+    frequency = frame_result.frequencies[20]
+
+    np.testing.assert_array_equal(complete.values[frequency],
+                                  frame_result.values[frequency])
+    np.testing.assert_array_equal(complete.vectors[frequency],
+                                  frame_result.vectors[frequency])
+    np.testing.assert_array_equal(light.values[frequency][:, 0],
+                                  frame_result.values[frequency][:, 0])
+    np.testing.assert_array_equal(light.vectors[frequency][:, :, 0],
+                                  frame_result.vectors[frequency][:, :, 0])
+    np.testing.assert_array_equal(light.peaks(), frame_result.peaks())
+    # Same vectors, stored in arrays of different layout: the sums of
+    # NumPy may differ in the last digit on some platforms.
+    assert light.mode(1.5).mac == pytest.approx(frame_result.mode(1.5).mac,
+                                                rel=1e-12)
+    assert light.singular_values()[1].shape[1] == 1
+    assert light.block_times == frame_result.block_times
+
+    with pytest.raises(ValueError):
+        light.mode(1.5, index=1)
+    with pytest.raises(ValueError):
+        light.peaks(index=1)
+    with pytest.raises(ValueError, match="numbers of singular"):
+        light.copy().append(complete)
+
+    frame_result.write(tmp_path / "only.jsonl", arrays=False)
+
+    assert not (tmp_path / "only_arrays").exists()
+    assert FDDResult(tmp_path / "only.jsonl").values[frequency].shape[1] == 1
+
+    for item in (tmp_path / "fdd_arrays").iterdir():
+        item.unlink()
+
+    with pytest.raises(FileNotFoundError, match="arrays=False"):
+        FDDResult(path)
+
+
+def test_csv_of_the_first_vector(tmp_path, frame_result):
+    """One row per frequency and block, real and imaginary parts."""
+    table = tmp_path / "fdd.csv"
+    frame_result.to_csv(table)
+    rows = table.read_text().splitlines()
+    header = rows[0].split(",")
+
+    assert header[:4] == ["frequency", "block", "time", "value"]
+    assert header[4:6] == ["XX.F00. east real", "XX.F00. east imag"]
+    assert len(header) == 4 + 2 * STOREYS
+    assert len(rows) == frame_result.nblocks + 1
 
 
 def test_peaks_options(frame_result):
@@ -357,6 +523,46 @@ def test_mac():
         mac([1.0, 2.0], [1.0])
     with pytest.raises(ValueError):
         mac([0.0, 0.0], [1.0, 1.0])
+
+
+def test_modes_to_csv(tmp_path, frame_modes, frame_result):
+    """Table of modes of the FDD and of the enhanced FDD; errors."""
+    _, modes = frame_modes
+    path = tmp_path / "modes.csv"
+    modes_to_csv(path, modes)
+
+    with path.open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+
+    assert list(rows[0])[:8] == [
+        "frequency", "method", "index", "value", "value_log_std", "mac",
+        "blocks", "damping",
+    ]
+    assert list(rows[0])[8:10] == ["XX.F00. east", "XX.F00. east std"]
+    assert [float(row["damping"]) for row in rows] == pytest.approx(
+        [mode.damping for mode in modes]
+    )
+    assert [float(row["XX.F03. east"]) for row in rows] == pytest.approx(
+        [mode.shape[3] for mode in modes]
+    )
+
+    with pytest.raises(FileExistsError):
+        modes_to_csv(path, modes)
+
+    plain = [frame_result.mode(value) for value in frame_result.peaks()]
+    modes_to_csv(path, plain, owrite=True)
+
+    with path.open(encoding="utf-8", newline="") as stream:
+        assert all(row["damping"] == "" for row in csv.DictReader(stream))
+
+    other = dataclasses.replace(plain[0], stations=("A",) * STOREYS)
+
+    with pytest.raises(ValueError):
+        modes_to_csv(path, [plain[1], other], owrite=True)
+    with pytest.raises(ValueError):
+        modes_to_csv(path, [], owrite=True)
+    with pytest.raises(TypeError):
+        modes_to_csv(path, [1.0], owrite=True)
 
 
 def test_no_warnings_on_complete_data(frame_result):

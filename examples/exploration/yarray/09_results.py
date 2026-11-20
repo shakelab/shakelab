@@ -48,6 +48,7 @@ joined.info()
 print(joined.stations_at(6.0, block=0))
 
 # Files: one result, or results accumulated in one file.
-result.write("result.pkl")
-beamformer.process().write("daily.pkl", append=True)
-daily = BeamformingResult("daily.pkl")
+result.write("result.jsonl")
+beamformer.process().write("daily.jsonl", append=True)
+daily = BeamformingResult("daily.jsonl")
+daily.to_csv("maxima.csv")            # optional table of the maxima

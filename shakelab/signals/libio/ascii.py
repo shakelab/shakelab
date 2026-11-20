@@ -30,21 +30,23 @@ Parameters
 The parameters of the records can be given as arguments or as
 ``key: value`` lines in the file, with the same names and values:
 
-==========  ==========================================================
-Name        Accepted keys in the file (case, blanks and units ignored)
-==========  ==========================================================
-rate        ``rate``, ``sampling_rate``, ``sample_rate``, ``sps``,
-            ``fs``, ``sampling_frequency`` (Hz; ``100 Hz`` accepted)
-delta       ``delta``, ``dt``, ``sampling_interval``, ``time_step``
-            (s; ``0.01 s`` accepted)
-start       ``start``, ``starttime``, ``start_time``, ``t0``
-            (ISO 8601, UTC)
-sid         ``sid``, ``source_id`` (``NET.STA.LOC.CHA``)
-network     ``network``, ``net``
-station     ``station``, ``sta``
-location    ``location``, ``loc``
-units       ``units``, ``unit`` (one value, or one per column)
-==========  ==========================================================
+=================  ===================================================
+Name               Accepted keys in the file (case, blanks and units
+                   ignored)
+=================  ===================================================
+rate               ``rate``, ``sampling_rate``, ``sample_rate``,
+                   ``sps``, ``fs``, ``sampling_frequency`` (Hz;
+                   ``100 Hz`` accepted)
+delta              ``delta``, ``dt``, ``sampling_interval``,
+                   ``time_step`` (s; ``0.01 s`` accepted)
+first_sample_time  ``first_sample_time``, ``start``, ``starttime``,
+                   ``start_time``, ``t0`` (ISO 8601, UTC)
+sid                ``sid``, ``source_id`` (``NET.STA.LOC.CHA``)
+network            ``network``, ``net``
+station            ``station``, ``sta``
+location           ``location``, ``loc``
+units              ``units``, ``unit`` (one value, or one per column)
+=================  ===================================================
 
 Arguments take precedence over the file, and the file over what is
 derived from the data (the sampling interval and the start time from a
@@ -58,9 +60,9 @@ Columns
   ``datetime``, ``timestamp``, ``seconds`` or ``tempo`` (see
   :data:`TIME_COLUMNS`; or given with
   ``time_column``), or the first column if it holds dates. Dates give
-  the start time; numbers are seconds from ``start``. Without a
-  column of times, the times follow from ``start`` and the sampling
-  interval.
+  the start time; numbers are seconds from ``first_sample_time``.
+  Without a column of times, the times follow from
+  ``first_sample_time`` and the sampling interval.
 - Without a line of names, the names are given with ``columns``; a
   name None skips the column.
 - The source identifier of a column is ``sid`` formatted with
@@ -117,8 +119,8 @@ PARAMETER_KEYS = {
         "delta", "dt", "sampling_interval", "sample_interval",
         "sampling_period", "time_step", "timestep", "sampling_interval_s",
     ),
-    "start": (
-        "start", "starttime", "start_time", "t0", "first_sample_time",
+    "first_sample_time": (
+        "first_sample_time", "start", "starttime", "start_time", "t0",
     ),
     "sid": ("sid", "source_id", "source_identifier"),
     "network": ("network", "net", "network_code"),
@@ -159,7 +161,7 @@ def asciiread(
     location: Optional[str] = None,
     rate: Optional[float | str] = None,
     delta: Optional[float | str] = None,
-    start: Any = None,
+    first_sample_time: Any = None,
     units: Optional[str | Sequence[Optional[str]]] = None,
     delimiter: Optional[str] = None,
     decimal: Optional[str] = None,
@@ -192,7 +194,7 @@ def asciiread(
         Sampling rate in Hz.
     delta : float or str, optional
         Sampling interval in s.
-    start : Date or str, optional
+    first_sample_time : Date or str, optional
         Time of the first sample (or of time zero of a column of
         seconds), UTC.
     units : str or sequence, optional
@@ -235,7 +237,8 @@ def asciiread(
     params = _parameters(
         table.metadata,
         dict(sid=sid, network=network, station=station, location=location,
-             rate=rate, delta=delta, start=start, units=units),
+             rate=rate, delta=delta,
+             first_sample_time=first_sample_time, units=units),
     )
 
     tcol = _time_column(table, names, time_column, skipped)
@@ -343,7 +346,7 @@ def asciiwrite(
 
     metadata = {"delta": repr(float(first.delta))}
     if first.head.time is not None:
-        metadata["start"] = first.head.time.iso8601
+        metadata["first_sample_time"] = first.head.time.iso8601
     unit_set = {rec.head.units for rec in records}
     if unit_set != {None}:
         metadata["units"] = (
@@ -462,7 +465,10 @@ def _sampling(table: Any, tcol: Optional[int], params: dict) -> tuple:
                 f"{params['delta']!r} disagree"
             )
         step = given if step is None else step
-    start = _date(params["start"]) if "start" in params else None
+    start = (
+        _date(params["first_sample_time"])
+        if "first_sample_time" in params else None
+    )
 
     times = None
     if tcol is not None:
@@ -474,7 +480,7 @@ def _sampling(table: Any, tcol: Optional[int], params: dict) -> tuple:
                 raise ValueError("invalid dates in the column of times") \
                     from None
             times = (ns - ns[0]) / 1e9
-            if "start" not in params:
+            if "first_sample_time" not in params:
                 start = Date.from_unix_ns(int(ns[0]))
         else:
             times = column.astype(np.float64)

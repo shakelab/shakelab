@@ -31,7 +31,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from shakelab.exploration.yarray.data import ArrayData
+from shakelab.exploration.yarray.data import ArrayData, StationData
 from shakelab.exploration.yarray.response import (
     ArrayGeometry,
     ArrayResponse,
@@ -98,6 +98,15 @@ def test_geometry_from_array():
     array = _sesame()
     geometry = ArrayGeometry(array)
     assert np.allclose(geometry.coordinates, array.coordinates[:, :2])
+
+
+def test_geometry_needs_positions():
+    """An array with stations of unknown position has no geometry."""
+    stations = list(_sesame())
+    stations[0] = StationData(stations[0].sid, stations[0].records)
+
+    with pytest.raises(ValueError, match="unknown"):
+        ArrayResponse(ArrayData(stations))
 
 
 def test_response_grid():

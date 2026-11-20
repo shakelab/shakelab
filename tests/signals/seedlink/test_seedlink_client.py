@@ -22,6 +22,8 @@ server of ``conftest.py``.
 
 from __future__ import annotations
 
+import dataclasses
+import inspect
 import socket
 import warnings
 from pathlib import Path
@@ -43,6 +45,7 @@ from shakelab.signals.seedlink import (
     Client,
     SeedLinkError,
     SeedLinkEvent,
+    StreamInfo,
     read,
 )
 from shakelab.signals.seedlink import client as client_module
@@ -138,6 +141,24 @@ def test_configuration_types():
         client.run(duration=1)  # nothing selected
 
 
+def test_server_address():
+    client = Client("rtserve.example.org:18001")
+    assert (client.host, client.port) == ("rtserve.example.org", 18001)
+    assert client.address == "rtserve.example.org:18001"
+    assert Client("rtserve.example.org").port == 18000
+    assert Client("rtserve.example.org:18001", port=18002).port == 18002
+    client = Client("[::1]:18001")
+    assert (client.host, client.port) == ("::1", 18001)
+    assert client.address == "[::1]:18001"
+    assert Client("::1").address == "[::1]:18000"
+    with pytest.raises(ValueError, match="HOST"):
+        Client("http://rtserve.example.org")
+    with pytest.raises(ValueError, match="invalid port"):
+        Client("rtserve.example.org:x")
+    with pytest.raises(TypeError):
+        Client("rtserve.example.org", 18001)
+
+
 def test_callback_methods_return_function():
     client = Client("localhost")
 
@@ -194,7 +215,7 @@ def test_past_time_window(make_server, mode, version):
     start, end = START + 20.0, START + 30.0
 
     collection = read(
-        "127.0.0.1", "IV.MODE..HNZ", start=start, end=end,
+        "127.0.0.1", "IV.MODE..HNZ", starttime=start, endtime=end,
         port=server.port, timeout=5.0,
     )
 
@@ -254,7 +275,9 @@ def test_get_data_joins_circular_buffer(make_server, mode):
     data["IV.MODE..HNZ"].record[0].data[:] = 0
     assert client.buffer["IV.MODE..HNZ"].record[0].data.any()
 
-    window = client.get_data("*.*.*.*Z", start=START + 1.0, end=START + 2.0)
+    window = client.get_data(
+        "*.*.*.*Z", starttime=START + 1.0, endtime=START + 2.0
+    )
     assert window["IV.MODE..HNZ"].nsamp == 101
 
 
@@ -287,7 +310,7 @@ def test_past_window_of_several_stations(make_server, mode, other, version):
     server = make_server([mode[1], other[1]], version=version)
     client = _client(server)
     client.select(["IV.MODE", "OX.ABC"])
-    collection = client.run(start=START, end=START + 25.0)
+    collection = client.run(starttime=START, endtime=START + 25.0)
 
     assert sorted(collection.sid) == [
         "IV.MODE..HNE", "IV.MODE..HNN", "IV.MODE..HNZ", "OX.ABC.00.HHZ",
@@ -458,8 +481,8 @@ def test_gap_event(make_server):
     assert len(gaps) == 1
     assert isinstance(gaps[0], SeedLinkEvent)
     assert gaps[0].sid == "IV.MODE..HNZ"
-    assert gaps[0].start == START + 20.0
-    assert gaps[0].end == START + 30.0
+    assert gaps[0].starttime == START + 20.0
+    assert gaps[0].endtime == START + 30.0
     assert len(collection["IV.MODE..HNZ"].record) == 2
 
 
@@ -483,9 +506,15 @@ def test_background_and_get_data(make_server, mode):
 
     assert not client.running
     _assert_same(data, records)
-    window = client.get_data("*.*.*.*Z", start=START + 1.0, end=START + 2.0)
+    window = client.get_data(
+        "*.*.*.*Z", starttime=START + 1.0, endtime=START + 2.0
+    )
     assert window.sid == ["IV.MODE..HNZ"]
     assert window["IV.MODE..HNZ"].nsamp == 101
+    # The window may also follow the channels by position.
+    assert client.get_data(
+        "*.*.*.*Z", START + 1.0, START + 2.0
+    ).summary() == window.summary()
 
 
 def test_background_error_reraised(make_server, mode):
@@ -518,6 +547,122 @@ def test_metadata_assigned(make_server, mode, other):
     assert collection["OX.ABC.00.HHZ"].record[0].head.meta.empty
 
 
+def _sensitivity(sid):
+    """Sensitivity of a channel of MODE.xml at the start of the data."""
+    from shakelab.signals.io import metadata_reader
+    from shakelab.signals.metadata import select_sensitivity
+
+    collection = metadata_reader(DATA / "MODE.xml")
+    return select_sensitivity(collection, sid=sid, time=START).value
+
+
+def test_get_data_in_physical_units(make_server, mode, other):
+    """``sensitivity=True`` converts the copy, not the buffer."""
+    records, station = mode
+    server = make_server([station, other[1]])
+    client = _client(server, metadata=DATA / "MODE.xml")
+    client.select(["IV.MODE", "OX.ABC"])
+
+    with pytest.warns(MetadataWarning):
+        client.run(fetch=True, duration=10)
+    with pytest.warns(MetadataWarning, match="OX.ABC.00.HHZ not converted"):
+        data = client.get_data(sensitivity=True)
+
+    assert sorted(data.sid) == sorted(record.sid for record in records)
+    for record in records:
+        converted = data[record.sid].record[0]
+        np.testing.assert_allclose(
+            converted.data, record.data / _sensitivity(record.sid)
+        )
+        assert converted.head.units == "m/s**2"
+    _assert_same(client.get_data("IV.MODE"), records)
+
+
+def test_on_record_in_physical_units(make_server, mode, other):
+    """The callback receives converted copies; the buffer keeps counts."""
+    records, station = mode
+    server = make_server([station, other[1]])
+    client = _client(server, metadata=DATA / "MODE.xml")
+    client.select(["IV.MODE..HNZ", "OX.ABC"])
+    client.set_buffer()
+    received = []
+    client.on_record(lambda client, record: received.append(record),
+                     sensitivity=True)
+
+    with pytest.warns(MetadataWarning) as caught:
+        collection = client.run(fetch=True, duration=10)
+    messages = [str(item.message) for item in caught]
+    assert any("OX.ABC.00.HHZ not converted" in text for text in messages)
+
+    assert {record.sid for record in received} == {"IV.MODE..HNZ"}
+    data = np.concatenate([record.data for record in received])
+    np.testing.assert_allclose(
+        data, records[0].data / _sensitivity("IV.MODE..HNZ")
+    )
+    np.testing.assert_array_equal(
+        collection["IV.MODE..HNZ"].record[0].data, records[0].data
+    )
+
+
+def test_callbacks_cannot_change_the_buffer(make_server, mode):
+    """Records changed by a callback stay unchanged in the buffer."""
+    records, station = mode
+    server = make_server([station])
+    client = _client(server)
+    client.select("IV.MODE")
+    client.set_buffer()
+
+    @client.on_record
+    def clear(client, record):
+        record.data[:] = 0
+
+    collection = client.run(fetch=True, duration=10)
+    _assert_same(collection, records)
+
+
+def test_sensitivity_option_type():
+    client = Client("localhost")
+    with pytest.raises(TypeError):
+        client.on_record(print, sensitivity=1)
+
+
 def test_read_requires_stop_condition():
     with pytest.raises(ValueError):
         read("localhost", "IV.MODE")
+
+
+@pytest.mark.parametrize("function, selection", [
+    (Client.run, None), (Client.start, None),
+    (Client.get_data, "sid"), (read, "select"),
+    (client_module.records, "select"),
+])
+def test_time_window_names(function, selection):
+    # Time windows are starttime and endtime: by position right after
+    # the selection of channels, by name only where nothing selects them
+    # (run and start begin with a duration).
+    parameters = inspect.signature(function).parameters
+    names = list(parameters)
+    for name in ("starttime", "endtime"):
+        kind = parameters[name].kind
+        if selection is None:
+            assert kind is inspect.Parameter.KEYWORD_ONLY
+        else:
+            assert kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    if selection is not None:
+        index = names.index(selection)
+        assert names[index + 1:index + 3] == ["starttime", "endtime"]
+    assert "start" not in parameters and "end" not in parameters
+
+
+def test_time_window_attributes():
+    names = {field.name for field in dataclasses.fields(StreamInfo)}
+    assert {"starttime", "endtime"} <= names
+    names = {field.name for field in dataclasses.fields(SeedLinkEvent)}
+    assert {"starttime", "endtime"} <= names
+
+
+def test_endtime_must_follow_starttime():
+    client = Client("localhost")
+    client.select("IV.MODE")
+    with pytest.raises(ValueError, match="endtime must follow starttime"):
+        client.run(starttime=START + 10.0, endtime=START)

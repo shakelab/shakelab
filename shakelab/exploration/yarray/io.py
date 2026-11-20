@@ -18,7 +18,7 @@
 #
 # ****************************************************************************
 """
-File formats of YArray.
+File formats of YARRAY.
 
 - Array files (JSON): the stations with their local coordinates and
   the waveform file of each component, for data without (or with
@@ -27,12 +27,12 @@ File formats of YArray.
   :func:`read_array_file`. Data with metadata are given to
   :class:`~shakelab.exploration.yarray.data.ArrayData` as waveforms
   read by :func:`shakelab.signals.io.reader` instead.
-- Result files (pickle): written and read by
-  :meth:`BeamformingResult.write
-  <shakelab.exploration.yarray.beamforming.BeamformingResult.write>`
-  and :meth:`BeamformingResult.read
-  <shakelab.exploration.yarray.beamforming.BeamformingResult.read>`,
-  with :func:`write_result_state` and :func:`read_result_states`.
+- Result files (JSON Lines, with optional ``.npz`` arrays): written
+  and read by the ``write`` and ``read`` methods of
+  :class:`~shakelab.exploration.yarray.beamforming.BeamformingResult`
+  and :class:`~shakelab.exploration.yarray.fdd.FDDResult`, with
+  :func:`write_result` and :func:`read_result`; tables of the results
+  in CSV with :func:`write_table`.
 
 Array file
 ----------
@@ -56,7 +56,9 @@ Version 1, a JSON object::
     }
 
 Coordinates are East, North[, Up] in metres (a list or an object
-``x``, ``y``, ``z``); the optional ``reference`` is the geographic
+``x``, ``y``, ``z``); a station without ``coordinates`` has no position
+(enough for the frequency domain decomposition, not for the
+wavenumber methods). The optional ``reference`` is the geographic
 position (longitude, latitude[, elevation in m]) of their origin.
 Component names Z, N, E (also UP, VERTICAL, NORTH, EAST, X, Y and, as
 in the ArrayTool3C file lists, 1, 2, 3 for E, N, Z) imply the
@@ -70,40 +72,68 @@ common time window.
 
 Result file
 -----------
-A sequence of pickled dictionaries, one for each piece written (a file
-written with ``append=True`` holds the results of successive analyses,
-joined when read): ``format`` (``"shakelab.yarray.result"``),
-``version``, ``config`` (JSON representation), ``maxima``, ``spectra``,
-``block_times``, ``block_stations``, ``station_sets``, ``units``.
+Version 2, JSON Lines: one JSON object per line, in UTF-8. The first
+line is the header: ``format`` (``"shakelab.yarray.result"``),
+``version``, ``kind`` (``"beamforming"`` or ``"fdd"``), ``config``
+(JSON representation of the configuration), ``frequencies`` (Hz) and
+``units``; for the FDD also the channels, ``stations``,
+``components`` and ``coordinates`` (East, North, Up in metres, null
+when unknown). Each following line is one result written (one
+analysis, or several joined); a file written with ``append=True``
+holds the results of successive analyses with the same header, joined
+when read. Lists follow the order of ``frequencies``; times are ISO
+8601 with nanoseconds; missing values are null.
 
-Warnings
---------
-Pickle files can run arbitrary code when read: read only result files
-of trusted origin. Pickle is the provisional format of the results,
-until the native ShakeLab format.
+- Beamforming: ``block_times`` (by frequency), ``station_sets``
+  (``stations`` and ``coordinates`` of each set of stations),
+  ``block_stations`` (index of the set of each block, by frequency),
+  ``maxima`` (table by column: ``block``, ``time``, ``frequency``,
+  ``component``, ``rank``, ``wavenumber`` in rad/m, ``azimuth`` in
+  degrees, ``velocity`` and ``slowness``, derived, ``power``,
+  ``power_standard_error``, ``ellipticity``, ``ellipticity_angle``).
+- FDD: ``block_times``, ``values`` (first singular value of each
+  block) and ``vectors`` (``real`` and ``imag`` parts of the first
+  singular vector of each block, by channel), by frequency.
+
+``arrays`` is null or the name, relative to the folder of the file,
+of a ``.npz`` file (folder ``<name>_arrays``, files named after the
+first block time) with the arrays of the line: the spectra of the
+beamforming (``spectra``, a JSON table, and ``spectrum<i>_<name>``),
+or all the singular values (``values_<i>``, ``(n_blocks,
+n_channels)``) and the kept singular vectors (``vectors_<i>``,
+``(n_blocks, n_channels, n_vectors)``, complex) of the FDD, ``i``
+being the index of the frequency. The ``.npz`` files are read without
+pickle.
 """
 
 from __future__ import annotations
 
+import csv
 import json
-import pickle
+import math
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
+import numpy as np
 
 from shakelab.exploration.yarray.data import StationData
+from shakelab.libutils.timeN import Date
+from shakelab.libutils.utils import check_target
 from shakelab.signals import io as waveform_io
 
 __all__ = [
     "read_array_file",
-    "read_result_states",
-    "write_result_state",
+    "read_result",
+    "read_result_header",
+    "result_path",
+    "write_result",
+    "write_table",
 ]
 
 # Format name and version of the result files.
 _RESULT_FORMAT = "shakelab.yarray.result"
-_RESULT_VERSION = 1
+_RESULT_VERSION = 2
 
 # Version of the array file format.
 _VERSION = 1
@@ -302,7 +332,10 @@ def _read_station(
     return StationData(
         sid=sid.strip(),
         records=[rec.extract(start, end) for rec in records],
-        coordinates=_coordinates(entry.get("coordinates"), context),
+        coordinates=(
+            None if entry.get("coordinates") is None
+            else _coordinates(entry["coordinates"], context)
+        ),
         orientation=[item[3] for item in items],
         coordinate_covariance=entry.get("coordinate_covariance"),
     )
@@ -345,98 +378,344 @@ def _read_record(path: Path, options: dict, context: str) -> Any:
 # ----------------------------------------------------------------------------
 
 
-def write_result_state(
-    state: dict,
+def write_result(
+    header: dict,
+    entry: dict,
     target: Any,
+    arrays: Optional[Mapping] = None,
+    times: Optional[Mapping] = None,
     append: bool = False,
     owrite: bool = False,
-) -> None:
+) -> Path:
     """
-    Write the state of a result (beamforming or FDD) to a pickle file.
+    Write one analysis to a result file (JSON Lines).
 
     Parameters
     ----------
-    state : dict
-        State of the result (without ``format`` and ``version``).
+    header : dict
+        Header of the file (``kind``, ``config``, ``units``...),
+        written as the first line of a new file; with ``append`` it
+        must equal the header of the file.
+    entry : dict
+        Content of the analysis, written as one line.
     target : str or path-like
-        File; folders are created.
+        File; folders are created. A name ending in ``.json`` is
+        refused (the file is not a JSON document).
+    arrays : mapping, optional
+        Arrays written to a ``.npz`` file next to the result file
+        (folder ``<name>_arrays``), referred to by the line.
+    times : mapping, optional
+        Block times (Date) by frequency: the ``.npz`` file is named
+        after the first one (``20261116T101500.npz``; a number is
+        added if it exists in a file being appended to).
     append : bool, optional
-        Add the state to the end of the file (created if missing).
-        Default False.
+        Add the line to the file (created if missing). Default False.
     owrite : bool, optional
         Overwrite an existing file (ignored with ``append``). Default
         is False.
 
-    Raises
-    ------
-    FileExistsError
-        If the file exists and neither ``append`` nor ``owrite`` is set.
-    """
-    path = Path(target).expanduser()
-
-    if path.exists() and not (append or owrite):
-        raise FileExistsError(f"{path} exists (use owrite or append)")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    item = {"format": _RESULT_FORMAT, "version": _RESULT_VERSION, **state}
-
-    with path.open("ab" if append else "wb") as stream:
-        pickle.dump(item, stream, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def read_result_states(source: Any, first: bool = False) -> list[dict]:
-    """
-    Read the states written in a result file.
-
-    Parameters
-    ----------
-    source : str or path-like
-        File written by :func:`write_result_state` (trusted origin
-        only).
-    first : bool, optional
-        Read only the first state. Default False.
-
     Returns
     -------
-    list of dict
-        States in the order they were written.
+    pathlib.Path
+        Path of the result file.
 
     Raises
     ------
     ValueError
-        If the file contains no state, other objects or another
-        version of the format.
+        If the name of the file ends in ``.json``, or ``append`` and
+        the file has another header.
+    FileExistsError
+        If the file exists and neither ``append`` nor ``owrite`` is set.
+    """
+    path = result_path(target)
+
+    check_target(path, owrite, append=append)
+
+    exists = path.exists() and path.stat().st_size > 0
+
+    if exists and append:
+        current = read_result_header(path)
+
+        if current.get("kind") != header.get("kind"):
+            raise ValueError(
+                f"{path}: the file holds {current.get('kind')} results"
+            )
+
+        if current != json.loads(_dumps(header)):
+            raise ValueError(
+                f"{path}: the file holds results with another "
+                "configuration, other channels, frequencies or units"
+            )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = dict(entry)
+    line["arrays"] = None
+
+    if arrays:
+        folder = path.with_name(path.stem + "_arrays")
+        folder.mkdir(exist_ok=True)
+        name = _time_name(times or {})
+        file = folder / f"{name}.npz"
+        count = 1
+
+        while append and file.exists():
+            file = folder / f"{name}_{count}.npz"
+            count += 1
+
+        np.savez_compressed(file, **{
+            key: np.asarray(value) for key, value in arrays.items()
+        })
+        line["arrays"] = f"{folder.name}/{file.name}"
+
+    new = not (append and exists)
+    text = _dumps(line)
+
+    with path.open("w" if new else "a", encoding="utf-8") as stream:
+        if new:
+            stream.write(_dumps({
+                "format": _RESULT_FORMAT, "version": _RESULT_VERSION,
+                **header,
+            }))
+
+        stream.write(text)
+
+    return path
+
+
+def read_result_header(source: Any) -> dict:
+    """
+    Read the header of a result file.
+
+    Parameters
+    ----------
+    source : str or path-like
+        Result file (JSON Lines).
+
+    Returns
+    -------
+    dict
+        Header, without ``format`` and ``version``.
+
+    Raises
+    ------
+    ValueError
+        If the file is not a YARRAY result file or has another version
+        of the format.
     """
     path = Path(source).expanduser()
-    states = []
 
-    with path.open("rb") as stream:
-        while True:
+    with path.open(encoding="utf-8") as stream:
+        return _header(path, stream.readline())
+
+
+def read_result(source: Any, arrays: bool = True) -> tuple[dict, list]:
+    """
+    Read a result file.
+
+    Parameters
+    ----------
+    source : str or path-like
+        Result file (JSON Lines) written by :func:`write_result`.
+    arrays : bool, optional
+        Load the ``.npz`` files of the analyses. Default True.
+
+    Returns
+    -------
+    header : dict
+        Header, without ``format`` and ``version``.
+    entries : list of dict
+        Analyses in the order they were written; ``arrays`` is a
+        dictionary of arrays, or None if the analysis has none or
+        ``arrays`` is False.
+
+    Raises
+    ------
+    ValueError
+        If the file is not a YARRAY result file, has another version of
+        the format, contains no analysis or an invalid line.
+    FileNotFoundError
+        If a ``.npz`` file of an analysis is missing (read with
+        ``arrays=False`` to ignore them).
+    """
+    path = Path(source).expanduser()
+
+    with path.open(encoding="utf-8") as stream:
+        header = _header(path, stream.readline())
+        entries = []
+
+        for number, text in enumerate(stream, start=2):
+            if not text.strip():
+                continue
+
             try:
-                item = pickle.load(stream)
-            except EOFError:
-                break
-
-            if (
-                not isinstance(item, dict)
-                or item.get("format") != _RESULT_FORMAT
-            ):
-                raise ValueError(f"{path}: not a YArray result file")
-
-            if item.get("version") != _RESULT_VERSION:
+                entry = json.loads(text)
+            except json.JSONDecodeError as error:
                 raise ValueError(
-                    f"{path}: unsupported result version {item.get('version')}"
-                )
+                    f"{path}: invalid line {number}: {error.msg}"
+                ) from error
 
-            states.append({
-                key: value for key, value in item.items()
-                if key not in ("format", "version")
-            })
+            if not isinstance(entry, dict):
+                raise ValueError(f"{path}: invalid line {number}")
 
-            if first:
-                break
+            entries.append(entry)
 
-    if not states:
-        raise ValueError(f"{path}: no result")
+    if not entries:
+        raise ValueError(f"{path}: the file holds no analysis")
 
-    return states
+    for entry in entries:
+        name = entry.get("arrays")
+
+        if not arrays or name is None:
+            entry["arrays"] = None
+            continue
+
+        file = path.parent / name
+
+        if not file.is_file():
+            raise FileNotFoundError(
+                f"{path}: the arrays {file} are missing (read with "
+                "arrays=False to ignore them)"
+            )
+
+        with np.load(file, allow_pickle=False) as data:
+            entry["arrays"] = {key: data[key] for key in data.files}
+
+    return header, entries
+
+
+def result_path(target: Any) -> Path:
+    """
+    Return the path of a result file, refusing the suffix ``.json``.
+
+    Parameters
+    ----------
+    target : str or path-like
+        Name of the file.
+
+    Returns
+    -------
+    pathlib.Path
+        Path, with ``~`` expanded.
+
+    Raises
+    ------
+    ValueError
+        If the name ends in ``.json``.
+    """
+    path = Path(target).expanduser()
+
+    if path.suffix.lower() == ".json":
+        raise ValueError(
+            f"{path}: result files are JSON Lines, not JSON documents: "
+            "use the suffix .jsonl"
+        )
+
+    return path
+
+
+def write_table(target: Any, columns: Mapping, owrite: bool = False) -> None:
+    """
+    Write a table, given by columns, to a CSV file.
+
+    Parameters
+    ----------
+    target : str or path-like
+        CSV file; folders are created.
+    columns : mapping
+        Values of each column (name -> sequence), all of the same
+        length. Missing values (None, NaN) are empty fields; times are
+        written in ISO 8601 with nanoseconds.
+    owrite : bool, optional
+        Overwrite an existing file. Default False.
+
+    Raises
+    ------
+    FileExistsError
+        If the file exists and ``owrite`` is False.
+    """
+    path = Path(target).expanduser()
+
+    check_target(path, owrite)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    names = list(columns)
+
+    def text(value: Any) -> str:
+        value = _plain(value)
+
+        if value is None:
+            return ""
+
+        return repr(value) if isinstance(value, float) else str(value)
+
+    with path.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(names)
+
+        for row in zip(*(columns[name] for name in names)):
+            writer.writerow([text(value) for value in row])
+
+
+def _time_name(times: Mapping) -> str:
+    """Name of a .npz file: the first block time (or ``result``)."""
+    values = [time for items in times.values() for time in items]
+
+    if not values:
+        return "result"
+
+    text = min(values).to_iso8601(precision=0)
+    return text.replace("-", "").replace(":", "").rstrip("Z")
+
+
+def _header(path: Path, text: str) -> dict:
+    """Check and return the header line of a result file."""
+    try:
+        header = json.loads(text)
+    except json.JSONDecodeError:
+        header = None
+
+    if not isinstance(header, dict) or (
+        header.get("format") != _RESULT_FORMAT
+    ):
+        raise ValueError(f"{path}: not a YARRAY result file")
+
+    if header.get("version") != _RESULT_VERSION:
+        raise ValueError(
+            f"{path}: unsupported result version {header.get('version')}"
+        )
+
+    return {key: value for key, value in header.items()
+            if key not in ("format", "version")}
+
+
+def _dumps(value: Any) -> str:
+    """One line of JSON (NaN and infinities as null)."""
+    return json.dumps(_plain(value), allow_nan=False,
+                      separators=(",", ":")) + "\n"
+
+
+def _plain(value: Any) -> Any:
+    """Value with JSON types only."""
+    if isinstance(value, Mapping):
+        return {str(key): _plain(item) for key, item in value.items()}
+
+    if isinstance(value, np.ndarray):
+        return _plain(value.tolist())
+
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+
+    if isinstance(value, Date):
+        return value.to_iso8601(precision=9)
+
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+
+    if isinstance(value, (float, np.floating)):
+        value = float(value)
+        return value if math.isfinite(value) else None
+
+    return value

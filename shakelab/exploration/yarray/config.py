@@ -86,6 +86,7 @@ from typing import Any, Optional
 import numpy as np
 
 from shakelab.exploration.yarray.estimators import BeamformingMethod
+from shakelab.libutils.utils import check_target
 from shakelab.signals.windowing import window_size
 
 __all__ = [
@@ -1007,8 +1008,7 @@ class _FlatConfig:
         """
         path = Path(target).expanduser()
 
-        if path.exists() and not owrite:
-            raise FileExistsError(f"{path} exists (use owrite=True)")
+        check_target(path, owrite)
 
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(

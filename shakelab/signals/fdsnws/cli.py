@@ -31,7 +31,9 @@ Subcommands:
 - ``datacenters``: the known data centers and their services.
 
 The data center is a name of the FDSN registry (``INGV``,
-``EarthScope``, ``GEOFON``...) or the ``http(s)://`` address of a host;
+``EarthScope``, ``GEOFON``...) or the address of a host,
+``[http(s)://]HOST[:PORT][/PREFIX]`` (``https`` if the scheme is
+omitted; ``--port`` takes precedence over the port in the address);
 channels are patterns ``NET.STA.LOC.CHA`` (see
 :mod:`shakelab.signals.codes`); times are ISO 8601 in UTC.
 
@@ -63,6 +65,7 @@ import sys
 import warnings
 from typing import Optional
 
+from shakelab.libutils.utils import command_message
 from shakelab.signals.fdsnws.client import Client
 from shakelab.signals.fdsnws.registry import datacenters
 from shakelab.signals.fdsnws.transport import DEFAULT_TIMEOUT, FdsnError
@@ -102,7 +105,7 @@ def main(argv: Optional[list] = None, prog: Optional[str] = None) -> int:
     except KeyboardInterrupt:
         return 130
     except (OSError, FdsnError, ValueError, TypeError) as error:
-        print(f"error: {error}", file=sys.stderr)
+        print(f"error: {command_message(error)}", file=sys.stderr)
         return 1
 
 
@@ -119,6 +122,7 @@ def _waveforms(args) -> int:
         or args.lowpass is not None
     )
 
+    metadata = False
     if args.metadata is not None:
         size = client.get_metadata(
             args.patterns, args.start, args.end, level="response",
@@ -126,6 +130,8 @@ def _waveforms(args) -> int:
         )
         if not size:
             print("no metadata", file=sys.stderr)
+        elif args.correct:
+            metadata = args.metadata      # read again, not downloaded
 
     if not processing:
         if args.format not in (None, "mseed"):
@@ -140,7 +146,7 @@ def _waveforms(args) -> int:
         return _report(size, f"{size} bytes written to {args.output}")
 
     collection = client.get_waveforms(
-        args.patterns, args.start, args.end,
+        args.patterns, args.start, args.end, metadata=metadata,
         correct=args.correct, pad=args.pad, highpass=args.highpass,
         lowpass=args.lowpass,
         prefilter=None if args.prefilter is None else tuple(args.prefilter),
@@ -270,8 +276,14 @@ def _parser(prog: Optional[str] = None) -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "datacenter",
-        help="data center of the FDSN registry (e.g. INGV) or "
-        "http(s):// address of a host",
+        help="data center of the FDSN registry (e.g. INGV) or address "
+        "of a host, [http(s)://]HOST[:PORT][/PREFIX] (https if the "
+        "scheme is omitted)",
+    )
+    common.add_argument(
+        "--port", type=int,
+        help="port of the host, which takes precedence over the one in "
+        "the address",
     )
     common.add_argument(
         "--timeout", type=float, default=DEFAULT_TIMEOUT,
@@ -424,7 +436,7 @@ def _parser(prog: Optional[str] = None) -> argparse.ArgumentParser:
 
 def _client(args) -> Client:
     """Client of the data center of the command line."""
-    return Client(args.datacenter, timeout=args.timeout)
+    return Client(args.datacenter, port=args.port, timeout=args.timeout)
 
 
 def _range(low: Optional[float], high: Optional[float]):

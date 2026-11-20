@@ -18,7 +18,7 @@
 #
 # ****************************************************************************
 """
-Seismic-array processing (YArray).
+Seismic-array processing (YARRAY).
 
 Frequency-wavenumber analysis of synchronized seismic arrays, usable
 from Python, from the command line and within the callbacks of the
@@ -30,7 +30,8 @@ geometric response and limits (:mod:`.response`), Monte Carlo
 performance of the estimators (:mod:`.performance`), operational
 assessment for survey planning (:mod:`.operational`), file formats
 (:mod:`.io`), real-time monitor (:mod:`.monitor`) and command line
-(:mod:`.cli`, installed as ``slab-yarray``). Figures are in
+(:mod:`.cli`, installed as ``slab-yarray`` with the subcommands
+``beamforming``, ``fdd`` and ``response``). Figures are in
 :mod:`shakelab.graphics.yarray`. See ``README.md`` in this folder.
 
 .. code-block:: python
@@ -73,13 +74,19 @@ from shakelab.exploration.yarray.data import (
     StationData,
 )
 from shakelab.exploration.yarray.fdd import (
+    EFDDDetails,
     FDD,
     FDDResult,
     FDDWarning,
     Mode,
     mac,
+    modes_to_csv,
 )
-from shakelab.exploration.yarray.monitor import ArrayMonitor
+from shakelab.exploration.yarray.monitor import (
+    ArrayMonitor,
+    BeamformingMonitor,
+    FDDMonitor,
+)
 from shakelab.exploration.yarray.operational import OperationalAssessment
 from shakelab.exploration.yarray.performance import (
     PerformanceResult,
@@ -101,12 +108,15 @@ __all__ = [
     "ArrayResponse",
     "Beamformer",
     "BeamformingConfig",
+    "BeamformingMonitor",
     "BeamformingResult",
     "BeamformingWarning",
     "DispersionCurve",
+    "EFDDDetails",
     "EllipticityGrid",
     "FDD",
     "FDDConfig",
+    "FDDMonitor",
     "FDDResult",
     "FDDWarning",
     "FrequencyConfig",
@@ -124,4 +134,5 @@ __all__ = [
     "StationData",
     "WindowConfig",
     "mac",
+    "modes_to_csv",
 ]

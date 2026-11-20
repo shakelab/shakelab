@@ -241,7 +241,8 @@ def test_waveform_channels():
 def test_arguments_take_precedence():
     """Rate and start time given as arguments, codes and type."""
     rec = tdmsread(
-        GENERATED / "waveform.tdms", rate=50, start="2026-01-01T00:00:00",
+        GENERATED / "waveform.tdms", rate=50,
+        first_sample_time="2026-01-01T00:00:00",
         location="00", channel_prefix="C", dtype=np.float32,
     )["..00.Cvel"][0]
 

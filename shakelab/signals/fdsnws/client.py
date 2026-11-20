@@ -38,10 +38,13 @@ follow the conventions of ShakeLab: ``region=(lonmin, lonmax, latmin,
 latmax)``, ``center=(lon, lat)``, radii in degrees and depths in km.
 
 Corrected downloads (``correct=True``) request a margin ``pad`` before
-and after the window, remove a linear trend, taper the margins, correct
-the response in the frequency domain with zero padding (and the
-optional ``prefilter``), filter if asked, and cut the records to the
-window: the edge effects fall in the discarded margins.
+and after the window, remove a linear trend, taper the part of each
+record outside the window, correct the response in the frequency
+domain with zero padding (and the optional ``prefilter``), filter if
+asked, and cut the records to the window: the edge effects fall in the
+discarded margins. Where the server has no data in a margin (start or
+end of the data, gaps) the taper is ``TAPER_MINIMUM`` samples long and
+enters the window, and an :class:`FdsnWarning` reports it.
 
 Examples
 --------
@@ -61,11 +64,13 @@ from numbers import Real
 from typing import Any, NamedTuple, Optional
 
 from shakelab.libutils.timeN import Date
+from shakelab.libutils.utils import check_target
 from shakelab.signals.base import StreamCollection
 from shakelab.signals.codes import match_code
 from shakelab.signals.fdsnws.registry import (
     SERVICES,
     find_datacenter,
+    is_address,
     service_root,
     service_urls,
 )
@@ -91,6 +96,11 @@ __all__ = ["Client", "TimeSpan"]
 # at least PAD_MINIMUM seconds.
 PAD_FRACTION = 0.1
 PAD_MINIMUM = 30.0
+
+# Shortest taper, in samples, at an end of a record without the whole
+# margin: it smooths the step that the correction of the digital stages
+# would amplify near the Nyquist frequency.
+TAPER_MINIMUM = 10
 
 _LEVELS = ("station", "channel", "response")
 _MERGE = ("samplerate", "quality", "overlap")
@@ -129,8 +139,13 @@ class Client:
         Name of a data center of the registry (see
         :func:`~shakelab.signals.fdsnws.registry.datacenters`; case and
         former names such as ``IRIS`` or ``ORFEUS`` are accepted), or
-        the ``http(s)://`` address of a host with the standard paths
-        ``/fdsnws/<service>/1/``.
+        the address of a host with the standard paths
+        ``/fdsnws/<service>/1/``: ``[scheme://]host[:port][/prefix]``,
+        with ``https`` if the scheme is omitted (servers that serve
+        plain HTTP only must be written with ``http://``).
+    port : int, optional
+        Port of the host, which takes precedence over the one in
+        ``datacenter``; not accepted with a data center name.
     station, dataselect, event, availability : str, optional
         Address of a service, replacing that of ``datacenter`` (also
         for services with non-standard paths). At least one service
@@ -161,12 +176,15 @@ class Client:
     --------
     >>> Client("ingv").services["station"]
     'https://webservices.ingv.it/fdsnws/station/1/'
+    >>> Client("example.org:8080").services["station"]
+    'https://example.org:8080/fdsnws/station/1/'
     """
 
     def __init__(
         self,
         datacenter: Optional[str] = None,
         *,
+        port: Optional[int] = None,
         station: Optional[str] = None,
         dataselect: Optional[str] = None,
         event: Optional[str] = None,
@@ -186,12 +204,19 @@ class Client:
         self.name: Optional[str] = None
         self.services: dict = {}
 
+        if datacenter is None and port is not None:
+            raise ValueError("port applies to the address of datacenter")
         if datacenter is not None:
             if not isinstance(datacenter, str):
                 raise TypeError("datacenter must be a string")
-            if datacenter.strip().lower().startswith(("http://", "https://")):
-                self.services = service_urls(datacenter)
+            if is_address(datacenter):
+                self.services = service_urls(datacenter, port)
             else:
+                if port is not None:
+                    raise ValueError(
+                        "port applies to an address, not to the data "
+                        f"center {datacenter!r}"
+                    )
                 center = find_datacenter(datacenter)
                 self.name = center.name
                 self.services = dict(center.services)
@@ -253,7 +278,7 @@ class Client:
         starttime: Any = None,
         endtime: Any = None,
         *,
-        metadata: bool = False,
+        metadata: Any = False,
         correct: bool = False,
         pad: Optional[Real] = None,
         highpass: Optional[Real] = None,
@@ -281,17 +306,23 @@ class Client:
         starttime, endtime : Date or str, optional
             Time window of the patterns without one; every pattern
             needs a window.
-        metadata : bool, optional
+        metadata : bool, MetadataCollection, path or sequence of paths
             If True, also download the channel metadata (with the
-            responses) and assign them to the records.
+            responses) and assign them to the records. Metadata given
+            as a collection or files (see
+            :func:`~shakelab.signals.io.metadata_reader`) are assigned
+            instead, and used by ``correct``, without downloading them.
+            Default is False.
         correct : bool, optional
             If True, correct the records for the instrument response
-            (implies ``metadata``), as described in the module notes.
+            (implies ``metadata=True`` if no metadata are given), as
+            described in the module notes.
             Records without a response are left out with a
             :class:`FdsnWarning`.
         pad : float, optional
             Margin in seconds requested before and after each window,
-            and tapered, when the records are corrected or filtered.
+            when the records are corrected or filtered; the part of the
+            records in it is tapered.
             Default: 10 % of the window, at least 30 s.
         highpass, lowpass : float, optional
             Corner frequencies in Hz of a Butterworth filter applied
@@ -347,7 +378,10 @@ class Client:
         FdsnError
             If a request fails.
         """
-        _check_bool(metadata, "metadata")
+        given = None
+        if not isinstance(metadata, bool):
+            given = _as_metadata(metadata)
+        attach = metadata is True or given is not None
         _check_bool(correct, "correct")
         _check_bool(longestonly, "longestonly")
         _check_bool(owrite, "owrite")
@@ -363,7 +397,7 @@ class Client:
         processing = correct or filtering
         if prefilter is not None and not correct:
             raise ValueError("prefilter is used only with correct=True")
-        if target is not None and (metadata or processing):
+        if target is not None and (attach or processing):
             raise ValueError(
                 "target writes the records as received: it cannot be "
                 "combined with metadata, correct or filters"
@@ -417,20 +451,23 @@ class Client:
         if not pairs:
             return stream_collection
 
-        if metadata or correct:
-            channels = self.get_metadata(
-                [
-                    (str(item.pattern), item.starttime, item.endtime)
-                    for item in requests
-                ],
-                level="response",
-            )
+        if attach or correct:
+            channels = given
+            if channels is None:
+                channels = self.get_metadata(
+                    [
+                        (str(item.pattern), item.starttime, item.endtime)
+                        for item in requests
+                    ],
+                    level="response",
+                )
             missing = []
             for record, _ in pairs:
-                if record.sid in channels:
+                try:
                     record.set_metadata(channels)
-                elif record.sid not in missing:
-                    missing.append(record.sid)
+                except KeyError:
+                    if record.sid not in missing:
+                        missing.append(record.sid)
             if missing and not correct:
                 warnings.warn(
                     "no metadata for " + ", ".join(missing),
@@ -450,7 +487,7 @@ class Client:
                 end = item.endtime - margin
                 if not record.overlaps(start, end):
                     continue
-                record = record.cut(start, end, inplace=False)
+                record = record.extract(start, end)
             stream_collection.append(record)
 
         return stream_collection
@@ -871,8 +908,7 @@ class Client:
         if not isinstance(target, (str, os.PathLike)):
             raise TypeError("target must be a path")
         path = os.fspath(target)
-        if os.path.exists(path) and not owrite:
-            raise FileExistsError(f"{path} exists (use owrite=True)")
+        check_target(path, owrite)
 
         if len(groups) == 1:
             size = self._query(service, "query", groups[0], params, path)
@@ -969,7 +1005,7 @@ def _add_piece(
                 if not record.overlaps(item.starttime, end):
                     continue
                 received.append(
-                    record.cut(item.starttime, end, inplace=False)
+                    record.extract(item.starttime, end)
                 )
 
 
@@ -985,9 +1021,7 @@ def _select_records(received: StreamCollection, requests: list) -> list:
                     continue
                 pairs.append(
                     (
-                        record.cut(
-                            item.starttime, item.endtime, inplace=False
-                        ),
+                        record.extract(item.starttime, item.endtime),
                         item,
                     )
                 )
@@ -1003,13 +1037,36 @@ def _process(
     prefilter: Optional[tuple],
     waterlevel: Real,
 ) -> list:
-    """Detrend, taper, correct and filter the padded records."""
+    """
+    Detrend, taper, correct and filter the padded records.
+
+    At each end the taper covers the part of the record outside the
+    requested window (at most the margin), so that the data of the
+    window are not changed. Where that part is shorter than
+    ``TAPER_MINIMUM`` samples (start or end of the available data,
+    gaps), the taper is that long and enters the window; records
+    without the whole margin are reported in one warning.
+    """
     kept = []
     missing = []
+    short = []
     for record, item in pairs:
         record.detrend()
         if margin:
-            record.taper(margin)
+            outside = (
+                min(max(item.starttime + margin - record.starttime, 0.0),
+                    margin),
+                min(max(record.endtime - (item.endtime - margin), 0.0),
+                    margin),
+            )
+            shortest = TAPER_MINIMUM * record.delta
+            record.taper(tuple(max(length, shortest) for length in outside))
+            sides = [
+                side for side, length in zip(("before", "after"), outside)
+                if length < margin - record.delta
+            ]
+            if sides:
+                short.append(f"{record.sid} ({' and '.join(sides)})")
         if correct:
             try:
                 record.deconvolve_response(
@@ -1024,6 +1081,15 @@ def _process(
             record.filter(highpass=highpass, lowpass=lowpass)
         kept.append((record, item))
 
+    if short:
+        warnings.warn(
+            "no data in the whole margin of the window for "
+            + ", ".join(short)
+            + ": the edge effects of the processing may fall inside "
+            "the window",
+            FdsnWarning,
+            stacklevel=3,
+        )
     if missing:
         warnings.warn(
             "records left out, not corrected: " + "; ".join(missing),
@@ -1110,6 +1176,19 @@ def _range(value: Any, name: str) -> tuple:
     if None not in bounds and bounds[1] < bounds[0]:
         raise ValueError(f"{name}: max is smaller than min")
     return tuple(bounds)
+
+
+def _as_metadata(metadata: Any) -> MetadataCollection:
+    """Metadata collection from a collection, path or paths."""
+    if isinstance(metadata, MetadataCollection):
+        return metadata
+    if metadata is None:
+        raise TypeError(
+            "metadata must be a boolean, a MetadataCollection or files"
+        )
+    from shakelab.signals.io import metadata_reader
+
+    return metadata_reader(metadata)
 
 
 def _check_bool(value: Any, name: str) -> None:

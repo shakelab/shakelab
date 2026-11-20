@@ -332,19 +332,38 @@ class TdmsFile:
             )
         return tdms
 
-    def info(self) -> None:
-        """Print the groups and channels of the file."""
-        print(f"TDMS file: {self.path}")
-        print(f"File properties: {len(self.properties)}")
+    def summary(self) -> str:
+        """
+        Return a description of the file as text.
+
+        Returns
+        -------
+        str
+            Path, file properties, groups and channels (the first ten
+            of each group).
+        """
+        lines = [
+            f"TDMS file: {self.path}",
+            f"File properties: {len(self.properties)}",
+        ]
         for group in self.groups.values():
             channels = list(group.channels.values())
-            print(f"Group {group.name!r}: {len(group.properties)} "
-                  f"properties, {len(channels)} channels")
+            lines.append(
+                f"Group {group.name!r}: {len(group.properties)} "
+                f"properties, {len(channels)} channels"
+            )
             for channel in channels[:10]:
-                print(f"  {channel.name}: {channel.data.size} values, "
-                      f"{channel.data.dtype}")
+                lines.append(
+                    f"  {channel.name}: {channel.data.size} values, "
+                    f"{channel.data.dtype}"
+                )
             if len(channels) > 10:
-                print(f"  ... ({len(channels) - 10} more)")
+                lines.append(f"  ... ({len(channels) - 10} more)")
+        return "\n".join(lines)
+
+    def info(self) -> None:
+        """Print the description of the file (see :meth:`summary`)."""
+        print(self.summary())
 
     def _group(self, name: str) -> TdmsGroup:
         """Group of a name, created if needed."""
@@ -396,7 +415,7 @@ def tdmsread(
     group: Optional[str] = None,
     scaled: bool = True,
     rate: Optional[float] = None,
-    start: Any = None,
+    first_sample_time: Any = None,
     network: str = "",
     station: str = "",
     location: str = "",
@@ -421,7 +440,7 @@ def tdmsread(
     rate : float, optional
         Sampling rate in Hz, for all channels; from the properties if
         None.
-    start : Date or str, optional
+    first_sample_time : Date or str, optional
         Time of the first sample, for all channels; from the
         properties or the file name if None.
     network, station, location : str, optional
@@ -465,8 +484,9 @@ def tdmsread(
                 f"the sampling rate of channel {name!r} is unknown: give "
                 "rate"
             )
-        channel_start = start if start is not None else _channel_start(
-            props, file_props, tdms.path
+        channel_start = (
+            first_sample_time if first_sample_time is not None
+            else _channel_start(props, file_props, tdms.path)
         )
         data = channel.data if dtype is None else channel.data.astype(dtype)
         record = Record(
@@ -492,7 +512,7 @@ def tdms_to_matrix(
     rate: Optional[float] = None,
     channel_spacing: Optional[float] = None,
     gauge_length: Optional[float] = None,
-    start: Any = None,
+    first_sample_time: Any = None,
 ) -> DasData:
     """
     Build a DAS matrix from one or more TDMS files (provisional).
@@ -515,7 +535,7 @@ def tdms_to_matrix(
         iDAS files multiplied by ``Fibre Length Multiplier``).
     gauge_length : float, optional
         Gauge length in metres; from the properties if None.
-    start : Date or str, optional
+    first_sample_time : Date or str, optional
         Time of the first sample of the first file; from the
         properties or the file name if None.
 
@@ -564,8 +584,8 @@ def tdms_to_matrix(
                 else _get_property(props, GAUGE_PROPERTIES)
             ),
         }
-        if k == 0 and start is not None:
-            file_start = _to_date(start)
+        if k == 0 and first_sample_time is not None:
+            file_start = _to_date(first_sample_time)
         else:
             file_start = _get_property(props, START_PROPERTIES)
             if file_start is None:

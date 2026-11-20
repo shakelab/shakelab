@@ -151,8 +151,8 @@ def test_streams(make_server, stations, version):
         "IV.MODE..HNE", "IV.MODE..HNZ", "OX.ABC.00.HHZ", "OX.BAD..HHZ",
     ]
     abc = client.streams("OX.ABC")[0]
-    assert abc.start == START
-    assert abs(abc.end - (START + 30.0)) < 1e-3
+    assert abc.starttime == START
+    assert abs(abc.endtime - (START + 30.0)) < 1e-3
     assert [s.sid for s in client.streams("*.*.*.HNZ")] == [
         "IV.MODE..HNZ"
     ]
@@ -198,7 +198,29 @@ def test_status(make_server, capsys):
 
     client.info()
     output = capsys.readouterr().out
+    assert output.startswith(f"SeedLink client {client.address}, idle")
+    assert f"protocol {client.protocol}" in output
     assert "IV.MODE..HNZ" in output and "latency" in output
+
+
+def test_summary_describes_the_client(tmp_path):
+    """summary describes the client also before any connection."""
+    client = Client("rtserve.example.org:18001", state_file=tmp_path / "s")
+    client.select(["IV.MODE..HN?", "OX.*..HHZ"])
+    client.set_buffer(max_duration=600)
+    client.set_archive(str(tmp_path / "{sta}.mseed"))
+    client.on_record(lambda client, record: None)
+    client.every(10, lambda client, time: None)
+    text = client.summary()
+    lines = text.splitlines()
+    assert lines[0] == "SeedLink client rtserve.example.org:18001, idle"
+    assert "not contacted yet (protocol auto)" in lines[1]
+    assert lines[2].endswith("IV.MODE..HN?, OX.*..HHZ")
+    assert lines[3].endswith("circular, 600 s, 0 channel(s)")
+    assert lines[4].endswith("{sta}.mseed")
+    assert lines[5].endswith("1 per record, 1 timer(s)")
+    assert lines[6].endswith("none")
+    assert "latency" not in text
 
 
 # ----------------------------------------------------------------------------
@@ -236,7 +258,7 @@ def test_cli_monitor(make_server, stations, capsys):
     assert "latency" in capsys.readouterr().out
 
 
-def test_cli_get_and_archive(make_server, stations, tmp_path):
+def test_cli_get_and_archive(make_server, stations, tmp_path, capsys):
     server = make_server(stations)
     target = f"127.0.0.1:{server.port}"
     output = tmp_path / "abc.mseed"
@@ -249,9 +271,19 @@ def test_cli_get_and_archive(make_server, stations, tmp_path):
     assert record.time <= START + 10.0
     assert record.endtime >= START + 20.0
 
+    size = output.stat().st_size
     assert main([
         "get", target, "OX.ABC", "--duration", "1", "-o", str(output),
     ]) == 1
+    assert f"{output} exists (use --owrite)" in capsys.readouterr().err
+
+    # --owrite replaces the file: the same window gives the same size,
+    # not twice the records.
+    assert main([
+        "get", target, "OX.ABC", "--start", "2026-11-05T08:00:10",
+        "--end", "2026-11-05T08:00:20", "-o", str(output), "--owrite",
+    ]) == 0
+    assert output.stat().st_size == size
 
     code = main([
         "archive", target, "OX.ABC", "--sds", str(tmp_path / "sds"),
@@ -271,8 +303,16 @@ def test_cli_get_and_archive(make_server, stations, tmp_path):
     assert len(list((tmp_path / "rot").iterdir())) == 3
 
 
+def test_cli_port_takes_precedence(make_server, stations, capsys):
+    server = make_server(stations)
+    assert main(["info", "127.0.0.1:1", "--port", str(server.port)]) == 0
+    assert "ABC" in capsys.readouterr().out
+
+
 def test_cli_errors(capsys):
     assert main(["info", "127.0.0.1:x"]) == 1
+    assert "invalid port in '127.0.0.1:x'" in capsys.readouterr().err
+    assert main(["info", "http://127.0.0.1:1"]) == 1
     assert "HOST[:PORT]" in capsys.readouterr().err
     assert main(["monitor", "127.0.0.1:1", "--duration", "1"]) == 1
     assert "patterns" in capsys.readouterr().err

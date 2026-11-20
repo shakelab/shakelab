@@ -49,6 +49,7 @@ from shakelab.signals.io import (
     reader,
     writer,
 )
+from shakelab.signals.libio.common import NotWaveformError
 from shakelab.signals.libio.dyna import is_dyna
 from shakelab.signals.libio.mseed import is_mseed
 from shakelab.signals.libio.sac import is_sac
@@ -205,7 +206,7 @@ def test_collection_read_metadata():
     collection = StreamCollection()
     returned = collection.read(MSEED, metadata=SXML)
 
-    assert returned is collection
+    assert returned is None
     assert collection["IV.MODE..HNN"][0].orientation.azimuth == 0.0
 
 
@@ -248,7 +249,8 @@ def test_pickle_record_and_existing_file(tmp_path):
     path = str(tmp_path / "rec.pkl")
     writer(rec, path)
 
-    with pytest.raises(FileExistsError):
+    with pytest.raises(FileExistsError,
+                       match=r"rec.pkl exists \(use owrite=True\)"):
         writer(rec, path)
     writer(rec, path, owrite=True)
     again = reader(path, format="pickle")
@@ -279,6 +281,25 @@ def _collection(nsamp=10):
                    units="m/s**2")
         )
     return collection
+
+
+def test_reader_skips_files_without_waveforms(tmp_path):
+    """Spectra in directories and patterns are skipped, not by name."""
+    esm = DATA / "ESM" / "ASCII"
+    for kind in ("ACC", "SA", "S"):
+        shutil.copy(esm / f"IV.MODE..HNZ.D.IT-2012-0008.{kind}.MP.ASC",
+                    tmp_path)
+
+    for source in (tmp_path, tmp_path / "*.ASC"):
+        with pytest.warns(IoWarning, match="2 file.*without waveforms"):
+            collection = reader(source)
+        assert collection.sid == ["IV.MODE..HNZ"]
+
+    spectrum = tmp_path / "IV.MODE..HNZ.D.IT-2012-0008.SA.MP.ASC"
+    with pytest.raises(NotWaveformError):
+        reader(spectrum)
+    with pytest.raises(NotWaveformError):
+        reader([spectrum])
 
 
 def test_reader_directory_skips_unknown_files(tmp_path):
@@ -639,6 +660,24 @@ def test_reader_time_window():
         reader(MSEED, starttime=10.0)
 
 
+def test_reader_time_window_duration():
+    """duration is the length of the window after starttime."""
+    full = reader(MSEED)["IV.MODE..HNZ"][0]
+    start = full.time + 10.0
+
+    by_end = reader(MSEED, starttime=start, endtime=start + 10.0)
+    by_length = reader(MSEED, starttime=start, duration=10.0)
+    assert [r.nsamp for r in by_length.records()] == [
+        r.nsamp for r in by_end.records()
+    ]
+    assert by_length.records()[0].time == start
+
+    with pytest.raises(ValueError, match="requires starttime"):
+        reader(MSEED, duration=10.0)
+    with pytest.raises(ValueError, match="not both"):
+        reader(MSEED, starttime=start, endtime=start, duration=1.0)
+
+
 def test_reader_selection_with_collection_and_metadata():
     """The metadata go to the selected records only; others untouched."""
     collection = StreamCollection()
@@ -716,6 +755,10 @@ def test_sds_reads_only_the_files_needed(archive):
     record = collection[0][0]
     assert record.nsamp == 10
     assert record.data[0] == 36000.0
+
+    by_length = reader(archive, layout="sds", select="XX.AAA..HHZ",
+                       starttime="2026-05-03T10:00:00", duration=9)
+    assert by_length[0][0].nsamp == 10
 
 
 def test_sds_previous_day(archive):

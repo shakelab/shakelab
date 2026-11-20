@@ -274,6 +274,17 @@ class Spectrum:
         )
 
     def __str__(self) -> str:
+        return self.summary()
+
+    def summary(self) -> str:
+        """
+        Return a description of the spectrum as text.
+
+        Returns
+        -------
+        str
+            Source identifier, frequencies and time series.
+        """
         return (
             f"source identifier {self.head.sid}, {self.nfreq} "
             f"frequencies, frequency step {self.dfreq} Hz, time series "
@@ -281,8 +292,8 @@ class Spectrum:
         )
 
     def info(self) -> None:
-        """Print a human-readable description of the spectrum."""
-        print(self)
+        """Print the description of the spectrum (see :meth:`summary`)."""
+        print(self.summary())
 
     @property
     def delta(self) -> Optional[float]:
@@ -372,7 +383,7 @@ class Spectrum:
         highpass: Optional[float] = None,
         lowpass: Optional[float] = None,
         order: int = 4,
-        minphase: bool = False,
+        causal: bool = False,
         method: str = "butterworth",
     ) -> None:
         """
@@ -384,8 +395,8 @@ class Spectrum:
             Corner frequencies in Hz; at least one is required.
         order : int, optional
             Butterworth order.
-        minphase : bool, optional
-            Use the causal (minimum-phase) Butterworth response instead
+        causal : bool, optional
+            Use the causal Butterworth response (minimum phase) instead
             of the zero-phase one (see
             :func:`shakelab.signals.fourier.butterworth`).
         method : str, optional
@@ -414,12 +425,12 @@ class Spectrum:
 
         if highpass is not None:
             self.data = self.data * fourier.butterworth(
-                freq, highpass, order, "highpass", minphase
+                freq, highpass, order, "highpass", causal
             )
 
         if lowpass is not None:
             self.data = self.data * fourier.butterworth(
-                freq, lowpass, order, "lowpass", minphase
+                freq, lowpass, order, "lowpass", causal
             )
 
     def interpolate(self, frequency: Any) -> np.ndarray:

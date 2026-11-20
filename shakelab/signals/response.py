@@ -205,26 +205,39 @@ class StageSet:
             f"stages={len(self.stage)})"
         )
 
-    def info(self) -> None:
-        """Print the sensitivity and the list of stages."""
+    def summary(self) -> str:
+        """
+        Return a description of the response as text.
+
+        Returns
+        -------
+        str
+            Sampling rate, sensitivity and the list of stages.
+        """
+        lines = []
         if self.sample_rate is not None:
-            print(f"Sampling rate: {self.sample_rate} Hz")
+            lines.append(f"Sampling rate: {self.sample_rate} Hz")
 
         if self.sensitivity is not None:
             sens = self.sensitivity
-            print(
+            lines.append(
                 f"Sensitivity: {sens.value} {sens.output_units} per "
                 f"{sens.input_units} at {sens.frequency} Hz"
             )
 
         if not self.stage:
-            print("Stages: none")
-            return
+            lines.append("Stages: none")
+            return "\n".join(lines)
 
         stage_str = "; ".join(
             f"({s.stage_number}) {s.stage_type}" for s in self.stage
         )
-        print(f"Stages: {stage_str}")
+        lines.append(f"Stages: {stage_str}")
+        return "\n".join(lines)
+
+    def info(self) -> None:
+        """Print the description of the response (see :meth:`summary`)."""
+        print(self.summary())
 
     # -- stages ---------------------------------------------------------
 
@@ -650,7 +663,7 @@ class StageResponse:
         try:
             with open(file_name, "r") as fobj:
                 data = _json.load(fobj)
-            self.from_dict(data)
+            self.from_dict(deserialize_complex(data))
         except (IOError, _json.JSONDecodeError) as error:
             raise ValueError(f"Failed to load JSON file: {error}")
 

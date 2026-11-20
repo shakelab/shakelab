@@ -1,3 +1,5 @@
+[ShakeLab documentation](../README.md) › [Exploration](exploration.md) › YARRAY
+
 # YARRAY: seismic-array processing
 
 `shakelab.exploration.yarray` measures the waves crossing a seismic
@@ -6,15 +8,18 @@ propagation azimuth as functions of frequency and time, and the signed
 ellipticity of Rayleigh waves. It also tells, before or after a
 survey, what an array can measure: its geometric response, the
 statistical performance of the estimators and the frequency-velocity
-domain where the analysis is reliable.
+domain where the analysis is reliable. The frequency domain
+decomposition (FDD, also enhanced) uses the same cross-spectral
+matrices to identify resonances, their shapes and their damping.
 
 The same components are used in three ways:
 
-- as a **library** from Python (`ArrayData`, `Beamformer`, results,
-  statistics, `ArrayResponse` for planning);
-- from the **command line** (`slab-yarray`);
+- as a **library** from Python (`ArrayData`, `Beamformer`, `FDD`,
+  results, statistics, `ArrayResponse` for planning);
+- from the **command line** (`slab-yarray beamforming`, `fdd` and
+  `response`);
 - in **real time**, as a function of the SeedLink client
-  (`ArrayMonitor`).
+  (`BeamformingMonitor`, `FDDMonitor`).
 
 This guide gives the theory (Part I), the use (Part II) and the
 design, validation and limits (Part III). An overview of the package,
@@ -22,8 +27,6 @@ with its main uses and modules, is in the
 [package README](../../shakelab/exploration/yarray/README.md); scripts
 illustrating every way of use are in
 [`examples/exploration/yarray/`](../../examples/README.md#exploration).
-The frequency domain decomposition (Sections 9 and 12) uses the same
-cross-spectral matrices to identify resonances and their shapes.
 The guide derives from the four documents of the YARRAY development code
 (August 2026: theoretical background, software architecture, user
 manual, array response theory), updated to the implementation in
@@ -46,8 +49,11 @@ Part I. Theory
 Part II. Use
 
 10. [Data](#10-data)
+    - [Array file](#array-file)
 11. [Configuration](#11-configuration)
 12. [Processing and results](#12-processing-and-results)
+    - [Frequency domain decomposition](#frequency-domain-decomposition)
+    - [Result files](#result-files)
 13. [Command line](#13-command-line)
 14. [Real time](#14-real-time)
 15. [Survey planning](#15-survey-planning)
@@ -327,13 +333,13 @@ minimum power relative to the largest) are ranked by power; rank 1 is
 the strongest, not a mode. Each maximum keeps frequency, block and its
 time (centre of the block), wavenumber and azimuth (velocity,
 slowness, $`k_x`$, $`k_y`$ derived), power, its standard error and,
-for RTBF, the ellipticity.
+for the Rayleigh processing, the ellipticity.
 
 The maxima of many blocks (a long record, or the analyses of the
 monitor joined) scatter around the dispersion curves. Their density at
 each frequency is estimated as a weighted mixture of Gaussian kernels
-in wavenumber, log-slowness, log-velocity or, for RTBF, ellipticity
-angle $`\arctan e`$:
+in wavenumber, log-slowness, log-velocity or, for the Rayleigh
+processing, ellipticity angle $`\arctan e`$:
 
 ```math
 D(x \mid f) = \sum_i w_i\, \mathcal{N}(x;\, x_i, \sigma_i)
@@ -570,9 +576,57 @@ $`\mathrm{tr}(𝐂) / N`$: the differences of gain between the channels
 (uncorrected data, different sensors) no longer weigh on the vectors.
 
 The frequency of a peak is limited by the frequency step of the
-analysis and by the resolution of the windows; the FDD gives no
-damping. Both are improved by the enhanced FDD (Brincker, Ventura and
-Andersen, 2001), planned (Section 19).
+analysis and by the resolution of the windows, and the FDD gives no
+damping: the enhanced FDD gives both.
+
+**Enhanced FDD.** Close to a mode, $`s_1(f)`$ is the auto spectrum of an
+equivalent single-degree-of-freedom system (Brincker, Ventura and
+Andersen, 2001). Around the peak, the lines whose singular vector
+matches the shape at the peak form the bell of the mode:
+
+```math
+\mathrm{MAC}\big(𝐮_1(f_{\mathrm{peak}}),\, 𝐮_k(f)\big) \geq \alpha
+```
+
+with $`\alpha`$ = `mac` (0.8 by default) and $`k`$ the best matching
+singular vector of each line, whose singular value is taken; the bell
+is searched on both sides of the peak up to the first line below
+$`\alpha`$, and the other lines are set to zero. The inverse Fourier
+transform of the bell is the autocorrelation of the free decay of the
+mode, normalized to $`r(0) = 1`$:
+
+```math
+r(\tau) \approx e^{-\zeta \omega_n \tau} \cos(\omega_d \tau),
+\qquad \omega_d = \omega_n \sqrt{1 - \zeta^2}
+```
+
+Its extrema (peaks and troughs, refined by a parabola through three
+samples) are half a damped period apart, so that their amplitudes
+$`|r_k|`$ decrease as $`e^{-k \delta / 2}`$, with $`\delta`$ the
+logarithmic decrement. A linear regression of $`2 \ln |r_k|`$ on
+$`k`$, on the extrema whose amplitude lies between the `levels`
+(0.1 and 0.9 by default, stopping at the first one below the lower
+level, where noise dominates), gives $`\delta`$ as the slope; a
+regression of the zero crossings (linear interpolation) on their
+index gives half the damped period. Then
+
+```math
+\zeta = \frac{\delta}{\sqrt{4 \pi^2 + \delta^2}},
+\qquad f_n = \frac{f_d}{\sqrt{1 - \zeta^2}}
+```
+
+The inverse transform needs equally spaced lines of a single spectral
+estimate: the enhanced FDD computes, around each mode, a local
+spectrum with windows of fixed duration $`T`$ (averaging of all the
+windows as in Welch, 1967, Hann taper, 50 % overlap) on the FFT lines
+$`k / T`$. Windows with a fixed number of cycles, valid for the FDD,
+would give each line its own resolution and leakage, and a bell that
+is not the spectrum of one correlation function. $`T`$ is a number of
+cycles of the mode (`cycles`, 100 by default: about 50 lines inside
+the half-power bandwidth $`2 \zeta f_n`$ at 2 % damping) or a given
+duration. Leakage widens the bell and overestimates the damping; a
+bell truncated by a high $`\alpha`$ underestimates it; the number of
+windows sets the statistical scatter.
 
 # Part II. Use
 
@@ -581,7 +635,7 @@ from shakelab.exploration.yarray import ArrayData, Beamformer
 ```
 
 The package exposes the main classes and functions; the modules are
-`data`, `config`, `estimators`, `beamforming`, `statistics`,
+`data`, `config`, `estimators`, `beamforming`, `fdd`, `statistics`,
 `response`, `performance`, `operational`, `io`, `monitor` and `cli`,
 the figures `shakelab.graphics.yarray`. Options with fixed values are
 enumerations whose string values are accepted everywhere
@@ -626,6 +680,16 @@ the `reference` given to `ArrayData` or written in the array file
 first station added; adding stations does not move it.
 `set_reference(point)` (or `set_reference()`, the mean of the current
 stations) changes it and recomputes the coordinates.
+
+Positions are optional. A station without a metadata location and
+without explicit coordinates (or, in the array file, without
+`coordinates`) is added without a position (`station.has_position`,
+`array.has_positions`). The wavenumber methods need every position:
+`array.coordinates`, the `Beamformer`, `ArrayGeometry` and
+`ArrayResponse` raise a `ValueError` naming the stations without one.
+The frequency domain decomposition does not use them; its results keep
+the positions that are known (NaN for the others), to draw the mode
+shapes on the geometry of the array.
 
 ### Array file
 
@@ -745,8 +809,8 @@ The JSON file has the sections `frequencies`, `spectral` (`transform`,
 `fft_selection`, `fft_padding`), `method` (`name`, `diagonal_loading`,
 `music_sources`), `components`, `grid`, `window`, `ellipticity`
 (`minimum_angle`, `maximum_angle`, `size`), `output` (`spectra`,
-`maxima`, `neighborhood`, `minimum_relative_power`; the `mode` of the
-August files is read as `spectra`), `uncertainty` (`statistical`,
+`maxima`, `neighborhood`, `minimum_relative_power`; an older `mode`
+key is read as `spectra`), `uncertainty` (`statistical`,
 `geometric`) and `strict`:
 
 ```json
@@ -810,15 +874,16 @@ results of later windows (blocks renumbered; results with the same
 configuration, frequencies and units).
 
 ```python
-result.write("daily.pkl")
-beamformer.process(start, end).write("daily.pkl", append=True)
-daily = BeamformingResult("daily.pkl")              # joined
+from shakelab.exploration.yarray import BeamformingResult
+
+result.write("daily.jsonl")
+beamformer.process(start, end).write("daily.jsonl", append=True)
+daily = BeamformingResult("daily.jsonl")              # joined
 ```
 
 A result file holds one result, possibly written in several pieces:
-`write(append=True)` checks that the configuration is the same.
-Pickle is a provisional format for trusted local files: never open one
-from an untrusted source.
+`write(append=True)` checks that the configuration is the same (see
+"Result files" below for the format).
 
 The density of the maxima:
 
@@ -829,7 +894,7 @@ summary = density.summary()              # mode, median, quantiles
 peaks = density.peaks(3, minimum_relative_density=0.1)
 ellipticity = result.density(coordinate="ellipticity_angle",
                              weighting="relative_power",
-                             velocity=(150, 400))     # one mode (RTBF)
+                             velocity=(150, 400))     # one mode (Rayleigh)
 ```
 
 Figures (`shakelab.graphics.yarray`, matplotlib imported on use):
@@ -877,39 +942,144 @@ their coordinates and the units (`power_units`).
 standard deviation; `peaks(fmin, fmax, index, prominence, count)` the
 frequencies of the peaks; `mode(frequency, index)` a `Mode` with the
 shape, its standard deviation among the blocks, the singular value,
-the mean MAC and the channels. `mac(a, b)` compares two shapes. Files
-work as for the beamforming: `write(..., append=True)` accumulates
-results with the same configuration and channels, read back joined by
+the mean MAC and the channels. `mac(a, b)` compares two shapes, and
+`modes_to_csv(target, modes)` writes a table of modes with the same
+channels (frequency, damping, MAC, shapes). Files work as for the
+beamforming: `write(..., append=True)` accumulates results with the
+same configuration and channels, read back joined by
 `FDDResult(file)`.
+
+The enhanced FDD (Section 9) is a method of the processor, which has
+the data: it computes its own local spectrum around each mode.
+
+```python
+fdd = FDD(array, config)
+result = fdd.process()
+modes = fdd.efdd(result.peaks(), mac=0.8)  # cycles=100 or duration=...
+for mode in modes:
+    mode.info()                            # frequency, damping, shape
+```
+
+`efdd(frequencies, mac, cycles, duration, levels, starttime, endtime,
+gaps)` returns one `Mode` for each frequency (the peak is searched
+within 5 %), with `method="efdd"`, the natural frequency, the damping
+ratio, the shape at the peak and the mean MAC of the bell; `mode.efdd`
+(`EFDDDetails`) keeps the local spectrum, the bell, the correlation,
+its extrema and crossings and the regression, for checking the
+estimate. The components and azimuth of the configuration are used,
+not its windows or normalization (the bell must be a power spectrum).
+
+Figures: `plot_singular_values(result, count=3)` (geometric means with
+their bands and the peaks), `plot_mode_shape(mode, along=...)` (shape
+along the main direction of the stations, a coordinate, `"z"` with
+the height on the vertical axis for a building, or the station index
+when positions are missing), `plot_mac(modes)` (MAC between modes)
+and `plot_efdd(mode)` (bell and fitted decay). See
+[`17_fdd.py`](../../examples/exploration/yarray/17_fdd.py) and
+[`19_efdd.py`](../../examples/exploration/yarray/19_efdd.py).
+
+### Result files
+
+Results are written as JSON Lines (`.jsonl`): text, one JSON object per
+line, readable by any language. The first line is a header with the
+kind of result (`"beamforming"` or `"fdd"`), the complete
+configuration, the frequencies and the units (for the FDD also the
+channels and their coordinates); each result written adds one line.
+Appending (`write(file, append=True)`, the `output` of the monitors,
+`slab-yarray beamforming` or `fdd` with `--append`) only adds a line,
+also over days of real-time processing, and is refused if the header
+differs. The name `.json` is refused, because the file is not one JSON
+document.
+
+| Result | In the `.jsonl` line | In the `.npz` file (`arrays=True`) |
+|---|---|---|
+| Beamforming | block times, stations and coordinates of each block, table of the maxima (block, time, frequency, component, rank, wavenumber, azimuth, velocity, slowness, power, standard error, ellipticity and its angle) | the spectra on the grid, if the configuration keeps them (`spectra=True`) |
+| FDD | block times, first singular value and first singular vector (real and imaginary parts) of every block | all the singular values and the kept singular vectors (`vectors` of the configuration) of every block |
+
+The arrays of each line go to a compressed `.npz` file in the folder
+`<name>_arrays` next to the result file, named after the first block
+time (`fdd_arrays/20261116T101500.npz`) and read without pickle. They
+are written by default (`write(..., arrays=False)` writes the line
+only) and read when every line of the file has them;
+`FDDResult(file, arrays=False)` reads only the lines. The line alone is
+enough for the usual work: the maxima, the dispersion curves and the
+density of the beamforming; the singular-value spectrum, its peaks and
+the first mode of the FDD. A result read without arrays keeps only the
+first singular value and vector, and is not joined with a complete
+one.
+
+```python
+result.write("fdd.jsonl")                    # line + fdd_arrays/*.npz
+result.write("fdd.jsonl", append=True)       # one more line
+light = FDDResult("fdd.jsonl", arrays=False)
+result.to_csv("fdd.csv")                     # optional table
+```
+
+`to_csv` writes an optional table for spreadsheets: the maxima of the
+beamforming, or the first singular value and vector of every block of
+the FDD (missing values empty, times in ISO 8601). The result file is
+the complete record.
 
 ## 13. Command line
 
 `slab-yarray` (installed with ShakeLab; `python -m
-shakelab.exploration.yarray` is equivalent):
+shakelab.exploration.yarray` is equivalent) has three subcommands:
+`beamforming`, `fdd` (frequency domain decomposition, also enhanced)
+and `response` (geometry of the array). The first two share the
+options of input, configuration, output and figure files.
 
 ```sh
-slab-yarray --input array.json --config capon.json -o result.pkl \
-    --plot-dispersion --save-figures figures
-slab-yarray --input array.json --config capon.json --method music \
-    --fmin 2 --fmax 8 --nfreq 20 -o music.pkl     # options replace the JSON
-slab-yarray --data "data/*.mseed" --metadata array.xml \
-    --select "XX.*..HH?" --config rtbf.json -o rtbf.pkl --append
-slab-yarray --result rtbf.pkl --plot-spectrum --frequency 4.5 --show
+slab-yarray beamforming --input array.json --config capon.json \
+    -o result.jsonl --plot-dispersion --save-figures figures
+slab-yarray beamforming --input array.json --config capon.json \
+    --method music --fmin 2 --fmax 8 --nfreq 20 -o music.jsonl
+slab-yarray beamforming --data "data/*.mseed" --metadata array.xml \
+    --select "XX.*..HH?" --config rtbf.json -o rtbf.jsonl --append
+slab-yarray beamforming --result rtbf.jsonl --plot-spectrum \
+    --frequency 4.5 --show
+slab-yarray fdd --input array.json --config fdd.json -o fdd.jsonl \
+    --efdd --modes-csv modes.csv --plot-singular-values --plot-efdd
 slab-yarray response --input array.json --fmin 1 --fmax 20 --plot-all
 ```
 
+Options common to `beamforming` and `fdd`:
+
 | Group | Options |
 |---|---|
-| Input (one) | `--input` array file; `--data` waveform files with `--metadata`, `--select`, `--start`, `--end`; `--result` saved result to plot |
-| Configuration and output | `--config`, `--write-config`, `-o/--output`, `--append`, `--owrite` |
-| Processing (replace the JSON) | `--frequencies` or `--fmin --fmax --nfreq`, `--frequency-scale`, `--method`, `--components`, `--diagonal-loading`, `--music-sources`, `--grid-quantity`, `--grid-scale`, `--grid-min`, `--grid-max`, `--grid-size`, `--azimuth-size`, `--window-type`, `--window-length`, `--window-taper`, `--window-overlap`, `--windows-per-block`, `--block-overlap`, `--ellipticity-angle-min/max/size`, `--spectra`, `--maxima`, `--minimum-relative-power`, `--statistical-uncertainty`, `--geometric-uncertainty`, `--strict`, `--transform`, `--fft-selection`, `--fft-padding` |
-| Figures | `--plot-dispersion`, `--plot-ellipticity`, `--plot-spectrum` (`--frequency`, `--block`, `--spectrum-view`, `--spectrum-quantity`), `--plot-density` (`--density-coordinate`), `--component`, `--ranks`, `--show`, `--save-figures`, `--figure-format`, `--dpi` |
+| Input (one) | `--input` array file; `--data` waveform files with `--metadata`, `--select`, `--start`, `--end`; `--result` saved result (no processing) |
+| Configuration and output | `--config`, `--write-config`, `-o/--output` (result file, `.jsonl`), `--append`, `--no-arrays` (no `.npz` arrays), `--csv` (table of the maxima or of the first singular vectors, also of a `--result`), `--owrite` |
+| Figure files | `--show`, `--save-figures`, `--figure-format`, `--dpi` |
+
+The processing options have the names of the configuration parameters
+(Section 11) and replace the values of the `--config` file.
+
+| `beamforming` | Options |
+|---|---|
+| Processing | `--frequencies` or `--fmin --fmax --nfreq`, `--frequency-scale`, `--method`, `--components`, `--diagonal-loading`, `--music-sources`, `--grid-quantity`, `--grid-scale`, `--grid-min`, `--grid-max`, `--grid-size`, `--azimuth-size`, `--window-type`, `--window-length`, `--window-taper`, `--window-overlap`, `--windows-per-block`, `--block-overlap`, `--ellipticity-angle-min/max/size`, `--spectra`, `--maxima`, `--minimum-relative-power`, `--statistical-uncertainty`, `--geometric-uncertainty`, `--strict`, `--transform`, `--fft-selection`, `--fft-padding` |
+| Figures | `--plot-dispersion`, `--plot-ellipticity`, `--plot-spectrum` (`--frequency`, `--block`, `--spectrum-view`, `--spectrum-quantity`), `--plot-density` (`--density-coordinate`), `--component`, `--ranks` |
+
+| `fdd` | Options |
+|---|---|
+| Processing | `--frequencies` or `--fmin --fmax --nfreq`, `--frequency-scale`, `--window-type`, `--window-length`, `--window-taper`, `--window-overlap`, `--windows-per-block`, `--block-overlap`, `--subfrequencies`, `--bandwidth`, `--normalization`, `--components`, `--azimuth`, `--vectors` |
+| Peaks and modes | `--peak-range FMIN FMAX`, `--prominence`, `--peak-count`, or `--modes F1 F2 ...`; `--efdd` with `--mac`, `--cycles` or `--duration`, `--levels LOW HIGH`; `--modes-csv` |
+| Figures | `--plot-singular-values` (`--count`), `--plot-mode-shape` (`--along`), `--plot-mac`, `--plot-efdd` |
+
+`slab-yarray fdd` prints the result and every mode: the peaks of the
+first singular value (all, or those in `--peak-range`), or the
+frequencies given with `--modes`, give the modes of the FDD or, with
+`--efdd`, those of the enhanced FDD, which needs the data (not a
+`--result`). `--modes-csv` writes the table of the modes
+(`modes_to_csv`): frequency, method, singular value, MAC, number of
+blocks, damping ratio and the shape of every channel with its standard
+deviation.
 
 The figures can also be requested in the section `graphics` of the
-configuration file (`dispersion`, `ellipticity`, `component`, `ranks`,
+configuration file; the options of the command line prevail. For the
+beamforming: `dispersion`, `ellipticity`, `component`, `ranks`,
 `spectrum` {`enabled`, `frequency`, `block`, `view`, `quantity`},
-`density` {`enabled`, `coordinate`}, `show`, `save` {`directory`,
-`format`, `dpi`}); the options of the command line prevail.
+`density` {`enabled`, `coordinate`}; for the FDD: `singular_values`
+{`enabled`, `count`}, `mode_shape` {`enabled`, `along`}, `mac`,
+`efdd`; for both `show` and `save` {`directory`, `format`, `dpi`}.
 
 `slab-yarray response` analyses the geometry only (Section 7): input
 `--input`, `--data` or `--coordinates` (a text file of lines `x y [z]`
@@ -919,7 +1089,8 @@ uncertainty of the array); grid `--grid-max --grid-size`; velocity
 limits at `--frequencies` or `--fmin --fmax --nfreq`; `--search-max K`
 to check a search domain; figures `--plot-geometry`,
 `--plot-response`, `--plot-resolution`, `--plot-velocity`,
-`--plot-search-domain` or `--plot-all`. The Monte Carlo analysis
+`--plot-search-domain` or `--plot-all`, with `--show`,
+`--save-figures`, `--figure-format`, `--dpi`. The Monte Carlo analysis
 needs too many choices for a command line and is used from Python.
 See
 [`11_command_line.sh`](../../examples/exploration/yarray/11_command_line.sh).
@@ -927,14 +1098,14 @@ See
 ## 14. Real time
 
 ```python
-from shakelab.exploration.yarray import ArrayMonitor
+from shakelab.exploration.yarray import BeamformingMonitor
 from shakelab.signals.io import metadata_reader
 from shakelab.signals.seedlink import Client
 
 client = Client("server", metadata=metadata_reader("array.xml"))
 client.select("XX.A*..HH?")
 client.set_buffer(max_duration=900)
-monitor = ArrayMonitor(config, window=600, output="monitor.pkl")
+monitor = BeamformingMonitor(config, window=600, output="monitor.jsonl")
 monitor.on_result(lambda monitor, result: print(result.summary()))
 client.every(600, monitor)        # clock="data" to replay an archive
 client.start()
@@ -954,12 +1125,40 @@ stations, no complete block) are skipped and reported; an unexpected
 error stops the worker and is raised by `close()`. `status()`,
 `latest()`, `results(start, end)`, `result(start, end)` (joined) and
 `array()` can be called at any time and return copies; each result can
-also be appended
-to a file (`output`). `background=False` processes in the call;
+also be appended to a file (`output`, with the arrays unless
+`arrays=False`), and every analysis, skipped window or error to a log
+(`log`, JSON Lines: wall time, event, window, duration and stations,
+or reason).
+`background=False` processes in the call;
 `monitor.process(collection, start, end)` processes given data. Any
 object with `get_data(select)` returning a `StreamCollection` can feed
 the monitor. See
 [`12_realtime.py`](../../examples/exploration/yarray/12_realtime.py).
+
+There is one monitor for each processing, with the same options and
+queries: `BeamformingMonitor` (a `Beamformer` with the cache of the
+steering vectors; results `BeamformingResult`) and `FDDMonitor` (an
+`FDD`; results `FDDResult`). Both derive from `ArrayMonitor`, which
+holds the common machinery and is not used directly.
+
+```python
+from shakelab.exploration.yarray import FDDMonitor
+
+monitor = FDDMonitor(config, window=1800, output="fdd.jsonl")
+client.every(300, monitor)
+...
+monitor.stations                  # fixed by the first result
+monitor.result().mode(1.2).info()
+```
+
+Results of the decomposition join only with the same channels, so an
+`FDDMonitor` always processes the same stations: those given with
+`stations=[...]` (in that order) or else those of its first result.
+Other stations of the buffer are ignored; a window in which one of
+them is missing is skipped. By default (`gaps="raise"`) a window in
+which one of them has gaps is skipped too, rather than processed
+without it. The stations need no position. See
+[`18_realtime_fdd.py`](../../examples/exploration/yarray/18_realtime_fdd.py).
 
 ## 15. Survey planning
 
@@ -1040,7 +1239,16 @@ and [`15_operational.py`](../../examples/exploration/yarray/15_operational.py).
    (`3N` for ARDS) and needs more windows per block; the RTBF also
    scans an ellipticity grid, while ARTBF and ARDS find the angle
    exactly and are the cheapest of the three.
-6. Save the results and plot or post-process them from the file,
+6. For the FDD use fixed windows long enough to separate the modes,
+   and the coherence normalization when the channels have different
+   gains (uncorrected data, different sensors). Before reading a peak
+   of the first singular value as a mode, check its shape and its
+   mean MAC: close to 1 for a standing resonance, low for travelling
+   waves.
+7. Use the enhanced FDD on well separated modes and long records (its
+   damping scatters by about 10 % with 20 minutes of data), and check
+   each estimate with `plot_efdd`.
+8. Save the results and plot or post-process them from the file,
    rather than repeating the processing.
 
 Times on the nine SESAME stations (three components, 60 s;
@@ -1053,21 +1261,32 @@ with the frequencies for the direct and the interpolated transforms;
 for 10 frequencies, RTBF with 61 ellipticities takes about 0.4 s, ARTBF
 and ARDS about 0.25 s; the cache of the steering vectors halves the
 time of repeated analyses of the same array. With the 38 stations of
-the full simulation the August measurements were of the order of 15 s
-(Bartlett, 80 spectra) to 1000 s (RTBF, 60 spectra); single-component
-processing takes the same time in ShakeLab, the Rayleigh processing
-much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
-4 frequencies with 130 windows per block).
+the full simulation, single-component processing takes of the order of
+15 s (Bartlett, 80 spectra), the Rayleigh processing about 1.4 s for
+RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at 4 frequencies with 130
+windows per block.
+
+The decomposition is much cheaper than the beamforming, since it has no
+search grid: on the nine SESAME stations, 50 frequencies with 10
+windows per block take about 0.02 s for the vertical component and
+0.04 s for the three components (27 channels) with fixed 5 s windows,
+and about 2.5 times more with windows of 20 cycles. On the four-storey
+frame of Section 18 (four channels, 20 minutes at 50 Hz, 20 s windows,
+191 frequencies) the FDD takes about 0.14 s and the enhanced FDD of
+the four modes 0.13 s with windows of 100 cycles (0.3 s with 200).
 
 # Part III. Design, validation and limits
 
 ## 17. Design choices
 
 - **Layers.** Generic primitives in `shakelab.signals` (no array
-  concepts) < `data` < `estimators` < `config` < `beamforming` <
-  applications (command line, monitor, graphics). The numerical
-  modules do no file input/output, no plotting and keep no global
-  state.
+  concepts) < `data` < `estimators` <
+  `config` < processing (`beamforming` and `statistics`, `fdd`; for
+  planning `response`, `performance` and `operational`) < applications
+  (`monitor`, command line, graphics). The numerical modules do no
+  plotting and keep no global state; files are read and written by
+  `io` (array and result files), called by the configuration and
+  result classes.
 - **Array data filled progressively.** The stations keep their own
   time axis and the common window is taken when processing
   (`ArrayData.window`, used by `Beamformer`), so that stations from
@@ -1085,17 +1304,24 @@ much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
 - **One name per parameter.** The parameters of `BeamformingConfig`
   have the names of the command-line options; the grouped objects
   (`WindowConfig`...) are immutable and the configuration changes with
-  `update`, validated as a whole. `Beamformer`, `ArrayMonitor` and the
-  results keep their own copy. Options with fixed values are
+  `update`, validated as a whole. `Beamformer`, `FDD`, the monitors
+  and the results keep their own copy. Options with fixed values are
   enumerations, whose string values are accepted everywhere.
 - **Results for real time.** A result file holds one result, possibly
-  written in pieces (`append=True`, with the same configuration); the
-  stations and coordinates are recorded for each block, so that
-  results of windows with different stations join correctly.
-  Frequencies whose windows do not fill a covariance block give no
-  result and a warning instead of an error, as needed for short
-  windows; `Beamformer(cache=True)` keeps the steering vectors while
-  coordinates and grid do not change.
+  written in pieces (`append=True`, with the same configuration): JSON
+  Lines, so that appending adds one line without rewriting the file;
+  the configuration is in the header, so that every file is
+  self-contained. The bulky arrays (spectra, all the singular values
+  and vectors) go to separate `.npz` files, optional, so that the text
+  file stays light. The stations and coordinates are recorded for each
+  block, so that results of windows with different stations join
+  correctly. Frequencies whose windows do not fill a covariance block
+  give no result and a warning instead of an error, as needed for
+  short windows; `Beamformer(cache=True)` keeps the steering vectors
+  while coordinates and grid do not change. The monitors copy the
+  buffer in the receiving thread and process in their own, with a
+  short queue that drops the oldest window rather than accumulating
+  delay.
 - **Planning from a snapshot.** `ArrayResponse` is computed once from
   the coordinates of the moment (an `ArrayData` changed later does not
   change it) and is the entry point of every planning analysis.
@@ -1114,6 +1340,14 @@ much less (about 1.4 s for RTBF, 1.2 s for ARTBF and 0.9 s for ARDS at
   since their statistics combine the blocks channel by channel. The
   result files hold beamforming or FDD results, each class reading
   only its own.
+- **Enhanced FDD on its own spectrum.** The bell must be transformed
+  to a correlation, which needs equally spaced lines of one estimate:
+  the enhanced FDD is a method of `FDD`, which has the data, and
+  computes a local spectrum with fixed windows for each mode (a number
+  of cycles of the mode, like the windows in cycles, frozen at the
+  peak), whatever the windows of the FDD. Its details stay with the
+  mode (`Mode.efdd`), so that every estimate can be checked
+  (`plot_efdd`).
 
 ## 18. Validation
 
@@ -1126,7 +1360,7 @@ results:
   to those of the August code for every estimator and component mode
   (`tests/exploration/yarray/data/reference.json`).
 - Densities, summaries and peaks of the maxima agree within 1e-14,
-  except for two corrections: the peak prominence is measured from the
+  except for one correction: the peak prominence is measured from the
   saddle towards a higher peak (`scipy.signal.find_peaks`), not from
   the lowest density on each side, which overrated secondary modes on
   the flank of a stronger one.
@@ -1148,6 +1382,15 @@ singular value exceeds the second by more than 20 times at every mode,
 with several noise realizations. The cross-spectral matrices agree with
 the theoretical matrix of mixed white noise, and the coherence
 normalization makes the vectors independent of the channel gains.
+
+The enhanced FDD is checked on the same frame (2 % damping, 20
+minutes, windows of 100 cycles): over six noise realizations the
+natural frequencies are within 0.3 % on average (scatter 0.1-0.3 %)
+and the damping ratios between 2.0 % and 2.2 % on average (scatter
+0.1-0.3 % of damping); windows of 200 cycles give 1.8-2.0 % with a
+larger scatter (fewer windows), and the MAC threshold (0.8 or 0.9)
+changes the estimates little on well separated modes. The test
+requires 0.5 % in frequency and 0.6 % of damping on one realization.
 
 Differences from the August code that change numbers: the power is in
 physical units (power spectral density), $`N \Delta / 2`$ times the old
@@ -1179,12 +1422,13 @@ Current limitations:
   independent realizations; correlated windows, coloured noise,
   several sources, sampled coordinate errors and the Rayleigh
   processing are not modelled.
-- Results are stored with pickle, which can run arbitrary code when
-  read: read only result files of trusted origin.
 - The FDD gives frequencies limited by the analysis step and the
-  window resolution, and no damping; it needs the position of every
-  station (as the rest of YARRAY), and it has no real-time monitor
-  yet.
+  window resolution; the enhanced FDD gives frequency and damping of
+  well separated, lightly damped modes, but its damping estimates
+  scatter by about 10 % with 20 minutes of data and are biased by
+  leakage (short windows) or by a truncated bell (high `mac`). Close
+  modes and harmonics (Jacobsen, Andersen and Brincker, 2007) are
+  not treated.
 
 Planned extensions:
 
@@ -1194,14 +1438,11 @@ Planned extensions:
 - Correction of the vertical-horizontal noise difference of the
   angular processing (Wathelet, 2024, Section 3.6).
 - Bias correction of Capon, $`(L - n + 1) / L`$, as an option.
-- Enhanced FDD (Brincker, Ventura and Andersen, 2001): damping and
-  frequency from the single-degree-of-freedom bell of each mode, on a
-  local spectrum with fixed windows; figures of the FDD; a real-time
-  monitor for the FDD; positions optional for the FDD.
+- Detection of harmonics in the FDD (Jacobsen, Andersen and
+  Brincker, 2007); uncertainty of the enhanced FDD over blocks.
 - Multitaper spectral estimates with a rigorous number of degrees of
   freedom; the `CrossSpectra` of the FDD used also by the beamforming
   and by spatial autocorrelation (SPAC).
-- Results in `.npz` and JSON instead of pickle.
 - Mode tracking across frequencies (manual, automatic, hybrid) from
   the density peaks.
 - Planning with correlated windows, coloured noise, several sources,
@@ -1233,6 +1474,11 @@ IEEE, 58(10), 1785-1786.
 Ermert, L., Poggi, V., Burjánek, J., and Fäh, D. (2014). Fundamental
 and higher two-dimensional resonance modes of an Alpine valley.
 Geophysical Journal International, 198(2), 795-811.
+
+Jacobsen, N.-J., Andersen, P., and Brincker, R. (2007). Eliminating
+the influence of harmonic components in operational modal analysis.
+Proceedings of the 25th International Modal Analysis Conference
+(IMAC).
 
 Percival, D. B., and Walden, A. T. (1993). Spectral Analysis for
 Physical Applications. Cambridge University Press.

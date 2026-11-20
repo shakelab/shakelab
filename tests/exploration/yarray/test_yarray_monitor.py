@@ -18,16 +18,19 @@
 """
 Unit tests for :mod:`shakelab.exploration.yarray.monitor`.
 
-The monitor is driven by a minimal client (an object with
+The monitors are driven by a minimal client (an object with
 ``get_data``) for the synchronous and threaded processing, the queue,
-the callbacks and the queries; one integration test runs it within the
-SeedLink client on the local test server of
-``tests/signals/seedlink/seedlink_server.py``, with a data clock.
+the callbacks and the queries; one integration test runs the
+beamforming monitor within the SeedLink client on the local test
+server of ``tests/signals/seedlink/seedlink_server.py``, with a data
+clock. The FDD monitor is tested on the same synthetic records, for
+the stations it keeps, the gaps and the joined results.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 import threading
 import time
@@ -38,9 +41,14 @@ import numpy as np
 import pytest
 
 from shakelab.exploration.yarray.beamforming import Beamformer
-from shakelab.exploration.yarray.config import BeamformingConfig
-from shakelab.exploration.yarray.io import read_result_states
-from shakelab.exploration.yarray.monitor import ArrayMonitor
+from shakelab.exploration.yarray.config import BeamformingConfig, FDDConfig
+from shakelab.exploration.yarray.fdd import FDDResult
+from shakelab.exploration.yarray.io import read_result
+from shakelab.exploration.yarray.monitor import (
+    ArrayMonitor,
+    BeamformingMonitor,
+    FDDMonitor,
+)
 from shakelab.libutils.timeN import Date
 from shakelab.signals.base import Record, StreamCollection
 
@@ -92,7 +100,7 @@ class _Client:
 
         self.calls = []
 
-    def get_data(self, sid="*", start=None, end=None):
+    def get_data(self, sid="*", *, starttime=None, endtime=None):
         self.calls.append(sid)
         return self.buffer.copy()
 
@@ -105,7 +113,7 @@ def _monitor(**kwargs):
         "background": False,
     }
     options.update(kwargs)
-    return ArrayMonitor(CONFIG, **options)
+    return BeamformingMonitor(CONFIG, **options)
 
 
 def test_synchronous_analysis():
@@ -130,8 +138,9 @@ def test_synchronous_analysis():
 
 def test_callbacks_and_queries(tmp_path):
     """on_result, results in an interval, joined result, output."""
-    path = tmp_path / "monitor.pkl"
-    monitor = _monitor(output=path, keep=2)
+    path = tmp_path / "monitor.jsonl"
+    log = tmp_path / "log" / "monitor.jsonl"
+    monitor = _monitor(output=path, keep=2, log=log)
     seen = []
     monitor.on_result(lambda monitor, result: seen.append(result))
     client = _Client(_records())
@@ -141,7 +150,11 @@ def test_callbacks_and_queries(tmp_path):
 
     assert len(seen) == 3
     assert len(monitor.results()) == 2
-    assert len(read_result_states(path)) == 3
+    assert len(read_result(path)[1]) == 3
+    events = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [event["event"] for event in events] == ["result"] * 3
+    assert events[0]["stations"] == 6
+    assert Date(events[0]["window"][1]) == START + 59.99
     assert monitor.results(endtime=START + 10.0) == []
 
     joined = monitor.result()
@@ -154,10 +167,11 @@ def test_callbacks_and_queries(tmp_path):
     assert monitor.latest().maxima
 
 
-def test_skipped_windows():
+def test_skipped_windows(tmp_path):
     """Empty buffers and too few stations are skipped and reported."""
     reasons = []
-    monitor = _monitor(min_stations=7)
+    log = tmp_path / "monitor.jsonl"
+    monitor = _monitor(min_stations=7, log=log)
     monitor.on_skip(lambda monitor, reason: reasons.append(reason))
 
     monitor(_Client([]))
@@ -167,6 +181,12 @@ def test_skipped_windows():
     assert "no data" in reasons[0]
     assert "at least 7" in reasons[1]
     assert monitor.latest() is None
+
+    events = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [event["event"] for event in events] == ["skip", "skip"]
+    assert events[0]["window"] is None
+    assert events[1]["reason"] == reasons[1]
+    assert Date(events[1]["window"][0]) == START + 29.99
 
 
 def test_too_short_buffer_is_skipped():
@@ -234,10 +254,10 @@ def test_late_windows_are_dropped():
     third replaces it and the second is reported as dropped.
     """
     beamformer = _SlowBeamformer(config=CONFIG, cache=True)
-    monitor = ArrayMonitor(
+    monitor = BeamformingMonitor(
         CONFIG, window=30.0, coordinates=dict(zip(SIDS, COORDINATES))
     )
-    monitor._beamformer = beamformer
+    monitor._processor = beamformer
     reasons = []
     monitor.on_skip(lambda monitor, reason: reasons.append(reason))
     client = _Client(_records())
@@ -267,10 +287,10 @@ class _FailingBeamformer(Beamformer):
 
 def test_unexpected_error_stops_the_worker():
     """Unexpected errors stop the worker and are raised by close."""
-    monitor = ArrayMonitor(
+    monitor = BeamformingMonitor(
         CONFIG, window=30.0, coordinates=dict(zip(SIDS, COORDINATES)),
     )
-    monitor._beamformer = _FailingBeamformer(config=CONFIG)
+    monitor._processor = _FailingBeamformer(config=CONFIG)
     monitor(_Client(_records()))
     deadline = time.monotonic() + 5.0
 
@@ -288,15 +308,19 @@ def test_unexpected_error_stops_the_worker():
 def test_invalid_arguments():
     """Wrong configurations and windows are rejected."""
     with pytest.raises(TypeError):
-        ArrayMonitor(42, window=10.0)
+        BeamformingMonitor(42, window=10.0)
     with pytest.raises(ValueError, match="frequencies"):
-        ArrayMonitor(BeamformingConfig(), window=10.0)
+        BeamformingMonitor(BeamformingConfig(), window=10.0)
     with pytest.raises(ValueError):
-        ArrayMonitor(CONFIG, window=0.0)
+        BeamformingMonitor(CONFIG, window=0.0)
     with pytest.raises(ValueError):
-        ArrayMonitor(CONFIG, window=10.0, keep=0)
+        BeamformingMonitor(CONFIG, window=10.0, keep=0)
+    with pytest.raises(ValueError, match="jsonl"):
+        BeamformingMonitor(CONFIG, window=10.0, output="result.json")
+    with pytest.raises(ValueError, match="jsonl"):
+        FDDMonitor(FDD_CONFIG, window=10.0, log="log.json")
 
-    monitor = ArrayMonitor(CONFIG, window=10.0)
+    monitor = BeamformingMonitor(CONFIG, window=10.0)
     assert monitor.config == CONFIG and monitor.config is not CONFIG
 
 
@@ -337,7 +361,7 @@ def test_within_the_seedlink_client():
         client = Client("127.0.0.1", port=server.port, timeout=5.0)
         client.select("XX.*..HHZ")
         client.set_buffer()
-        monitor = ArrayMonitor(
+        monitor = BeamformingMonitor(
             CONFIG, window=30.0,
             coordinates=dict(zip(SIDS, COORDINATES)),
         )
@@ -357,7 +381,7 @@ def test_within_the_seedlink_client():
 
     status = monitor.status()
     assert status["skipped"] == 1 and status["analyses"] == 1
-    assert threads[0].name == "ArrayMonitor"
+    assert threads[0].name == "BeamformingMonitor"
     best = monitor.latest().maxima_at(rank=1)[0]
     assert best.velocity == pytest.approx(VELOCITY, abs=20.0)
     assert best.azimuth == pytest.approx(AZIMUTH)
@@ -387,7 +411,7 @@ def test_circular_buffer_of_the_seedlink_client():
         client = Client("127.0.0.1", port=server.port, timeout=5.0)
         client.select("XX.*..HHZ")
         client.set_buffer(max_duration=40.0)
-        monitor = ArrayMonitor(
+        monitor = BeamformingMonitor(
             CONFIG, window=30.0, background=False,
             coordinates=dict(zip(SIDS, COORDINATES)),
         )
@@ -413,3 +437,129 @@ def test_circular_buffer_of_the_seedlink_client():
         best = result.maxima_at(rank=1)[0]
         assert best.velocity == pytest.approx(VELOCITY, abs=20.0)
         assert best.azimuth == pytest.approx(AZIMUTH)
+
+
+# ----------------------------------------------------------------------------
+# Base class and FDD monitor
+# ----------------------------------------------------------------------------
+
+FDD_CONFIG = FDDConfig(
+    fmin=2.0, fmax=8.0, window_type="fixed", window_length=2.0,
+    windows_per_block=5, components="vertical",
+)
+
+
+def _noise(sid, duration=60.0, start=START, seed=0):
+    """Vertical record of white noise."""
+    data = np.random.default_rng(seed).standard_normal(
+        int(duration / DELTA)
+    )
+    return Record(data=data, delta=DELTA, time=start, sid=sid + ".HHZ")
+
+
+def test_base_monitor_is_not_used_directly():
+    """ArrayMonitor is only the base of the monitors."""
+    with pytest.raises(TypeError, match="BeamformingMonitor or FDDMonitor"):
+        ArrayMonitor(CONFIG, window=30.0)
+
+    with pytest.raises(TypeError):
+        FDDMonitor(CONFIG, window=30.0)
+    with pytest.raises(TypeError):
+        BeamformingMonitor(FDD_CONFIG, window=30.0)
+
+
+def test_fdd_monitor_keeps_its_stations(tmp_path):
+    """
+    The first result fixes the stations of the FDD monitor.
+
+    A station added to the buffer later is ignored; a window without
+    one of the first stations is skipped. The results kept and the
+    output file join into one FDDResult.
+    """
+    output = tmp_path / "fdd.jsonl"
+    monitor = FDDMonitor(FDD_CONFIG, window=30.0, background=False,
+                         output=output, arrays=False)
+    reasons = []
+    monitor.on_skip(lambda monitor, reason: reasons.append(reason))
+    records = _records()
+    client = _Client(records)
+
+    assert monitor.stations is None
+
+    monitor(client)
+
+    assert monitor.stations == tuple(SIDS)
+    assert monitor.latest().channels == tuple(
+        f"{sid} vertical" for sid in SIDS
+    )
+
+    client.buffer.append(_noise("XX.S99."))
+    monitor(client)
+
+    assert monitor.latest().stations == monitor.results()[0].stations
+
+    monitor(_Client(records[1:]))
+
+    assert monitor.status()["analyses"] == 2
+    assert "XX.S00. missing" in reasons[0]
+
+    joined = monitor.result()
+    first = monitor.results()[0]
+
+    assert isinstance(joined, FDDResult)
+    assert joined.nblocks == 2 * first.nblocks
+    assert FDDResult(output).nblocks == joined.nblocks
+    assert not (tmp_path / "fdd_arrays").exists()
+    assert np.isnan(joined.coordinates).all()
+
+
+def test_fdd_monitor_given_stations_and_gaps():
+    """
+    Stations given in advance, in their order; gaps skip the window.
+
+    With the default ``gaps="raise"`` a selected station that does not
+    cover the window skips it; stations not processed do not matter.
+    """
+    order = [SIDS[2], SIDS[0], SIDS[1]]
+    records = _records()
+    late = _noise(SIDS[3], duration=45.0, start=Date(START) + 15.0)
+    client = _Client(records[:3] + [late])
+    reasons = []
+    monitor = FDDMonitor(FDD_CONFIG, window=50.0, stations=order,
+                         background=False)
+    monitor.on_skip(lambda monitor, reason: reasons.append(reason))
+    monitor(client)
+
+    assert monitor.latest().stations == tuple(order)
+
+    everything = FDDMonitor(FDD_CONFIG, window=50.0, background=False)
+    everything.on_skip(lambda monitor, reason: reasons.append(reason))
+    everything(client)
+
+    assert everything.latest() is None
+    assert "XX.S03." in reasons[-1]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        dropped = FDDMonitor(FDD_CONFIG, window=50.0, gaps="drop",
+                             background=False)
+        dropped(client)
+
+    assert dropped.stations == tuple(SIDS[:3])
+
+    for stations in ("", ["XX.S00.", "XX.S00."]):
+        with pytest.raises(ValueError):
+            FDDMonitor(FDD_CONFIG, window=30.0, stations=stations)
+    with pytest.raises(TypeError):
+        FDDMonitor(FDD_CONFIG, window=30.0, stations=[1, 2])
+
+
+def test_beamforming_monitor_needs_positions():
+    """Without positions the beamforming windows are skipped."""
+    reasons = []
+    monitor = BeamformingMonitor(CONFIG, window=30.0, background=False)
+    monitor.on_skip(lambda monitor, reason: reasons.append(reason))
+    monitor(_Client(_records()))
+
+    assert monitor.status()["skipped"] == 1
+    assert "needs the station positions" in reasons[0]

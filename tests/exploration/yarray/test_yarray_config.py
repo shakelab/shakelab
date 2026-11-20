@@ -20,7 +20,7 @@ Unit tests for :mod:`shakelab.exploration.yarray.config`.
 
 The configuration classes are checked for validation, conversion of
 strings to enumerations, incompatible options, JSON round trips and
-the reading of the configuration files of the YArray examples of
+the reading of the configuration files of the YARRAY examples of
 August 2026; the performance configuration shares the same mechanics.
 """
 
@@ -46,7 +46,7 @@ from shakelab.exploration.yarray.config import (
     WindowType,
 )
 
-# Configuration of example 10 of the YArray suite of August 2026.
+# Configuration of example 10 of the YARRAY suite of August 2026.
 EXAMPLE = {
     "version": 1,
     "frequencies": {"minimum": 2.0, "maximum": 12.0, "size": 100,

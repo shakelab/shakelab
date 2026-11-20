@@ -31,9 +31,10 @@ sequence of them, or a text file listing them (``list_file``). Unless
 ``format`` is given, the format of each file is inferred from its
 extension or, for files without a known extension (e.g. the daily files
 of an SDS archive) or with an ambiguous one (``.asc``), from its first
-bytes; files of unknown format found in directories or patterns are
-skipped with one :class:`IoWarning`. Pickle files are never recognized
-from their content.
+bytes; files of unknown format and files without waveforms (spectra)
+found in directories or patterns are skipped with one
+:class:`IoWarning`. Pickle files are never recognized from their
+content.
 
 MiniSEED is read and written by the libmseed-based ``cymseed`` module
 or by the pure-Python ``mseed`` module: :data:`USE_LIBMSEED` sets the
@@ -72,8 +73,9 @@ from glob import glob
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from shakelab.libutils.timeN import Date
-from shakelab.libutils.utils import warn_external
-from shakelab.signals.codes import SidPattern, parse_sid_pattern
+from shakelab.libutils.utils import check_target, warn_external
+from shakelab.signals.codes import SidPattern
+from shakelab.signals.libio.common import NotWaveformError
 
 if TYPE_CHECKING:
     from shakelab.signals.base import Record, StreamCollection
@@ -231,6 +233,7 @@ def reader(
     select: Any = None,
     starttime: Any = None,
     endtime: Any = None,
+    duration: Optional[float] = None,
     metadata: Any = None,
     stream_collection: Optional[StreamCollection] = None,
     **options: Any,
@@ -268,9 +271,12 @@ def reader(
     starttime, endtime : Date or str, optional
         Time window to keep, bounds included: records outside it are
         dropped and the others cut to it (see
-        :meth:`~shakelab.signals.base.Record.cut`). The names differ
-        from the ``start`` option of some formats (the start time of
-        records without one, e.g. text tables).
+        :meth:`~shakelab.signals.base.Record.cut`). They differ from
+        the ``first_sample_time`` option of some formats (the start
+        time of records without one, e.g. text tables).
+    duration : float, optional
+        Length of the time window in seconds after ``starttime``,
+        instead of ``endtime``.
     metadata : MetadataCollection, ChannelEpoch, path or sequence, optional
         Channel metadata assigned to the records read, as with
         :meth:`~shakelab.signals.base.StreamCollection.set_metadata`.
@@ -298,7 +304,10 @@ def reader(
         If no source is given, if the format of a file given by name
         is not recognized, if a pattern is invalid, if the time window
         is reversed, or if ``layout`` is unknown or given without
-        ``starttime`` and ``endtime``.
+        ``starttime`` and ``endtime``. A file without waveforms given by
+        name raises
+        :class:`~shakelab.signals.libio.common.NotWaveformError`, a
+        subclass.
     FileNotFoundError
         If a file, or the root of an archive, does not exist, or if a
         pattern matches no file.
@@ -311,9 +320,10 @@ def reader(
     Warns
     -----
     IoWarning
-        If files of unknown format, found in directories or patterns,
-        are skipped (one warning listing them; hidden files are
-        ignored), or if an archive has no data for the request.
+        If files of unknown format or without waveforms, found in
+        directories or patterns, are skipped (one warning for each
+        reason, listing them; hidden files are ignored), or if an
+        archive has no data for the request.
     MetadataWarning
         If ``metadata`` is given and some channels read have no epoch
         in it (one warning listing them).
@@ -335,8 +345,14 @@ def reader(
     """
     # Arguments and metadata are checked first, so that an error stops
     # before the data.
-    patterns = _patterns(select)
-    start, end = _window(starttime, endtime)
+    from shakelab.signals.base import (
+        _select_records,
+        _sid_patterns,
+        _time_bounds,
+    )
+
+    patterns = None if select is None else _sid_patterns(select, "select")
+    start, end = _time_bounds(starttime, endtime, duration)
     metadata = _as_metadata(metadata)
     name = None if format is None else _format_name(format)
     if layout is None:
@@ -360,6 +376,7 @@ def reader(
         collection = stream_collection
 
     skipped = []
+    other = []
     for path, explicit in files:
         current = name or _format_of(path)
         if current is None:
@@ -370,14 +387,21 @@ def reader(
                 )
             skipped.append(path)
             continue
-        _read_file(path, current, collection, options)
+        try:
+            _read_file(path, current, collection, options)
+        except NotWaveformError:
+            if explicit:
+                raise
+            other.append(path)
 
     if skipped:
         _warn_skipped(skipped)
+    if other:
+        _warn_skipped(other, "without waveforms")
 
     if selecting:
         collection = _collection(
-            _selected(collection.records(), patterns, start, end)
+            _select_records(collection.records(), patterns, start, end)
         )
     if layout is not None and not len(collection):
         warn_external(
@@ -529,7 +553,7 @@ def metadata_reader(
         ):
             skipped.append(path)
             continue
-        collection.read(path, format=format, append=True)
+        collection.read(path, format=format)
 
     if skipped:
         _warn_skipped(skipped)
@@ -674,10 +698,8 @@ def writer(
                     f"{path}: {len(records)} records with the same name; "
                     "add {start} to the name template"
                 )
-    if not owrite:
-        for path in files:
-            if os.path.exists(path):
-                raise FileExistsError(f"File exists: {path}")
+    for path in files:
+        check_target(path, owrite)
 
     for path, records in files.items():
         folder = os.path.dirname(path)
@@ -733,8 +755,7 @@ def _write_pickle(target: Any, data: Any, owrite: bool = False) -> None:
     FileExistsError
         If the file exists and ``owrite`` is False.
     """
-    if os.path.exists(target) and not owrite:
-        raise FileExistsError(f"File exists: {target}")
+    check_target(target, owrite)
     with open(target, "wb") as fid:
         pickle.dump(data, fid, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -918,12 +939,15 @@ def _list_entries(list_file: Any) -> list[str]:
     return entries
 
 
-def _warn_skipped(paths: list[str]) -> None:
-    """One warning for the files of unknown format."""
+def _warn_skipped(
+    paths: list[str],
+    reason: str = "of unknown format",
+) -> None:
+    """One warning for the files skipped for the same reason."""
     names = [os.path.basename(path) for path in paths]
     listed = ", ".join(names[:5]) + (", ..." if len(names) > 5 else "")
     warn_external(
-        f"{len(paths)} file(s) of unknown format skipped: {listed}",
+        f"{len(paths)} file(s) {reason} skipped: {listed}",
         IoWarning,
     )
 
@@ -1003,69 +1027,6 @@ def _collection(records: list[Record]) -> StreamCollection:
     return collection
 
 
-def _patterns(select: Any) -> Optional[list[SidPattern]]:
-    """Patterns of ``select`` (a string or a sequence), or None."""
-    if select is None:
-        return None
-    if isinstance(select, str):
-        select = [select]
-    elif not isinstance(select, (list, tuple)):
-        raise TypeError("select must be a pattern or a list of patterns")
-    patterns = []
-    for item in select:
-        patterns.extend(parse_sid_pattern(item))
-    return patterns
-
-
-def _window(
-    starttime: Any,
-    endtime: Any,
-) -> tuple[Optional[Date], Optional[Date]]:
-    """Bounds of the time window, as dates."""
-    bounds = []
-    for name, value in (("starttime", starttime), ("endtime", endtime)):
-        if value is not None and not isinstance(value, (Date, str)):
-            raise TypeError(
-                f"{name} must be a Date or an ISO 8601 string"
-            )
-        bounds.append(None if value is None else Date(value))
-    if None not in bounds and bounds[0] > bounds[1]:
-        raise ValueError("the end of the time window precedes its start")
-    return bounds[0], bounds[1]
-
-
-def _selected(
-    records: list[Record],
-    patterns: Optional[list[SidPattern]],
-    start: Optional[Date],
-    end: Optional[Date],
-) -> list[Record]:
-    """Records of the selected channels, cut to the time window."""
-    kept = []
-    for record in records:
-        if patterns is not None and not any(
-            pattern.matches(record.sid) for pattern in patterns
-        ):
-            continue
-        if start is not None or end is not None:
-            if record.time is None:
-                raise ValueError(
-                    f"{record.sid}: a record without start time cannot "
-                    "be cut to a time window"
-                )
-            if (
-                (start is not None and record.endtime < start)
-                or (end is not None and record.time > end)
-            ):
-                continue
-            try:
-                record.cut(start, end)
-            except ValueError:
-                continue    # no sample within the window
-        kept.append(record)
-    return kept
-
-
 def _archive_files(
     source: Any,
     list_file: Any,
@@ -1081,7 +1042,8 @@ def _archive_files(
         )
     if start is None or end is None:
         raise ValueError(
-            f"layout={layout!r} requires starttime and endtime"
+            f"layout={layout!r} requires starttime and endtime (or "
+            "duration)"
         )
     if list_file is not None:
         raise ValueError("list_file cannot be used with layout")

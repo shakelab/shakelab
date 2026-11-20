@@ -324,8 +324,104 @@ def test_record_time_properties():
     assert record.duration == pytest.approx(1.0)
     assert record.starttime == Date(START)
     assert record.endtime == Date("2026-01-01T00:00:01")
-    assert record[2:4].tolist() == [2, 3]
+    assert record[2:4].data.tolist() == [2, 3]
     assert record.peak == 10
+
+
+def test_record_index_selects_sample():
+    """An integer index returns one sample."""
+    record = Record(data=np.arange(5.0), delta=0.1, time=START)
+
+    assert record[1] == 1.0
+    assert record[-1] == 4.0
+    assert record[np.int64(2)] == 2.0
+
+    with pytest.raises(IndexError):
+        record[5]
+
+
+def test_record_slice_returns_record():
+    """A slice is an independent record starting at its first sample."""
+    record = Record(
+        data=np.arange(10.0), delta=0.1, time=START,
+        sid="XX.STA..HHZ", eid="ev01", units="m/s",
+    )
+    part = record[2:5]
+
+    assert isinstance(part, Record)
+    assert part.data.tolist() == [2.0, 3.0, 4.0]
+    assert part.starttime == Date("2026-01-01T00:00:00.2")
+    assert part.delta == record.delta
+    assert (part.sid, part.eid, part.head.units) == (
+        "XX.STA..HHZ", "ev01", "m/s"
+    )
+    assert part.head.meta is record.head.meta
+
+    part.data[0] = 99.0
+    assert record.data[2] == 2.0
+
+    assert record[-3:].starttime == Date("2026-01-01T00:00:00.7")
+    assert record[:].data.tolist() == record.data.tolist()
+    assert record[0:10:1].starttime == record.starttime
+
+    empty = record[5:2]
+    assert isinstance(empty, Record)
+    assert empty.nsamp == 0
+
+
+def test_record_slice_without_time_axis():
+    """Without start time a slice needs no sampling interval."""
+    assert Record(data=[1, 2, 3])[1:].data.tolist() == [2, 3]
+
+    record = Record(data=[1, 2, 3], time=START)
+    assert record[:2].starttime == Date(START)
+    with pytest.raises(ValueError, match="sampling interval"):
+        record[1:]
+
+
+@pytest.mark.parametrize(
+    "key", [slice(None, None, 2), slice(None, None, -1)]
+)
+def test_record_slice_step_is_rejected(key):
+    """A slice step other than 1 would change the sampling: rejected."""
+    record = Record(data=np.arange(10.0), delta=0.1, time=START)
+
+    with pytest.raises(ValueError, match="resample"):
+        record[key]
+
+
+@pytest.mark.parametrize(
+    "key", [[0, 2], np.array([True, False, True]), True, 1.0, "ev01"]
+)
+def test_record_numpy_indexing_is_on_data(key):
+    """Lists, masks and other keys are refused: index record.data."""
+    record = Record(data=[1.0, 2.0, 3.0], delta=0.1, time=START)
+
+    with pytest.raises(TypeError, match=r"record\.data"):
+        record[key]
+
+
+def test_record_iterates_over_samples():
+    """Iterating over a record gives its samples, as NumPy does."""
+    record = Record(data=[1.0, 2.0, 3.0], delta=0.1, time=START)
+
+    assert "__iter__" in vars(Record)
+    assert list(record) == [1.0, 2.0, 3.0]
+    assert list(Record()) == []
+
+
+def test_record_membership_compares_samples():
+    """``in`` looks for a number among the samples; nothing else."""
+    record = Record(data=[1.0, 2.0, 3.0], delta=0.1, time=START, eid="ev01")
+
+    assert 2.0 in record
+    assert np.int64(3) in record
+    assert 4.0 not in record
+    assert 1.0 not in Record()
+
+    for value in ("ev01", Date(START), True, None):
+        with pytest.raises(TypeError, match="overlaps"):
+            value in record
 
 
 def test_record_copy_is_independent():
@@ -342,12 +438,27 @@ def test_record_copy_is_independent():
 
 
 def test_record_text(capsys):
-    """str and info describe start, duration, rate and size."""
+    """summary, str and info give one line describing the record."""
     record = _sine()
+    record.sid = "XX.STA..HHZ"
 
-    assert "duration 0.99s" in str(record)
+    text = (
+        "Record XX.STA..HHZ: 2026-01-01T00:00:00.000000Z - "
+        "2026-01-01T00:00:00.990000Z, 100 Hz, 100 samples"
+    )
+    assert record.summary() == text
+    assert str(record) == text
     record.info()
-    assert "100 samples" in capsys.readouterr().out
+    assert capsys.readouterr().out == text + "\n"
+
+    record.eid = "ev1"
+    record.head.units = "m/s**2"
+    assert record.summary().endswith(
+        "100 samples, units m/s**2, event ev1"
+    )
+    assert Record().summary() == (
+        "Record None: no start time, no sampling rate, 0 samples"
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -670,7 +781,7 @@ def test_record_append_metadata():
     second = Record(data=[3.0], delta=1.0, time="2026-01-01T00:00:02",
                     sid="XX.STA..HHZ", location=(13.0, 46.0))
 
-    assert first.append(second) is True
+    assert first.append(second) is None
     assert first.location == WgsPoint(13.0, 46.0)
 
     third = Record(data=[4.0], delta=1.0, time="2026-01-01T00:00:03",
@@ -745,11 +856,33 @@ def test_record_append_contiguous_and_gaps():
     record = Record(data=[1, 2, 3], delta=1.0, time=START)
     late = Record(data=[4, 5], delta=1.0, time="2026-01-01T00:00:05")
 
-    assert record.append(late) is False
+    with pytest.raises(ValueError, match=r"not contiguous \(gap of 2 s\)"):
+        record.append(late)
     assert record.data.tolist() == [1, 2, 3]
 
-    assert record.append(late, enforce=True) is True
+    assert record.append(late, enforce=True) is None
     assert record.data.tolist() == [1, 2, 3, 0, 0, 4, 5]
+
+
+def test_record_append_refuses_records_it_cannot_join():
+    """Without enforce, overlaps and offsets off the grid are errors."""
+    record = Record(data=[1, 2, 3], delta=1.0, time=START)
+    overlap = Record(data=[9, 9], delta=1.0, time="2026-01-01T00:00:01")
+    with pytest.raises(ValueError, match=r"\(overlap of 2 s\)"):
+        record.append(overlap)
+    shifted = Record(data=[9], delta=1.0, time="2026-01-01T00:00:03.6")
+    with pytest.raises(ValueError, match=r"\(gap of 0.6 s\)"):
+        record.append(shifted)
+    with pytest.raises(ValueError, match="offset off the sampling grid"):
+        record.append(shifted, merge_tolerance=0.1)
+    with pytest.raises(ValueError, match="not contiguous"):
+        record + Record(data=[9], delta=1.0, time="2026-01-01T00:00:09")
+    assert record.data.tolist() == [1, 2, 3]
+
+    stream = Stream()
+    stream.append(record)
+    stream.append(overlap)
+    assert len(stream) == 2
 
 
 def test_record_append_overlap_with_enforce():
@@ -757,7 +890,7 @@ def test_record_append_overlap_with_enforce():
     record = Record(data=[1, 2, 3], delta=1.0, time=START)
     overlap = Record(data=[9, 9], delta=1.0, time="2026-01-01T00:00:01")
 
-    assert record.append(overlap, enforce=True) is True
+    assert record.append(overlap, enforce=True) is None
     assert record.data.tolist() == [1, 9, 9]
 
 
@@ -774,7 +907,7 @@ def test_record_append_absorbs_time_rounding(mode):
     second = raw.extract(10.01, 20.0)
     second.time = second.time + 4e-5
 
-    assert first.append(second) is True
+    assert first.append(second) is None
     np.testing.assert_array_equal(first.data, raw.extract(0.0, 20.0).data)
 
 
@@ -800,7 +933,7 @@ def test_record_append_to_empty_record():
     record = Record()
     other = Record(data=[1, 2], delta=1.0, time=START, sid="XX.A..HHZ")
 
-    assert record.append(other) is True
+    assert record.append(other) is None
     assert record.sid == "XX.A..HHZ"
     assert record.data.tolist() == [1, 2]
 
@@ -854,6 +987,71 @@ def test_record_cut_errors():
         record.extract(5, 3)
     with pytest.raises(ValueError):
         record.extract(20, 30)
+
+
+def test_record_cut_is_in_place_only():
+    """cut changes the record and returns None; extract makes a copy."""
+    record = Record(data=np.arange(10), delta=1.0, time=START)
+
+    assert record.extract(2, 4).data.tolist() == [2, 3, 4]
+    assert record.cut(2, 4) is None
+    assert record.data.tolist() == [2, 3, 4]
+
+    with pytest.raises(TypeError, match="inplace"):
+        record.cut(0, 1, inplace=False)
+    with pytest.raises(TypeError):
+        record.extract(0, 1, 1e-6)          # options by name only
+
+
+def test_record_extract_copies_the_window_only():
+    """The extracted record is independent; an empty record is copied."""
+    record = Record(
+        data=np.arange(10.0), delta=1.0, time=START, sid="XX.STA..HHZ"
+    )
+    part = record.extract(2, 4)
+
+    part.data[0] = 99.0
+    assert record.data[2] == 2.0
+    assert part.sid == "XX.STA..HHZ"
+    assert part.head.meta is record.head.meta
+
+    empty = Record()
+    assert empty.extract(0, 1) is not empty
+    assert empty.extract(0, 1).nsamp == 0
+    assert empty.cut(0, 1) is None
+
+
+def test_record_window_duration():
+    """duration is a length after starttime, or after the record start."""
+    record = Record(data=np.arange(10), delta=1.0, time=START)
+
+    assert record.extract(2, duration=3).data.tolist() == [2, 3, 4, 5]
+    assert record.extract(
+        "2026-01-01T00:00:02", duration=3
+    ).data.tolist() == [2, 3, 4, 5]
+    assert record.extract(duration=1).data.tolist() == [0, 1]
+    assert record.overlaps(8, 9)
+
+    with pytest.raises(ValueError, match="not both"):
+        record.extract(2, 4, duration=3)
+    with pytest.raises(ValueError, match="duration"):
+        record.extract(2, duration=-1)
+    with pytest.raises(TypeError, match="duration"):
+        record.extract(2, duration="3")
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [("2026-01-01T00:00:02", 5), (2, "2026-01-01T00:00:05"),
+     (Date("2026-01-01T00:00:02"), 5.0)],
+)
+def test_record_window_bounds_of_one_kind(bounds):
+    """A time and a number of seconds are not mixed in one window."""
+    record = Record(data=np.arange(10), delta=1.0, time=START)
+
+    for method in (record.extract, record.cut, record.overlaps):
+        with pytest.raises(TypeError, match="duration"):
+            method(*bounds)
 
 
 # ----------------------------------------------------------------------------
@@ -915,6 +1113,29 @@ def test_record_filter():
 
     middle = slice(500, 1500)
     np.testing.assert_allclose(record.data[middle], low[middle], atol=0.01)
+
+
+def test_record_filter_causal():
+    """causal=True filters once forward; the default both ways."""
+    from scipy import signal
+
+    record = _sine(nsamp=500)
+    sos = signal.butter(4, 5.0, btype="lowpass", fs=100.0, output="sos")
+
+    causal = record.copy()
+    causal.filter(lowpass=5.0, causal=True)
+    np.testing.assert_allclose(causal.data, signal.sosfilt(sos, record.data))
+
+    zero_phase = record.copy()
+    zero_phase.filter(lowpass=5.0)
+    np.testing.assert_allclose(
+        zero_phase.data, signal.sosfiltfilt(sos, record.data)
+    )
+
+    with pytest.raises(TypeError, match="causal"):
+        record.filter(lowpass=5.0, causal=1)
+    with pytest.raises(TypeError):
+        record.filter(lowpass=5.0, minphase=True)
 
 
 def test_record_filter_errors():
@@ -987,6 +1208,28 @@ def test_record_taper_and_window():
     )
 
 
+def test_record_asymmetric_taper():
+    """A pair of durations tapers each end on its own."""
+    record = Record(data=np.ones(1001), delta=0.01)
+    symmetric = record.copy()
+    symmetric.taper(2.0)
+    pair = record.copy()
+    pair.taper((2.0, 2.0))
+    np.testing.assert_array_equal(pair.data, symmetric.data)
+
+    start = record.copy()
+    start.taper((2.0, 0.0))
+    np.testing.assert_array_equal(start.data[:500], symmetric.data[:500])
+    np.testing.assert_array_equal(start.data[500:], 1.0)
+
+    with pytest.raises(ValueError):
+        record.taper((-1.0, 0.0))
+    with pytest.raises(ValueError):
+        record.taper((1.0,))
+    with pytest.raises(TypeError):
+        record.taper((1.0, "end"))
+
+
 def test_record_zero_padding():
     """Padding appends zeros by default doubling the length."""
     record = Record(data=[1, 2, 3], delta=0.5)
@@ -1052,8 +1295,45 @@ def test_record_convolve_deconvolve_correlate():
     assert record.data.tolist() == [1.0, 2.0, 3.0]
     assert not np.any(remainder)
 
-    record.correlate([0.0, 1.0, 0.0])
-    assert record.data.tolist() == [0.0, 1.0, 2.0, 3.0, 0.0]
+    lag, value = record.correlate([0.0, 1.0, 0.0])
+    assert value.tolist() == [0.0, 1.0, 2.0, 3.0, 0.0]
+    assert lag.tolist() == [-2.0, -1.0, 0.0, 1.0, 2.0]
+    assert record.data.tolist() == [1.0, 2.0, 3.0]
+
+
+def test_record_correlate_lags():
+    """The correlation peaks at the delay, in absolute times."""
+    reference = Record(np.zeros(200), delta=0.01, time=START)
+    reference.data[50] = 1.0
+    delayed = reference.copy()
+    delayed.data[:] = 0.0
+    delayed.data[100] = 1.0             # 0.5 s after the reference
+
+    lag, value = delayed.correlate(reference)
+    assert lag.size == value.size == 399
+    assert lag[np.argmax(value)] == pytest.approx(0.5, abs=1e-12)
+    assert delayed.nsamp == 200 and delayed.data[100] == 1.0
+
+    # Starting 0.2 s later, the pulse at sample 80 is at the same
+    # absolute time as in the delayed record.
+    later = Record(np.zeros(200), delta=0.01, time=Date(START) + 0.2)
+    later.data[80] = 1.0
+    lag, value = later.correlate(reference)
+    assert lag[np.argmax(value)] == pytest.approx(0.5, abs=1e-12)
+
+    lag, value = delayed.correlate(reference.data)  # samples only
+    assert lag[np.argmax(value)] == pytest.approx(0.5, abs=1e-12)
+
+    for mode, size in (("same", 200), ("valid", 1)):
+        lag, value = delayed.correlate(reference, mode=mode)
+        assert lag.size == value.size == size
+    lag, value = delayed.correlate(reference, mode="same")
+    assert lag[np.argmax(value)] == pytest.approx(0.5, abs=1e-12)
+
+    with pytest.raises(ValueError, match="sampling interval"):
+        Record(data=[1.0, 2.0]).correlate([1.0])
+    with pytest.raises(ValueError, match="incompatible"):
+        delayed.correlate(Record(np.ones(5), delta=0.02))
 
 
 def test_record_spectrum_round_trip():
@@ -1144,11 +1424,21 @@ def test_stream_properties_and_text(capsys):
     assert stream.endtime == Date("2026-01-01T00:00:29")
     assert stream.eid == [None, None]
     assert repr(stream) == "Stream(sid='XX.STA..HHZ', records=2)"
-    assert "number of records: 2" in str(stream)
+    text = "\n".join([
+        "Stream XX.STA..HHZ: 2 records, 2026-01-01T00:00:00.000000Z - "
+        "2026-01-01T00:00:29.000000Z, 20 samples",
+        "  0  2026-01-01T00:00:00.000000Z - 2026-01-01T00:00:09.000000Z, "
+        "1 Hz, 10 samples",
+        "  1  2026-01-01T00:00:20.000000Z - 2026-01-01T00:00:29.000000Z, "
+        "1 Hz, 10 samples",
+    ])
+    assert stream.summary() == text
+    assert str(stream) == text
 
     stream.info()
-    assert "Record 1" in capsys.readouterr().out
+    assert capsys.readouterr().out == text + "\n"
     assert Stream().starttime is None
+    assert Stream("XX.STA..HHZ").summary() == "Stream XX.STA..HHZ: no records"
 
 
 def test_stream_indexing():
@@ -1191,6 +1481,17 @@ def test_stream_event_identifiers():
 
     with pytest.raises(KeyError):
         stream["missing"]
+
+
+def test_stream_membership():
+    """``in`` takes event identifiers, as indexing, or stored records."""
+    stream = Stream("XX.A..HHZ")
+    stream.append(Record(data=[1], delta=1.0, time=START, eid="ev1"))
+
+    assert "ev1" in stream
+    assert "ev2" not in stream
+    assert stream[0] in stream
+    assert stream[0].copy() not in stream
 
 
 def test_stream_remove_and_sort():
@@ -1252,10 +1553,109 @@ def test_stream_extract_skips_records_without_samples():
 
     assert len(stream.extract(2.2, 2.8)) == 0
     assert len(stream.extract(12, 18)) == 0
-    assert stream.extract(12, 18, merge=True) is None
+    with pytest.raises(ValueError, match="no sample"):
+        stream.extract(12, 18, merge=True)
 
     with pytest.raises(ValueError):
         stream.extract(5, 3)
+
+
+def test_stream_extract_returns_stream_or_merged_record():
+    """A Stream, or one Record with merge; no event argument."""
+    stream = _two_record_stream()
+
+    assert type(stream.extract(0, 25)) is Stream
+    assert isinstance(stream.extract(0, 5, merge=True), Record)
+
+    with pytest.raises(TypeError):
+        stream.extract(0, 5, eid="ev1")
+    with pytest.raises(TypeError):
+        stream.extract(0, 5, None, True)    # options by name only
+
+
+def test_stream_cut_in_place():
+    """cut trims the records in place and drops those left empty."""
+    stream = _two_record_stream()
+    first = stream[0]
+
+    assert stream.cut(8, 21) is None
+    assert [r.data.tolist() for r in stream] == [[8, 9], [100, 101]]
+    assert stream[0] is first
+
+    stream.cut(25, 30)
+    assert len(stream) == 0
+
+
+def test_stream_window_duration_and_kinds():
+    """duration counts from starttime; times and seconds do not mix."""
+    stream = _two_record_stream()
+
+    assert [r.data.tolist() for r in stream.extract(8, duration=13)] == [
+        [8, 9], [100, 101]
+    ]
+    assert stream.extract(duration=1)[0].data.tolist() == [0, 1]
+    assert stream.extract(
+        "2026-01-01T00:00:20", duration=1
+    )[0].data.tolist() == [100, 101]
+
+    with pytest.raises(TypeError, match="duration"):
+        stream.extract("2026-01-01T00:00:20", 5)
+    with pytest.raises(TypeError, match="duration"):
+        stream.cut(5, "2026-01-01T00:00:20")
+    with pytest.raises(ValueError, match="not both"):
+        stream.extract(0, 5, duration=1)
+
+
+def _event_stream():
+    """Stream with records of events ev1, ev2, ev10, ev[1] and none."""
+    stream = Stream("XX.STA..HHZ")
+    for k, eid in enumerate(["ev1", "ev2", "ev10", "ev[1]", None]):
+        stream.append(
+            Record(
+                data=np.arange(10.0) + 100 * k,
+                delta=1.0,
+                time=Date(START) + 60 * k,
+                eid=eid,
+            )
+        )
+    return stream
+
+
+def test_stream_select_events():
+    """eid takes identifiers or lists, with the wildcards * and ?."""
+    stream = _event_stream()
+
+    assert stream.select(eid="ev1").eid == ["ev1"]
+    assert stream.select(eid=["ev2", "ev1"]).eid == ["ev1", "ev2"]
+    assert stream.select(eid="ev?").eid == ["ev1", "ev2"]
+    assert stream.select(eid="ev1*").eid == ["ev1", "ev10"]
+    assert stream.select(eid="ev[1]").eid == ["ev[1]"]
+    assert stream.select(eid="*").eid == ["ev1", "ev2", "ev10", "ev[1]"]
+    assert stream.select().eid == stream.eid
+    assert len(stream.select(eid="EV1")) == 0
+
+    with pytest.raises(TypeError, match="eid"):
+        stream.select(eid=1)
+
+
+def test_stream_select_copies_and_window():
+    """select returns a new stream of copies, cut to the window."""
+    stream = _event_stream()
+    selection = stream.select(
+        eid="ev*", starttime="2026-01-01T00:01:05", duration=60
+    )
+
+    assert type(selection) is Stream
+    assert selection.sid == stream.sid
+    assert selection.eid == ["ev2", "ev10"]
+    assert [r.nsamp for r in selection] == [5, 6]
+    assert selection[0] is not stream[1]
+    assert stream[1].nsamp == 10
+
+    assert stream.select("XX.STA..HH?").eid == stream.eid
+    assert len(stream.select("XX.OTHER")) == 0
+    with pytest.raises(TypeError, match="starttime"):
+        stream.select(starttime=5.0)
 
 
 def test_stream_extract_absolute_times(mode):
@@ -1277,11 +1677,11 @@ def test_stream_processing_applies_to_every_record(mode):
 
     stream.remove_mean()
     stream.detrend()
-    stream.filter(0.1, 20.0)
+    stream.filter(0.1, 20.0, causal=True)
     stream.taper(1.0)
     record.remove_mean()
     record.detrend()
-    record.filter(0.1, 20.0)
+    record.filter(0.1, 20.0, causal=True)
     record.taper(1.0)
     np.testing.assert_array_equal(stream[0].data, record.data)
 
@@ -1344,8 +1744,20 @@ def test_collection_read_and_access(mode, capsys):
     assert mode[np.int64(2)] is mode["IV.MODE..HNZ"]
     assert repr(mode) == "StreamCollection(streams=3)"
 
+    span = "2012-05-20T02:03:23.000000Z - 2012-05-20T02:06:23.000000Z"
+    text = "\n".join(
+        [f"StreamCollection: 3 streams, 3 records, {span}"]
+        + [
+            f"  IV.MODE..HN{c}  1 record, 100 Hz, {span}, 18001 samples"
+            for c in "ENZ"
+        ]
+    )
+    assert mode.summary() == text
+    assert str(mode) == text
+
     mode.info()
-    assert "number of streams: 3" in capsys.readouterr().out
+    assert capsys.readouterr().out == text + "\n"
+    assert StreamCollection().summary() == "StreamCollection: no streams"
 
     with pytest.raises(TypeError):
         mode[True]
@@ -1353,12 +1765,20 @@ def test_collection_read_and_access(mode, capsys):
         mode["IV.MODE..XXX"]
 
 
+def test_collection_membership(mode):
+    """``in`` takes source identifiers, as indexing, or stored streams."""
+    assert "IV.MODE..HNZ" in mode
+    assert "IV.MODE..XXX" not in mode
+    assert mode[0] in mode
+    assert mode[0].copy() not in mode
+
+
 def test_collection_read_method(tmp_path):
-    """StreamCollection.read appends the content of a file."""
+    """StreamCollection.read adds the content of a file, in place."""
     collection = StreamCollection()
     returned = collection.read(str(DATA / "MODE.mseed"))
 
-    assert returned is collection
+    assert returned is None
     assert len(collection) == 3
 
 
@@ -1436,24 +1856,218 @@ def test_collection_remove_sort_copy_merge():
     assert collection.sid == ["XX.B..HHZ", "XX.D..HHZ"]
 
 
-def test_collection_extract_one_or_all_streams(mode):
-    """Extraction from one stream, or from every stream."""
-    one = mode.extract("IV.MODE..HNZ", 10, 20)
-    assert isinstance(one, Stream)
-    assert one[0].nsamp == 1001
-
-    every = mode.extract(starttime=10, endtime=20)
+def test_collection_extract_every_stream(mode):
+    """Extraction from every stream, with absolute times."""
+    every = mode.extract(
+        starttime="2012-05-20T02:03:33", endtime="2012-05-20T02:03:43"
+    )
     assert isinstance(every, StreamCollection)
     assert every.sid == mode.sid
     assert all(stream[0].nsamp == 1001 for stream in every)
 
-    merged = mode.extract(starttime=10, endtime=20, merge=True)
+    same = mode.extract(starttime="2012-05-20T02:03:33", duration=10)
+    assert [s[0].nsamp for s in same] == [1001] * 3
+
+    merged = mode.extract(
+        starttime="2012-05-20T02:03:33", duration=10, merge=True
+    )
     assert [len(stream) for stream in merged] == [1, 1, 1]
 
     empty = mode.extract(
         starttime="2013-01-01T00:00:00", endtime="2013-01-01T00:01:00"
     )
     assert len(empty) == 0
+
+
+def test_collection_extract_takes_dates_only(mode):
+    """Seconds, sid and eid are refused: windows are absolute."""
+    with pytest.raises(TypeError, match="starttime"):
+        mode.extract(starttime=10, endtime=20)
+    with pytest.raises(TypeError, match="endtime"):
+        mode.extract(starttime="2012-05-20T02:03:33", endtime=10)
+    with pytest.raises(TypeError):
+        mode.extract("IV.MODE..HNZ", 10, 20)
+    with pytest.raises(TypeError):
+        mode.extract(sid="IV.MODE..HNZ")
+    with pytest.raises(TypeError):
+        mode.extract(eid="ev1")
+    with pytest.raises(ValueError, match="requires starttime"):
+        mode.extract(duration=10)
+
+
+def test_collection_windows_are_aligned():
+    """The same absolute window for channels starting at other times."""
+    collection = StreamCollection()
+    for station, start in (("A", START), ("B", "2026-01-01T00:00:03")):
+        collection.append(
+            Record(data=np.arange(100.0), delta=0.1, time=start,
+                   sid=f"XX.{station}..HHZ")
+        )
+    window = collection.extract(
+        starttime="2026-01-01T00:00:04", duration=1
+    )
+
+    assert [s[0].starttime for s in window] == [
+        Date("2026-01-01T00:00:04")
+    ] * 2
+    assert [s[0].endtime for s in window] == [
+        Date("2026-01-01T00:00:05")
+    ] * 2
+
+
+def test_collection_cut_in_place():
+    """cut trims every stream and removes the streams left empty."""
+    collection = StreamCollection()
+    for station, start in (("A", START), ("B", "2026-01-01T00:01:00")):
+        collection.append(
+            Record(data=np.arange(100.0), delta=0.1, time=start,
+                   sid=f"XX.{station}..HHZ")
+        )
+    stored = collection[0][0]
+
+    assert collection.cut(starttime=START, duration=2) is None
+    assert collection.sid == ["XX.A..HHZ"]
+    assert collection[0][0] is stored
+    assert stored.nsamp == 21
+
+    with pytest.raises(TypeError, match="starttime"):
+        collection.cut(0, 1)
+
+
+def test_collection_select_events_and_duration():
+    """select takes eid patterns and a duration, as streams do."""
+    collection = StreamCollection()
+    collection.append(_event_stream())
+
+    assert collection.select(eid="ev?")[0].eid == ["ev1", "ev2"]
+    assert len(collection.select(eid="none")) == 0
+
+    window = collection.select(starttime=START, duration=5)
+    assert [r.nsamp for r in window.records()] == [6]
+
+    with pytest.raises(ValueError, match="requires starttime"):
+        collection.select(duration=5)
+
+
+def test_collection_select_channels(mode):
+    """select takes a pattern or a list of patterns of signals.codes."""
+    assert mode.select("IV.MODE..HN[EN]").sid == [
+        "IV.MODE..HNE", "IV.MODE..HNN"
+    ]
+    assert mode.select(["IV.MODE..HNZ", "XX"]).sid == ["IV.MODE..HNZ"]
+    assert mode.select("IV").sid == mode.sid
+    assert mode.select().sid == mode.sid
+    assert len(mode.select("IV.MIRA")) == 0
+
+
+def test_collection_select_returns_copies(mode):
+    """The selected records are copies in a new collection."""
+    selection = mode.select("IV.MODE..HNZ")
+
+    assert isinstance(selection, StreamCollection)
+    assert type(selection[0]) is Stream
+    assert selection[0] is not mode["IV.MODE..HNZ"]
+    assert selection[0][0] is not mode["IV.MODE..HNZ"][0]
+
+    selection[0][0].data[0] += 1.0
+    assert mode["IV.MODE..HNZ"][0].data[0] != selection[0][0].data[0]
+
+
+def test_collection_select_time_window(mode):
+    """Window bounds are absolute and included; empty records go."""
+    selection = mode.select(
+        "IV.MODE..HNZ",
+        starttime="2012-05-20T02:04:00",
+        endtime="2012-05-20T02:04:10",
+    )
+    record = selection[0][0]
+
+    assert record.nsamp == 1001
+    assert record.starttime == Date("2012-05-20T02:04:00")
+    assert mode["IV.MODE..HNZ"][0].nsamp == 18001
+
+    assert mode.select(starttime="2012-05-20T02:06:00").nsamp == 3 * 2301
+    assert len(mode.select(endtime="2012-05-20T02:00:00")) == 0
+
+
+def test_select_window_by_position(mode):
+    """The window follows the channels, also by position."""
+    by_name = mode.select(
+        "IV.MODE..HNZ",
+        starttime="2012-05-20T02:04:00",
+        endtime="2012-05-20T02:04:10",
+    )
+    by_position = mode.select(
+        "IV.MODE..HNZ", "2012-05-20T02:04:00", "2012-05-20T02:04:10"
+    )
+    assert by_position.summary() == by_name.summary()
+
+    stream = mode["IV.MODE..HNZ"]
+    window = stream.select(None, "2012-05-20T02:04:00", "2012-05-20T02:04:10")
+    assert window[0].nsamp == 1001
+    assert mode.select("IV", "2012-05-20T02:04:00", duration=10).nsamp == (
+        3 * 1001
+    )
+
+
+def test_collection_time_span(mode):
+    """starttime and endtime of a collection span all its streams."""
+    assert mode.starttime == Date("2012-05-20T02:03:23")
+    assert mode.endtime == Date("2012-05-20T02:06:23")
+
+    collection = StreamCollection()
+    assert collection.starttime is None and collection.endtime is None
+    collection.append(Record(data=np.zeros(11), delta=1.0, time=START,
+                             sid="XX.A..HHZ"))
+    collection.append(Record(data=np.zeros(5), delta=1.0,
+                             time="2026-01-01T00:00:30", sid="XX.B..HHZ"))
+    assert collection.starttime == Date(START)
+    assert collection.endtime == Date("2026-01-01T00:00:34")
+
+    window = collection.extract(collection.starttime + 2, duration=3)
+    assert window["XX.A..HHZ"][0].nsamp == 4
+    assert "XX.B..HHZ" not in window
+
+    collection.append(Record(data=np.zeros(3), sid="XX.C..HHZ"))
+    with pytest.raises(ValueError, match="start time"):
+        collection.starttime
+
+
+def test_collection_select_matches_reader(mode):
+    """select in memory gives what the reader gives at reading."""
+    options = dict(
+        starttime="2012-05-20T02:04:00.005",
+        endtime="2012-05-20T02:04:30",
+    )
+    read = reader(str(DATA / "MODE.mseed"), select="IV.*..HN[ZE]", **options)
+    selected = mode.select("IV.*..HN[ZE]", **options)
+
+    assert selected.sid == read.sid
+    for first, second in zip(selected.records(), read.records()):
+        assert first.starttime == second.starttime
+        np.testing.assert_array_equal(first.data, second.data)
+
+
+def test_collection_select_errors(mode):
+    """Invalid patterns and windows are rejected."""
+    with pytest.raises(TypeError, match="sid"):
+        mode.select(5)
+    with pytest.raises(ValueError):
+        mode.select("IV..")
+    with pytest.raises(TypeError, match="starttime"):
+        mode.select(starttime=10.0)
+    with pytest.raises(ValueError, match="precedes"):
+        mode.select(
+            starttime="2012-05-20T02:05:00", endtime="2012-05-20T02:04:00"
+        )
+    with pytest.raises(TypeError):
+        mode.select("IV", "2012-05-20T02:04:00", "2012-05-20T02:05:00", "ev1")
+
+    collection = StreamCollection()
+    collection.append(Record(data=[1.0, 2.0], sid="XX.STA..HHZ"))
+    assert collection.select("XX").nsamp == 2
+    with pytest.raises(ValueError, match="start time"):
+        collection.select(starttime="2026-01-01T00:00:00")
 
 
 def test_collection_response_correction(mode, mode_response):
@@ -1478,10 +2092,10 @@ def test_collection_processing_applies_to_every_stream(mode):
     record = mode["IV.MODE..HNE"][0].copy()
 
     collection.detrend()
-    collection.filter(0.1, 20.0)
+    collection.filter(0.1, 20.0, causal=True)
     collection.taper(1.0)
     record.detrend()
-    record.filter(0.1, 20.0)
+    record.filter(0.1, 20.0, causal=True)
     record.taper(1.0)
 
     np.testing.assert_array_equal(
