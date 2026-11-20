@@ -111,7 +111,7 @@ def test_independent_site_parameter_precedence(monkeypatch):
         longitude=13.0,
         latitude=46.0,
         depth_km=10.0,
-        mechanism={"rake": 90.0},
+        source_parameters={"rake": 90.0},
     )
     runtime = GroundMotionRuntime(model, event)
     exposure, _, _ = _asset(350.0)
@@ -156,7 +156,7 @@ def test_reference_site_parameters_passed_to_gmpe(monkeypatch):
         longitude=13.0,
         latitude=46.0,
         depth_km=10.0,
-        mechanism={"rake": 90.0},
+        source_parameters={"rake": 90.0},
     )
     runtime = GroundMotionRuntime(model, event)
     exposure, _, _ = _asset(None)

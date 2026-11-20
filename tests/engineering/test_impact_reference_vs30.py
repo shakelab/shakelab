@@ -40,7 +40,7 @@ def _runtime(reference_vs30):
         longitude=13.0,
         latitude=46.0,
         depth_km=10.0,
-        mechanism={"rake": 90.0},
+        source_parameters={"rake": 90.0},
     )
     return GroundMotionRuntime(_model(reference_vs30), event)
 

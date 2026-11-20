@@ -36,7 +36,7 @@ def test_real_gmpe_to_impact_probabilities():
         latitude=46.0,
         depth_km=10.0,
         event_id="integration-gmpe",
-        mechanism={"strike": 45.0, "dip": 30.0, "rake": 90.0},
+        source_parameters={"strike": 45.0, "dip": 30.0, "rake": 90.0},
     )
     assert event.mechanism["rake"] == 90.0
 
