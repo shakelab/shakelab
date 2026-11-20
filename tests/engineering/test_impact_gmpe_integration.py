@@ -38,7 +38,7 @@ def test_real_gmpe_to_impact_probabilities():
         event_id="integration-gmpe",
         source_parameters={"strike": 45.0, "dip": 30.0, "rake": 90.0},
     )
-    assert event.mechanism["rake"] == 90.0
+    assert event.source_parameters["rake"] == 90.0
 
     # Rjb is a finite-fault metric: specify it, never approximate it.
     parameters = {
