@@ -9,6 +9,9 @@ corrections. The format follows
 
 ### Added
 
+- Automatic rectangular rupture construction with explicit constraints,
+  optional magnitude scaling and parameter provenance.
+
 - Leonard2014 active crustal and stable continental magnitude-area
   relations and HanksBakun2002 bilinear magnitude-area scaling.
 
