@@ -9,6 +9,9 @@ corrections. The format follows
 
 ### Added
 
+- Explicit GMPE source geometry selection at provider and event levels;
+  native and point modes, with finite geometry reserved for future work.
+
 - Provider-level GMPE source and site parameters with independent
   precedence and consistent source geometry inputs.
 

@@ -84,6 +84,7 @@ class ShakeScenarioClient:
         depth_km: float | None = None,
         elevation_m: float | None = None,
         source_parameters: Mapping[str, float] | None = None,
+        source_geometry: str | None = None,
         origin_time: str | None = None,
         event_id: str | None = None,
         model_id: str | None = None,
@@ -92,7 +93,7 @@ class ShakeScenarioClient:
         """Submit a scenario from keyword arguments.
 
         Depth is in kilometres, positive down. Elevation is in metres,
-        positive up. Supply at most one. Mechanism values use the units
+        positive up. Supply at most one. Source parameters use the units
         expected by the selected GMPE, including degrees for focal angles.
         Omitted model and hypocentral elevation use the server defaults.
         """
@@ -104,6 +105,7 @@ class ShakeScenarioClient:
             depth_km=depth_km,
             elevation_m=elevation_m,
             source_parameters=source_parameters,
+            source_geometry=source_geometry,
             origin_time=origin_time,
             event_id=event_id,
             model_id=model_id,
@@ -235,6 +237,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_submit.add_argument(
         "--source", action="append", nargs="+", metavar="NAME=VALUE",
         help="Additional GMPE source parameters in one group.",
+    )
+    p_submit.add_argument(
+        "--source-geometry", choices=("native", "point", "finite"),
+        help="Override model geometry (finite is not yet implemented).",
     )
     p_submit.add_argument(
         "--origin-time",
@@ -508,6 +514,7 @@ def _merge_submit_payload(
         depth_km=args.depth,
         elevation_m=args.elevation,
         source_parameters=_parse_source_args(args),
+        source_geometry=args.source_geometry,
     )
 
 
@@ -559,6 +566,7 @@ def _build_submit_payload(
     depth_km: float | None = None,
     elevation_m: float | None = None,
     source_parameters: Mapping[str, float] | None = None,
+    source_geometry: str | None = None,
 ) -> dict[str, Any]:
     """Apply explicitly provided fields to the client-owned request."""
     if depth_km is not None and elevation_m is not None:
@@ -603,6 +611,11 @@ def _build_submit_payload(
         hypoc["elevation"] = -1000.0 * float(depth_km)
     if elevation_m is not None:
         hypoc["elevation"] = float(elevation_m)
+    from shakelab.groundmotion.providers import validate_source_geometry
+
+    if source_geometry is not None:
+        event["source_geometry"] = source_geometry
+    validate_source_geometry(event.get("source_geometry"))
     if source_parameters is not None:
         from shakelab.groundmotion.providers import (
             validate_source_parameters,

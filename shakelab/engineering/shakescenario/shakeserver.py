@@ -178,6 +178,7 @@ def _build_scenario_event(event_data: dict[str, Any]):
         event_id=event_id,
         origin_time=origin_time,
         source_parameters=source_parameters,
+        source_geometry=ev.get("source_geometry"),
     )
     return event
 

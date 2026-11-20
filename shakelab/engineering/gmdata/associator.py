@@ -100,6 +100,7 @@ from shakelab.groundmotion.providers import (
     GroundMotionProvider,
     ScenarioEvent,
     normalize_gmpe_site_parameters,
+    resolve_provider_geometry,
     validate_source_parameters,
 )
 
@@ -331,6 +332,10 @@ class GroundMotionProviderConfig:
             assignment.validate()
 
         if self.provider == "gmpe":
+            resolve_provider_geometry(
+                self.config.get("source_geometry"),
+                self.config.get("point_source_distances"),
+            )
             validate_source_parameters(self.config.get("source_parameters"))
             site = normalize_gmpe_site_parameters(
                 self.config.get("site_parameters"),

@@ -26,11 +26,13 @@ def test_cli_json_and_python_submit_equivalent_requests(
         "--mag", "6.2", "--lon", "13.25", "--lat", "46.25",
         "--depth", "10", "--rake", "-90", "--dip", "35",
         "--source", "ztor=2", "width=12.5",
+        "--source-geometry", "point",
     ])
     shakeclient.main()
 
     expected = {"scenario": {"event": {
         "magnitude": 6.2,
+        "source_geometry": "point",
         "hypocentre": {
             "longitude": 13.25,
             "latitude": 46.25,
@@ -54,6 +56,7 @@ def test_cli_json_and_python_submit_equivalent_requests(
         longitude=13.25,
         latitude=46.25,
         elevation_m=-10000.0,
+        source_geometry="point",
         source_parameters={"rake": -90.0, "dip": 35.0, "ztor": 2.0, "width": 12.5},
     )
 
@@ -111,3 +114,16 @@ def test_cli_and_python_reject_both_vertical_coordinates():
             magnitude=6.2, longitude=13.25, latitude=46.25,
             depth_km=10, elevation_m=-10000,
         )
+
+
+def test_geometry_cli_overrides_json(tmp_path):
+    path = tmp_path / "request.json"
+    path.write_text(json.dumps({
+        "scenario": {"event": {"source_geometry": "native"}},
+    }), encoding="utf-8")
+    args = shakeclient._build_parser().parse_args([
+        "submit", "--request-json", str(path),
+        "--source-geometry", "point",
+    ])
+    result = shakeclient._merge_submit_payload(args)
+    assert result["scenario"]["event"]["source_geometry"] == "point"

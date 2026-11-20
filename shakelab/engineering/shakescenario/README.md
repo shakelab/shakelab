@@ -258,13 +258,21 @@ configuration.
 Assignments may also carry provider-specific asset parameters, such as a
 station code for an observed-motion provider.
 
-For preliminary GMPE tests, set `"point_source_distances": true` in the
-provider's `config` to use `rrup ≈ rhypo` and `rjb ≈ repi` for each
+Select `"source_geometry": "point"` in the provider's `config` to
+use `rrup ≈ rhypo` and `rjb ≈ repi` for each
 event and site. With an event strike (clockwise from north, with dip to
 its right), `rx` is approximated by the signed cross-strike epicentral
 offset and `ry0` by the absolute along-strike offset. Both use a
 local projection centred at the epicentre. An explicit distance takes
-precedence. The option defaults to false.
+precedence. The default `native` mode only derives Repi and Rhypo;
+other required distances must be supplied explicitly. The event-level
+`source_geometry` overrides all GMPE providers for that request. Use
+`--source-geometry point` in the CLI, `source_geometry="point"` in
+`submit_scenario`, or `scenario.event.source_geometry` in JSON.
+`finite` is reserved and rejected until finite-source geometry is implemented.
+The legacy `point_source_distances` boolean is still accepted in provider
+configuration (true = point, false = native), but must not be combined
+with `source_geometry`.
 
 The intensity measure type (IMT) is not assigned in the ground-motion
 file. It is determined by the fragility model used for the asset

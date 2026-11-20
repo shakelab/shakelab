@@ -97,6 +97,38 @@ from shakelab.libutils.geodeticN.utilities import forward_azimuth
 # ---------------------------------------------------------------------------
 
 
+SOURCE_GEOMETRIES = ("native", "point", "finite")
+
+
+def validate_source_geometry(value: Optional[str]) -> None:
+    """Validate a geometry selection; finite geometry is not yet available."""
+    if value is None:
+        return
+    if not isinstance(value, str) or value not in SOURCE_GEOMETRIES:
+        raise ValueError(
+            "source_geometry must be 'native', 'point', or 'finite'."
+        )
+    if value == "finite":
+        raise ValueError("Finite source geometry is not implemented yet.")
+
+
+def resolve_provider_geometry(
+    source_geometry: Optional[str] = None,
+    point_source_distances: Optional[bool] = None,
+) -> str:
+    """Resolve the new configuration and the legacy boolean option."""
+    validate_source_geometry(source_geometry)
+    if point_source_distances is not None:
+        if not isinstance(point_source_distances, bool):
+            raise TypeError("point_source_distances must be boolean.")
+        if source_geometry is not None:
+            raise ValueError(
+                "Specify source_geometry or point_source_distances, not both."
+            )
+        return "point" if point_source_distances else "native"
+    return source_geometry or "native"
+
+
 def validate_source_parameters(
     parameters: Optional[Mapping[str, float]],
 ) -> None:
@@ -167,6 +199,8 @@ class ScenarioEvent:
         products, such as ShakeMap, may require it.
     magnitude_type
         Optional magnitude type.
+    source_geometry
+        Optional event-level override of the GMPE geometry selection.
     """
 
     magnitude: float
@@ -175,6 +209,7 @@ class ScenarioEvent:
     source_parameters: Optional[Mapping[str, float]] = None
     event_id: Optional[str] = None
     magnitude_type: Optional[str] = None
+    source_geometry: Optional[str] = None
 
     def __post_init__(self) -> None:
         self.validate()
@@ -254,6 +289,7 @@ class ScenarioEvent:
             raise ValueError("latitude out of range [-90, 90].")
 
         validate_source_parameters(self.source_parameters)
+        validate_source_geometry(self.source_geometry)
 
         if self.event_id is not None:
             if not isinstance(self.event_id, str):
@@ -397,7 +433,7 @@ class _GmpeProvider(_BaseProvider):
     computes point-source distance measures when they are sufficient.
 
     Finite-fault distances are supplied explicitly by default. Set
-    ``point_source_distances=True`` to approximate Rjb with Repi and Rrup
+    ``source_geometry='point'`` to approximate Rjb with Repi and Rrup
     with Rhypo. When strike is supplied, Rx and Ry0 are approximated with
     the across-strike and absolute along-strike epicentral offsets.
     This treats the rupture as a point with a prescribed orientation.
@@ -427,16 +463,17 @@ class _GmpeProvider(_BaseProvider):
         self,
         gmpe_name: str,
         distance_approx: str = "ellipsoid",
-        point_source_distances: bool = False,
+        point_source_distances: Optional[bool] = None,
         source_parameters: Optional[Mapping[str, float]] = None,
         site_parameters: Optional[Mapping[str, Any]] = None,
+        source_geometry: Optional[str] = None,
         **gmpe_kwargs: Any,
     ) -> None:
         from shakelab.groundmotion.gmpe.registry import create_gmpe
 
-        if not isinstance(point_source_distances, bool):
-            raise TypeError("point_source_distances must be boolean.")
-        self._point_source_distances = point_source_distances
+        self._source_geometry = resolve_provider_geometry(
+            source_geometry, point_source_distances,
+        )
         validate_source_parameters(source_parameters)
         self._source_parameters = dict(source_parameters or {})
         self._site_parameters = normalize_gmpe_site_parameters(
@@ -630,6 +667,8 @@ class _GmpeProvider(_BaseProvider):
             and site_parameters[name] is not None
         }
 
+        geometry = event.source_geometry or self._source_geometry
+        validate_source_geometry(geometry)
         required_distances = self._gmpe.required_distances
         optional_distances = self._gmpe.optional_distances
 
@@ -639,7 +678,7 @@ class _GmpeProvider(_BaseProvider):
                 continue
 
             point_metric = metric
-            if self._point_source_distances:
+            if geometry == "point":
                 point_metric = self._POINT_SOURCE_ALIASES.get(metric, metric)
                 if metric in {"rx", "ry0"}:
                     strike = self._resolve_source_parameters(
