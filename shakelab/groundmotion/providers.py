@@ -74,6 +74,7 @@ import numpy as np
 
 from dataclasses import dataclass
 from math import exp, isfinite
+from numbers import Real
 from pathlib import Path
 from typing import (
     Any,
@@ -96,6 +97,34 @@ from shakelab.libutils.geodeticN.utilities import forward_azimuth
 # ---------------------------------------------------------------------------
 
 
+def validate_source_parameters(
+    parameters: Optional[Mapping[str, float]],
+) -> None:
+    """Validate supplementary source parameters independently of a GMPE."""
+    if parameters is None:
+        return
+    if not isinstance(parameters, Mapping):
+        raise TypeError("source_parameters must be a mapping or None.")
+    bounds = {"strike": (0.0, 360.0), "dip": (0.0, 90.0),
+              "rake": (-180.0, 180.0)}
+    reserved = {"mag", "magnitude", "hypo_depth", "depth", "depth_km"}
+    for name, value in parameters.items():
+        if not isinstance(name, str) or not name.isidentifier():
+            raise ValueError("Source parameter names must be identifiers.")
+        if name in reserved:
+            raise ValueError(f"Source parameter {name!r} is reserved.")
+        if (isinstance(value, bool) or not isinstance(value, Real)
+                or not isfinite(value)):
+            raise ValueError(f"Source parameter {name!r} must be finite.")
+        if name in bounds:
+            lower, upper = bounds[name]
+            if not lower <= value <= upper:
+                raise ValueError(
+                    f"Source parameter {name!r} must be in "
+                    f"[{lower}, {upper}] degrees."
+                )
+
+
 @dataclass(frozen=True)
 class ScenarioEvent:
     """
@@ -109,8 +138,8 @@ class ScenarioEvent:
         Hypocentral location as WgsPoint.
     origin_time
         Optional origin time.
-    mechanism
-        Optional focal-mechanism mapping.
+    source_parameters
+        Optional supplementary source parameter mapping.
     event_id
         Optional event identifier. Providers backed by event-specific
         products, such as ShakeMap, may require it.
@@ -121,7 +150,7 @@ class ScenarioEvent:
     magnitude: float
     hypocentre: WgsPoint
     origin_time: Optional[Any] = None
-    mechanism: Optional[Mapping[str, float]] = None
+    source_parameters: Optional[Mapping[str, float]] = None
     event_id: Optional[str] = None
     magnitude_type: Optional[str] = None
 
@@ -202,11 +231,7 @@ class ScenarioEvent:
         if not -90.0 <= lat <= 90.0:
             raise ValueError("latitude out of range [-90, 90].")
 
-        if self.mechanism is not None and not isinstance(
-            self.mechanism,
-            Mapping,
-        ):
-            raise TypeError("mechanism must be a mapping or None.")
+        validate_source_parameters(self.source_parameters)
 
         if self.event_id is not None:
             if not isinstance(self.event_id, str):
@@ -359,7 +384,7 @@ class _GmpeProvider(_BaseProvider):
     ------------------
     rupture_parameters
         Optional mapping of rupture parameters. Values override parameters
-        available from ``ScenarioEvent.mechanism`` and derived event fields.
+        available from ``ScenarioEvent.source_parameters`` and derived event fields.
     site_parameters
         Optional mapping of site-dependent properties, for example ``vs30``.
         Scalars are broadcast to all sites by ``SitesContext``.
@@ -521,8 +546,8 @@ class _GmpeProvider(_BaseProvider):
             "hypo_depth": float(event.depth_km),
         }
 
-        if event.mechanism is not None:
-            for name, value in event.mechanism.items():
+        if event.source_parameters is not None:
+            for name, value in event.source_parameters.items():
                 if value is not None:
                     available[str(name)] = value
 
@@ -582,7 +607,7 @@ class _GmpeProvider(_BaseProvider):
                 if metric in {"rx", "ry0"}:
                     strike = rupture_parameters.get("strike")
                     if strike is None:
-                        strike = (event.mechanism or {}).get("strike")
+                        strike = (event.source_parameters or {}).get("strike")
                     if strike is not None:
                         data[metric] = self._project_epicentral_offsets_km(
                             event, sites, metric, strike,

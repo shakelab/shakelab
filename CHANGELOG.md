@@ -18,6 +18,9 @@ corrections. The format follows
 
 ### Changed
 
+- Rename ShakeScenario supplementary source inputs to `--source` and
+  `source_parameters`; validate finite values and focal angles centrally.
+
 - `signals.base.Record.correlate` no longer replaces the samples of
   the record: it returns `(lag, value)`, the lags in seconds and the
   correlation. A positive lag means that the record is delayed with

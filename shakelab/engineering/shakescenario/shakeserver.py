@@ -158,10 +158,14 @@ def _build_scenario_event(event_data: dict[str, Any]):
             )
     
     origin_time = ev.get("origin_time")
-    mechanism = ev.get("mechanism")
-    if mechanism is not None and not isinstance(mechanism, dict):
+    if "mechanism" in ev:
         raise ValueError(
-            "scenario.event.mechanism must be an object or null."
+            "Use scenario.event.source_parameters instead of mechanism."
+        )
+    source_parameters = ev.get("source_parameters")
+    if source_parameters is not None and not isinstance(source_parameters, dict):
+        raise ValueError(
+            "scenario.event.source_parameters must be an object or null."
         )
     
     event = ScenarioEvent(
@@ -173,7 +177,7 @@ def _build_scenario_event(event_data: dict[str, Any]):
         magnitude=float(ev["magnitude"]),
         event_id=event_id,
         origin_time=origin_time,
-        mechanism=mechanism,
+        source_parameters=source_parameters,
     )
     return event
 

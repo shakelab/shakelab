@@ -11,7 +11,7 @@ context-based GMPE architecture:
 
 2. BindiEtAl2011
    - requires Mw, rake, Joyner-Boore distance (Rjb), and Vs30;
-   - rake is read from ScenarioEvent.mechanism;
+   - rake is read from ScenarioEvent.source_parameters;
    - Rjb and Vs30 are supplied explicitly to the provider as site-dependent
      data.
 
@@ -238,7 +238,7 @@ def run_bindi_example(
         ),
         magnitude=6.0,
         magnitude_type="Mw",
-        mechanism={
+        source_parameters={
             "rake": 90.0,
         },
     )

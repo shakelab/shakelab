@@ -40,13 +40,13 @@ GEOMETRY = {
 }
 
 
-def _runtime(mechanism, *, distances=None):
+def _runtime(source_parameters, *, distances=None):
     event = ScenarioEvent.from_lonlat_depth(
         magnitude=6.0,
         longitude=13.0,
         latitude=46.0,
         depth_km=10.0,
-        mechanism=mechanism,
+        source_parameters=source_parameters,
     )
     assignment = GroundMotionAssignment(
         assets=("asset_1",),
@@ -71,8 +71,8 @@ def _runtime(mechanism, *, distances=None):
     return GroundMotionRuntime(model, event)
 
 
-def _evaluate(mechanism, *, distances=None):
-    return _runtime(mechanism, distances=distances).evaluate_at_site(
+def _evaluate(source_parameters, *, distances=None):
+    return _runtime(source_parameters, distances=distances).evaluate_at_site(
         asset_id="asset_1",
         imt="PGA",
         lon=13.15,
@@ -97,11 +97,11 @@ def test_strike_does_not_change_cy14_with_fixed_distances():
 
 @pytest.mark.parametrize("missing", ["dip", "ztor", "rake"])
 def test_required_rupture_parameters_cannot_be_omitted(missing):
-    mechanism = dict(GEOMETRY)
-    del mechanism[missing]
+    source_parameters = dict(GEOMETRY)
+    del source_parameters[missing]
     with pytest.raises((ValueError, AttributeError, TypeError),
                        match=missing):
-        _evaluate(mechanism)
+        _evaluate(source_parameters)
 
 
 def test_finite_fault_distance_is_not_invented():
@@ -119,7 +119,7 @@ def test_oriented_point_source_distances_match_cardinal_offsets():
     })
     event = ScenarioEvent.from_lonlat_depth(
         magnitude=6.0, longitude=0, latitude=0, depth_km=10,
-        mechanism={"strike": 0.0},
+        source_parameters={"strike": 0.0},
     )
     sites = [WgsPoint(1, 0), WgsPoint(-1, 0), WgsPoint(0, 1)]
     repi = [
@@ -151,7 +151,7 @@ def test_oriented_point_source_requires_strike_for_cy14():
     })
     event = ScenarioEvent.from_lonlat_depth(
         magnitude=6.0, longitude=13.0, latitude=46.0, depth_km=10,
-        mechanism={"rake": 90.0, "dip": 35.0, "ztor": 2.0},
+        source_parameters={"rake": 90.0, "dip": 35.0, "ztor": 2.0},
     )
     sites = [WgsPoint(13.15, 46.1)]
     with pytest.raises(ValueError, match="requires strike"):

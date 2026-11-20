@@ -24,7 +24,7 @@ DISTANCES = {"rrup": 18.0, "rjb": 15.0, "rx": 8.0}
 def _runtime(
     *,
     reference_site=None,
-    mechanism=None,
+    source_parameters=None,
     distances=None,
 ):
     event = ScenarioEvent.from_lonlat_depth(
@@ -32,7 +32,7 @@ def _runtime(
         longitude=13.0,
         latitude=46.0,
         depth_km=10.0,
-        mechanism=RUPTURE if mechanism is None else mechanism,
+        source_parameters=RUPTURE if source_parameters is None else source_parameters,
     )
     assignment = GroundMotionAssignment(
         assets=("asset_1",),
@@ -131,7 +131,7 @@ def test_missing_rupture_requirement_fails_in_impact():
             "is_measured": True,
             "z1pt0": 300.0,
         },
-        mechanism={"rake": 90.0, "ztor": 2.0},
+        source_parameters={"rake": 90.0, "ztor": 2.0},
     )
     exposure, tree, collection = _asset()
 

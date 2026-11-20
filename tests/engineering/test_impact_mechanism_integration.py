@@ -18,7 +18,7 @@ from tests.engineering.test_impact_integration import _inputs
 
 
 def _runtime(rake):
-    mechanism = None if rake is None else {
+    source_parameters = None if rake is None else {
         "strike": 30.0,
         "dip": 60.0,
         "rake": rake,
@@ -28,7 +28,7 @@ def _runtime(rake):
         longitude=13.0,
         latitude=46.0,
         depth_km=10.0,
-        mechanism=mechanism,
+        source_parameters=source_parameters,
     )
     model = GroundMotionModel(
         type="ShakeLabGroundMotion",

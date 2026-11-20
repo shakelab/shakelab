@@ -427,17 +427,17 @@ Ground motion is defined by the selected model.
 
 Use `--rake`, `--dip`, and `--strike` for focal angles in degrees.
 Supply additional source parameters as named values in one
-`--mechanism` group. The selected GMPE defines their units.
+`--source` group. The selected GMPE defines their units.
 
 ```bash
 shakeclient submit --mag 6.2 --lon 13.25 --lat 46.25 --depth 10 \
-    --rake 90 --dip 35 --mechanism ztor=2 width=12
+    --rake 90 --dip 35 --source ztor=2 width=12
 ```
 
 Use either `--depth` in kilometres (positive down) or `--elevation`
 in metres (positive up). CLI values also override fields loaded from
 `--request-json`, including individual entries in
-`scenario.event.mechanism`. Each mechanism field can appear once on
+`scenario.event.source_parameters`. Each source parameter can appear once on
 the command line.
 
 From Python, use the same field mapping through a connected
@@ -449,7 +449,7 @@ client.submit_scenario(
     longitude=13.25,
     latitude=46.25,
     depth_km=10,
-    mechanism={"rake": 90.0, "dip": 35.0, "ztor": 2.0, "width": 12.0},
+    source_parameters={"rake": 90.0, "dip": 35.0, "ztor": 2.0, "width": 12.0},
 )
 ```
 

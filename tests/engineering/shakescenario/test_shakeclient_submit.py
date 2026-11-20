@@ -25,7 +25,7 @@ def test_cli_json_and_python_submit_equivalent_requests(
         "shakeclient", "--format", "json", "submit",
         "--mag", "6.2", "--lon", "13.25", "--lat", "46.25",
         "--depth", "10", "--rake", "-90", "--dip", "35",
-        "--mechanism", "ztor=2", "width=12.5",
+        "--source", "ztor=2", "width=12.5",
     ])
     shakeclient.main()
 
@@ -36,7 +36,7 @@ def test_cli_json_and_python_submit_equivalent_requests(
             "latitude": 46.25,
             "elevation": -10000.0,
         },
-        "mechanism": {
+        "source_parameters": {
             "rake": -90.0, "dip": 35.0, "ztor": 2.0, "width": 12.5,
         },
     }}}
@@ -54,7 +54,7 @@ def test_cli_json_and_python_submit_equivalent_requests(
         longitude=13.25,
         latitude=46.25,
         elevation_m=-10000.0,
-        mechanism={"rake": -90.0, "dip": 35.0, "ztor": 2.0, "width": 12.5},
+        source_parameters={"rake": -90.0, "dip": 35.0, "ztor": 2.0, "width": 12.5},
     )
 
     assert requests == [expected, expected, expected]
@@ -67,12 +67,12 @@ def test_cli_overrides_individual_json_fields(tmp_path):
         "scenario": {"event": {
             "magnitude": 6.2,
             "hypocentre": {"longitude": 13.25, "elevation": -10000.0},
-            "mechanism": {"rake": 90, "dip": 35, "ztor": 2},
+            "source_parameters": {"rake": 90, "dip": 35, "ztor": 2},
         }},
     }), encoding="utf-8")
     args = shakeclient._build_parser().parse_args([
         "submit", "--request-json", str(path), "--rake", "0",
-        "--elevation", "0", "--mechanism", "ztor=3",
+        "--elevation", "0", "--source", "ztor=3",
     ])
     result = shakeclient._merge_submit_payload(args)
 
@@ -80,17 +80,17 @@ def test_cli_overrides_individual_json_fields(tmp_path):
     event = result["scenario"]["event"]
     assert event["magnitude"] == 6.2
     assert event["hypocentre"] == {"longitude": 13.25, "elevation": 0.0}
-    assert event["mechanism"] == {"rake": 0.0, "dip": 35, "ztor": 3.0}
+    assert event["source_parameters"] == {"rake": 0.0, "dip": 35, "ztor": 3.0}
 
 
 @pytest.mark.parametrize(("options", "message"), [
-    (["--rake", "90", "--mechanism", "rake=45"], "Duplicate.*rake"),
+    (["--rake", "90", "--source", "rake=45"], "Duplicate.*rake"),
     (["--strike", "0", "--strike", "90"], "Duplicate.*strike"),
-    (["--mechanism", "ztor=2", "ztor=3"], "Duplicate.*ztor"),
-    (["--mechanism", "ztor=2", "--mechanism", "width=3"], "once"),
-    (["--mechanism", "90,35"], "NAME=VALUE"),
-    (["--mechanism", "ztor=abc"], "finite"),
-    (["--mechanism", "ztor=nan"], "finite"),
+    (["--source", "ztor=2", "ztor=3"], "Duplicate.*ztor"),
+    (["--source", "ztor=2", "--source", "width=3"], "once"),
+    (["--source", "90,35"], "NAME=VALUE"),
+    (["--source", "ztor=abc"], "finite"),
+    (["--source", "ztor=nan"], "finite"),
 ])
 def test_cli_rejects_invalid_mechanism_options(options, message):
     args = shakeclient._build_parser().parse_args(["submit", *options])

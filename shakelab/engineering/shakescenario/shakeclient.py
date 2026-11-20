@@ -83,7 +83,7 @@ class ShakeScenarioClient:
         latitude: float,
         depth_km: float | None = None,
         elevation_m: float | None = None,
-        mechanism: Mapping[str, float] | None = None,
+        source_parameters: Mapping[str, float] | None = None,
         origin_time: str | None = None,
         event_id: str | None = None,
         model_id: str | None = None,
@@ -103,7 +103,7 @@ class ShakeScenarioClient:
             latitude=latitude,
             depth_km=depth_km,
             elevation_m=elevation_m,
-            mechanism=mechanism,
+            source_parameters=source_parameters,
             origin_time=origin_time,
             event_id=event_id,
             model_id=model_id,
@@ -233,7 +233,7 @@ def _build_parser() -> argparse.ArgumentParser:
             help=f"Focal mechanism {angle} (degrees).",
         )
     p_submit.add_argument(
-        "--mechanism", action="append", nargs="+", metavar="NAME=VALUE",
+        "--source", action="append", nargs="+", metavar="NAME=VALUE",
         help="Additional GMPE source parameters in one group.",
     )
     p_submit.add_argument(
@@ -507,15 +507,15 @@ def _merge_submit_payload(
         latitude=args.lat,
         depth_km=args.depth,
         elevation_m=args.elevation,
-        mechanism=_parse_mechanism_args(args),
+        source_parameters=_parse_source_args(args),
     )
 
 
-def _parse_mechanism_args(args: argparse.Namespace) -> dict[str, float]:
-    """Combine dedicated angle flags with the named mechanism parameters."""
-    groups = args.mechanism or []
+def _parse_source_args(args: argparse.Namespace) -> dict[str, float]:
+    """Combine dedicated angle flags with the named source parameters."""
+    groups = args.source or []
     if len(groups) > 1:
-        raise ValueError("Use --mechanism once with all NAME=VALUE pairs.")
+        raise ValueError("Use --source once with all NAME=VALUE pairs.")
 
     entries = [
         (name, value)
@@ -525,25 +525,25 @@ def _parse_mechanism_args(args: argparse.Namespace) -> dict[str, float]:
     for item in groups[0] if groups else ():
         name, separator, value = item.partition("=")
         if not separator or not name.isidentifier():
-            raise ValueError(f"Expected --mechanism NAME=VALUE, got {item!r}.")
+            raise ValueError(f"Expected --source NAME=VALUE, got {item!r}.")
         entries.append((name, value))
 
-    mechanism: dict[str, float] = {}
+    source_parameters: dict[str, float] = {}
     for name, value in entries:
-        if name in mechanism:
-            raise ValueError(f"Duplicate mechanism parameter {name!r}.")
+        if name in source_parameters:
+            raise ValueError(f"Duplicate source parameter {name!r}.")
         try:
             number = float(value)
         except ValueError as exc:
             raise ValueError(
-                f"Mechanism parameter {name!r} must be a finite number."
+                f"Source parameter {name!r} must be a finite number."
             ) from exc
         if not math.isfinite(number):
             raise ValueError(
-                f"Mechanism parameter {name!r} must be a finite number."
+                f"Source parameter {name!r} must be a finite number."
             )
-        mechanism[name] = number
-    return mechanism
+        source_parameters[name] = number
+    return source_parameters
 
 
 def _build_submit_payload(
@@ -558,7 +558,7 @@ def _build_submit_payload(
     latitude: float | None = None,
     depth_km: float | None = None,
     elevation_m: float | None = None,
-    mechanism: Mapping[str, float] | None = None,
+    source_parameters: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     """Apply explicitly provided fields to the client-owned request."""
     if depth_km is not None and elevation_m is not None:
@@ -603,13 +603,21 @@ def _build_submit_payload(
         hypoc["elevation"] = -1000.0 * float(depth_km)
     if elevation_m is not None:
         hypoc["elevation"] = float(elevation_m)
-    if mechanism:
-        existing = event.get("mechanism")
+    if source_parameters is not None:
+        from shakelab.groundmotion.providers import (
+            validate_source_parameters,
+        )
+
+        validate_source_parameters(source_parameters)
+        existing = event.get("source_parameters")
         if existing is None:
             existing = {}
         if not isinstance(existing, dict):
-            raise ValueError("scenario.event.mechanism must be an object.")
-        event["mechanism"] = {**existing, **mechanism}
+            raise ValueError("scenario.event.source_parameters must be an object.")
+        merged = {**existing, **source_parameters}
+        validate_source_parameters(merged)
+        if merged:
+            event["source_parameters"] = merged
 
     if hypoc:
         event["hypocentre"] = hypoc
