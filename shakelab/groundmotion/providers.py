@@ -88,6 +88,7 @@ from typing import (
 
 from shakelab.libutils.constants import GRAVITY
 from shakelab.libutils.geodeticN.primitives import WgsPoint
+from shakelab.libutils.geodeticN.utilities import forward_azimuth
 
 
 # ---------------------------------------------------------------------------
@@ -348,9 +349,11 @@ class _GmpeProvider(_BaseProvider):
     from ``ScenarioEvent``, obtains site parameters supplied at runtime, and
     computes point-source distance measures when they are sufficient.
 
-    Finite-fault distances such as Rjb, Rrup, Rx and Ry0 are never silently
-    approximated from epicentral or hypocentral distance. They must be
-    supplied explicitly until a rupture-geometry layer is available.
+    Finite-fault distances are supplied explicitly by default. Set
+    ``point_source_distances=True`` to approximate Rjb with Repi and Rrup
+    with Rhypo. When strike is supplied, Rx and Ry0 are approximated with
+    the across-strike and absolute along-strike epicentral offsets.
+    This treats the rupture as a point with a prescribed orientation.
 
     Runtime parameters
     ------------------
@@ -370,14 +373,20 @@ class _GmpeProvider(_BaseProvider):
         "repi",
         "rhypo",
     })
+    _POINT_SOURCE_ALIASES = {"rjb": "repi", "rrup": "rhypo"}
 
     def __init__(
         self,
         gmpe_name: str,
         distance_approx: str = "ellipsoid",
+        point_source_distances: bool = False,
         **gmpe_kwargs: Any,
     ) -> None:
         from shakelab.groundmotion.gmpe.registry import create_gmpe
+
+        if not isinstance(point_source_distances, bool):
+            raise TypeError("point_source_distances must be boolean.")
+        self._point_source_distances = point_source_distances
 
         self._gmpe = create_gmpe(
             gmpe_name,
@@ -437,6 +446,7 @@ class _GmpeProvider(_BaseProvider):
             event,
             site_parameters,
             distances,
+            rupture_parameters,
         )
 
         self._gmpe.validate_contexts(
@@ -539,6 +549,7 @@ class _GmpeProvider(_BaseProvider):
         event: ScenarioEvent,
         site_parameters: Mapping[str, Any],
         distances: Mapping[str, Any],
+        rupture_parameters: Mapping[str, Any],
     ) -> Any:
         """
         Build vectorized site and distance data requested by the GMPE.
@@ -565,11 +576,29 @@ class _GmpeProvider(_BaseProvider):
                 data[metric] = distances[metric]
                 continue
 
-            if metric in self._POINT_SOURCE_DISTANCES:
+            point_metric = metric
+            if self._point_source_distances:
+                point_metric = self._POINT_SOURCE_ALIASES.get(metric, metric)
+                if metric in {"rx", "ry0"}:
+                    strike = rupture_parameters.get("strike")
+                    if strike is None:
+                        strike = (event.mechanism or {}).get("strike")
+                    if strike is not None:
+                        data[metric] = self._project_epicentral_offsets_km(
+                            event, sites, metric, strike,
+                        )
+                        continue
+                    if metric in required_distances:
+                        raise ValueError(
+                            f"Point-source approximation of {metric!r} "
+                            "requires strike or an explicit distance."
+                        )
+
+            if point_metric in self._POINT_SOURCE_DISTANCES:
                 data[metric] = self._compute_distance_array_km(
                     event,
                     sites,
-                    metric,
+                    point_metric,
                 )
                 continue
 
@@ -586,6 +615,31 @@ class _GmpeProvider(_BaseProvider):
             size=len(sites),
             **data,
         )
+
+    def _project_epicentral_offsets_km(
+        self,
+        event: ScenarioEvent,
+        sites: Sequence[WgsPoint],
+        metric: str,
+        strike: float,
+    ) -> np.ndarray:
+        """Project epicentral offsets along or across a local strike axis."""
+        strike = float(strike)
+        if not isfinite(strike) or not 0.0 <= strike <= 360.0:
+            raise ValueError("strike must be in [0, 360] degrees.")
+
+        azimuth = forward_azimuth(
+            event.epicentre.longitude,
+            event.epicentre.latitude,
+            [site.longitude for site in sites],
+            [site.latitude for site in sites],
+        )
+        angle = np.deg2rad(azimuth - strike)
+        repi = self._compute_distance_array_km(event, sites, "repi")
+        if metric == "rx":
+            # Positive on the right of the strike direction.
+            return repi * np.sin(angle)
+        return np.abs(repi * np.cos(angle))
 
     def _validate_magnitude_type(
         self,

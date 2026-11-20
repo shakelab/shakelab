@@ -36,9 +36,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -72,6 +74,42 @@ class ShakeScenarioClient:
             payload=payload,
             req_id=self._req_id(),
         )
+
+    def submit_scenario(
+        self,
+        *,
+        magnitude: float,
+        longitude: float,
+        latitude: float,
+        depth_km: float | None = None,
+        elevation_m: float | None = None,
+        mechanism: Mapping[str, float] | None = None,
+        origin_time: str | None = None,
+        event_id: str | None = None,
+        model_id: str | None = None,
+        tag: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit a scenario from keyword arguments.
+
+        Depth is in kilometres, positive down. Elevation is in metres,
+        positive up. Supply at most one. Mechanism values use the units
+        expected by the selected GMPE, including degrees for focal angles.
+        Omitted model and hypocentral elevation use the server defaults.
+        """
+        payload = _build_submit_payload(
+            {},
+            magnitude=magnitude,
+            longitude=longitude,
+            latitude=latitude,
+            depth_km=depth_km,
+            elevation_m=elevation_m,
+            mechanism=mechanism,
+            origin_time=origin_time,
+            event_id=event_id,
+            model_id=model_id,
+            tag=tag,
+        )
+        return self.submit(payload)
 
     def list_jobs(
         self,
@@ -151,10 +189,6 @@ class ShakeScenarioClient:
             time.sleep(max(0.1, float(interval)))
 
 
-def _safe_getattr(ns: argparse.Namespace, name: str, default: Any = None) -> Any:
-    return getattr(ns, name, default)
-
-
 def _json_load_file(path: str) -> Any:
     p = Path(path).expanduser().resolve()
     return json.loads(p.read_text(encoding="utf-8"))
@@ -185,7 +219,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p_submit.add_argument("--mag", type=float, default=None)
     p_submit.add_argument("--lon", type=float, default=None)
     p_submit.add_argument("--lat", type=float, default=None)
-    p_submit.add_argument("--depth", type=float, default=None)
+    vertical = p_submit.add_mutually_exclusive_group()
+    vertical.add_argument(
+        "--depth", type=float, help="Hypocentral depth (km, positive down)."
+    )
+    vertical.add_argument(
+        "--elevation", type=float,
+        help="Hypocentral elevation (m, positive up).",
+    )
+    for angle in ("rake", "dip", "strike"):
+        p_submit.add_argument(
+            f"--{angle}", type=float, action="append",
+            help=f"Focal mechanism {angle} (degrees).",
+        )
+    p_submit.add_argument(
+        "--mechanism", action="append", nargs="+", metavar="NAME=VALUE",
+        help="Additional GMPE source parameters in one group.",
+    )
     p_submit.add_argument(
         "--origin-time",
         dest="origin_time",
@@ -405,7 +455,10 @@ def _print_submit_text(res: dict[str, Any]) -> None:
     job_id = res.get("job_id")
     status = res.get("status")
     print(f"Submitted job {job_id} ({status}).")
-    print(f"Next: python3 shakescenario.py wait {job_id}")
+    print(
+        "Next: python -m shakelab.engineering.shakescenario.shakeclient "
+        f"wait {job_id}"
+    )
 
 
 def _print_simple_kv_text(res: dict[str, Any]) -> None:
@@ -440,20 +493,80 @@ def _print_result(obj: dict[str, Any], fmt: str, kind: str) -> None:
 def _merge_submit_payload(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
+    payload = _json_load_file(args.request_json) if args.request_json else {}
+    if not isinstance(payload, dict):
+        raise ValueError("--request-json must contain a JSON object.")
+    return _build_submit_payload(
+        payload,
+        tag=args.tag,
+        model_id=args.model_id,
+        magnitude=args.mag,
+        origin_time=args.origin_time,
+        event_id=args.event_id,
+        longitude=args.lon,
+        latitude=args.lat,
+        depth_km=args.depth,
+        elevation_m=args.elevation,
+        mechanism=_parse_mechanism_args(args),
+    )
 
-    req_path = _safe_getattr(args, "request_json", None)
-    if req_path:
-        loaded = _json_load_file(req_path)
-        if not isinstance(loaded, dict):
-            raise ValueError("--request-json must contain a JSON object.")
-        payload = loaded
 
-    tag = _safe_getattr(args, "tag", None)
+def _parse_mechanism_args(args: argparse.Namespace) -> dict[str, float]:
+    """Combine dedicated angle flags with the named mechanism parameters."""
+    groups = args.mechanism or []
+    if len(groups) > 1:
+        raise ValueError("Use --mechanism once with all NAME=VALUE pairs.")
+
+    entries = [
+        (name, value)
+        for name in ("rake", "dip", "strike")
+        for value in (getattr(args, name) or [])
+    ]
+    for item in groups[0] if groups else ():
+        name, separator, value = item.partition("=")
+        if not separator or not name.isidentifier():
+            raise ValueError(f"Expected --mechanism NAME=VALUE, got {item!r}.")
+        entries.append((name, value))
+
+    mechanism: dict[str, float] = {}
+    for name, value in entries:
+        if name in mechanism:
+            raise ValueError(f"Duplicate mechanism parameter {name!r}.")
+        try:
+            number = float(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"Mechanism parameter {name!r} must be a finite number."
+            ) from exc
+        if not math.isfinite(number):
+            raise ValueError(
+                f"Mechanism parameter {name!r} must be a finite number."
+            )
+        mechanism[name] = number
+    return mechanism
+
+
+def _build_submit_payload(
+    payload: dict[str, Any],
+    *,
+    tag: str | None = None,
+    model_id: str | None = None,
+    magnitude: float | None = None,
+    origin_time: str | None = None,
+    event_id: str | None = None,
+    longitude: float | None = None,
+    latitude: float | None = None,
+    depth_km: float | None = None,
+    elevation_m: float | None = None,
+    mechanism: Mapping[str, float] | None = None,
+) -> dict[str, Any]:
+    """Apply explicitly provided fields to the client-owned request."""
+    if depth_km is not None and elevation_m is not None:
+        raise ValueError("Supply only one of depth_km and elevation_m.")
+
     if tag is not None:
         payload["tag"] = tag
 
-    model_id = _safe_getattr(args, "model_id", None)
     if model_id is not None:
         models = payload.get("models", {})
         if not isinstance(models, dict):
@@ -473,28 +586,30 @@ def _merge_submit_payload(
     if not isinstance(hypoc, dict):
         hypoc = {}
 
-    mag = _safe_getattr(args, "mag", None)
-    origin_time = _safe_getattr(args, "origin_time", None)
-    event_id = _safe_getattr(args, "event_id", None)
-    lon = _safe_getattr(args, "lon", None)
-    lat = _safe_getattr(args, "lat", None)
-    depth = _safe_getattr(args, "depth", None)
-
     if origin_time is not None:
         event["origin_time"] = str(origin_time)
     if event_id is not None:
         event_id = str(event_id).strip()
         if not event_id:
-            raise ValueError("--event-id must not be empty.")
+            raise ValueError("Event ID must not be empty.")
         event["event_id"] = event_id
-    if mag is not None:
-        event["magnitude"] = float(mag)
-    if lon is not None:
-        hypoc["longitude"] = float(lon)
-    if lat is not None:
-        hypoc["latitude"] = float(lat)
-    if depth is not None:
-        hypoc["elevation"] = -1000.0 * float(depth)
+    if magnitude is not None:
+        event["magnitude"] = float(magnitude)
+    if longitude is not None:
+        hypoc["longitude"] = float(longitude)
+    if latitude is not None:
+        hypoc["latitude"] = float(latitude)
+    if depth_km is not None:
+        hypoc["elevation"] = -1000.0 * float(depth_km)
+    if elevation_m is not None:
+        hypoc["elevation"] = float(elevation_m)
+    if mechanism:
+        existing = event.get("mechanism")
+        if existing is None:
+            existing = {}
+        if not isinstance(existing, dict):
+            raise ValueError("scenario.event.mechanism must be an object.")
+        event["mechanism"] = {**existing, **mechanism}
 
     if hypoc:
         event["hypocentre"] = hypoc

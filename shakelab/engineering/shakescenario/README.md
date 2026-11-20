@@ -237,6 +237,14 @@ configuration.
 Assignments may also carry provider-specific asset parameters, such as a
 station code for an observed-motion provider.
 
+For preliminary GMPE tests, set `"point_source_distances": true` in the
+provider's `config` to use `rrup ≈ rhypo` and `rjb ≈ repi` for each
+event and site. With an event strike (clockwise from north, with dip to
+its right), `rx` is approximated by the signed cross-strike epicentral
+offset and `ry0` by the absolute along-strike offset. Both use a
+local projection centred at the epicentre. An explicit distance takes
+precedence. The option defaults to false.
+
 The intensity measure type (IMT) is not assigned in the ground-motion
 file. It is determined by the fragility model used for the asset
 taxonomy.
@@ -416,6 +424,37 @@ A standard request has the form:
 
 `scenario.ground_motion` is not part of the current standard request.
 Ground motion is defined by the selected model.
+
+Use `--rake`, `--dip`, and `--strike` for focal angles in degrees.
+Supply additional source parameters as named values in one
+`--mechanism` group. The selected GMPE defines their units.
+
+```bash
+shakeclient submit --mag 6.2 --lon 13.25 --lat 46.25 --depth 10 \
+    --rake 90 --dip 35 --mechanism ztor=2 width=12
+```
+
+Use either `--depth` in kilometres (positive down) or `--elevation`
+in metres (positive up). CLI values also override fields loaded from
+`--request-json`, including individual entries in
+`scenario.event.mechanism`. Each mechanism field can appear once on
+the command line.
+
+From Python, use the same field mapping through a connected
+`ShakeScenarioClient`:
+
+```python
+client.submit_scenario(
+    magnitude=6.2,
+    longitude=13.25,
+    latitude=46.25,
+    depth_km=10,
+    mechanism={"rake": 90.0, "dip": 35.0, "ztor": 2.0, "width": 12.0},
+)
+```
+
+Omit `model_id` to use the server's default model. Use
+`client.submit(payload)` to submit a complete request dictionary.
 
 ### 8.5 List available models
 

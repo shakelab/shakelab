@@ -7,6 +7,15 @@ corrections. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Optional point-source distance approximations for ShakeScenario GMPE
+  providers, including strike-dependent offsets for preliminary tests.
+
+- ShakeScenario client flags for hypocentral elevation, focal angles
+  and additional GMPE source parameters, with the same request
+  construction available through `ShakeScenarioClient.submit_scenario()`.
+
 ### Changed
 
 - Documentation: the equations of the YARRAY guide are written in
