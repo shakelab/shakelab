@@ -9,6 +9,9 @@ corrections. The format follows
 
 ### Added
 
+- Integrate rectangular finite source geometry in GMPE providers and
+  enable finite geometry selection through the scenario interface.
+
 - Independent rectangular rupture geometry and analytic local-frame
   Rrup, Rjb, Rx and Ry0 distances in `groundmotion.rupture`.
 

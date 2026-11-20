@@ -51,5 +51,6 @@ uses one local tangent plane: depths and horizontal distances are local,
 not distances to a curved ellipsoidal polygon. It is intended for
 regional finite-rupture modelling; Earth curvature and surface
 topography need separate consideration for large extents.
-No magnitude scaling, fault selection or provider integration is
-performed in this module.
+No magnitude scaling or fault selection is performed in this module.
+The GMPE provider uses this class when source_geometry is finite; the
+geometry itself remains independent of the provider.

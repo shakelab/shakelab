@@ -62,13 +62,13 @@ def test_invalid_source_parameter_values(event_data, parameters):
         _build_scenario_event(event_data)
 
 
-@pytest.mark.parametrize("geometry", [None, "native", "point"])
+@pytest.mark.parametrize("geometry", [None, "native", "point", "finite"])
 def test_event_geometry_preserved(event_data, geometry):
     event_data["source_geometry"] = geometry
     assert _build_scenario_event(event_data).source_geometry == geometry
 
 
-@pytest.mark.parametrize("geometry", ["finite", "unknown", True])
+@pytest.mark.parametrize("geometry", ["unknown", True])
 def test_invalid_event_geometry_rejected(event_data, geometry):
     event_data["source_geometry"] = geometry
     with pytest.raises(ValueError):

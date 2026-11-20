@@ -55,7 +55,6 @@ def test_explicit_distances_still_win():
 
 
 @pytest.mark.parametrize("config", [
-    {"source_geometry": "finite"},
     {"source_geometry": "unknown"},
     {"source_geometry": "point", "point_source_distances": True},
 ])

@@ -269,7 +269,24 @@ other required distances must be supplied explicitly. The event-level
 `source_geometry` overrides all GMPE providers for that request. Use
 `--source-geometry point` in the CLI, `source_geometry="point"` in
 `submit_scenario`, or `scenario.event.source_geometry` in JSON.
-`finite` is reserved and rejected until finite-source geometry is implemented.
+With `finite`, the provider computes Rrup, Rjb, Rx and Ry0 from the
+rectangular rupture in `shakelab.groundmotion.rupture`. Supply `strike`,
+`dip`, `length`, `width`, `ztor` and `along_fraction` in the merged source
+parameters. Length, width and ztor are in kilometres; along_fraction is
+in [0, 1]. The down-dip fraction follows from hypocentral depth and ztor;
+for a horizontal rupture also supply `down_fraction`. Invalid geometry
+raises an error, even if distances are supplied explicitly. No magnitude
+scaling is applied. Finite distances use local WGS84 ENU geometry;
+`distance_approx` retains its existing meaning for hypocentral distance.
+
+For example, for a hypocentre at 7 km depth:
+
+```bash
+shakeclient submit --mag 6.2 --lon 13.25 --lat 46.25 --depth 7 \
+    --strike 120 --dip 35 --rake 90 --source-geometry finite \
+    --source length=20 width=12 ztor=2 along_fraction=0.5
+```
+
 The legacy `point_source_distances` boolean is still accepted in provider
 configuration (true = point, false = native), but must not be combined
 with `source_geometry`.

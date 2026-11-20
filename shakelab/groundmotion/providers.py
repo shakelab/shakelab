@@ -101,15 +101,13 @@ SOURCE_GEOMETRIES = ("native", "point", "finite")
 
 
 def validate_source_geometry(value: Optional[str]) -> None:
-    """Validate a geometry selection; finite geometry is not yet available."""
+    """Validate an optional source geometry selection."""
     if value is None:
         return
     if not isinstance(value, str) or value not in SOURCE_GEOMETRIES:
         raise ValueError(
             "source_geometry must be 'native', 'point', or 'finite'."
         )
-    if value == "finite":
-        raise ValueError("Finite source geometry is not implemented yet.")
 
 
 def resolve_provider_geometry(
@@ -437,6 +435,8 @@ class _GmpeProvider(_BaseProvider):
     with Rhypo. When strike is supplied, Rx and Ry0 are approximated with
     the across-strike and absolute along-strike epicentral offsets.
     This treats the rupture as a point with a prescribed orientation.
+    Set source_geometry="finite" to compute distances from a finite
+    rectangular rupture containing the event hypocentre.
 
     Runtime parameters
     ------------------
@@ -642,6 +642,29 @@ class _GmpeProvider(_BaseProvider):
 
         return RuptureContext(**data)
 
+    @staticmethod
+    def _build_finite_rupture(
+        event: ScenarioEvent,
+        parameters: Mapping[str, Any],
+    ) -> Any:
+        """Construct the independent finite-rupture geometry."""
+        from shakelab.groundmotion.rupture import RectangularRupture
+
+        names = ("strike", "dip", "length", "width", "ztor",
+                 "along_fraction")
+        missing = [name for name in names if name not in parameters]
+        if missing:
+            raise ValueError(
+                "Finite source geometry requires source parameters: "
+                + ", ".join(missing) + "."
+            )
+        geometry = {name: parameters[name] for name in names}
+        if "down_fraction" in parameters:
+            geometry["down_fraction"] = parameters["down_fraction"]
+        return RectangularRupture.from_hypocentre(
+            event.hypocentre, **geometry,
+        )
+
     def _build_sites_context(
         self,
         sites: Sequence[WgsPoint],
@@ -672,9 +695,26 @@ class _GmpeProvider(_BaseProvider):
         required_distances = self._gmpe.required_distances
         optional_distances = self._gmpe.optional_distances
 
+        finite_distances = {}
+        if geometry == "finite":
+            parameters = self._resolve_source_parameters(
+                event, rupture_parameters,
+            )
+            rupture = self._build_finite_rupture(event, parameters)
+            missing = {
+                metric for metric in required_distances | optional_distances
+                if distances.get(metric) is None
+            }
+            if missing & {"rrup", "rjb", "rx", "ry0"}:
+                finite_distances = rupture.distances(list(sites))
+
         for metric in required_distances | optional_distances:
             if metric in distances and distances[metric] is not None:
                 data[metric] = distances[metric]
+                continue
+
+            if metric in finite_distances:
+                data[metric] = finite_distances[metric]
                 continue
 
             point_metric = metric
@@ -707,9 +747,8 @@ class _GmpeProvider(_BaseProvider):
                 raise ValueError(
                     f"{self._gmpe.__class__.__name__} requires "
                     f"distance {metric!r}, which cannot be derived "
-                    "from the point-source ScenarioEvent. Supply it "
-                    "through the 'distances' runtime mapping or provide "
-                    "a rupture-geometry implementation."
+                    f"with source_geometry={geometry!r}. Supply it "
+                    "through the 'distances' runtime mapping."
                 )
 
         return SitesContext(

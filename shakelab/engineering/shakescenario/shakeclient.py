@@ -240,7 +240,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_submit.add_argument(
         "--source-geometry", choices=("native", "point", "finite"),
-        help="Override model geometry (finite is not yet implemented).",
+        help="Override the model source geometry.",
     )
     p_submit.add_argument(
         "--origin-time",
