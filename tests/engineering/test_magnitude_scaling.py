@@ -111,16 +111,48 @@ def test_reverse_length_and_width(style, length, width, sigma_l, sigma_w):
     assert not result_w.extrapolated
 
 
-def test_legacy_interface_delegates_to_canonical_model():
-    from shakelab.hazard.magnitude_scaling import wells_coppersmith_1994
+@pytest.mark.parametrize("style,rows", [
+    ("reverse", [( -2.693, .614, .083), (-1.669, .435, .087),
+                 (-4.362, 1.049, .121)]),
+    ("normal", [(-1.722, .485, .128), (-.829, .323, .128),
+                (-2.551, .808, .181)]),
+    ("strike-slip", [(-2.943, .681, .151), (-.543, .261, .105),
+                     (-3.486, .942, .184)]),
+    ("interface", [(-2.412, .583, .107), (-.880, .366, .099),
+                   (-3.292, .949, .150)]),
+])
+def test_tmg2017_table1(style, rows):
+    from shakelab.groundmotion.scaling import create_scaling_relation
 
-    legacy = wells_coppersmith_1994()
-    model = WellsCoppersmith1994("normal")
-    expected = model.magnitude_to_area(6)
-    assert legacy.magnitude_to_area(6, "n") == pytest.approx(
-        (expected.median, expected.sigma),
+    model = create_scaling_relation("ThingbaijamEtAl2017", style=style)
+    for quantity, (a, b, sigma) in zip(
+        ("length", "width", "area"), rows,
+    ):
+        estimate = model.estimate(7.0, quantity)
+        assert estimate.median == pytest.approx(10 ** (a + b * 7))
+        assert estimate.sigma == sigma
+        reverse = model.estimate_magnitude(estimate.median, quantity)
+        assert reverse.median == pytest.approx(7)
+        assert reverse.sigma == pytest.approx(sigma / b)
+
+
+def test_scaling_factory():
+    from shakelab.groundmotion.scaling import (
+        available_scaling_relations, create_scaling_relation,
     )
-    expected = model.area_to_magnitude(100)
-    assert legacy.area_to_magnitude(100, "normal") == pytest.approx(
-        (expected.median, expected.sigma),
+
+    assert available_scaling_relations() == (
+        "ThingbaijamEtAl2017", "WellsCoppersmith1994",
     )
+    assert isinstance(
+        create_scaling_relation("WellsCoppersmith1994"),
+        WellsCoppersmith1994,
+    )
+    with pytest.raises(ValueError, match="Unknown scaling relation"):
+        create_scaling_relation("unknown")
+    with pytest.raises(ValueError, match="Unknown fault style"):
+        create_scaling_relation("ThingbaijamEtAl2017", style="all")
+    with pytest.raises(ValueError, match="outside"):
+        create_scaling_relation(
+            "ThingbaijamEtAl2017", style="normal", strict=True,
+        ).magnitude_to_area(5)

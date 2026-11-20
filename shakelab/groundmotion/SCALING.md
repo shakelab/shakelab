@@ -42,6 +42,22 @@ Rake classification uses conventional 45-degree boundaries;
 boundary values select strike-slip. This classification is not a
 separate empirical relationship from the original paper.
 
-The historical `shakelab.hazard.magnitude_scaling` module delegates its
-scalar area/magnitude methods to this implementation. New applications
-should use the class in `groundmotion.scaling` directly.
+## Model selection
+
+Use available_scaling_relations() to discover supported names and
+create_scaling_relation(name, **kwargs) to select a model.
+
+ThingbaijamEtAl2017 implements Table 1 of Thingbaijam, Mai and Goda,
+BSSA 107, 2225-2246, doi:10.1785/0120170017. Specify style as
+reverse (shallow crustal), normal, strike-slip or interface.
+No pooled all-style fit is supplied. Interface is a tectonic setting
+and must not be inferred solely from rake.
+
+The forward magnitude ranges are style specific; reverse estimates
+use the observed dimension ranges in Table 1. Reverse values invert
+the fitted line, with residual scale sigma/abs(slope), rather than
+claiming a separately fitted conditional magnitude distribution.
+Unlike WC1994, TMG2017 area coefficients are derived from the length
+and width regressions. No joint stochastic sampling is implemented.
+
+The obsolete hazard/magnitude_scaling.py module has been removed.

@@ -9,9 +9,11 @@ corrections. The format follows
 
 ### Added
 
+- Named scaling-relation factory and TMG2017 rupture dimension laws.
+  Remove the obsolete hazard magnitude scaling module.
+
 - Independent WC1994 magnitude scaling and area-preserving rectangular
-  dimensions in groundmotion.scaling. Repair the legacy hazard scaling
-  module as an adapter to the canonical implementation.
+  dimensions in groundmotion.scaling.
 
 - Integrate rectangular finite source geometry in GMPE providers and
   enable finite geometry selection through the scenario interface.

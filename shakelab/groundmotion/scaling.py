@@ -245,3 +245,99 @@ class WellsCoppersmith1994:
 
     def width_to_magnitude(self, width: float) -> ScalingEstimate:
         return self.estimate_magnitude(width, "width")
+
+
+class ThingbaijamEtAl2017(WellsCoppersmith1994):
+    """Table 1 of Thingbaijam, Mai and Goda (2017).
+
+    DOI: 10.1785/0120170017. Forward predictions use the published
+    log10 regressions. Reverse predictions invert the orthogonal
+    regression line and transform the residual by the slope; they
+    are not separately fitted conditional magnitude regressions.
+    No pooled all-style regression is available.
+    """
+
+    _FORWARD = {
+        "length": {
+            "reverse": (-2.693, .614, .083, 5.59, 7.69),
+            "normal": (-1.722, .485, .128, 5.86, 8.39),
+            "strike-slip": (-2.943, .681, .151, 5.38, 8.70),
+            "interface": (-2.412, .583, .107, 6.68, 9.19),
+        },
+        "width": {
+            "reverse": (-1.669, .435, .087, 5.59, 7.69),
+            "normal": (-.829, .323, .128, 5.86, 8.39),
+            "strike-slip": (-.543, .261, .105, 5.38, 8.70),
+            "interface": (-.880, .366, .099, 6.68, 9.19),
+        },
+        "area": {
+            "reverse": (-4.362, 1.049, .121, 5.59, 7.69),
+            "normal": (-2.551, .808, .181, 5.86, 8.39),
+            "strike-slip": (-3.486, .942, .184, 5.38, 8.70),
+            "interface": (-3.292, .949, .150, 6.68, 9.19),
+        },
+    }
+    _SIZE_RANGES = {
+        "length": {
+            "reverse": (4.9, 108), "normal": (9, 262.5),
+            "strike-slip": (6, 580), "interface": (29.2, 1420),
+        },
+        "width": {
+            "reverse": (4.8, 45), "normal": (6, 112.5),
+            "strike-slip": (6.5, 50), "interface": (29.2, 260),
+        },
+        "area": {
+            "reverse": (23.5, 4860), "normal": (54, 29531.3),
+            "strike-slip": (39, 29000), "interface": (852.6, 318080),
+        },
+    }
+
+    def __init__(self, style: str, *, strict: bool = False):
+        super().__init__(style, strict=strict)
+
+    def _range_check(self, value, lower, upper, name):
+        outside = not lower <= value <= upper
+        if outside:
+            message = (
+                f"TMG2017 {self.style} {name}: outside calibration "
+                f"range [{lower}, {upper}]."
+            )
+            if self.strict:
+                raise ValueError(message)
+            warnings.warn(message, UserWarning, stacklevel=3)
+        return outside
+
+    def estimate_magnitude(
+        self, size: float, quantity: str,
+    ) -> ScalingEstimate:
+        """Invert the fitted line and transform log10 residual units."""
+        size = _positive(size, quantity)
+        if quantity not in self._FORWARD:
+            raise ValueError(f"Unknown scaling quantity: {quantity!r}.")
+        a, b, sigma, _, _ = self._FORWARD[quantity][self.style]
+        lower, upper = self._SIZE_RANGES[quantity][self.style]
+        outside = self._range_check(size, lower, upper, quantity)
+        return ScalingEstimate(
+            (log10(size) - a) / b, sigma / abs(b), "Mw", outside,
+        )
+
+
+_SCALING_RELATIONS = {
+    "WellsCoppersmith1994": WellsCoppersmith1994,
+    "ThingbaijamEtAl2017": ThingbaijamEtAl2017,
+}
+
+
+def available_scaling_relations() -> tuple[str, ...]:
+    """Return identifiers accepted by create_scaling_relation."""
+    return tuple(sorted(_SCALING_RELATIONS))
+
+
+def create_scaling_relation(name: str, **kwargs):
+    """Instantiate a named scaling relation without external dependencies."""
+    if not isinstance(name, str) or name not in _SCALING_RELATIONS:
+        raise ValueError(
+            f"Unknown scaling relation {name!r}; available: "
+            + ", ".join(available_scaling_relations())
+        )
+    return _SCALING_RELATIONS[name](**kwargs)
