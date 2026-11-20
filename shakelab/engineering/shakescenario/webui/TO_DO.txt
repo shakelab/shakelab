@@ -7,3 +7,7 @@ TO DO:
 - aggiungere altri filtri, tipo del modello usato e data
 - refresh automatico della pagina
 - lo status dei jobs (running, completed, failed) non si aggiorna
+
+Future enhancement (low priority):
+- Interactive fault geometry viewer with strike, dip, dimensions,
+  hypocentre position, depth constraints and site-distance displays.

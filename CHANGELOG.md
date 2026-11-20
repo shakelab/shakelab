@@ -9,6 +9,10 @@ corrections. The format follows
 
 ### Added
 
+- Independent WC1994 magnitude scaling and area-preserving rectangular
+  dimensions in groundmotion.scaling. Repair the legacy hazard scaling
+  module as an adapter to the canonical implementation.
+
 - Integrate rectangular finite source geometry in GMPE providers and
   enable finite geometry selection through the scenario interface.
 

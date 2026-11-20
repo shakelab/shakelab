@@ -17,64 +17,43 @@
 # with this download. If not, see <http://www.gnu.org/licenses/>
 #
 # ****************************************************************************
+"""Legacy access to magnitude scaling.
+
+New code should import shakelab.groundmotion.scaling. This module keeps
+the historical class name and scalar tuple-returning methods without
+duplicating regression coefficients.
 """
-"""
 
-import numpy as np
+from shakelab.groundmotion.scaling import WellsCoppersmith1994
 
-class wells_coppersmith_1994():
-    """
-    Wells and Coppersmith (1994, Bull. Seism. Soc. Am.)
-    magnitude-scaling relationship.
-    """
 
-    def __init__(self):
-        """
-        """
+_STYLE_ALIASES = {
+    "g": "all", "generic": "all", "all": "all",
+    "n": "normal", "normal": "normal",
+    "r": "reverse", "reverse": "reverse",
+    "s": "strike-slip", "strike-slip": "strike-slip",
+}
 
-    def area_to_magnitude(area, type='generic')
-        """
-        note: uncertainty on magnitude
-        """
-        if type in ['g', 'generic']:
-            mag = 4.07 + 0.98*np.log(area)
-            std = 0.24
 
-        if type in ['n', 'normal']:
-            mag = 3.93 + 1.02*np.log(area)
-            std = 0.25
+def _model(style):
+    try:
+        canonical = _STYLE_ALIASES[style]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"Unknown fault style: {style!r}.") from exc
+    return WellsCoppersmith1994(canonical)
 
-        if type in ['r', 'reverse']:
-            mag = 4.33 + 0.90*np.log(area)
-            std = 0.25
 
-        if type in ['s', 'strike-slip']:
-            mag = 3.98 + 1.02*np.log(area)
-            std = 0.23
+class wells_coppersmith_1994:
+    """Compatibility interface; prefer WellsCoppersmith1994."""
 
-        else:
-            print('type not recognized')
+    @staticmethod
+    def area_to_magnitude(area, type="generic"):
+        """Return predicted Mw and residual sigma in magnitude units."""
+        estimate = _model(type).area_to_magnitude(area)
+        return estimate.median, estimate.sigma
 
-        return mag, std
-
-    def magnitude_to_area(area, type='generic'):
-        """
-        note: uncertainty on log area
-        """
-        if type in ['g', 'generic']:
-            area = 10**(-3.49 + 0.91*mag)
-            std = 0.24
-
-        if type in ['n', 'normal']:
-            area = 10**(-3.42 + 0.90*mag)
-            std = 0.22
-
-        if type in ['r', 'reverse']:
-            area = 10**(-3.99 + 0.98*mag)
-            std = 0.26
-
-        if type in ['s', 'strike-slip']:
-            area = 10**(-2.87 + 0.82*mag)
-            std = 0.22
-
-        return mag, std
+    @staticmethod
+    def magnitude_to_area(mag, type="generic"):
+        """Return median area (km**2) and residual log10-area sigma."""
+        estimate = _model(type).magnitude_to_area(mag)
+        return estimate.median, estimate.sigma
