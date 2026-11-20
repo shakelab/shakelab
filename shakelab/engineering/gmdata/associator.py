@@ -99,6 +99,8 @@ from shakelab.groundmotion.providers import (
     GroundMotionContext,
     GroundMotionProvider,
     ScenarioEvent,
+    normalize_gmpe_site_parameters,
+    validate_source_parameters,
 )
 
 
@@ -327,6 +329,20 @@ class GroundMotionProviderConfig:
                     "GroundMotionAssignment objects."
                 )
             assignment.validate()
+
+        if self.provider == "gmpe":
+            validate_source_parameters(self.config.get("source_parameters"))
+            site = normalize_gmpe_site_parameters(
+                self.config.get("site_parameters"),
+            )
+            # Validate known scalar reference properties; GMPE-specific
+            # properties remain the responsibility of the selected GMPE.
+            known = {
+                "is_measured" if name == "vs30measured" else name: value
+                for name, value in site.items()
+                if name in {"vs30", "vs30measured", "z1pt0", "z2pt5"}
+            }
+            _validate_reference_site(known)
 
         if self.provider == "imt":
             if self.default:
@@ -845,6 +861,14 @@ class GroundMotionRuntime:
 
         runtime_kwargs = dict(resolved.parameters)
         runtime_kwargs.update(kwargs)
+        provider_cfg, _, _ = self._model.resolve_config(asset_id)
+        if provider_cfg.provider == "gmpe":
+            site = self._resolve_site_parameters(
+                provider_cfg, resolved.parameters, kwargs,
+            )
+            if site.get("vs30") is not None:
+                site["vs30"] = _validate_site_vs30(site["vs30"])
+            runtime_kwargs["site_parameters"] = site
 
         return resolved.context.evaluate_at_site(
             imt=imt,
@@ -853,6 +877,23 @@ class GroundMotionRuntime:
             elevation_m=elevation_m,
             **runtime_kwargs,
         )
+
+    def _resolve_site_parameters(
+        self,
+        provider_cfg: GroundMotionProviderConfig,
+        assigned: Mapping[str, Any],
+        runtime: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """Merge site properties independently in increasing precedence."""
+        defaults = dict(self._model.reference_site)
+        if self._model.reference_vs30 is not None:
+            defaults.setdefault("vs30", self._model.reference_vs30)
+        site = _gmpe_site_parameters(defaults)
+        for layer in (provider_cfg.config, assigned, runtime):
+            site.update(normalize_gmpe_site_parameters(
+                layer.get("site_parameters"),
+            ))
+        return site
 
     def evaluate_at_asset(
         self,
@@ -899,12 +940,9 @@ class GroundMotionRuntime:
             geology = getattr(asset, "reference_geology", None) or {}
             if not isinstance(geology, Mapping):
                 raise ValueError("reference_geology must be an object.")
-            defaults = dict(self._model.reference_site)
-            if self._model.reference_vs30 is not None:
-                defaults.setdefault("vs30", self._model.reference_vs30)
-            site = _gmpe_site_parameters(defaults)
-            site.update(assigned.get("site_parameters", {}))
-            site.update(site_kwargs.pop("site_parameters", {}))
+            site = self._resolve_site_parameters(
+                provider_cfg, assigned, site_kwargs,
+            )
             site.update(_gmpe_site_parameters(geology))
             if site.get("vs30") is not None:
                 site["vs30"] = _validate_site_vs30(site["vs30"])

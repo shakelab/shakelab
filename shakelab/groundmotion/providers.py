@@ -125,6 +125,28 @@ def validate_source_parameters(
                 )
 
 
+def normalize_gmpe_site_parameters(
+    parameters: Optional[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    """Normalize the measured-Vs30 alias and omit unspecified values.
+
+    Preserve GMPE-specific names and vector-valued runtime properties.
+    """
+    if parameters is None:
+        return {}
+    if not isinstance(parameters, Mapping):
+        raise TypeError("site_parameters must be a mapping or None.")
+    result = {}
+    for name, value in parameters.items():
+        if value is None:
+            continue
+        key = "vs30measured" if name == "is_measured" else name
+        if key in result:
+            raise ValueError(f"Duplicate site parameter {key!r}.")
+        result[key] = value
+    return result
+
+
 @dataclass(frozen=True)
 class ScenarioEvent:
     """
@@ -384,7 +406,8 @@ class _GmpeProvider(_BaseProvider):
     ------------------
     rupture_parameters
         Optional mapping of rupture parameters. Values override parameters
-        available from ``ScenarioEvent.source_parameters`` and derived event fields.
+        available from the provider configuration and event source mapping.
+        Magnitude and hypocentral depth cannot be overridden.
     site_parameters
         Optional mapping of site-dependent properties, for example ``vs30``.
         Scalars are broadcast to all sites by ``SitesContext``.
@@ -405,6 +428,8 @@ class _GmpeProvider(_BaseProvider):
         gmpe_name: str,
         distance_approx: str = "ellipsoid",
         point_source_distances: bool = False,
+        source_parameters: Optional[Mapping[str, float]] = None,
+        site_parameters: Optional[Mapping[str, Any]] = None,
         **gmpe_kwargs: Any,
     ) -> None:
         from shakelab.groundmotion.gmpe.registry import create_gmpe
@@ -412,6 +437,11 @@ class _GmpeProvider(_BaseProvider):
         if not isinstance(point_source_distances, bool):
             raise TypeError("point_source_distances must be boolean.")
         self._point_source_distances = point_source_distances
+        validate_source_parameters(source_parameters)
+        self._source_parameters = dict(source_parameters or {})
+        self._site_parameters = normalize_gmpe_site_parameters(
+            site_parameters,
+        )
 
         self._gmpe = create_gmpe(
             gmpe_name,
@@ -446,10 +476,10 @@ class _GmpeProvider(_BaseProvider):
             runtime.pop("rupture_parameters", None),
             "rupture_parameters",
         )
-        site_parameters = self._as_mapping(
+        site_parameters = dict(self._site_parameters)
+        site_parameters.update(normalize_gmpe_site_parameters(
             runtime.pop("site_parameters", None),
-            "site_parameters",
-        )
+        ))
         distances = self._as_mapping(
             runtime.pop("distances", None),
             "distances",
@@ -462,10 +492,10 @@ class _GmpeProvider(_BaseProvider):
                 f"{names}."
             )
 
-        rupture = self._build_rupture_context(
-            event,
-            rupture_parameters,
+        rupture_parameters = self._resolve_source_parameters(
+            event, rupture_parameters,
         )
+        rupture = self._build_rupture_context(event, rupture_parameters)
         site_context = self._build_sites_context(
             site_list,
             event,
@@ -531,6 +561,20 @@ class _GmpeProvider(_BaseProvider):
             sigma_ln.astype(float).tolist(),
         )
 
+    def _resolve_source_parameters(
+        self,
+        event: ScenarioEvent,
+        overrides: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """Merge supplementary values without overriding event geometry."""
+        overrides = {key: value for key, value in overrides.items()
+                     if value is not None}
+        validate_source_parameters(overrides)
+        parameters = dict(self._source_parameters)
+        parameters.update(event.source_parameters or {})
+        parameters.update(overrides)
+        return parameters
+
     def _build_rupture_context(
         self,
         event: ScenarioEvent,
@@ -546,14 +590,7 @@ class _GmpeProvider(_BaseProvider):
             "hypo_depth": float(event.depth_km),
         }
 
-        if event.source_parameters is not None:
-            for name, value in event.source_parameters.items():
-                if value is not None:
-                    available[str(name)] = value
-
-        for name, value in overrides.items():
-            if value is not None:
-                available[str(name)] = value
+        available.update(self._resolve_source_parameters(event, overrides))
 
         requested = (
             self._gmpe.required_rupture_parameters
@@ -605,9 +642,9 @@ class _GmpeProvider(_BaseProvider):
             if self._point_source_distances:
                 point_metric = self._POINT_SOURCE_ALIASES.get(metric, metric)
                 if metric in {"rx", "ry0"}:
-                    strike = rupture_parameters.get("strike")
-                    if strike is None:
-                        strike = (event.source_parameters or {}).get("strike")
+                    strike = self._resolve_source_parameters(
+                        event, rupture_parameters,
+                    ).get("strike")
                     if strike is not None:
                         data[metric] = self._project_epicentral_offsets_km(
                             event, sites, metric, strike,

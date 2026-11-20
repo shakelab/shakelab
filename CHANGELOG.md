@@ -9,6 +9,9 @@ corrections. The format follows
 
 ### Added
 
+- Provider-level GMPE source and site parameters with independent
+  precedence and consistent source geometry inputs.
+
 - Optional point-source distance approximations for ShakeScenario GMPE
   providers, including strike-dependent offsets for preliminary tests.
 

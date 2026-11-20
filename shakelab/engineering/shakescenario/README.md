@@ -195,6 +195,27 @@ not part of the core impact calculation.
 
 Ground motion is configured at model level in `groundmotion.json`.
 
+A GMPE provider can define supplementary source and site parameters in
+its `config` object, for example:
+
+```json
+{
+  "gmpe_name": "ChiouYoungs2014",
+  "source_parameters": {"rake": 90, "dip": 35, "ztor": 2},
+  "site_parameters": {"vs30": 760, "is_measured": false, "z1pt0": 300}
+}
+```
+
+Source precedence, from lowest to highest, is provider configuration,
+scenario event, and explicit `rupture_parameters` runtime overrides.
+Magnitude and hypocentral depth always come from the event.
+Site precedence is model `reference_site`/`reference_vs30`, provider
+configuration, asset assignment, runtime values, and asset
+`reference_geology`. Each property is resolved independently. Null site
+values are treated as unspecified. `is_measured` is an alias for
+`vs30measured`. Missing required GMPE parameters still raise errors.
+The example values are illustrative, not recommended scientific defaults.
+
 This layer is separate from the general-purpose ground-motion modelling
 code under `shakelab.gmmodel`. The engineering ground-motion layer
 configures providers and determines which configured provider is used
