@@ -9,6 +9,9 @@ corrections. The format follows
 
 ### Added
 
+- Independent rectangular rupture geometry and analytic local-frame
+  Rrup, Rjb, Rx and Ry0 distances in `groundmotion.rupture`.
+
 - Explicit GMPE source geometry selection at provider and event levels;
   native and point modes, with finite geometry reserved for future work.
 
