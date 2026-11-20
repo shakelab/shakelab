@@ -61,3 +61,23 @@ Unlike WC1994, TMG2017 area coefficients are derived from the length
 and width regressions. No joint stochastic sampling is implemented.
 
 The obsolete hazard/magnitude_scaling.py module has been removed.
+
+
+## Additional magnitude-area models
+
+Leonard2014_Interplate and Leonard2014_StableContinental implement the magnitude-area
+subset of Leonard (2014), doi:10.1785/0120140087, using median constants
+as in OpenQuake hazardlib. Interplate means active crustal faults here,
+not a dedicated subduction interface model. Normal and reverse share
+the dip-slip constant; all uses the mean of the two style constants.
+
+HanksBakun2002 (doi:10.1785/0120010148) uses Mw = log10(A) + 3.98 up
+to 537 km² and Mw = (4/3) log10(A) + 3.07 above that area. The inverse
+branches switch at the lower-branch magnitude for 537 km². Rounded
+published coefficients produce a small discontinuity around the break.
+
+These models support area only. Use RuptureDimensions to supply shape
+constraints. Residual sigma and calibration status are None (unknown),
+not zero and not confirmed in-range. Nonzero epsilon and strict=True
+are rejected rather than silently assuming uncertainty or calibration
+limits. No mechanism-specific variants are invented for Hanks–Bakun.

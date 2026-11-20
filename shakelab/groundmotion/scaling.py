@@ -56,13 +56,17 @@ class ScalingEstimate:
     """Prediction and residual standard deviation in its regression space."""
 
     median: float
-    sigma: float
+    sigma: float | None
     sigma_space: str
-    extrapolated: bool
+    extrapolated: bool | None
 
     def at_epsilon(self, epsilon: float = 0.0) -> float:
         """Evaluate a signed number of residual standard deviations."""
         epsilon = _scalar(epsilon, "epsilon")
+        if epsilon == 0.0:
+            return self.median
+        if self.sigma is None:
+            raise ValueError("Residual dispersion is not available.")
         if self.sigma_space == "log10":
             return self.median * 10.0 ** (epsilon * self.sigma)
         return self.median + epsilon * self.sigma
@@ -322,7 +326,124 @@ class ThingbaijamEtAl2017(WellsCoppersmith1994):
         )
 
 
+class _AreaScaling:
+    """Common interface for deterministic magnitude-area laws.
+
+    A None sigma or extrapolated flag indicates unavailable information,
+    not zero dispersion or confirmed validity.
+    """
+
+    def estimate(self, magnitude: float, quantity: str) -> ScalingEstimate:
+        if quantity != "area":
+            raise ValueError(f"Unsupported scaling quantity: {quantity!r}.")
+        return self.magnitude_to_area(magnitude)
+
+    def estimate_magnitude(
+        self, size: float, quantity: str,
+    ) -> ScalingEstimate:
+        if quantity != "area":
+            raise ValueError(f"Unsupported scaling quantity: {quantity!r}.")
+        return self.area_to_magnitude(size)
+
+
+class _Leonard2014(_AreaScaling):
+    """Magnitude-area subset of Leonard (2014), BSSA 104, 2953-2965.
+
+    DOI: 10.1785/0120140087. Median constants follow the OpenQuake
+    magnitude-area convention. No residual dispersion or quantitative
+    calibration limits are assigned here.
+    """
+
+    _CONSTANTS: dict[str, float] = {}
+
+    def __init__(self, style: str = "all", *, strict: bool = False):
+        if style not in self._CONSTANTS:
+            raise ValueError(f"Unknown fault style: {style!r}.")
+        if not isinstance(strict, bool):
+            raise TypeError("strict must be boolean.")
+        if strict:
+            raise ValueError(
+                "Strict calibration checks are unavailable for this model."
+            )
+        self.style = style
+        self.strict = strict
+
+    def magnitude_to_area(self, magnitude: float) -> ScalingEstimate:
+        magnitude = _scalar(magnitude, "magnitude")
+        area = 10.0 ** (magnitude - self._CONSTANTS[self.style])
+        return ScalingEstimate(area, None, "log10", None)
+
+    def area_to_magnitude(self, area: float) -> ScalingEstimate:
+        area = _positive(area, "area")
+        magnitude = log10(area) + self._CONSTANTS[self.style]
+        return ScalingEstimate(magnitude, None, "Mw", None)
+
+
+class Leonard2014_Interplate(_Leonard2014):
+    """Tectonically active crustal faults (not a subduction-interface law)."""
+
+    _CONSTANTS = {
+        "all": 3.995, "strike-slip": 3.99,
+        "normal": 4.00, "reverse": 4.00,
+    }
+
+
+class Leonard2014_StableContinental(_Leonard2014):
+    """Stable continental regions."""
+
+    _CONSTANTS = {
+        "all": 4.185, "strike-slip": 4.18,
+        "normal": 4.19, "reverse": 4.19,
+    }
+
+
+class HanksBakun2002(_AreaScaling):
+    """Bilinear continental-earthquake magnitude-area relation.
+
+    BSSA 92, 1841-1846, doi:10.1785/0120010148.
+    Published rounded intercepts give a tiny discontinuity at 537 km**2.
+    For inversion use the lower-branch magnitude at 537 km**2 as the
+    crossover, preserving the published coefficients on both branches.
+    No residual dispersion or quantitative calibration bounds are
+    assigned. Intercept standard errors are not prediction sigmas.
+    """
+
+    crossover_area = 537.0
+    crossover_magnitude = 3.98 + log10(crossover_area)
+
+    def __init__(self, style: str = "all", *, strict: bool = False):
+        if style != "all":
+            raise ValueError("HanksBakun2002 supports only style='all'.")
+        if not isinstance(strict, bool):
+            raise TypeError("strict must be boolean.")
+        if strict:
+            raise ValueError(
+                "Strict calibration checks are unavailable for this model."
+            )
+        self.style = style
+        self.strict = strict
+
+    def magnitude_to_area(self, magnitude: float) -> ScalingEstimate:
+        magnitude = _scalar(magnitude, "magnitude")
+        if magnitude <= self.crossover_magnitude:
+            area = 10.0 ** (magnitude - 3.98)
+        else:
+            area = 10.0 ** (0.75 * (magnitude - 3.07))
+        return ScalingEstimate(area, None, "log10", None)
+
+    def area_to_magnitude(self, area: float) -> ScalingEstimate:
+        area = _positive(area, "area")
+        if area <= self.crossover_area:
+            magnitude = 3.98 + log10(area)
+        else:
+            magnitude = 3.07 + (4.0 / 3.0) * log10(area)
+        return ScalingEstimate(magnitude, None, "Mw", None)
+
+
 _SCALING_RELATIONS = {
+    "Leonard2014_Interplate": Leonard2014_Interplate,
+    "Leonard2014_StableContinental": Leonard2014_StableContinental,
+    "HanksBakun2002": HanksBakun2002,
     "WellsCoppersmith1994": WellsCoppersmith1994,
     "ThingbaijamEtAl2017": ThingbaijamEtAl2017,
 }

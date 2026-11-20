@@ -142,7 +142,9 @@ def test_scaling_factory():
     )
 
     assert available_scaling_relations() == (
-        "ThingbaijamEtAl2017", "WellsCoppersmith1994",
+        "HanksBakun2002", "Leonard2014_Interplate",
+        "Leonard2014_StableContinental", "ThingbaijamEtAl2017",
+        "WellsCoppersmith1994",
     )
     assert isinstance(
         create_scaling_relation("WellsCoppersmith1994"),
@@ -156,3 +158,75 @@ def test_scaling_factory():
         create_scaling_relation(
             "ThingbaijamEtAl2017", style="normal", strict=True,
         ).magnitude_to_area(5)
+
+
+@pytest.mark.parametrize("name,style,constant", [
+    ("Leonard2014_Interplate", "all", 3.995),
+    ("Leonard2014_Interplate", "strike-slip", 3.99),
+    ("Leonard2014_Interplate", "normal", 4.00),
+    ("Leonard2014_Interplate", "reverse", 4.00),
+    ("Leonard2014_StableContinental", "all", 4.185),
+    ("Leonard2014_StableContinental", "strike-slip", 4.18),
+    ("Leonard2014_StableContinental", "normal", 4.19),
+    ("Leonard2014_StableContinental", "reverse", 4.19),
+])
+def test_leonard_area(name, style, constant):
+    from shakelab.groundmotion.scaling import create_scaling_relation
+
+    model = create_scaling_relation(name, style=style)
+    estimate = model.magnitude_to_area(6)
+    assert estimate.median == pytest.approx(10 ** (6 - constant))
+    assert model.area_to_magnitude(100).median == pytest.approx(2 + constant)
+    assert model.area_to_magnitude(estimate.median).median == pytest.approx(6)
+    assert estimate.sigma is None
+    assert estimate.extrapolated is None
+
+
+@pytest.mark.parametrize("area,expected", [
+    (100, 5.98), (1000, 7.07),
+])
+def test_hanks_bakun_branches(area, expected):
+    from shakelab.groundmotion.scaling import create_scaling_relation
+
+    model = create_scaling_relation("HanksBakun2002")
+    assert model.area_to_magnitude(area).median == pytest.approx(expected)
+    assert model.magnitude_to_area(expected).median == pytest.approx(area)
+
+
+def test_hanks_bakun_crossover():
+    from math import log10
+    from shakelab.groundmotion.scaling import HanksBakun2002
+
+    model = HanksBakun2002()
+    assert model.area_to_magnitude(537).median == pytest.approx(
+        3.98 + log10(537),
+    )
+    assert model.magnitude_to_area(
+        model.crossover_magnitude,
+    ).median == pytest.approx(537)
+    assert model.area_to_magnitude(538).median == pytest.approx(
+        3.07 + (4 / 3) * log10(538),
+    )
+
+
+@pytest.mark.parametrize("name", [
+    "HanksBakun2002", "Leonard2014_Interplate", "Leonard2014_StableContinental",
+])
+def test_area_only_model_contract(name):
+    from shakelab.groundmotion.scaling import create_scaling_relation
+
+    model = create_scaling_relation(name)
+    estimate = model.estimate(6, "area")
+    assert estimate.at_epsilon(0) == estimate.median
+    with pytest.raises(ValueError, match="dispersion"):
+        estimate.at_epsilon(1)
+    with pytest.raises(ValueError, match="Unsupported"):
+        model.estimate(6, "length")
+    with pytest.raises(ValueError, match="Unsupported"):
+        model.estimate_magnitude(10, "width")
+    with pytest.raises(ValueError, match="calibration"):
+        create_scaling_relation(name, strict=True)
+    with pytest.raises(ValueError, match="positive"):
+        model.area_to_magnitude(0)
+    with pytest.raises(ValueError, match="finite"):
+        model.magnitude_to_area(float("nan"))

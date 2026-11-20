@@ -9,6 +9,9 @@ corrections. The format follows
 
 ### Added
 
+- Leonard2014 active crustal and stable continental magnitude-area
+  relations and HanksBakun2002 bilinear magnitude-area scaling.
+
 - Named scaling-relation factory and TMG2017 rupture dimension laws.
   Remove the obsolete hazard magnitude scaling module.
 
