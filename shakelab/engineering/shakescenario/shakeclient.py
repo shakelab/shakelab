@@ -36,6 +36,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import tempfile
+import zipfile
 import math
 import sys
 import time
@@ -68,12 +70,51 @@ class ShakeScenarioClient:
     def ping(self) -> dict[str, Any]:
         return self._client.request("ping", payload={}, req_id=self._req_id())
 
-    def submit(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._client.request(
-            "submit",
-            payload=payload,
-            req_id=self._req_id(),
-        )
+    def submit(
+        self,
+        payload: dict[str, Any],
+        *,
+        shakemap: str | Path | None = None,
+        imt_file: str | Path | None = None,
+    ) -> dict[str, Any]:
+        """Submit an ordinary request or one attached ground-motion product."""
+        if shakemap is not None and imt_file is not None:
+            raise ValueError("Supply either shakemap or imt_file, not both.")
+        if shakemap is None and imt_file is None:
+            return self._client.request(
+                "submit", payload=payload, req_id=self._req_id(),
+            )
+        if imt_file is not None:
+            source = Path(imt_file).expanduser().resolve()
+            if not source.is_file():
+                raise ValueError(f"IMT file not found: {source}")
+            return self._client.request_attachment(
+                payload, self._req_id(), source, "imt", "json",
+            )
+        source = Path(shakemap).expanduser().resolve()
+        if source.is_file():
+            if not zipfile.is_zipfile(source):
+                raise ValueError(f"ShakeMap file is not a ZIP: {source}")
+            return self._client.request_attachment(
+                payload, self._req_id(), source, "shakemap", "zip",
+            )
+        if not source.is_dir():
+            raise ValueError(f"ShakeMap path not found: {source}")
+        # Build a temporary ZIP without reading the directory into memory.
+        with tempfile.TemporaryDirectory(prefix="shakeclient_") as folder:
+            archive = Path(folder) / "shakemap.zip"
+            files = sorted(path for path in source.iterdir() if path.is_file())
+            if not files or not (source / "grid.xml").is_file():
+                raise ValueError("ShakeMap directory requires grid.xml.")
+            with zipfile.ZipFile(
+                archive, "w", compression=zipfile.ZIP_DEFLATED
+            ) as output:
+                for path in files:
+                    output.write(path, arcname=path.name)
+            return self._client.request_attachment(
+                payload, self._req_id(), archive, "shakemap", "zip",
+                filename=source.name + ".zip",
+            )
 
     def submit_scenario(
         self,
@@ -89,6 +130,8 @@ class ShakeScenarioClient:
         event_id: str | None = None,
         model_id: str | None = None,
         tag: str | None = None,
+        shakemap: str | Path | None = None,
+        imt_file: str | Path | None = None,
     ) -> dict[str, Any]:
         """Submit a scenario from keyword arguments.
 
@@ -111,7 +154,9 @@ class ShakeScenarioClient:
             model_id=model_id,
             tag=tag,
         )
-        return self.submit(payload)
+        return self.submit(
+            payload, shakemap=shakemap, imt_file=imt_file,
+        )
 
     def list_jobs(
         self,
@@ -221,6 +266,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_submit.add_argument("--mag", type=float, default=None)
     p_submit.add_argument("--lon", type=float, default=None)
     p_submit.add_argument("--lat", type=float, default=None)
+    products = p_submit.add_mutually_exclusive_group()
+    products.add_argument(
+        "--shakemap", default=None,
+        help="ShakeMap ZIP archive or directory to upload with submit.",
+    )
+    products.add_argument(
+        "--imt-file", dest="imt_file", default=None,
+        help="ShakeScenarioIMT JSON file to upload with submit.",
+    )
     vertical = p_submit.add_mutually_exclusive_group()
     vertical.add_argument(
         "--depth", type=float, help="Hypocentral depth (km, positive down)."
@@ -661,7 +715,9 @@ def main() -> None:
 
         if args.cmd == "submit":
             payload = _merge_submit_payload(args)
-            res = client.submit(payload)
+            res = client.submit(
+                payload, shakemap=args.shakemap, imt_file=args.imt_file,
+            )
             _print_result(res, args.format, "submit")
             return
 
