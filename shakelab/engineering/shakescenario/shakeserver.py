@@ -376,7 +376,8 @@ class ShakeScenarioServer:
             return self._op_ping()
 
         if op == "submit":
-            return self._op_submit(payload)
+            with self._submission_lock:
+                return self._op_submit(payload)
 
         if op == "list":
             return self._op_list(payload)
@@ -532,8 +533,10 @@ class ShakeScenarioServer:
 
         job_id = self._db.create_job(params=resolved, tag=tag)
         job_dir = self._job_dir(job_id)
+        created_dir = False
         try:
             job_dir.mkdir(parents=True, exist_ok=False)
+            created_dir = True
             if prepared_inputs is not None:
                 os.replace(prepared_inputs, job_dir / "inputs")
             (job_dir / JOB_RESULTS_DIR).mkdir()
@@ -546,7 +549,8 @@ class ShakeScenarioServer:
                 self._run_job, job_id, resolved, job_dir
             )
         except Exception:
-            shutil.rmtree(job_dir, ignore_errors=True)
+            if created_dir:
+                shutil.rmtree(job_dir, ignore_errors=True)
             self._db.delete_job(job_id)
             raise
 
