@@ -122,3 +122,29 @@ an event overrides a finite provider's geometry selection.
 Magnitude labels are provisionally treated as equivalent in provider
 evaluation; no magnitude conversion is performed. GMPE-specific
 magnitude-type mismatches no longer stop evaluation.
+
+## Scenario source trace artifact
+
+Completed ShakeScenario jobs write `results/source_trace.json`, declared
+under `artifacts.source_trace` in the job manifest. The additive
+`ShakeScenarioSourceTrace` schema version 1.0.0 does not change the
+existing impact assets or summary formats. The file groups successful
+GMPE evaluations by configured provider id. Each evaluation records
+IMT, sites, the resolved source parameters, hypocentre, finite-rupture
+geometry and its four vertices, scaling model/style/estimate, input
+precedence (`provider`, `event`, `runtime`), builder parameter origins
+(`explicit`, `scaling`, `derived`, `default`, `constrained`), and
+the final distance values and their provenance. Explicit distances
+remain marked `explicit` even when used alongside computed distances.
+A scaling model may be configured without being used when the
+rupture dimensions are already explicit. An unavailable scaling
+sigma or calibration status is encoded as JSON `null`.
+
+The trace is generated after successful GMPE evaluations; it does not
+record failed calls. Site entries identify each evaluation, rather
+than asserting an asset id when multiple assets share a location.
+Values correspond to the distances supplied to the GMPE, not every
+potential geometric distance. Source traces are stored separately
+for each scenario runtime, without global state. The provisional
+assumption treating numerical magnitude values of different scales
+as equivalent is recorded explicitly, with no magnitude conversion.

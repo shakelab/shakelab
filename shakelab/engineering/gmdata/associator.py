@@ -822,6 +822,25 @@ class GroundMotionRuntime:
             self._providers[provider_cfg.id] = provider
             self._contexts[provider_cfg.id] = context
 
+    def source_trace(self) -> Dict[str, Any]:
+        """Collect provider trace records for this scenario runtime."""
+        providers = {}
+        for configured in self._model.providers:
+            provider = self._providers[configured.id]
+            getter = getattr(provider, "source_trace", None)
+            if callable(getter):
+                records = getter()
+                if records:
+                    providers[configured.id] = {
+                        "backend": configured.provider,
+                        "evaluations": records,
+                    }
+        return {
+            "type": "ShakeScenarioSourceTrace",
+            "schema_version": "1.0.0",
+            "providers": providers,
+        }
+
     def provider(self, provider_id: str) -> Any:
         """Return the shared instantiated provider for a configured id."""
         key = str(provider_id)

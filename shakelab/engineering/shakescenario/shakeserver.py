@@ -90,6 +90,7 @@ JOB_RESULTS_DIR = "results"
 JOB_LOGS_DIR = "logs"
 IMPACT_ASSETS = "impact_assets.json"
 IMPACT_SUMMARY = "impact_summary.json"
+SOURCE_TRACE = "source_trace.json"
 JOB_ERROR_LOG = "error.log"
 
 
@@ -640,6 +641,14 @@ class ShakeScenarioServer:
             if not summary_path.exists():
                 raise RuntimeError(f"{IMPACT_SUMMARY} was not created.")
 
+            trace_path = results_dir / SOURCE_TRACE
+            trace = ground_motion.source_trace()
+            trace_path.write_text(
+                json.dumps(trace, indent=2, sort_keys=True,
+                           allow_nan=False),
+                encoding="utf-8",
+            )
+
             manifest = {
                 "job_id": job_id,
                 "job_name": f"job_{job_id:06d}",
@@ -664,6 +673,9 @@ class ShakeScenarioServer:
                     ),
                     "impact_summary": (
                         f"{JOB_RESULTS_DIR}/{IMPACT_SUMMARY}"
+                    ),
+                    "source_trace": (
+                        f"{JOB_RESULTS_DIR}/{SOURCE_TRACE}"
                     ),
                 },
             }

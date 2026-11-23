@@ -571,6 +571,8 @@ class _GmpeProvider(_BaseProvider):
             OrderedDict()
         )
         self._source_cache_lock = RLock()
+        self._source_trace_lock = RLock()
+        self._source_trace_records: List[Dict[str, Any]] = []
         self._site_parameters = normalize_gmpe_site_parameters(
             site_parameters,
         )
@@ -687,10 +689,181 @@ class _GmpeProvider(_BaseProvider):
             values = values.copy()
             values[invalid_mean] = np.nan
 
+        self._record_source_trace(
+            event, imt, site_list, rupture_parameters,
+            distances, source, site_context,
+        )
         return (
             values.astype(float).tolist(),
             sigma_ln.astype(float).tolist(),
         )
+
+    @staticmethod
+    def _trace_scalar(value: Any) -> Any:
+        """Return JSON-safe scalar values, preserving unknown as null."""
+        if value is None:
+            return None
+        if isinstance(value, (bool, str)):
+            return value
+        if isinstance(value, Real):
+            number = float(value)
+            return number if isfinite(number) else None
+        if isinstance(value, np.generic):
+            return _GmpeProvider._trace_scalar(value.item())
+        raise TypeError(f"Unsupported source trace value {type(value)!r}.")
+
+    @classmethod
+    def _trace_values(cls, value: Any) -> Any:
+        """Convert scalar or vector distance values to JSON primitives."""
+        if isinstance(value, (list, tuple, np.ndarray)):
+            return [cls._trace_values(item) for item in value]
+        return cls._trace_scalar(value)
+
+    def _record_source_trace(
+        self,
+        event: ScenarioEvent,
+        imt: str,
+        sites: Sequence[WgsPoint],
+        overrides: Mapping[str, Any],
+        distances: Mapping[str, Any],
+        source: ResolvedSource,
+        site_context: Any,
+    ) -> None:
+        """Record an independent snapshot of one successful evaluation."""
+        inputs = dict(self._source_parameters)
+        origins = {name: "provider" for name in inputs}
+        for name, value in (event.source_parameters or {}).items():
+            inputs[name] = value
+            origins[name] = "event"
+        for name, value in overrides.items():
+            if value is not None:
+                inputs[name] = value
+                origins[name] = "runtime"
+
+        build = source.build_result
+        geometry = None
+        if source.rupture is not None:
+            plane = source.rupture
+            vertices = plane.vertices()
+            geometry = {
+                "strike": plane.strike,
+                "dip": plane.dip,
+                "length_km": plane.length,
+                "width_km": plane.width,
+                "area_km2": plane.area,
+                "ztor_km": plane.ztor,
+                "along_fraction": plane.along_fraction,
+                "down_fraction": plane.down_fraction,
+                "vertices": [
+                    {
+                        "longitude": point.longitude,
+                        "latitude": point.latitude,
+                        "elevation_m": point.elevation,
+                    }
+                    for point in vertices
+                ],
+            }
+
+        estimate = None if build is None else build.scaling_estimate
+        scaling = None
+        if self._source_scaling is not None:
+            scaling = {
+                "configured": dict(self._source_scaling),
+                "used_model": (
+                    None if build is None else build.scaling_model
+                ),
+                "used_style": (
+                    None if build is None else build.scaling_style
+                ),
+                "estimate": None if estimate is None else {
+                    "median_area_km2": estimate.median,
+                    "sigma": estimate.sigma,
+                    "sigma_space": estimate.sigma_space,
+                    "extrapolated": estimate.extrapolated,
+                },
+            }
+
+        metrics = (
+            self._gmpe.required_distances
+            | self._gmpe.optional_distances
+        )
+        observed = {}
+        for metric in sorted(metrics):
+            if not hasattr(site_context, metric):
+                continue
+            explicit = (
+                metric in distances and distances[metric] is not None
+            )
+            if explicit:
+                origin = "explicit"
+            elif source.geometry == "finite" and metric in {
+                "rrup", "rjb", "rx", "ry0"
+            }:
+                origin = "finite_rupture"
+            elif source.geometry == "point" and metric in {
+                "rrup", "rjb", "rx", "ry0", "repi", "rhypo"
+            }:
+                origin = "point_approximation"
+            elif metric in {"repi", "rhypo"}:
+                origin = "point_distance"
+            else:
+                origin = "derived"
+            observed[metric] = {
+                "origin": origin,
+                "values_km": self._trace_values(
+                    getattr(site_context, metric)
+                ),
+            }
+
+        resolved = {
+            name: self._trace_scalar(value)
+            for name, value in source.parameters.items()
+        }
+        record = {
+            "imt": str(imt),
+            "source_geometry": source.geometry,
+            "magnitude": float(event.magnitude),
+            "magnitude_type": event.magnitude_type,
+            "hypocentre": {
+                "longitude": event.longitude,
+                "latitude": event.latitude,
+                "depth_km": event.depth_km,
+            },
+            "sites": [
+                {
+                    "longitude": float(site.longitude),
+                    "latitude": float(site.latitude),
+                    "elevation_m": float(site.elevation),
+                }
+                for site in sites
+            ],
+            "source_parameters": resolved,
+            "input_layers": origins,
+            "builder_origins": (
+                None if build is None else dict(build.parameter_origins)
+            ),
+            "rupture": geometry,
+            "scaling": scaling,
+            "distances": observed,
+            "assumptions": {
+                "magnitude_scales_treated_as_equivalent": True,
+                "magnitude_conversion_applied": False,
+                "finite_geometry_local_tangent_plane": (
+                    source.geometry == "finite"
+                ),
+            },
+        }
+        with self._source_trace_lock:
+            self._source_trace_records.append(record)
+
+    def source_trace(self) -> List[Dict[str, Any]]:
+        """Return detached JSON-compatible records for this provider."""
+        # The records contain only JSON primitives, lists and dictionaries.
+        # Deep copying prevents callers from mutating retained provenance.
+        from copy import deepcopy
+
+        with self._source_trace_lock:
+            return deepcopy(self._source_trace_records)
 
     def _resolve_source_parameters(
         self,

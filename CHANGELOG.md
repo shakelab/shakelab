@@ -9,6 +9,10 @@ corrections. The format follows
 
 ### Added
 
+- Record provider-level source provenance, finite rupture geometry,
+  scaling estimates, assumptions, and per-evaluation distance origins
+  in the new ShakeScenario `results/source_trace.json` artifact.
+
 - Reuse bounded, thread-safe, instance-local finite-source resolutions
   across GMPE evaluations for matching source inputs; preserve override
   isolation and do not cache site-specific distances.
