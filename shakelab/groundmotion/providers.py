@@ -155,6 +155,69 @@ def validate_source_parameters(
                 )
 
 
+def validate_source_scaling(
+    scaling: Optional[Mapping[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Validate opt-in magnitude scaling independently of event geometry.
+
+    The source rake is not available at configuration time. An automatic
+    style is therefore resolved only when a rupture is eventually built.
+    """
+    if scaling is None:
+        return None
+    if not isinstance(scaling, Mapping):
+        raise TypeError("source_scaling must be a mapping or None.")
+
+    allowed_keys = {"model", "style", "strict", "epsilon"}
+    unknown = set(scaling) - allowed_keys
+    if unknown:
+        raise ValueError(
+            f"Unknown source_scaling fields: {sorted(unknown)!r}."
+        )
+    if "model" not in scaling:
+        raise ValueError("source_scaling.model is required.")
+
+    from shakelab.groundmotion.scaling import create_scaling_relation
+
+    model = scaling["model"]
+    style = scaling.get("style", "auto")
+    strict = scaling.get("strict", False)
+    epsilon = scaling.get("epsilon", 0.0)
+
+    if not isinstance(model, str):
+        raise TypeError("source_scaling.model must be a string.")
+    if not isinstance(style, str):
+        raise TypeError("source_scaling.style must be a string.")
+    if not isinstance(strict, bool):
+        raise TypeError("source_scaling.strict must be boolean.")
+    if (isinstance(epsilon, bool) or not isinstance(epsilon, Real)
+            or not isfinite(epsilon)):
+        raise ValueError("source_scaling.epsilon must be finite.")
+
+    # TMG2017 has no pooled 'all' relation. The provisional style
+    # validates model capabilities but does not select a runtime style.
+    probe_style = (
+        "reverse" if model == "ThingbaijamEtAl2017" else "all"
+    ) if style == "auto" else style
+    create_scaling_relation(model, style=probe_style, strict=strict)
+
+    if epsilon != 0 and model in {
+        "Leonard2014_Interplate",
+        "Leonard2014_StableContinental",
+        "HanksBakun2002",
+    }:
+        raise ValueError(
+            "source_scaling.epsilon requires an available residual "
+            "dispersion for the selected model."
+        )
+    return {
+        "model": model,
+        "style": style,
+        "strict": strict,
+        "epsilon": float(epsilon),
+    }
+
+
 def normalize_gmpe_site_parameters(
     parameters: Optional[Mapping[str, Any]],
 ) -> Dict[str, Any]:
@@ -467,6 +530,7 @@ class _GmpeProvider(_BaseProvider):
         source_parameters: Optional[Mapping[str, float]] = None,
         site_parameters: Optional[Mapping[str, Any]] = None,
         source_geometry: Optional[str] = None,
+        source_scaling: Optional[Mapping[str, Any]] = None,
         **gmpe_kwargs: Any,
     ) -> None:
         from shakelab.groundmotion.gmpe.registry import create_gmpe
@@ -475,6 +539,12 @@ class _GmpeProvider(_BaseProvider):
             source_geometry, point_source_distances,
         )
         validate_source_parameters(source_parameters)
+        self._source_scaling = validate_source_scaling(source_scaling)
+        if self._source_scaling is not None:
+            if self._source_geometry != "finite":
+                raise ValueError(
+                    "source_scaling requires source_geometry='finite'."
+                )
         self._source_parameters = dict(source_parameters or {})
         self._site_parameters = normalize_gmpe_site_parameters(
             site_parameters,

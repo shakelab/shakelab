@@ -81,3 +81,56 @@ constraints. Residual sigma and calibration status are None (unknown),
 not zero and not confirmed in-range. Nonzero epsilon and strict=True
 are rejected rather than silently assuming uncertainty or calibration
 limits. No mechanism-specific variants are invented for Hanks–Bakun.
+
+## Provider configuration (validation-only phase)
+
+A GMPE provider can declare optional magnitude scaling in the
+`config` object of a `ShakeLabGroundMotion` model:
+
+```json
+{
+  "provider": "gmpe",
+  "config": {
+    "gmpe_name": "ChiouYoungs2014",
+    "source_geometry": "finite",
+    "source_parameters": {
+      "strike": 30.0,
+      "dip": 45.0,
+      "rake": 90.0,
+      "aspect_ratio": 2.0,
+      "lower_seismogenic_depth": 15.0
+    },
+    "source_scaling": {
+      "model": "ThingbaijamEtAl2017",
+      "style": "auto",
+      "strict": true
+    }
+  }
+}
+```
+
+`source_scaling` accepts `model` (required), `style` (default:
+`auto`), `strict` (default: false), and `epsilon` (default: 0).
+The model is selected from `available_scaling_relations()`.
+Unsupported style/model combinations, unknown keys, non-boolean strict
+flags, and invalid epsilon values fail during configuration validation.
+`source_scaling` is only accepted with
+`source_geometry="finite"`.
+
+An explicit style is validated against the selected model. The
+`auto` style is not resolved at configuration time: it depends on
+the event/runtime rake, except for HanksBakun2002, which only uses
+`all`. In particular, ThingbaijamEtAl2017 requires a valid rake
+for automatic crustal style selection or an explicit style; its
+`interface` style must be specified explicitly. The Leonard models
+and HanksBakun2002 have no implemented calibration intervals, so
+`strict=true` is rejected. These models also lack a published
+residual dispersion in the present implementation; nonzero
+`epsilon` is rejected.
+
+Scaling configuration is currently **validated and stored only**.
+The GMPE provider does not yet call the automatic rupture builder.
+Thus this configuration does not change predicted ground motion or
+provide finite geometry automatically. Physical source dimensions,
+hypocentral position and orientation remain in `source_parameters`,
+not `source_scaling`. No default aspect ratio is introduced.

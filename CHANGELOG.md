@@ -9,6 +9,10 @@ corrections. The format follows
 
 ### Added
 
+- Validate optional GMPE `source_scaling` configuration, including
+  model capabilities, styles, strict calibration and dispersion options;
+  automatic rupture activation remains a separate implementation phase.
+
 - Automatic rectangular rupture construction with explicit constraints,
   optional magnitude scaling and parameter provenance.
 

@@ -102,6 +102,7 @@ from shakelab.groundmotion.providers import (
     normalize_gmpe_site_parameters,
     resolve_provider_geometry,
     validate_source_parameters,
+    validate_source_scaling,
 )
 
 
@@ -337,6 +338,16 @@ class GroundMotionProviderConfig:
                 self.config.get("point_source_distances"),
             )
             validate_source_parameters(self.config.get("source_parameters"))
+            scaling = validate_source_scaling(
+                self.config.get("source_scaling"),
+            )
+            if scaling is not None and resolve_provider_geometry(
+                self.config.get("source_geometry"),
+                self.config.get("point_source_distances"),
+            ) != "finite":
+                raise ValueError(
+                    "source_scaling requires source_geometry='finite'."
+                )
             site = normalize_gmpe_site_parameters(
                 self.config.get("site_parameters"),
             )
