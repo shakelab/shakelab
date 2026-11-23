@@ -33,8 +33,11 @@ from __future__ import annotations
 
 import json
 import socket
+import hashlib
+import time
 import struct
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -166,3 +169,67 @@ class ProtocolClient:
             return result
         return {"result": result}
 
+
+    def request_attachment(
+        self,
+        payload: dict[str, Any],
+        req_id: str,
+        path: str | Path,
+        kind: str,
+        fmt: str,
+        filename: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit one binary attachment following the framed JSON header."""
+        source = Path(path)
+        size = source.stat().st_size
+        if not 0 < size <= 128 * 1024 * 1024:
+            raise ValueError("Attachment size exceeds limit or is invalid.")
+        digest = hashlib.sha256()
+        with source.open("rb") as stream:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        descriptor = {
+            "kind": kind,
+            "format": fmt,
+            "size": size,
+            "sha256": digest.hexdigest(),
+            "filename": filename or source.name,
+        }
+        req = {
+            "v": self.api_version,
+            "op": "submit",
+            "req_id": req_id,
+            "payload": payload,
+            "attachment": descriptor,
+        }
+        with socket.create_connection(
+            (self.host, self.port), self.timeout
+        ) as sock:
+            deadline = time.monotonic() + 600.0
+            sock.settimeout(self.timeout)
+            send_message(sock, req)
+            transferred = 0
+            with source.open("rb") as stream:
+                while transferred < size:
+                    remaining_time = deadline - time.monotonic()
+                    if remaining_time <= 0:
+                        raise TimeoutError("Attachment transfer deadline exceeded.")
+                    sock.settimeout(min(60.0, remaining_time))
+                    chunk = stream.read(min(1024 * 1024, size - transferred))
+                    if not chunk:
+                        raise EOFError("Attachment changed during transfer.")
+                    sock.sendall(chunk)
+                    transferred += len(chunk)
+            sock.settimeout(self.timeout)
+            resp = recv_message(sock)
+        if not resp.get("ok", False):
+            error = resp.get("error", {})
+            raise RuntimeError(
+                f"{error.get('code', 'ERROR')}: "
+                f"{error.get('message', 'Unknown error.')}"
+            )
+        result = resp.get("result", {})
+        return result if isinstance(result, dict) else {"result": result}
