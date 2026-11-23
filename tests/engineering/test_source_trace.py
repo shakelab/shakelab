@@ -95,6 +95,7 @@ def test_nonfinite_geometry_has_no_finite_plane():
             "source_parameters": {
                 "strike": 120.0, "dip": 35.0, "rake": 90.0,
                 "ztor": 2.0,
+                "width": 12.0,
             },
         },
     )

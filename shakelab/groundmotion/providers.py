@@ -744,7 +744,7 @@ class _GmpeProvider(_BaseProvider):
         geometry = None
         if source.rupture is not None:
             plane = source.rupture
-            vertices = plane.vertices()
+            vertices = plane.vertices
             geometry = {
                 "strike": plane.strike,
                 "dip": plane.dip,

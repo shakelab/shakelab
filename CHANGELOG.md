@@ -1168,6 +1168,9 @@ corrections. The format follows
 
 ### Fixed
 
+- Use the `RectangularRupture.vertices` property when recording source
+  provenance; supply required GMPE width in the point-mode trace test.
+
 - `signals.io.reader`: a valid file without waveforms (a DYNA response
   or Fourier spectrum, a SAC spectrum or x-y file) found in a folder or
   pattern stopped the whole reading with `ValueError`; such files are
