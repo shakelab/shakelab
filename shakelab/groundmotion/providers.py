@@ -88,6 +88,7 @@ from typing import (
     Optional,
     Sequence,
     Tuple,
+    Union,
 )
 
 from shakelab.libutils.constants import GRAVITY
