@@ -9,6 +9,7 @@ import json
 import re
 import shutil
 import stat
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -67,8 +68,13 @@ def receive_attachment(sock: Any, dest: Path, attachment: Attachment) -> None:
     """Stream exactly the declared bytes into a temporary regular file."""
     digest = hashlib.sha256()
     remaining = attachment.size
+    deadline = time.monotonic() + 600.0
     with dest.open("xb") as output:
         while remaining:
+            remaining_time = deadline - time.monotonic()
+            if remaining_time <= 0:
+                raise ProtocolError("Attachment transfer deadline exceeded.")
+            sock.settimeout(min(60.0, remaining_time))
             chunk = sock.recv(min(CHUNK_SIZE, remaining))
             if not chunk:
                 raise ProtocolError("Attachment transfer interrupted.")
