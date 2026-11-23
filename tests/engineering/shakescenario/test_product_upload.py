@@ -308,3 +308,29 @@ def test_upload_rejects_ambiguous_provider(tmp_path, monkeypatch):
         _transmit(server, _payload(), _descriptor(data), data)
     assert db.list_jobs() == []
     server._executor.shutdown(wait=False)
+
+
+def test_valid_shakemap_upload_without_event_id(tmp_path, monkeypatch):
+    """A valid XML product is retained and submitted without an event id."""
+    from shakelab.groundmotion.test_shakemap_provider import (
+        GRID_XML, UNCERTAINTY_XML,
+    )
+
+    server, db = _server(
+        tmp_path, monkeypatch, kind="shakemap",
+        require_uncertainty=True
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("event/grid.xml", GRID_XML)
+        archive.writestr("event/uncertainty.xml", UNCERTAINTY_XML)
+    data = buffer.getvalue()
+    result = _transmit(
+        server, _payload(), _descriptor(data, "shakemap", "zip"), data
+    )
+    job_id = result["job_id"]
+    folder = tmp_path / "runs" / f"job_{job_id:06d}"
+    assert (folder / "inputs/shakemap/grid.xml").is_file()
+    assert (folder / "inputs/shakemap/uncertainty.xml").is_file()
+    assert db.get_job(job_id)["status"] == "queued"
+    server._executor.shutdown(wait=False)
