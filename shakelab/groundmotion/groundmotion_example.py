@@ -4,12 +4,17 @@ Run from the repository root with Matplotlib installed:
 
     python -m shakelab.groundmotion.groundmotion_example
 
-Three independent plots demonstrate:
+Three ground-motion panels and a separate diagnostic figure demonstrate:
 
 1. Native mode: BragatoSlejko2005 with automatically derived Repi.
 2. Native mode: BindiEtAl2011 with an explicitly supplied Rjb.
 3. The same AbrahamsonEtAl2014 GMPE with point, finite explicit,
    and magnitude-scaled finite rupture geometry.
+
+Diagnostics use the actual GMPE distance inputs captured by optional
+source tracing; they also show finite-rupture map projections in local
+ENU coordinates (km). Point and explicit finite share dip, rake,
+width and ztor. Scaling changes both rupture size and distances.
 
 All numbers are synthetic illustrations, not earthquake-specific
 source calibrations or recommendations about fault geometry.
@@ -34,6 +39,7 @@ from shakelab.libutils.geodeticN.transform import (
     MetricFrame,
     MetricPoint,
     metric_to_wgs,
+    geo_to_enu,
 )
 
 
@@ -131,8 +137,8 @@ def native_explicit_example(ax, offsets_km, sites) -> None:
     ax.set_title("Native: supplied Rjb")
 
 
-def source_geometry_comparison(ax, offsets_km, sites) -> None:
-    """Evaluate one GMPE and event with three source geometries."""
+def source_geometry_comparison(ax, offsets_km, sites) -> dict:
+    """Compare three geometries and return actual GMPE distance traces."""
     event = ScenarioEvent.from_lonlat_depth(
         6.2, 13.10, 46.05, 7.0, magnitude_type="Mw",
     )
@@ -151,6 +157,7 @@ def source_geometry_comparison(ax, offsets_km, sites) -> None:
         "AbrahamsonEtAl2014",
         config={
             "source_geometry": "point",
+            "record_source_trace": True,
             "source_parameters": {
                 **common_source,
                 "width": 12.0,
@@ -162,6 +169,7 @@ def source_geometry_comparison(ax, offsets_km, sites) -> None:
         "AbrahamsonEtAl2014",
         config={
             "source_geometry": "finite",
+            "record_source_trace": True,
             "source_parameters": {
                 **common_source,
                 "length": 20.0,
@@ -175,6 +183,7 @@ def source_geometry_comparison(ax, offsets_km, sites) -> None:
         "AbrahamsonEtAl2014",
         config={
             "source_geometry": "finite",
+            "record_source_trace": True,
             "source_parameters": {
                 **common_source,
                 "aspect_ratio": 2.0,
@@ -187,26 +196,113 @@ def source_geometry_comparison(ax, offsets_km, sites) -> None:
         },
     )
 
-    for provider, label in [
-        (point, "Point approximation"),
-        (explicit, "Finite explicit"),
-        (scaled, "Finite with scaling"),
+    cases = {}
+    for key, provider, label in [
+        ("point", point, "Point approximation"),
+        ("explicit", explicit, "Finite explicit"),
+        ("scaled", scaled, "Finite with scaling"),
     ]:
         median, sigma_ln = provider.evaluate(
             "PGA", sites, event, site_parameters=site_parameters,
         )
         draw_curve(ax, offsets_km, median, sigma_ln, label)
-
-    source = scaled.resolve_source(event)
-    print(
-        "Scaled rupture: length={:.2f} km, width={:.2f} km, "
-        "ztor={:.2f} km".format(
-            source.rupture.length,
-            source.rupture.width,
-            source.rupture.ztor,
-        )
-    )
+        cases[key] = {
+            "label": label,
+            "source": provider.resolve_source(event),
+            "trace": provider.source_trace()[0],
+        }
     ax.set_title("Same event and GMPE, three geometries")
+    return {"event": event, "sites": sites, "cases": cases}
+
+
+def diagnostic_figure(offsets_km, diagnostics) -> None:
+    """Show actual GMPE distances and projected rupture footprints."""
+    event = diagnostics["event"]
+    sites = diagnostics["sites"]
+    cases = diagnostics["cases"]
+    fig, axes = plt.subplots(2, 3, figsize=(17, 10))
+
+    titles = {
+        "rrup": "Rrup: minimum 3-D distance",
+        "rjb": "Rjb: horizontal projection distance",
+        "rx": "Rx: signed cross-strike offset",
+        "ry0": "Ry0: beyond-edge along-strike distance",
+    }
+    for metric, ax in zip(titles, axes.flat[:4]):
+        for case in cases.values():
+            values = case["trace"]["distances"][metric]["values_km"]
+            ax.plot(offsets_km, values, label=case["label"])
+        ax.set_xscale("log")
+        ax.set_xlabel("Epicentral East offset (km)")
+        ax.set_ylabel("Distance (km)")
+        ax.set_title(titles[metric])
+        ax.grid(True, which="both", alpha=0.3)
+        ax.legend(fontsize="small")
+        # Linear y: Rjb/Ry0 may be zero and Rx can be negative.
+
+    map_ax = axes[1, 1]
+    frame = MetricFrame(ref_geo=event.epicentre, orientation="enu")
+    site_xyz = [geo_to_enu(site, frame) for site in sites]
+    map_ax.plot(
+        [xyz[0] / 1000.0 for xyz in site_xyz],
+        [xyz[1] / 1000.0 for xyz in site_xyz],
+        "k.-", linewidth=1.0, markersize=2, label="Surface sites",
+    )
+    map_ax.plot(0, 0, "k*", markersize=12, label="Epicentre")
+    for key in ("explicit", "scaled"):
+        plane = cases[key]["source"].rupture
+        vertices = [geo_to_enu(v, frame) for v in plane.vertices]
+        east = [xyz[0] / 1000.0 for xyz in vertices]
+        north = [xyz[1] / 1000.0 for xyz in vertices]
+        map_ax.plot(
+            east + [east[0]], north + [north[0]],
+            linewidth=2, label=cases[key]["label"],
+        )
+    map_ax.set_title("Rupture projections (local ENU)")
+    map_ax.set_xlabel("East (km)")
+    map_ax.set_ylabel("North (km)")
+    map_ax.set_aspect("equal", adjustable="box")
+    # Focus on the near-source geometry; distant sites remain in the
+    # attenuation and distance plots.
+    map_ax.set_xlim(-25.0, 65.0)
+    map_ax.set_ylim(-35.0, 35.0)
+    map_ax.grid(True, alpha=0.3)
+    map_ax.legend(fontsize="small")
+
+    summary = axes[1, 2]
+    summary.set_axis_off()
+    lines = [
+        "Synthetic Mw 6.2, hypocentral depth 7 km",
+        "Strike 120°, dip 35°, rake 90°",
+        "",
+        "Point: no surface; finite GMPE metrics",
+        "approximated from epicentral/hypocentral",
+        "distances and oriented offsets.",
+    ]
+    for key in ("explicit", "scaled"):
+        plane = cases[key]["source"].rupture
+        lines.extend([
+            "",
+            cases[key]["label"] + ":",
+            f"  length = {plane.length:.2f} km",
+            f"  width  = {plane.width:.2f} km",
+            f"  area   = {plane.area:.2f} km²",
+            f"  ztor   = {plane.ztor:.2f} km",
+        ])
+    lines.extend([
+        "",
+        "Point and explicit finite share",
+        "dip, rake, width and ztor.",
+        "Bands: GMPE sigma only, NOT scaling",
+        "or geometry uncertainty.",
+    ])
+    summary.text(
+        0.02, 0.98, "\n".join(lines),
+        transform=summary.transAxes, va="top",
+        family="monospace", fontsize=9,
+    )
+    fig.suptitle("Source geometry and distance diagnostics")
+    fig.tight_layout()
 
 
 def main() -> None:
@@ -218,7 +314,9 @@ def main() -> None:
     fig, axes = plt.subplots(1, 3, figsize=(17, 5))
     native_repi_example(axes[0], offsets_km, sites)
     native_explicit_example(axes[1], offsets_km, sites)
-    source_geometry_comparison(axes[2], offsets_km, sites)
+    diagnostics = source_geometry_comparison(
+        axes[2], offsets_km, sites,
+    )
 
     for index, ax in enumerate(axes):
         ax.set_xscale("log")
@@ -232,6 +330,7 @@ def main() -> None:
         ax.legend(fontsize="small")
 
     fig.tight_layout()
+    diagnostic_figure(offsets_km, diagnostics)
     plt.show()
 
 
