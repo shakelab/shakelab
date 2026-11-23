@@ -223,7 +223,10 @@ class ProtocolClient:
                         raise EOFError("Attachment changed during transfer.")
                     sock.sendall(chunk)
                     transferred += len(chunk)
-            sock.settimeout(self.timeout)
+            remaining_time = deadline - time.monotonic()
+            if remaining_time <= 0:
+                raise TimeoutError("Attachment submit deadline exceeded.")
+            sock.settimeout(min(60.0, remaining_time))
             resp = recv_message(sock)
         if not resp.get("ok", False):
             error = resp.get("error", {})
