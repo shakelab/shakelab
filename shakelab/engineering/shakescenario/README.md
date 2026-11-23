@@ -502,6 +502,76 @@ client.submit_scenario(
 Omit `model_id` to use the server's default model. Use
 `client.submit(payload)` to submit a complete request dictionary.
 
+### Upload ground-motion products with submit
+
+The client can optionally attach one ground-motion product directly to the
+same `submit` request. The selected model must configure exactly one
+provider matching the attachment type (`shakemap` or `imt`). Multiple
+providers in the model remain supported, but ambiguous matching providers
+are rejected for this upload operation.
+
+For a ShakeMap ZIP archive:
+
+```bash
+shakeclient submit --model-id nei --mag 6.2 --lon 13.25 \
+    --lat 46.25 --depth 8 --shakemap ./shakemap.zip
+```
+
+A local ShakeMap directory is also accepted:
+
+```bash
+shakeclient submit --model-id nei --mag 6.2 --lon 13.25 \
+    --lat 46.25 --depth 8 --shakemap ./shakemap/
+```
+
+The client packages the directory into a temporary ZIP automatically. For
+an existing ZIP it sends the file as supplied. The archive can contain
+`grid.xml`, optional `uncertainty.xml` and `info.json` at the archive
+root or under a single enclosing directory. Required fields and uncertainty
+availability follow the configured ShakeMap provider policy.
+
+For precomputed station IMT data:
+
+```bash
+shakeclient submit --model-id nei --mag 6.2 --lon 13.25 \
+    --lat 46.25 --depth 8 --imt-file ./groundmotion.json
+```
+
+The JSON must follow `ShakeScenarioIMT` schema `1.0.0`. The flags
+`--shakemap` and `--imt-file` are mutually exclusive. The event
+identifier is optional for uploaded products; it is not inferred from the
+filename. When supplied, it must agree with identifiable product metadata.
+
+The equivalent Python API is:
+
+```python
+client.submit_scenario(
+    model_id="nei",
+    magnitude=6.2,
+    longitude=13.25,
+    latitude=46.25,
+    depth_km=8,
+    shakemap="./shakemap.zip",
+)
+
+client.submit(payload, imt_file="./groundmotion.json")
+```
+
+The client computes SHA-256 and streams the binary file separately from
+the framed JSON request. The server verifies its integrity, validates the
+product and commits it to the job before queuing execution. Each upload is
+limited to 128 MiB compressed/transmitted and ShakeMap ZIP contents to
+512 MiB uncompressed. The current server supports one attachment per submit.
+
+Uploaded products are retained beneath `runs/job_xxxxxx/inputs/` and are
+never copied to the global `shakemaps` or `imts` directories. The job
+request stores the product kind, relative path, original filename, size,
+SHA-256, and matching provider ID. Failed uploads are not queued.
+
+**Compatibility:** omitting both upload flags preserves the original
+JSON-only submit protocol and the provider lookup by `root_path` and
+`event_id`. GMPE calculations do not require attachments.
+
 ### 8.5 List available models
 
 ``` bash
