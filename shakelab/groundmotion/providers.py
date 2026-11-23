@@ -76,6 +76,7 @@ from dataclasses import dataclass
 from math import exp, isfinite
 from numbers import Real
 from pathlib import Path
+from types import MappingProxyType
 from typing import (
     Any,
     Callable,
@@ -359,6 +360,20 @@ class ScenarioEvent:
                 raise ValueError("event_id must not be empty.")
 
 
+@dataclass(frozen=True)
+class ResolvedSource:
+    """Source snapshot shared by GMPE rupture and distance contexts.
+
+    Parameters are merged once from provider, event and runtime levels.
+    The optional rectangular rupture is constructed only for finite
+    geometry. This object is local to one evaluation; it is not cached.
+    """
+
+    geometry: str
+    parameters: Mapping[str, float]
+    rupture: Optional[Any] = None
+
+
 # ---------------------------------------------------------------------------
 # Provider registry and interface
 # ---------------------------------------------------------------------------
@@ -599,16 +614,15 @@ class _GmpeProvider(_BaseProvider):
                 f"{names}."
             )
 
-        rupture_parameters = self._resolve_source_parameters(
-            event, rupture_parameters,
-        )
-        rupture = self._build_rupture_context(event, rupture_parameters)
+        source = self._resolve_source(event, rupture_parameters)
+        rupture = self._build_rupture_context(event, source)
         site_context = self._build_sites_context(
             site_list,
             event,
             site_parameters,
             distances,
-            rupture_parameters,
+            source.parameters,
+            resolved_source=source,
         )
 
         self._gmpe.validate_contexts(
@@ -682,34 +696,64 @@ class _GmpeProvider(_BaseProvider):
         parameters.update(overrides)
         return parameters
 
-    def _build_rupture_context(
+    def _resolve_source(
         self,
         event: ScenarioEvent,
         overrides: Mapping[str, Any],
+    ) -> ResolvedSource:
+        """Resolve one source snapshot for this GMPE evaluation.
+
+        Finite geometry is constructed exactly once. Source scaling is
+        deliberately not activated until the next implementation phase.
+        """
+        parameters = self._resolve_source_parameters(event, overrides)
+        geometry = event.source_geometry or self._source_geometry
+        validate_source_geometry(geometry)
+
+        rupture = None
+        if geometry == "finite":
+            rupture = self._build_finite_rupture(event, parameters)
+            # The geometry object is authoritative for these quantities.
+            # With explicit ruptures, values remain numerically unchanged.
+            parameters.update({
+                "strike": rupture.strike,
+                "dip": rupture.dip,
+                "length": rupture.length,
+                "width": rupture.width,
+                "ztor": rupture.ztor,
+                "along_fraction": rupture.along_fraction,
+                "down_fraction": rupture.down_fraction,
+            })
+
+        return ResolvedSource(
+            geometry=geometry,
+            parameters=MappingProxyType(parameters),
+            rupture=rupture,
+        )
+
+    def _build_rupture_context(
+        self,
+        event: ScenarioEvent,
+        source: ResolvedSource,
     ) -> Any:
-        """
-        Build the rupture context requested by the selected GMPE.
-        """
+        """Build a GMPE rupture context from one resolved source."""
         from shakelab.groundmotion.gmpe.base import RuptureContext
 
         available: Dict[str, Any] = {
             "mag": float(event.magnitude),
             "hypo_depth": float(event.depth_km),
         }
-
-        available.update(self._resolve_source_parameters(event, overrides))
+        available.update(source.parameters)
 
         requested = (
             self._gmpe.required_rupture_parameters
             | self._gmpe.optional_rupture_parameters
         )
-
         data = {
             name: available[name]
             for name in requested
             if name in available
         }
-
         return RuptureContext(**data)
 
     @staticmethod
@@ -742,9 +786,14 @@ class _GmpeProvider(_BaseProvider):
         site_parameters: Mapping[str, Any],
         distances: Mapping[str, Any],
         rupture_parameters: Mapping[str, Any],
+        *,
+        resolved_source: Optional[ResolvedSource] = None,
     ) -> Any:
         """
         Build vectorized site and distance data requested by the GMPE.
+
+        A standalone call resolves its own source for compatibility with
+        existing tests; evaluate() always supplies the shared snapshot.
         """
         from shakelab.groundmotion.gmpe.base import SitesContext
 
@@ -760,23 +809,21 @@ class _GmpeProvider(_BaseProvider):
             and site_parameters[name] is not None
         }
 
-        geometry = event.source_geometry or self._source_geometry
-        validate_source_geometry(geometry)
+        source = resolved_source
+        if source is None:
+            source = self._resolve_source(event, rupture_parameters)
+        geometry = source.geometry
         required_distances = self._gmpe.required_distances
         optional_distances = self._gmpe.optional_distances
 
         finite_distances = {}
         if geometry == "finite":
-            parameters = self._resolve_source_parameters(
-                event, rupture_parameters,
-            )
-            rupture = self._build_finite_rupture(event, parameters)
             missing = {
                 metric for metric in required_distances | optional_distances
                 if distances.get(metric) is None
             }
             if missing & {"rrup", "rjb", "rx", "ry0"}:
-                finite_distances = rupture.distances(list(sites))
+                finite_distances = source.rupture.distances(list(sites))
 
         for metric in required_distances | optional_distances:
             if metric in distances and distances[metric] is not None:
@@ -791,9 +838,7 @@ class _GmpeProvider(_BaseProvider):
             if geometry == "point":
                 point_metric = self._POINT_SOURCE_ALIASES.get(metric, metric)
                 if metric in {"rx", "ry0"}:
-                    strike = self._resolve_source_parameters(
-                        event, rupture_parameters,
-                    ).get("strike")
+                    strike = source.parameters.get("strike")
                     if strike is not None:
                         data[metric] = self._project_epicentral_offsets_km(
                             event, sites, metric, strike,

@@ -9,6 +9,10 @@ corrections. The format follows
 
 ### Added
 
+- Resolve one immutable source snapshot per GMPE evaluation, shared by
+  rupture-context and finite-distance construction (without caching or
+  automatic magnitude scaling yet).
+
 - Validate optional GMPE `source_scaling` configuration, including
   model capabilities, styles, strict calibration and dispersion options;
   automatic rupture activation remains a separate implementation phase.

@@ -87,3 +87,19 @@ Horizontal planes have no vertical width constraint.
 The result includes resolved source parameters and parameter origins,
 with scaling model, style and estimate recorded only when used.
 The builder is not yet connected to the GMPE providers.
+
+## Shared GMPE source resolution
+
+The GMPE provider resolves provider, event and runtime source parameters
+into a single `ResolvedSource` snapshot per `evaluate()` call. In finite
+mode the explicit rectangular rupture is built once and its final
+geometry is used for both rupture parameters and site distances.
+Explicit distance overrides still take precedence, and point/native
+modes retain their existing numerical behavior. Standalone calls to
+`_build_sites_context()` remain supported for existing integrations.
+This stage introduces neither caching nor activation of
+`source_scaling`; both are separate subsequent phases.
+
+Magnitude types are provisionally treated as equivalent for future
+scaling integration; no magnitude conversion is performed. Existing
+GMPE-specific magnitude metadata checks are unchanged in this stage.
