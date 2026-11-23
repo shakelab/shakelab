@@ -234,6 +234,7 @@ class ShakeScenarioServer:
 
         self._executor = ThreadPoolExecutor(max_workers=max(1, workers))
         self._submission_lock = threading.RLock()
+        self._active_uploads = 0
 
     def serve_forever(self) -> None:
         """Start accepting connections."""
@@ -431,6 +432,22 @@ class ShakeScenarioServer:
             raise ValueError("Missing scenario.event.")
         event = _build_scenario_event(event_data)
 
+        # Protect in-progress staging from concurrent reset/purge.
+        with self._submission_lock:
+            self._active_uploads += 1
+        try:
+            return self._receive_and_submit_attachment(
+                resolved, attachment, provider, event.event_id, conn
+            )
+        finally:
+            with self._submission_lock:
+                self._active_uploads -= 1
+
+    def _receive_and_submit_attachment(
+        self, resolved: dict[str, Any], attachment: Attachment,
+        provider: Any, event_id: str | None, conn: socket.socket,
+    ) -> dict[str, Any]:
+        """Stage and finalize the already-authorized attachment."""
         # A staging directory on the same filesystem allows atomic rename.
         with tempfile.TemporaryDirectory(
             prefix=".upload_", dir=self._workdir
@@ -444,7 +461,7 @@ class ShakeScenarioServer:
                 attachment, received, prepared
             )
             validate_product(
-                product, attachment, provider, event.event_id
+                product, attachment, provider, event_id
             )
             relative = product.relative_to(prepared).as_posix()
             resolved["_product"] = {
@@ -603,7 +620,8 @@ class ShakeScenarioServer:
         if job_id is None:
             raise ValueError("Missing 'job_id'.")
 
-        ok = self._db.delete_job(int(job_id))
+        with self._submission_lock:
+            ok = self._db.delete_job(int(job_id))
         if not ok:
             raise ValueError(f"Job not found: {job_id}")
 
@@ -625,16 +643,21 @@ class ShakeScenarioServer:
         if not confirm:
             raise ValueError("Reset requires confirm=true.")
 
-        self._db.reset()
+        with self._submission_lock:
+            if self._active_uploads:
+                raise ValueError(
+                    "Cannot reset while an upload is in progress."
+                )
+            self._db.reset()
 
-        purged = False
-        if purge and self._workdir.exists():
-            for path in self._workdir.iterdir():
-                if path.is_dir():
-                    shutil.rmtree(path)
-                else:
-                    path.unlink()
-            purged = True
+            purged = False
+            if purge and self._workdir.exists():
+                for path in self._workdir.iterdir():
+                    if path.is_dir():
+                        shutil.rmtree(path)
+                    else:
+                        path.unlink()
+                purged = True
 
         return {
             "reset": True,
