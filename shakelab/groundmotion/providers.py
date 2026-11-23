@@ -372,6 +372,7 @@ class ResolvedSource:
     geometry: str
     parameters: Mapping[str, float]
     rupture: Optional[Any] = None
+    build_result: Optional[Any] = None
 
 
 # ---------------------------------------------------------------------------
@@ -590,8 +591,8 @@ class _GmpeProvider(_BaseProvider):
         )
 
         site_list = self._validate_sites(sites)
-        self._validate_magnitude_type(event)
-
+        # Magnitude labels are provisionally treated as equivalent.
+        # Do not convert the numerical magnitude or reject a label.
         runtime = dict(kwargs)
 
         rupture_parameters = self._as_mapping(
@@ -703,18 +704,27 @@ class _GmpeProvider(_BaseProvider):
     ) -> ResolvedSource:
         """Resolve one source snapshot for this GMPE evaluation.
 
-        Finite geometry is constructed exactly once. Source scaling is
-        deliberately not activated until the next implementation phase.
+        Finite geometry is constructed exactly once. Magnitude scaling
+        is opt-in; legacy finite geometries follow the original builder.
         """
         parameters = self._resolve_source_parameters(event, overrides)
         geometry = event.source_geometry or self._source_geometry
         validate_source_geometry(geometry)
 
         rupture = None
+        build_result = None
         if geometry == "finite":
-            rupture = self._build_finite_rupture(event, parameters)
-            # The geometry object is authoritative for these quantities.
-            # With explicit ruptures, values remain numerically unchanged.
+            if self._source_scaling is None:
+                rupture = self._build_finite_rupture(event, parameters)
+            else:
+                build_result = self._build_scaled_rupture(
+                    event, parameters,
+                )
+                rupture = build_result.rupture
+                parameters.update(build_result.source_parameters)
+
+            # The final geometry is authoritative for the GMPE and
+            # distances, including width and ztor after constraints.
             parameters.update({
                 "strike": rupture.strike,
                 "dip": rupture.dip,
@@ -729,6 +739,47 @@ class _GmpeProvider(_BaseProvider):
             geometry=geometry,
             parameters=MappingProxyType(parameters),
             rupture=rupture,
+            build_result=build_result,
+        )
+
+    def _build_scaled_rupture(
+        self,
+        event: ScenarioEvent,
+        parameters: Mapping[str, Any],
+    ) -> Any:
+        """Build one constrained rupture with opt-in magnitude scaling."""
+        from shakelab.groundmotion.rupture import (
+            build_rectangular_rupture,
+        )
+
+        required = ("strike", "dip")
+        missing = [name for name in required if name not in parameters]
+        if missing:
+            raise ValueError(
+                "Automatic finite source geometry requires source "
+                "parameters: " + ", ".join(missing) + "."
+            )
+
+        optional = (
+            "rake", "area", "length", "width", "aspect_ratio",
+            "ztor", "along_fraction", "down_fraction",
+            "upper_seismogenic_depth", "lower_seismogenic_depth",
+        )
+        source_options = {
+            key: parameters[key]
+            for key in optional if key in parameters
+        }
+        scaling = self._source_scaling
+        return build_rectangular_rupture(
+            event.hypocentre,
+            strike=parameters["strike"],
+            dip=parameters["dip"],
+            magnitude=event.magnitude,
+            scaling_model=scaling["model"],
+            scaling_style=scaling["style"],
+            scaling_strict=scaling["strict"],
+            scaling_epsilon=scaling["epsilon"],
+            **source_options,
         )
 
     def _build_rupture_context(
@@ -895,34 +946,6 @@ class _GmpeProvider(_BaseProvider):
             # Positive on the right of the strike direction.
             return repi * np.sin(angle)
         return np.abs(repi * np.cos(angle))
-
-    def _validate_magnitude_type(
-        self,
-        event: ScenarioEvent,
-    ) -> None:
-        """
-        Check event magnitude metadata when both sides define a type.
-        """
-        required = getattr(
-            self._gmpe,
-            "MAGNITUDE_TYPE",
-            None,
-        )
-
-        supplied = event.magnitude_type
-
-        if required is None or supplied is None:
-            return
-
-        required_key = str(required).strip().upper()
-        supplied_key = str(supplied).strip().upper()
-
-        if required_key != supplied_key:
-            raise ValueError(
-                f"{self._gmpe.__class__.__name__} requires magnitude "
-                f"type {required!r}, but ScenarioEvent provides "
-                f"{supplied!r}."
-            )
 
     def _compute_distance_array_km(
         self,

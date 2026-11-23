@@ -35,8 +35,8 @@ geometrically consistent. RuptureDimensions.from_area preserves
 area with one explicit shape constraint: aspect ratio, length or
 width. A width cap may change the aspect ratio, but cannot override
 an explicitly specified length or width. No seismogenic thickness
-or nucleation position is assumed. Scaling is not yet activated in
-the GMPE providers.
+or nucleation position is assumed. GMPE providers activate scaling
+only when `source_scaling` is explicitly configured.
 
 Rake classification uses conventional 45-degree boundaries;
 boundary values select strike-slip. This classification is not a
@@ -82,7 +82,7 @@ not zero and not confirmed in-range. Nonzero epsilon and strict=True
 are rejected rather than silently assuming uncertainty or calibration
 limits. No mechanism-specific variants are invented for Hanks–Bakun.
 
-## Provider configuration (validation-only phase)
+## Provider configuration
 
 A GMPE provider can declare optional magnitude scaling in the
 `config` object of a `ShakeLabGroundMotion` model:
@@ -128,9 +128,22 @@ and HanksBakun2002 have no implemented calibration intervals, so
 residual dispersion in the present implementation; nonzero
 `epsilon` is rejected.
 
-Scaling configuration is currently **validated and stored only**.
-The GMPE provider does not yet call the automatic rupture builder.
-Thus this configuration does not change predicted ground motion or
-provide finite geometry automatically. Physical source dimensions,
-hypocentral position and orientation remain in `source_parameters`,
-not `source_scaling`. No default aspect ratio is introduced.
+A GMPE provider with `source_geometry="finite"` and
+`source_scaling` configured now calls `build_rectangular_rupture()`
+once per evaluation, before constructing its GMPE and site contexts.
+The same resolved rupture defines the distance field and final
+geometric rupture parameters (`width`, `ztor`, `dip`, etc.).
+Without `source_scaling`, explicit finite ruptures retain the
+legacy construction path. Explicit distance overrides still take
+precedence; they do not change the underlying source geometry.
+Physical source dimensions, hypocentral position and orientation
+remain in `source_parameters`, not `source_scaling`. No universal
+aspect ratio is introduced.
+
+For now, scenario magnitude values are passed through numerically,
+regardless of magnitude-type metadata (Mw, ML, etc.); **no conversion
+is performed**. The empirical regressions were calibrated using Mw.
+Treating other scales as equivalent is a provisional operational
+assumption, not a scientifically validated equivalence. Strict
+calibration checks still operate on the supplied numerical value.
+The same temporary policy applies to GMPE magnitude-type checks.

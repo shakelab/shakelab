@@ -9,6 +9,11 @@ corrections. The format follows
 
 ### Added
 
+- Activate opt-in magnitude scaling in finite GMPE providers via the
+  constrained rupture builder, sharing final geometry between GMPE
+  rupture parameters and distance calculations. Temporarily treat
+  magnitude-type labels as equivalent without numerical conversion.
+
 - Resolve one immutable source snapshot per GMPE evaluation, shared by
   rupture-context and finite-distance construction (without caching or
   automatic magnitude scaling yet).

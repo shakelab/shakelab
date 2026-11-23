@@ -71,7 +71,10 @@ result = build_rectangular_rupture(
 rupture = result.rupture
 ```
 
-Scaling is opt-in and assumes Mw. Explicit dimensions or area take
+Scaling is opt-in and was calibrated using Mw. At present the GMPE
+provider passes the numerical scenario magnitude unchanged, regardless
+of its magnitude label; this is a provisional assumption, not a
+magnitude conversion. Explicit dimensions or area take
 precedence. At least one shape constraint is necessary, except where
 the depth and nucleation constraints fix width. Redundant explicit
 constraints must agree. When only aspect ratio defines shape, width
@@ -86,7 +89,8 @@ Horizontal planes have no vertical width constraint.
 
 The result includes resolved source parameters and parameter origins,
 with scaling model, style and estimate recorded only when used.
-The builder is not yet connected to the GMPE providers.
+With `source_scaling` configured, GMPE providers call the builder
+and retain its `RuptureBuildResult` in the resolved source snapshot.
 
 ## Shared GMPE source resolution
 
@@ -97,9 +101,10 @@ geometry is used for both rupture parameters and site distances.
 Explicit distance overrides still take precedence, and point/native
 modes retain their existing numerical behavior. Standalone calls to
 `_build_sites_context()` remain supported for existing integrations.
-This stage introduces neither caching nor activation of
-`source_scaling`; both are separate subsequent phases.
+This stage activates opt-in `source_scaling` while introducing no
+caching. No scaling is performed for native or point geometry, even
+when an event overrides a finite provider's geometry selection.
 
-Magnitude types are provisionally treated as equivalent for future
-scaling integration; no magnitude conversion is performed. Existing
-GMPE-specific magnitude metadata checks are unchanged in this stage.
+Magnitude labels are provisionally treated as equivalent in provider
+evaluation; no magnitude conversion is performed. GMPE-specific
+magnitude-type mismatches no longer stop evaluation.
