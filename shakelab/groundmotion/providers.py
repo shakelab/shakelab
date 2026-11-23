@@ -1375,9 +1375,14 @@ class _ShakeMapProvider(_BaseProvider):
         require_info: bool = False,
         acceleration_unit: str = "g",
         velocity_unit: str = "cm/s",
+        product_directory: Optional[Union[str, Path]] = None,
         **kwargs: Any,
     ) -> None:
         self.root_path = Path(root_path).expanduser().resolve()
+        self.product_directory = (
+            Path(product_directory).expanduser().resolve()
+            if product_directory is not None else None
+        )
 
         if not self.root_path.exists():
             raise FileNotFoundError(
@@ -1440,7 +1445,10 @@ class _ShakeMapProvider(_BaseProvider):
 
         _ = ShakeMapEvent
 
-        event_id = self._event_id(event)
+        event_id = (
+            self._event_id(event)
+            if self.product_directory is None else event.event_id
+        )
         shakemap = self._load_event(event_id)
 
         imt_key = _normalize_imt(imt)
@@ -1555,7 +1563,11 @@ class _ShakeMapProvider(_BaseProvider):
             self._cache.clear()
             return
 
-        self._cache.pop(str(event_id), None)
+        key = (
+            str(self.product_directory)
+            if self.product_directory is not None else str(event_id)
+        )
+        self._cache.pop(key, None)
 
     def _event_id(
         self,
@@ -1572,15 +1584,23 @@ class _ShakeMapProvider(_BaseProvider):
 
     def _load_event(
         self,
-        event_id: str,
+        event_id: Optional[str],
     ) -> Any:
         from shakelab.groundmotion.usgs import ShakeMapEvent
 
-        cached = self._cache.get(event_id)
+        cache_key = (
+            str(self.product_directory)
+            if self.product_directory is not None else event_id
+        )
+        cached = self._cache.get(cache_key)
         if cached is not None:
             return cached
 
-        event_dir = self.event_directory(event_id)
+        event_dir = (
+            self.product_directory
+            if self.product_directory is not None
+            else self.event_directory(event_id)
+        )
 
         if not event_dir.exists():
             raise FileNotFoundError(
@@ -1600,7 +1620,7 @@ class _ShakeMapProvider(_BaseProvider):
             require_info=self.require_info,
         )
 
-        self._cache[event_id] = shakemap
+        self._cache[cache_key] = shakemap
         return shakemap
 
     @classmethod
@@ -1665,11 +1685,16 @@ class _IMTProvider(_BaseProvider):
         acceleration_unit: str = "g",
         velocity_unit: str = "cm/s",
         period_tolerance: float = 1.0e-9,
+        product_file: Optional[Union[str, Path]] = None,
         **kwargs: Any,
     ) -> None:
         _ = kwargs
 
         self.root_path = Path(root_path).expanduser().resolve()
+        self.product_file = (
+            Path(product_file).expanduser().resolve()
+            if product_file is not None else None
+        )
 
         if not self.root_path.exists():
             raise FileNotFoundError(
@@ -1715,7 +1740,10 @@ class _IMTProvider(_BaseProvider):
         The common provider interface still receives ``sites`` even though
         this provider selects values exclusively through ``station_code``.
         """
-        event_id = self._event_id(event)
+        event_id = (
+            self._event_id(event)
+            if self.product_file is None else event.event_id
+        )
         dataset = self._load_event(event_id)
 
         station_code = kwargs.get("station_code")
@@ -1764,7 +1792,11 @@ class _IMTProvider(_BaseProvider):
             self._cache.clear()
             return
 
-        self._cache.pop(str(event_id), None)
+        key = (
+            str(self.product_file)
+            if self.product_file is not None else str(event_id)
+        )
+        self._cache.pop(key, None)
 
     @staticmethod
     def _event_id(
@@ -1782,15 +1814,23 @@ class _IMTProvider(_BaseProvider):
 
     def _load_event(
         self,
-        event_id: str,
+        event_id: Optional[str],
     ) -> Dict[str, Any]:
         """Load, validate and cache one event-specific IMT dataset."""
-        cached = self._cache.get(event_id)
+        cache_key = (
+            str(self.product_file)
+            if self.product_file is not None else event_id
+        )
+        cached = self._cache.get(cache_key)
 
         if cached is not None:
             return cached
 
-        event_file = self.event_file(event_id)
+        event_file = (
+            self.product_file
+            if self.product_file is not None
+            else self.event_file(event_id)
+        )
 
         if not event_file.exists():
             raise FileNotFoundError(
@@ -1851,7 +1891,7 @@ class _IMTProvider(_BaseProvider):
             "stations": self._build_station_index(data),
         }
 
-        self._cache[event_id] = dataset
+        self._cache[cache_key] = dataset
 
         return dataset
 
