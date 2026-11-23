@@ -55,7 +55,7 @@ def test_same_source_reused_across_imts_and_sites(monkeypatch):
     calls = count_builds(monkeypatch, gmpe)
     ev = event()
     gmpe.evaluate("PGA", SITES, ev, site_parameters=SITE)
-    gmpe.evaluate("SA-0.2", SITES[:1], ev, site_parameters=SITE)
+    gmpe.evaluate("SA-0.20", SITES[:1], ev, site_parameters=SITE)
     gmpe.evaluate("PGA", SITES, ev,
                   site_parameters={**SITE, "vs30": 600.0})
     assert len(calls) == 1
