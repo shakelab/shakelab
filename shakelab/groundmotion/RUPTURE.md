@@ -186,3 +186,14 @@ job's runtime and persists `source_trace.json`. Users of the generic
 `GroundMotionModel.runtime(event)` API are not required to collect
 traces. JSON file writing remains solely the responsibility of the
 ShakeScenario server.
+
+## Integration guarantees
+
+The standalone GMPE, engineering impact runtime and scenario export have
+different responsibilities. Source trace recording is optional for library
+users, and enabling it must not change ground-motion estimates, sigma or
+computed damage. The separate `source_trace.json` is a ShakeScenario
+artifact; it does not add fields to the existing impact assets or summary
+schemas. Regression coverage exercises both modes through a real GMPE and
+fragility pipeline, including JSON serialization and scenario isolation.
+This does not replace a real server job test against deployed model files.

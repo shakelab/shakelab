@@ -9,6 +9,10 @@ corrections. The format follows
 
 ### Added
 
+- End-to-end scientific regression of opt-in source trace export through
+  GMPE, impact and JSON artifact serialization, confirming unchanged
+  ground motion and damage outputs.
+
 - Record provider-level source provenance, finite rupture geometry,
   scaling estimates, assumptions, and per-evaluation distance origins
   in the new ShakeScenario `results/source_trace.json` artifact.
