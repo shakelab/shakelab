@@ -471,7 +471,360 @@ enabling it must not change GMPE results. A trace-generation error
 is not silently suppressed when recording is explicitly enabled.
 No output file format or file path is prescribed by `groundmotion`.
 
-## 8. Scope and scientific assumptions
+
+## 8. Configuration recipes and combinations
+
+The following examples use synthetic source parameters and sites. They
+demonstrate supported **library APIs**, not calibrated descriptions of
+particular earthquakes. Unless noted otherwise, each code block is
+standalone and imports what it needs.
+
+### 8.1. Point-source GMPE with approximate distances
+
+`point` can provide `rrup`, `rjb`, `rx`, and `ry0` without a
+rectangle. Required GMPE rupture parameters still have to be supplied:
+
+```python
+from shakelab.groundmotion.providers import (
+    GroundMotionProvider, ScenarioEvent,
+)
+from shakelab.libutils.geodeticN.primitives import WgsPoint
+
+event = ScenarioEvent.from_lonlat_depth(6.2, 13.0, 46.0, 7.0)
+provider = GroundMotionProvider.gmpe(
+    "AbrahamsonEtAl2014",
+    config={
+        "source_geometry": "point",
+        "source_parameters": {
+            "strike": 120.0,
+            "dip": 35.0,
+            "rake": 90.0,
+            "width": 12.0,
+            "ztor": 2.0,
+        },
+    },
+)
+medians, sigmas = provider.evaluate(
+    "PGA",
+    [WgsPoint(13.1, 46.1)],
+    event,
+    site_parameters={
+        "vs30": 500.0,
+        "vs30measured": True,
+        "z1pt0": 300.0,
+    },
+)
+```
+
+Here `rrup` approximates `rhypo`, while `rjb` approximates
+`repi`. The values of `width` and `ztor` are passed to the
+GMPE; they do **not** define a rectangle in point mode.
+
+### 8.2. Completing a rectangle from different shape constraints
+
+The independent builder accepts several combinations of dimensions.
+This table assumes `strike`, `dip`, and the hypocentre are known.
+
+| Supplied size/shape | What is inferred | Scaling needed? |
+| --- | --- | --- |
+| `length + width` | `area = length * width`, aspect ratio | No |
+| `area + aspect_ratio` | Both dimensions | No |
+| `area + length` | Width | No |
+| `area + width` | Length | No |
+| `length + aspect_ratio` | Width and area | No |
+| `width + aspect_ratio` | Length and area | No |
+| `magnitude + scaling_model + aspect_ratio` | Area, then both dimensions | Yes |
+| `magnitude + scaling_model + length` | Area, then width | Yes |
+| `magnitude + scaling_model + width` | Area, then length | Yes |
+| `area + ztor + down_fraction` | Width from hypocentral depth and dip, then length | No, if width is determinable |
+| `area` alone | Shape remains undetermined | Not sufficient |
+| `magnitude + scaling_model` alone | Area may be estimated, but shape remains undetermined | Not sufficient |
+
+All inferred dimensions remain subject to depth and hypocentral
+constraints. An explicit parameter is not silently changed to make
+another one fit.
+
+```python
+from shakelab.groundmotion.rupture import build_rectangular_rupture
+from shakelab.libutils.geodeticN.primitives import WgsPoint
+
+hypocentre = WgsPoint(13.0, 46.0, -8000.0)
+base = {"strike": 120.0, "dip": 90.0}
+
+shapes = {
+    "dimensions": {"length": 20.0, "width": 10.0},
+    "area_ratio": {"area": 200.0, "aspect_ratio": 2.0},
+    "area_length": {"area": 200.0, "length": 20.0},
+    "area_width": {"area": 200.0, "width": 10.0},
+    "length_ratio": {"length": 20.0, "aspect_ratio": 2.0},
+    "width_ratio": {"width": 10.0, "aspect_ratio": 2.0},
+}
+
+for label, options in shapes.items():
+    result = build_rectangular_rupture(
+        hypocentre, **base, **options,
+    )
+    plane = result.rupture
+    print(label, plane.length, plane.width, plane.area)
+```
+
+These six definitions all describe the same rectangular **dimensions**
+in this example. The builder also chooses a compatible `ztor`
+based on the hypocentral depth.
+
+### 8.3. Changing shape without changing empirical area
+
+Supplying a magnitude and scaling model does not independently
+determine length and width. Compare two possible shape constraints:
+
+```python
+from shakelab.groundmotion.rupture import build_rectangular_rupture
+from shakelab.libutils.geodeticN.primitives import WgsPoint
+
+hypocentre = WgsPoint(13.0, 46.0, -8000.0)
+common = dict(
+    strike=120.0,
+    dip=45.0,
+    rake=90.0,
+    magnitude=6.2,
+    scaling_model="WellsCoppersmith1994",
+)
+
+by_ratio = build_rectangular_rupture(
+    hypocentre, **common, aspect_ratio=2.0,
+)
+by_length = build_rectangular_rupture(
+    hypocentre, **common, length=20.0,
+)
+print(by_ratio.rupture.area, by_length.rupture.area)
+print(by_ratio.rupture.width, by_length.rupture.width)
+```
+
+Both use the same empirical area but may yield different length,
+width, and distances. The shape constraint is therefore a **physical
+modelling assumption**, not merely a display preference.
+
+### 8.4. Seismogenic-layer cap versus an explicit dimension
+
+A narrow permitted depth interval can constrain the down-dip width.
+When aspect ratio is only an initial shape target, the builder can
+adjust it while preserving area:
+
+```python
+from shakelab.groundmotion.rupture import build_rectangular_rupture
+from shakelab.libutils.geodeticN.primitives import WgsPoint
+
+hypocentre = WgsPoint(13.0, 46.0, -5000.0)
+result = build_rectangular_rupture(
+    hypocentre,
+    strike=120.0,
+    dip=90.0,
+    area=200.0,
+    aspect_ratio=2.0,
+    upper_seismogenic_depth=2.0,
+    lower_seismogenic_depth=8.0,
+)
+
+print(result.rupture.width)             # 6 km
+print(result.rupture.area)              # Still 200 km²
+print(result.parameter_origins["width"])  # "constrained"
+```
+
+By contrast, fixing a conflicting length makes the geometry
+inconsistent and produces a `ValueError`; the explicit dimension
+is not changed:
+
+```python
+from shakelab.groundmotion.rupture import build_rectangular_rupture
+from shakelab.libutils.geodeticN.primitives import WgsPoint
+
+try:
+    build_rectangular_rupture(
+        WgsPoint(13.0, 46.0, -8000.0),
+        strike=120.0, dip=90.0,
+        area=200.0, length=20.0,
+        lower_seismogenic_depth=9.0,
+    )
+except ValueError as exc:
+    print("Incompatible rupture constraints:", exc)
+```
+
+### 8.5. Setting the hypocentral position explicitly
+
+`ztor` and `down_fraction` can fix the down-dip position and,
+in some cases, the width. With the same dip and hypocentre:
+
+```python
+from shakelab.groundmotion.rupture import build_rectangular_rupture
+from shakelab.libutils.geodeticN.primitives import WgsPoint
+
+result = build_rectangular_rupture(
+    WgsPoint(13.0, 46.0, -8000.0),
+    strike=120.0,
+    dip=90.0,
+    area=200.0,
+    ztor=3.0,
+    down_fraction=0.5,
+    along_fraction=0.25,
+)
+print(result.rupture.width)  # 10 km
+print(result.rupture.length) # 20 km
+```
+
+The width follows from the 5 km vertical separation between the
+hypocentre and top edge, the 90-degree dip, and a down-dip fraction
+of 0.5. An inconsistent combination is rejected.
+
+### 8.6. Horizontal ruptures
+
+A horizontal rupture is a valid special case. Its dip cannot fix
+the hypocentre's down-dip fraction, so the direct
+`RectangularRupture.from_hypocentre()` constructor requires that
+fraction explicitly:
+
+```python
+from shakelab.groundmotion.rupture import RectangularRupture
+from shakelab.libutils.geodeticN.primitives import WgsPoint
+
+plane = RectangularRupture.from_hypocentre(
+    WgsPoint(13.0, 46.0, -8000.0),
+    strike=120.0, dip=0.0,
+    length=20.0, width=10.0,
+    ztor=8.0, along_fraction=0.5,
+    down_fraction=0.5,
+)
+```
+
+The higher-level builder can use a default down-dip fraction
+when appropriate; unlike the direct constructor, it can resolve
+that default during construction.
+
+### 8.7. Overrides at event and evaluation levels
+
+The same provider can be reused with multiple effective source
+parameter sets. The order is provider, then event, then runtime:
+
+```python
+from shakelab.groundmotion.providers import (
+    GroundMotionProvider, ScenarioEvent,
+)
+
+provider = GroundMotionProvider.gmpe(
+    "AbrahamsonEtAl2014",
+    config={
+        "source_geometry": "finite",
+        "source_parameters": {
+            "strike": 120.0, "dip": 35.0, "rake": 90.0,
+            "length": 20.0, "width": 12.0,
+            "ztor": 2.0, "along_fraction": 0.5,
+        },
+    },
+)
+event = ScenarioEvent.from_lonlat_depth(
+    6.2, 13.0, 46.0, 7.0,
+    source_parameters={"strike": 90.0},
+)
+from_event = provider.resolve_source(event)
+from_runtime = provider.resolve_source(
+    event, rupture_parameters={"strike": 45.0},
+)
+assert from_event.parameters["strike"] == 90.0
+assert from_runtime.parameters["strike"] == 45.0
+```
+
+For this event the geometry is constructed consistently in each
+case; nothing is changed in the original provider configuration.
+
+### 8.8. Distance override versus physical source geometry
+
+An explicit distance changes the metric **supplied to the GMPE**,
+not the underlying fault plane or its resolved dimensions. This
+example also shows optional recording of the actual distance origin:
+
+```python
+from shakelab.groundmotion.providers import (
+    GroundMotionProvider, ScenarioEvent,
+)
+from shakelab.libutils.geodeticN.primitives import WgsPoint
+
+event = ScenarioEvent.from_lonlat_depth(6.2, 13.0, 46.0, 7.0)
+provider = GroundMotionProvider.gmpe(
+    "AbrahamsonEtAl2014",
+    config={
+        "source_geometry": "finite",
+        "source_parameters": {
+            "strike": 120.0, "dip": 35.0, "rake": 90.0,
+            "length": 20.0, "width": 12.0,
+            "ztor": 2.0, "along_fraction": 0.5,
+        },
+        "record_source_trace": True,
+    },
+)
+resolved_before = provider.resolve_source(event)
+provider.evaluate(
+    "PGA", [WgsPoint(13.1, 46.1)], event,
+    site_parameters={
+        "vs30": 500.0, "vs30measured": True, "z1pt0": 300.0,
+    },
+    distances={"rrup": 15.0},
+)
+trace = provider.source_trace()[0]
+assert trace["distances"]["rrup"]["origin"] == "explicit"
+assert resolved_before.rupture == provider.resolve_source(event).rupture
+```
+
+### 8.9. Plotting a finite rupture with Matplotlib
+
+The core rupture module does not require Matplotlib. The following
+**optional plotting example** represents the four WGS84 vertices and
+the hypocentre in a three-dimensional longitude, latitude and depth
+plot. The coordinate axes are *not* a metric local frame: use
+`vertices_enu` and a suitable metric projection for quantitative
+geometry analysis.
+
+```python
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+from shakelab.groundmotion.rupture import RectangularRupture
+from shakelab.libutils.geodeticN.primitives import WgsPoint
+
+hypocentre = WgsPoint(13.0, 46.0, -7000.0)
+plane = RectangularRupture.from_hypocentre(
+    hypocentre,
+    strike=120.0, dip=35.0,
+    length=20.0, width=12.0,
+    ztor=2.0, along_fraction=0.5,
+)
+
+corners = [
+    (point.longitude, point.latitude, -point.elevation / 1000.0)
+    for point in plane.vertices
+]
+fig = plt.figure()
+ax = fig.add_subplot(111, projection="3d")
+ax.add_collection3d(
+    Poly3DCollection([corners], alpha=0.4, edgecolor="black")
+)
+ax.scatter(
+    hypocentre.longitude, hypocentre.latitude,
+    -hypocentre.elevation / 1000.0,
+    marker="*", s=90, label="Hypocentre",
+)
+ax.set_xlabel("Longitude (°)")
+ax.set_ylabel("Latitude (°)")
+ax.set_zlabel("Depth (km)")
+ax.invert_zaxis()
+ax.auto_scale_xyz(
+    [point[0] for point in corners],
+    [point[1] for point in corners],
+    [point[2] for point in corners],
+)
+ax.legend()
+plt.show()
+```
+
+## 9. Scope and scientific assumptions
 
 - The finite source is a **single planar rectangle**, not a
   multi-fault, nonplanar or dynamically propagating rupture.

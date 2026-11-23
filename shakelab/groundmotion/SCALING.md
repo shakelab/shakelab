@@ -310,6 +310,166 @@ configured but **not actually used**. Inspect
 `resolved.build_result.scaling_estimate` to distinguish configured
 from applied scaling.
 
+
+## 7. Practical scaling recipes and comparisons
+
+The examples here operate entirely on the **independent scaling
+module**. They do not require ShakeScenario, a GMPE, or an exposure
+model. Use physically appropriate Mw and tectonic setting for any
+scientific application.
+
+### 7.1. Compare predicted area across implemented relations
+
+Models with different calibration domains should not be interpreted
+as interchangeable estimates of uncertainty. For a numerical
+comparison, first select valid styles explicitly:
+
+```python
+from shakelab.groundmotion.scaling import create_scaling_relation
+
+models_and_styles = {
+    "WellsCoppersmith1994": "reverse",
+    "ThingbaijamEtAl2017": "reverse",
+    "Leonard2014_Interplate": "reverse",
+    "Leonard2014_StableContinental": "reverse",
+    "HanksBakun2002": "all",
+}
+
+for model_name, style in models_and_styles.items():
+    relation = create_scaling_relation(model_name, style=style)
+    estimate = relation.magnitude_to_area(6.5)
+    print(
+        model_name,
+        f"area={estimate.median:.1f} km²",
+        f"sigma={estimate.sigma}",
+        f"extrapolated={estimate.extrapolated}",
+    )
+```
+
+A `None` sigma means that this implementation does **not** supply
+a residual prediction dispersion; it does not indicate a
+deterministic or perfectly constrained relationship.
+
+### 7.2. Different mechanisms and explicit interface selection
+
+Rake supports an approximate crustal mechanism classification,
+but cannot identify a subduction-interface tectonic environment:
+
+```python
+from shakelab.groundmotion.scaling import (
+    create_scaling_relation, fault_style_from_rake,
+)
+
+for rake in (-90.0, 0.0, 90.0):
+    style = fault_style_from_rake(rake)
+    relation = create_scaling_relation(
+        "ThingbaijamEtAl2017", style=style,
+    )
+    estimate = relation.magnitude_to_area(7.0)
+    print(rake, style, estimate.median)
+
+interface = create_scaling_relation(
+    "ThingbaijamEtAl2017", style="interface",
+)
+print("Interface:", interface.magnitude_to_area(7.0).median)
+```
+
+The interface style is an **explicit tectonic decision**, not the
+output of `fault_style_from_rake()`.
+
+### 7.3. Residual offsets are deterministic, not Monte Carlo draws
+
+```python
+from shakelab.groundmotion.scaling import create_scaling_relation
+
+relation = create_scaling_relation(
+    "WellsCoppersmith1994", style="reverse",
+)
+estimate = relation.magnitude_to_area(6.5)
+low = estimate.at_epsilon(-1.0)
+central = estimate.at_epsilon(0.0)
+high = estimate.at_epsilon(1.0)
+print(low, central, high)
+assert low < central < high
+```
+
+These are three points along the **same area regression**. They are
+not sampled lengths, widths, hypocentral positions or a joint rupture
+distribution. A nonzero epsilon for `HanksBakun2002` and the
+two Leonard variants is rejected because their residual sigmas
+are not implemented.
+
+### 7.4. Forward and reverse regressions are not always inverses
+
+For Wells–Coppersmith, the regressions from Mw to area and from
+area to Mw are independently fitted:
+
+```python
+from shakelab.groundmotion.scaling import create_scaling_relation
+
+relation = create_scaling_relation(
+    "WellsCoppersmith1994", style="reverse",
+)
+area = relation.magnitude_to_area(6.5).median
+estimated_mw = relation.area_to_magnitude(area).median
+print("Input Mw:", 6.5, "Reverse estimate:", estimated_mw)
+```
+
+The two numbers need not agree. For Thingbaijam, the implemented
+reverse path instead algebraically inverts the forward fitted line
+and propagates the associated residual scale accordingly.
+
+### 7.5. Convert one area into alternative rectangle shapes
+
+```python
+from shakelab.groundmotion.scaling import (
+    RuptureDimensions, create_scaling_relation,
+)
+
+relation = create_scaling_relation(
+    "WellsCoppersmith1994", style="reverse",
+)
+area = relation.magnitude_to_area(6.5).median
+
+by_ratio = RuptureDimensions.from_area(area, aspect_ratio=2.0)
+by_length = RuptureDimensions.from_area(area, length=20.0)
+by_width = RuptureDimensions.from_area(area, width=10.0)
+
+for shape in (by_ratio, by_length, by_width):
+    print(shape.length, shape.width, shape.area)
+```
+
+All three preserve the area estimate while making **different
+assumptions about rupture shape**. The empirical area relationship
+alone cannot select among them.
+
+### 7.6. Reject unsupported styles and calibration assumptions
+
+The API validates model/style compatibility; unknown uncertainty
+information is not silently invented:
+
+```python
+from shakelab.groundmotion.scaling import create_scaling_relation
+
+try:
+    create_scaling_relation(
+        "ThingbaijamEtAl2017", style="all",
+    )
+except ValueError as exc:
+    print("Unsupported style:", exc)
+
+try:
+    create_scaling_relation(
+        "HanksBakun2002", style="all", strict=True,
+    )
+except ValueError as exc:
+    print("Calibration bounds unavailable:", exc)
+```
+
+When supported, `strict=True` rejects extrapolation. For other
+models, `extrapolated=None` means calibration limits are unknown
+in this implementation.
+
 ### Temporary magnitude-type policy
 
 The empirical models are calibrated against **Mw**. Currently the
