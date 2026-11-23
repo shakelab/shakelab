@@ -464,6 +464,10 @@ class ShakeScenarioServer:
             validate_product(
                 product, attachment, provider, event_id
             )
+            # Protect job inputs against accidental in-place modification.
+            for file_path in prepared.rglob("*"):
+                if file_path.is_file():
+                    file_path.chmod(0o444)
             relative = product.relative_to(prepared).as_posix()
             resolved["_product"] = {
                 "kind": attachment.kind,
@@ -626,12 +630,12 @@ class ShakeScenarioServer:
 
         with self._submission_lock:
             ok = self._db.delete_job(int(job_id))
-        if not ok:
-            raise ValueError(f"Job not found: {job_id}")
+            if not ok:
+                raise ValueError(f"Job not found: {job_id}")
 
-        purged = False
-        if purge:
-            purged = self._remove_job_dir(int(job_id))
+            purged = False
+            if purge:
+                purged = self._remove_job_dir(int(job_id))
 
         return {
             "job_id": int(job_id),
