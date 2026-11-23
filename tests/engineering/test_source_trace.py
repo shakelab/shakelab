@@ -15,8 +15,20 @@ from tests.engineering.test_finite_source_scaling_provider import (
     SOURCE,
     SITES,
     event,
-    provider,
 )
+
+
+def provider(model="ThingbaijamEtAl2017", source=None, **scaling):
+    """Create a standalone GMPE with explicit provenance recording."""
+    return GroundMotionProvider.gmpe(
+        "AbrahamsonEtAl2014",
+        config={
+            "source_geometry": "finite",
+            "source_parameters": SOURCE if source is None else source,
+            "source_scaling": {"model": model, **scaling},
+            "record_source_trace": True,
+        },
+    )
 
 
 def test_trace_contains_final_geometry_and_scaling_provenance():
@@ -92,6 +104,7 @@ def test_nonfinite_geometry_has_no_finite_plane():
         "AbrahamsonEtAl2014",
         config={
             "source_geometry": "point",
+            "record_source_trace": True,
             "source_parameters": {
                 "strike": 120.0, "dip": 35.0, "rake": 90.0,
                 "ztor": 2.0,
@@ -122,7 +135,9 @@ def test_runtime_source_trace_is_provider_scoped():
         )],
     )
     model.validate()
-    runtime = GroundMotionRuntime(model, event())
+    runtime = GroundMotionRuntime(
+        model, event(), record_source_trace=True,
+    )
     runtime.provider("scaled").evaluate(
         "PGA", SITES, runtime.event, site_parameters=SITE,
     )

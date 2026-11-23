@@ -600,7 +600,9 @@ class ShakeScenarioServer:
             # ground-motion configuration. Build a runtime bound to this
             # event; configured providers and asset assignments are resolved
             # inside the ground-motion layer.
-            ground_motion = model.ground_motion.runtime(event)
+            ground_motion = model.ground_motion.runtime(
+                event, record_source_trace=True,
+            )
 
             # Impact config
             config = ImpactConfig(**impact_cfg)

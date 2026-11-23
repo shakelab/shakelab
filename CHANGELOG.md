@@ -63,6 +63,10 @@ corrections. The format follows
 
 ### Changed
 
+- Make GMPE source-trace recording opt-in for generic library users,
+  expose public `resolve_source()`, and let ShakeScenario enable
+  provenance collection explicitly per job runtime.
+
 - Rename ShakeScenario supplementary source inputs to `--source` and
   `source_parameters`; validate finite values and focal angles centrally.
 

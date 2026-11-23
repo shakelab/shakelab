@@ -148,3 +148,41 @@ potential geometric distance. Source traces are stored separately
 for each scenario runtime, without global state. The provisional
 assumption treating numerical magnitude values of different scales
 as equivalent is recorded explicitly, with no magnitude conversion.
+
+## Standalone scientific use and opt-in trace recording
+
+The GMPE provider can be used without ShakeScenario. The public
+`resolve_source(event, rupture_parameters=None)` method returns the
+`ResolvedSource` snapshot (including any rectangular rupture and
+`RuptureBuildResult`) for direct scientific analysis and plotting.
+It uses the same precedence and source caching as `evaluate()`.
+
+Trace recording is **opt-in**. By default, GMPE evaluations do not
+construct geodetic vertices or serialize distance values for diagnostic
+records. To collect them explicitly, configure the GMPE provider with
+`record_source_trace=True` and call `source_trace()` after evaluating.
+The physics and distance algorithms are unchanged. Recording errors
+are not silently suppressed when tracing is requested.
+
+```python
+provider = GroundMotionProvider.gmpe(
+    "AbrahamsonEtAl2014",
+    config={
+        "source_geometry": "finite",
+        "source_scaling": {"model": "ThingbaijamEtAl2017"},
+        "source_parameters": {
+            "strike": 120.0, "dip": 35.0, "rake": 90.0,
+            "aspect_ratio": 2.0,
+        },
+    },
+)
+source = provider.resolve_source(event)
+rectangle = source.rupture
+```
+
+`GroundMotionRuntime` similarly accepts `record_source_trace=True`;
+the ShakeScenario server sets this option explicitly when creating each
+job's runtime and persists `source_trace.json`. Users of the generic
+`GroundMotionModel.runtime(event)` API are not required to collect
+traces. JSON file writing remains solely the responsibility of the
+ShakeScenario server.

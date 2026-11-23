@@ -368,7 +368,8 @@ class ResolvedSource:
 
     Parameters are merged once from provider, event and runtime levels.
     The optional rectangular rupture is constructed only for finite
-    geometry. This object is local to one evaluation; it is not cached.
+    geometry. Finite source snapshots may be reused by the provider's
+    instance-local cache.
     """
 
     geometry: str
@@ -550,6 +551,7 @@ class _GmpeProvider(_BaseProvider):
         site_parameters: Optional[Mapping[str, Any]] = None,
         source_geometry: Optional[str] = None,
         source_scaling: Optional[Mapping[str, Any]] = None,
+        record_source_trace: bool = False,
         **gmpe_kwargs: Any,
     ) -> None:
         from shakelab.groundmotion.gmpe.registry import create_gmpe
@@ -564,6 +566,9 @@ class _GmpeProvider(_BaseProvider):
                 raise ValueError(
                     "source_scaling requires source_geometry='finite'."
                 )
+        if not isinstance(record_source_trace, bool):
+            raise TypeError("record_source_trace must be boolean.")
+        self._record_source_trace_enabled = record_source_trace
         self._source_parameters = dict(source_parameters or {})
         # Each provider belongs to one GroundMotionRuntime in ShakeScenario.
         # An instance-local cache prevents cross-job source contamination.
@@ -689,10 +694,11 @@ class _GmpeProvider(_BaseProvider):
             values = values.copy()
             values[invalid_mean] = np.nan
 
-        self._record_source_trace(
-            event, imt, site_list, rupture_parameters,
-            distances, source, site_context,
-        )
+        if self._record_source_trace_enabled:
+            self._record_source_trace(
+                event, imt, site_list, rupture_parameters,
+                distances, source, site_context,
+            )
         return (
             values.astype(float).tolist(),
             sigma_ln.astype(float).tolist(),
@@ -899,6 +905,22 @@ class _GmpeProvider(_BaseProvider):
             tuple(sorted(parameters.items())),
             scaling_key,
         )
+
+    def resolve_source(
+        self,
+        event: ScenarioEvent,
+        rupture_parameters: Optional[Mapping[str, Any]] = None,
+    ) -> ResolvedSource:
+        """Return the physical source used for a GMPE evaluation.
+
+        This public scientific API works independently of ShakeScenario
+        and does not require source-trace recording. Finite-source
+        resolutions may be reused from the provider's internal cache.
+        """
+        overrides = self._as_mapping(
+            rupture_parameters, "rupture_parameters",
+        )
+        return self._resolve_source(event, overrides)
 
     def _resolve_source(
         self,

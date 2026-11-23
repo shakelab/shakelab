@@ -684,6 +684,8 @@ class GroundMotionModel:
     def runtime(
         self,
         event: ScenarioEvent,
+        *,
+        record_source_trace: bool = False,
     ) -> "GroundMotionRuntime":
         """
         Build a runtime bound to one ScenarioEvent.
@@ -693,6 +695,7 @@ class GroundMotionModel:
         return GroundMotionRuntime(
             model=self,
             event=event,
+            record_source_trace=record_source_trace,
         )
 
     @classmethod
@@ -781,6 +784,8 @@ class GroundMotionRuntime:
         self,
         model: GroundMotionModel,
         event: ScenarioEvent,
+        *,
+        record_source_trace: bool = False,
     ) -> None:
         if not isinstance(model, GroundMotionModel):
             raise TypeError("model must be a GroundMotionModel.")
@@ -788,8 +793,11 @@ class GroundMotionRuntime:
         if not isinstance(event, ScenarioEvent):
             raise TypeError("event must be a ScenarioEvent.")
 
+        if not isinstance(record_source_trace, bool):
+            raise TypeError("record_source_trace must be boolean.")
         self._model = model
         self._event = event
+        self._record_source_trace = record_source_trace
 
         self._providers: Dict[str, Any] = {}
         self._contexts: Dict[str, GroundMotionContext] = {}
@@ -809,9 +817,14 @@ class GroundMotionRuntime:
     def _build_runtime(self) -> None:
         """Instantiate every configured provider exactly once."""
         for provider_cfg in self._model.providers:
+            provider_options = dict(provider_cfg.config)
+            if provider_cfg.provider == "gmpe":
+                provider_options["record_source_trace"] = (
+                    self._record_source_trace
+                )
             provider = GroundMotionProvider.from_id(
                 provider_cfg.provider,
-                config=dict(provider_cfg.config),
+                config=provider_options,
             )
 
             context = GroundMotionContext(
