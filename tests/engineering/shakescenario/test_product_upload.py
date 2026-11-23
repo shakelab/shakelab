@@ -312,7 +312,7 @@ def test_upload_rejects_ambiguous_provider(tmp_path, monkeypatch):
 
 def test_valid_shakemap_upload_without_event_id(tmp_path, monkeypatch):
     """A valid XML product is retained and submitted without an event id."""
-    from shakelab.groundmotion.test_shakemap_provider import (
+    from tests.groundmotion.test_shakemap_provider import (
         GRID_XML, UNCERTAINTY_XML,
     )
 
