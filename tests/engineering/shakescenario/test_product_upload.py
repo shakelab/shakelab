@@ -209,3 +209,102 @@ def test_required_uncertainty_rejected(tmp_path, monkeypatch):
         )
     assert db.list_jobs() == []
     server._executor.shutdown(wait=False)
+
+
+def test_framed_tcp_upload_submit(tmp_path, monkeypatch):
+    """The binary body follows the existing framed JSON request."""
+    import threading
+
+    from shakelab.engineering.shakescenario.protocol import (
+        recv_message, send_message,
+    )
+
+    server, db = _server(tmp_path, monkeypatch)
+    data = _imt_data()
+    receiver, sender = socket.socketpair()
+    worker = threading.Thread(
+        target=server._handle_connection,
+        args=(receiver, ("local", 0)),
+    )
+    worker.start()
+    try:
+        send_message(sender, {
+            "v": 1,
+            "op": "submit",
+            "req_id": "upload-test",
+            "payload": _payload(),
+            "attachment": _descriptor(data),
+        })
+        sender.sendall(data)
+        response = recv_message(sender)
+        assert response["ok"] is True
+        assert response["req_id"] == "upload-test"
+        job_id = response["result"]["job_id"]
+        assert db.get_job(job_id)["status"] == "queued"
+    finally:
+        sender.close()
+        worker.join(timeout=5)
+        server._executor.shutdown(wait=False)
+    assert not worker.is_alive()
+
+
+def test_framed_tcp_legacy_submit(tmp_path, monkeypatch):
+    """Requests without attachments retain the old JSON framing."""
+    import threading
+
+    from shakelab.engineering.shakescenario.protocol import (
+        recv_message, send_message,
+    )
+
+    server, db = _server(tmp_path, monkeypatch)
+    receiver, sender = socket.socketpair()
+    worker = threading.Thread(
+        target=server._handle_connection,
+        args=(receiver, ("local", 0)),
+    )
+    worker.start()
+    try:
+        send_message(sender, {
+            "v": 1,
+            "op": "submit",
+            "req_id": "legacy-test",
+            "payload": _payload(),
+        })
+        response = recv_message(sender)
+        assert response["ok"] is True
+        assert db.get_job(response["result"]["job_id"]) is not None
+    finally:
+        sender.close()
+        worker.join(timeout=5)
+        server._executor.shutdown(wait=False)
+    assert not worker.is_alive()
+
+
+def test_upload_rejects_ambiguous_provider(tmp_path, monkeypatch):
+    from shakelab.engineering.shakescenario import shakeserver
+
+    server, db = _server(tmp_path, monkeypatch)
+    cfg = GroundMotionProviderConfig(
+        id="second", provider="imt",
+        config={"root_path": str(tmp_path / "root")},
+    )
+    model = GroundMotionModel(
+        type="ShakeLabGroundMotion",
+        schema_version="1.0.0",
+        providers=[
+            GroundMotionProviderConfig(
+                id="first", provider="imt",
+                config={"root_path": str(tmp_path / "root")},
+            ),
+            cfg,
+        ],
+    )
+    monkeypatch.setattr(
+        shakeserver, "load_model",
+        lambda *args: SimpleNamespace(ground_motion=model),
+    )
+    data = _imt_data()
+    with pytest.raises(ValueError, match="exactly one matching"):
+        _transmit(server, _payload(), _descriptor(data), data)
+    assert db.list_jobs() == []
+    server._executor.shutdown(wait=False)
