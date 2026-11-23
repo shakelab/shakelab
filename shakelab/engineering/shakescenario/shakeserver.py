@@ -49,6 +49,8 @@ Notes
 from __future__ import annotations
 
 import shutil
+import os
+import tempfile
 import argparse
 import json
 import socket
@@ -70,6 +72,13 @@ from shakelab.engineering.shakescenario.models import (
     load_server_config,
     model_paths,
     list_models,
+)
+from shakelab.engineering.shakescenario.product_upload import (
+    Attachment,
+    materialize_product,
+    receive_attachment,
+    select_provider,
+    validate_product,
 )
 from shakelab.engineering.shakescenario.protocol import (
     ProtocolError,
@@ -224,6 +233,7 @@ class ShakeScenarioServer:
         self._stop = threading.Event()
 
         self._executor = ThreadPoolExecutor(max_workers=max(1, workers))
+        self._submission_lock = threading.RLock()
 
     def serve_forever(self) -> None:
         """Start accepting connections."""
@@ -269,6 +279,7 @@ class ShakeScenarioServer:
         """Handle a single TCP client connection."""
         try:
             with conn:
+                conn.settimeout(60.0)
                 while True:
                     try:
                         req = recv_message(conn)
@@ -307,7 +318,16 @@ class ShakeScenarioServer:
                         continue
 
                     try:
-                        res = self._dispatch(op, payload)
+                        if op == "submit" and req.get("attachment") is not None:
+                            res = self._op_submit_attachment(
+                                payload, req["attachment"], conn
+                            )
+                        else:
+                            if "attachment" in req:
+                                raise ValueError(
+                                    "Attachment is only supported by submit."
+                                )
+                            res = self._dispatch(op, payload)
                     except Exception as exc:  # noqa: BLE001
                         self._send_error(
                             conn,
@@ -315,6 +335,8 @@ class ShakeScenarioServer:
                             code="SERVER_ERROR",
                             message=str(exc),
                         )
+                        if op == "submit" and req.get("attachment") is not None:
+                            return
                         continue
 
                     send_message(
@@ -383,7 +405,65 @@ class ShakeScenarioServer:
         )
         return asdict(info)
 
-    def _op_submit(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _op_submit_attachment(
+        self, payload: dict[str, Any], descriptor: Any,
+        conn: socket.socket,
+    ) -> dict[str, Any]:
+        """Receive, validate and atomically publish one attached product."""
+        if not isinstance(payload, dict):
+            raise ValueError("Payload must be a JSON object.")
+        if "_product" in payload:
+            raise ValueError("_product is reserved for server metadata.")
+        attachment = Attachment.parse(descriptor)
+        resolved = _deep_merge(
+            _server_defaults_payload(self._config), payload
+        )
+        models = resolved.get("models")
+        if not isinstance(models, dict):
+            raise ValueError("models must be an object.")
+        model_id = models.get("model_id")
+        if not isinstance(model_id, str):
+            raise ValueError("Invalid models.model_id.")
+        model = load_model(self._config.paths.model_root, model_id)
+        provider = select_provider(model, attachment)
+        event_data = resolved.get("scenario", {}).get("event")
+        if not isinstance(event_data, dict):
+            raise ValueError("Missing scenario.event.")
+        event = _build_scenario_event(event_data)
+
+        # A staging directory on the same filesystem allows atomic rename.
+        with tempfile.TemporaryDirectory(
+            prefix=".upload_", dir=self._workdir
+        ) as tempdir:
+            stage = Path(tempdir)
+            received = stage / "received.bin"
+            receive_attachment(conn, received, attachment)
+            prepared = stage / "inputs"
+            prepared.mkdir()
+            product = materialize_product(
+                attachment, received, prepared
+            )
+            validate_product(
+                product, attachment, provider, event.event_id
+            )
+            relative = product.relative_to(prepared).as_posix()
+            resolved["_product"] = {
+                "kind": attachment.kind,
+                "provider_id": provider.id,
+                "path": relative,
+                "sha256": attachment.sha256,
+                "size": attachment.size,
+                "filename": attachment.filename,
+            }
+            with self._submission_lock:
+                return self._op_submit(
+                    resolved, prepared_inputs=prepared
+                )
+
+    def _op_submit(
+        self, payload: dict[str, Any],
+        prepared_inputs: Path | None = None,
+    ) -> dict[str, Any]:
         """
         Submit a new scenario job.
     
@@ -430,24 +510,29 @@ class ShakeScenarioServer:
     
         # Resolve model paths now, but do not persist local paths.
         model_paths(self._config.paths.model_root, model_id)
+        if prepared_inputs is None and "_product" in resolved:
+            raise ValueError("_product is reserved for server metadata.")
 
         job_id = self._db.create_job(params=resolved, tag=tag)
         job_dir = self._job_dir(job_id)
-        job_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            job_dir.mkdir(parents=True, exist_ok=False)
+            if prepared_inputs is not None:
+                os.replace(prepared_inputs, job_dir / "inputs")
+            (job_dir / JOB_RESULTS_DIR).mkdir()
+            (job_dir / JOB_LOGS_DIR).mkdir()
+            (job_dir / JOB_REQUEST).write_text(
+                json.dumps(resolved, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            self._executor.submit(
+                self._run_job, job_id, resolved, job_dir
+            )
+        except Exception:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            self._db.delete_job(job_id)
+            raise
 
-        results_dir = job_dir / JOB_RESULTS_DIR
-        logs_dir = job_dir / JOB_LOGS_DIR
-        results_dir.mkdir(parents=True, exist_ok=True)
-        logs_dir.mkdir(parents=True, exist_ok=True)
-
-        # Persist the resolved request as the canonical job input.
-        (job_dir / JOB_REQUEST).write_text(
-            json.dumps(resolved, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-
-        self._executor.submit(self._run_job, job_id, resolved, job_dir)
-    
         return {"job_id": job_id, "status": JobStatus.QUEUED.value}
 
     def _op_list(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -600,8 +685,19 @@ class ShakeScenarioServer:
             # ground-motion configuration. Build a runtime bound to this
             # event; configured providers and asset assignments are resolved
             # inside the ground-motion layer.
+            product = params.get("_product")
+            product_paths = None
+            if product is not None:
+                input_root = (job_dir / "inputs").resolve()
+                product_path = (input_root / product["path"]).resolve()
+                if not product_path.is_relative_to(input_root):
+                    raise ValueError("Product path escapes job inputs.")
+                product_paths = {
+                    product["provider_id"]: product_path
+                }
             ground_motion = model.ground_motion.runtime(
                 event, record_source_trace=True,
+                product_paths=product_paths,
             )
 
             # Impact config
