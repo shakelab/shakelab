@@ -686,6 +686,7 @@ class GroundMotionModel:
         event: ScenarioEvent,
         *,
         record_source_trace: bool = False,
+        product_paths: Optional[Mapping[str, Union[str, Path]]] = None,
     ) -> "GroundMotionRuntime":
         """
         Build a runtime bound to one ScenarioEvent.
@@ -696,6 +697,7 @@ class GroundMotionModel:
             model=self,
             event=event,
             record_source_trace=record_source_trace,
+            product_paths=product_paths,
         )
 
     @classmethod
@@ -786,6 +788,7 @@ class GroundMotionRuntime:
         event: ScenarioEvent,
         *,
         record_source_trace: bool = False,
+        product_paths: Optional[Mapping[str, Union[str, Path]]] = None,
     ) -> None:
         if not isinstance(model, GroundMotionModel):
             raise TypeError("model must be a GroundMotionModel.")
@@ -798,6 +801,22 @@ class GroundMotionRuntime:
         self._model = model
         self._event = event
         self._record_source_trace = record_source_trace
+        self._product_paths = dict(product_paths or {})
+        known_ids = {cfg.id for cfg in model.providers}
+        unknown = set(self._product_paths) - known_ids
+        if unknown:
+            raise ValueError(
+                f"Unknown product provider IDs: {sorted(unknown)}."
+            )
+        for cfg in model.providers:
+            if cfg.id in self._product_paths:
+                if cfg.provider not in {"shakemap", "imt"}:
+                    raise ValueError(
+                        "Explicit products are supported only for "
+                        "shakemap and imt providers."
+                    )
+                if not isinstance(self._product_paths[cfg.id], (str, Path)):
+                    raise TypeError("Explicit product path must be a path.")
 
         self._providers: Dict[str, Any] = {}
         self._contexts: Dict[str, GroundMotionContext] = {}
@@ -821,6 +840,15 @@ class GroundMotionRuntime:
             if provider_cfg.provider == "gmpe":
                 provider_options["record_source_trace"] = (
                     self._record_source_trace
+                )
+            if provider_cfg.id in self._product_paths:
+                key = (
+                    "product_directory"
+                    if provider_cfg.provider == "shakemap"
+                    else "product_file"
+                )
+                provider_options[key] = str(
+                    self._product_paths[provider_cfg.id]
                 )
             provider = GroundMotionProvider.from_id(
                 provider_cfg.provider,
