@@ -101,9 +101,23 @@ geometry is used for both rupture parameters and site distances.
 Explicit distance overrides still take precedence, and point/native
 modes retain their existing numerical behavior. Standalone calls to
 `_build_sites_context()` remain supported for existing integrations.
-This stage activates opt-in `source_scaling` while introducing no
-caching. No scaling is performed for native or point geometry, even
-when an event overrides a finite provider's geometry selection.
+Finite sources are now retained in an instance-local, bounded LRU
+cache (64 entries) for repeated evaluations of the same effective
+source. The key includes hypocentral longitude, latitude and elevation,
+numerical magnitude, finite geometry mode, merged source parameters
+and scaling options. Site parameters, IMT and distance overrides are
+excluded because they do not determine rupture geometry. Source
+construction and LRU updates are protected by a reentrant lock.
+A changed event, source override or scaling configuration yields a
+different key; no cache state is global or shared across provider
+instances. Native and point modes are never cached. Cached finite
+sources may be reused across assets and IMTs, while distances are
+computed for each site and explicit distance overrides still apply.
+The cache is an internal provider optimization; resolved source
+objects should be treated as read-only.
+
+No scaling is performed for native or point geometry, even when
+an event overrides a finite provider's geometry selection.
 
 Magnitude labels are provisionally treated as equivalent in provider
 evaluation; no magnitude conversion is performed. GMPE-specific

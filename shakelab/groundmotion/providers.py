@@ -69,6 +69,8 @@ from __future__ import annotations
 
 import json
 import re
+from collections import OrderedDict
+from threading import RLock
 
 import numpy as np
 
@@ -537,6 +539,7 @@ class _GmpeProvider(_BaseProvider):
         "rhypo",
     })
     _POINT_SOURCE_ALIASES = {"rjb": "repi", "rrup": "rhypo"}
+    _SOURCE_CACHE_SIZE = 64
 
     def __init__(
         self,
@@ -562,6 +565,12 @@ class _GmpeProvider(_BaseProvider):
                     "source_scaling requires source_geometry='finite'."
                 )
         self._source_parameters = dict(source_parameters or {})
+        # Each provider belongs to one GroundMotionRuntime in ShakeScenario.
+        # An instance-local cache prevents cross-job source contamination.
+        self._source_cache: OrderedDict[tuple, ResolvedSource] = (
+            OrderedDict()
+        )
+        self._source_cache_lock = RLock()
         self._site_parameters = normalize_gmpe_site_parameters(
             site_parameters,
         )
@@ -697,23 +706,56 @@ class _GmpeProvider(_BaseProvider):
         parameters.update(overrides)
         return parameters
 
+    def _source_cache_key(
+        self,
+        event: ScenarioEvent,
+        geometry: str,
+        parameters: Mapping[str, float],
+    ) -> tuple:
+        """Key source geometry by effective inputs, not asset or IMT."""
+        scaling = self._source_scaling
+        scaling_key = (
+            None if scaling is None else tuple(sorted(scaling.items()))
+        )
+        return (
+            geometry,
+            float(event.longitude),
+            float(event.latitude),
+            float(event.hypocentre.elevation),
+            float(event.magnitude),
+            tuple(sorted(parameters.items())),
+            scaling_key,
+        )
+
     def _resolve_source(
         self,
         event: ScenarioEvent,
         overrides: Mapping[str, Any],
     ) -> ResolvedSource:
-        """Resolve one source snapshot for this GMPE evaluation.
+        """Resolve a source snapshot, reusing finite geometry when possible.
 
-        Finite geometry is constructed exactly once. Magnitude scaling
-        is opt-in; legacy finite geometries follow the original builder.
+        Cache state is local to this provider instance. The lock spans
+        construction so concurrent calls for identical inputs do not
+        construct duplicate ruptures. No site or distance inputs are
+        part of the source cache key.
         """
         parameters = self._resolve_source_parameters(event, overrides)
         geometry = event.source_geometry or self._source_geometry
         validate_source_geometry(geometry)
 
-        rupture = None
-        build_result = None
-        if geometry == "finite":
+        if geometry != "finite":
+            return ResolvedSource(
+                geometry=geometry,
+                parameters=MappingProxyType(parameters),
+            )
+
+        key = self._source_cache_key(event, geometry, parameters)
+        with self._source_cache_lock:
+            if key in self._source_cache:
+                self._source_cache.move_to_end(key)
+                return self._source_cache[key]
+
+            build_result = None
             if self._source_scaling is None:
                 rupture = self._build_finite_rupture(event, parameters)
             else:
@@ -723,8 +765,7 @@ class _GmpeProvider(_BaseProvider):
                 rupture = build_result.rupture
                 parameters.update(build_result.source_parameters)
 
-            # The final geometry is authoritative for the GMPE and
-            # distances, including width and ztor after constraints.
+            # Final geometry is authoritative for both GMPE and distances.
             parameters.update({
                 "strike": rupture.strike,
                 "dip": rupture.dip,
@@ -734,13 +775,16 @@ class _GmpeProvider(_BaseProvider):
                 "along_fraction": rupture.along_fraction,
                 "down_fraction": rupture.down_fraction,
             })
-
-        return ResolvedSource(
-            geometry=geometry,
-            parameters=MappingProxyType(parameters),
-            rupture=rupture,
-            build_result=build_result,
-        )
+            source = ResolvedSource(
+                geometry=geometry,
+                parameters=MappingProxyType(parameters),
+                rupture=rupture,
+                build_result=build_result,
+            )
+            self._source_cache[key] = source
+            if len(self._source_cache) > self._SOURCE_CACHE_SIZE:
+                self._source_cache.popitem(last=False)
+            return source
 
     def _build_scaled_rupture(
         self,

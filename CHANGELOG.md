@@ -9,6 +9,10 @@ corrections. The format follows
 
 ### Added
 
+- Reuse bounded, thread-safe, instance-local finite-source resolutions
+  across GMPE evaluations for matching source inputs; preserve override
+  isolation and do not cache site-specific distances.
+
 - Activate opt-in magnitude scaling in finite GMPE providers via the
   constrained rupture builder, sharing final geometry between GMPE
   rupture parameters and distance calculations. Temporarily treat

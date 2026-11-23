@@ -156,8 +156,11 @@ def test_thingbaijam_auto_without_rake_fails():
 
 def test_explicit_interface_style_does_not_require_rake():
     source = {k: v for k, v in SOURCE.items() if k != "rake"}
+    interface_event = ScenarioEvent.from_lonlat_depth(
+        7.0, 13.0, 46.0, 7.0,
+    )
     resolved = provider(source=source, style="interface")._resolve_source(
-        event(), {},
+        interface_event, {},
     )
     assert resolved.build_result.scaling_style == "interface"
 
