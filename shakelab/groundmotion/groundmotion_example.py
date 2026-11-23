@@ -1,42 +1,31 @@
-"""
-Example: ground-motion evaluation with the ShakeLab GMPE provider.
+"""Standalone GMPE examples for the principal ShakeLab source modes.
 
-This example demonstrates two complementary cases supported by the
-context-based GMPE architecture:
+Run from the repository root with Matplotlib installed:
 
-1. BragatoSlejko2005
-   - requires ML and epicentral distance (Repi);
-   - Repi is computed automatically by the GMPE provider from the event
-     epicentre and the site coordinates.
+    python -m shakelab.groundmotion.groundmotion_example
 
-2. BindiEtAl2011
-   - requires Mw, rake, Joyner-Boore distance (Rjb), and Vs30;
-   - rake is read from ScenarioEvent.source_parameters;
-   - Rjb and Vs30 are supplied explicitly to the provider as site-dependent
-     data.
+Three independent plots demonstrate:
 
-The provider returns:
-    (median intensity measure in linear space, sigma_ln)
+1. Native mode: BragatoSlejko2005 with automatically derived Repi.
+2. Native mode: BindiEtAl2011 with an explicitly supplied Rjb.
+3. The same AbrahamsonEtAl2014 GMPE with point, finite explicit,
+   and magnitude-scaled finite rupture geometry.
 
-The plotted +/- 1 sigma interval is:
-    IM * exp(+/- sigma_ln)
+All numbers are synthetic illustrations, not earthquake-specific
+source calibrations or recommendations about fault geometry.
 
-Notes
------
-For the Bindi example, Rjb is assigned explicitly from the synthetic
-distance vector used to construct the sites. This is intentional: the
-current ScenarioEvent contains a point-source hypocentre but no finite-fault
-geometry, so Rjb must not be silently approximated from epicentral distance.
+The provider returns linear-space median intensity measures and
+sigma_ln, the standard deviation in natural-log space. Plotting
+uses median * exp(+/- sigma_ln) when sigma is available.
 """
 
 from __future__ import annotations
 
-from math import exp
+from math import exp, isfinite
 
 import matplotlib.pyplot as plt
 
 from shakelab.groundmotion.providers import (
-    GroundMotionContext,
     GroundMotionProvider,
     ScenarioEvent,
 )
@@ -48,295 +37,201 @@ from shakelab.libutils.geodeticN.transform import (
 )
 
 
-def build_sites_enu_east_line(
+def logspace_km(start: float, stop: float, count: int) -> list[float]:
+    """Return positive logarithmically spaced distances in kilometres."""
+    if count < 2 or not 0 < start < stop:
+        raise ValueError("Require count >= 2 and 0 < start < stop.")
+    return [
+        start * (stop / start) ** (index / (count - 1))
+        for index in range(count)
+    ]
+
+
+def eastward_sites(
     origin: WgsPoint,
-    distances_km: list[float],
+    offsets_km: list[float],
 ) -> list[WgsPoint]:
-    """
-    Build WGS84 sites along the positive East direction.
-
-    Parameters
-    ----------
-    origin
-        Reference WGS84 point.
-    distances_km
-        Horizontal offsets from the origin in km.
-
-    Returns
-    -------
-    list of WgsPoint
-        Site coordinates converted back to WGS84.
-    """
-    frame = MetricFrame(
-        ref_geo=origin,
-        orientation="enu",
-    )
-
-    sites: list[WgsPoint] = []
-
-    for distance_km in distances_km:
-        point_metric = MetricPoint(
-            float(distance_km) * 1000.0,
-            0.0,
-            0.0,
-            frame=frame,
+    """Generate surface sites at positive East offsets from an epicentre."""
+    frame = MetricFrame(ref_geo=origin, orientation="enu")
+    sites = []
+    for offset in offsets_km:
+        point = MetricPoint(
+            offset * 1000.0, 0.0, 0.0, frame=frame,
         )
-
-        point_wgs = metric_to_wgs(
-            point_metric,
-            frame=frame,
-        )
-
-        sites.append(
-            WgsPoint(
-                longitude=point_wgs.longitude,
-                latitude=point_wgs.latitude,
-                elevation=0.0,
-            )
-        )
-
+        geographic = metric_to_wgs(point, frame=frame)
+        sites.append(WgsPoint(
+            geographic.longitude, geographic.latitude, 0.0,
+        ))
     return sites
 
 
-def logspace_km(
-    dmin_km: float,
-    dmax_km: float,
-    n: int,
-) -> list[float]:
-    """
-    Return logarithmically spaced distances in km without NumPy.
-    """
-    if n < 2:
-        raise ValueError("n must be >= 2.")
-
-    if dmin_km <= 0.0 or dmax_km <= 0.0:
-        raise ValueError(
-            "dmin_km and dmax_km must be > 0."
-        )
-
-    if dmax_km <= dmin_km:
-        raise ValueError(
-            "dmax_km must be greater than dmin_km."
-        )
-
-    ratio = dmax_km / dmin_km
-
-    return [
-        dmin_km * ratio ** (index / (n - 1))
-        for index in range(n)
-    ]
-
-
-def sigma_band(
+def draw_curve(
+    ax,
+    x_km: list[float],
     median: list[float],
     sigma_ln: list[float],
-) -> tuple[list[float], list[float]]:
-    """
-    Return the lower and upper +/- 1 sigma curves in linear space.
-    """
-    lower = [
-        value * exp(-sigma)
-        for value, sigma in zip(
-            median,
-            sigma_ln,
-        )
-    ]
-
-    upper = [
-        value * exp(sigma)
-        for value, sigma in zip(
-            median,
-            sigma_ln,
-        )
-    ]
-
-    return lower, upper
-
-
-def run_bragato_example(
-    sites: list[WgsPoint],
+    label: str,
 ) -> None:
-    """
-    Evaluate Bragato-Slejko (2005) using automatic Repi calculation.
-    """
-    event = ScenarioEvent(
-        hypocentre=WgsPoint(
-            longitude=13.10,
-            latitude=46.05,
-            elevation=-10000.0,
-        ),
-        magnitude=5.5,
-        magnitude_type="ML",
-    )
+    """Draw median and (when available) its natural-log sigma band."""
+    (line,) = ax.plot(x_km, median, label=label)
+    if all(isfinite(sigma) and sigma >= 0 for sigma in sigma_ln):
+        lower = [
+            value * exp(-sigma)
+            for value, sigma in zip(median, sigma_ln)
+        ]
+        upper = [
+            value * exp(sigma)
+            for value, sigma in zip(median, sigma_ln)
+        ]
+        ax.fill_between(
+            x_km, lower, upper, alpha=0.15, color=line.get_color(),
+        )
 
+
+def native_repi_example(ax, offsets_km, sites) -> None:
+    """Use the automatic epicentral distance in native mode."""
+    event = ScenarioEvent.from_lonlat_depth(
+        5.5, 13.10, 46.05, 10.0, magnitude_type="ML",
+    )
     provider = GroundMotionProvider.gmpe(
-        gmpe_name="BragatoSlejko2005",
-        distance_approx="ellipsoid",
+        "BragatoSlejko2005",
+        config={"source_geometry": "native"},
     )
-
-    ground_motion = GroundMotionContext(
-        event=event,
-        provider=provider,
+    median, sigma_ln = provider.evaluate("PGA", sites, event)
+    draw_curve(
+        ax, offsets_km, median, sigma_ln,
+        "Bragato–Slejko 2005 (native Repi)",
     )
-
-    imt = "PGA"
-
-    median, sigma_ln = ground_motion.evaluate(
-        imt=imt,
-        sites=sites,
-    )
-
-    x_km = [
-        event.epicentre.epicentral_distance_to(site)
-        / 1000.0
-        for site in sites
-    ]
-
-    lower, upper = sigma_band(
-        median,
-        sigma_ln,
-    )
-
-    plt.figure()
-    plt.loglog(
-        x_km,
-        median,
-        marker="o",
-        linestyle="-",
-        label=f"{imt} median",
-    )
-    plt.fill_between(
-        x_km,
-        lower,
-        upper,
-        alpha=0.25,
-        label=f"{imt} +/- 1 sigma",
-    )
-
-    plt.xlabel("Epicentral distance Repi (km)")
-    plt.ylabel(f"{imt} (g)")
-    plt.title("Bragato & Slejko (2005)")
-    plt.grid(
-        True,
-        which="both",
-    )
-    plt.legend()
+    ax.set_title("Native: derived Repi")
 
 
-def run_bindi_example(
-    sites: list[WgsPoint],
-    rjb_km: list[float],
-) -> None:
-    """
-    Evaluate Bindi et al. (2011) using explicit Rjb and Vs30.
-    """
-    event = ScenarioEvent(
-        hypocentre=WgsPoint(
-            longitude=13.10,
-            latitude=46.05,
-            elevation=-10000.0,
-        ),
-        magnitude=6.0,
+def native_explicit_example(ax, offsets_km, sites) -> None:
+    """Supply synthetic Rjb values explicitly in native mode."""
+    event = ScenarioEvent.from_lonlat_depth(
+        6.0, 13.10, 46.05, 10.0,
         magnitude_type="Mw",
-        source_parameters={
-            "rake": 90.0,
+        source_parameters={"rake": 90.0},
+    )
+    provider = GroundMotionProvider.gmpe(
+        "BindiEtAl2011",
+        config={"source_geometry": "native"},
+    )
+    # An illustrative supplied Rjb vector; it is not inferred from the
+    # hypocentre and should not be treated as a real rupture distance.
+    rjb_km = offsets_km
+    median, sigma_ln = provider.evaluate(
+        "PGA", sites, event,
+        site_parameters={"vs30": 600.0},
+        distances={"rjb": rjb_km},
+    )
+    draw_curve(
+        ax, rjb_km, median, sigma_ln,
+        "Bindi et al. 2011 (explicit Rjb)",
+    )
+    ax.set_title("Native: supplied Rjb")
+
+
+def source_geometry_comparison(ax, offsets_km, sites) -> None:
+    """Evaluate one GMPE and event with three source geometries."""
+    event = ScenarioEvent.from_lonlat_depth(
+        6.2, 13.10, 46.05, 7.0, magnitude_type="Mw",
+    )
+    site_parameters = {
+        "vs30": 500.0,
+        "vs30measured": True,
+        "z1pt0": 300.0,
+    }
+    common_source = {
+        "strike": 120.0,
+        "dip": 35.0,
+        "rake": 90.0,
+    }
+
+    point = GroundMotionProvider.gmpe(
+        "AbrahamsonEtAl2014",
+        config={
+            "source_geometry": "point",
+            "source_parameters": {
+                **common_source,
+                "width": 12.0,
+                "ztor": 2.0,
+            },
+        },
+    )
+    explicit = GroundMotionProvider.gmpe(
+        "AbrahamsonEtAl2014",
+        config={
+            "source_geometry": "finite",
+            "source_parameters": {
+                **common_source,
+                "length": 20.0,
+                "width": 12.0,
+                "ztor": 2.0,
+                "along_fraction": 0.5,
+            },
+        },
+    )
+    scaled = GroundMotionProvider.gmpe(
+        "AbrahamsonEtAl2014",
+        config={
+            "source_geometry": "finite",
+            "source_parameters": {
+                **common_source,
+                "aspect_ratio": 2.0,
+                "lower_seismogenic_depth": 15.0,
+            },
+            "source_scaling": {
+                "model": "ThingbaijamEtAl2017",
+                "style": "auto",
+            },
         },
     )
 
-    provider = GroundMotionProvider.gmpe(
-        gmpe_name="BindiEtAl2011",
-    )
+    for provider, label in [
+        (point, "Point approximation"),
+        (explicit, "Finite explicit"),
+        (scaled, "Finite with scaling"),
+    ]:
+        median, sigma_ln = provider.evaluate(
+            "PGA", sites, event, site_parameters=site_parameters,
+        )
+        draw_curve(ax, offsets_km, median, sigma_ln, label)
 
-    ground_motion = GroundMotionContext(
-        event=event,
-        provider=provider,
+    source = scaled.resolve_source(event)
+    print(
+        "Scaled rupture: length={:.2f} km, width={:.2f} km, "
+        "ztor={:.2f} km".format(
+            source.rupture.length,
+            source.rupture.width,
+            source.rupture.ztor,
+        )
     )
-
-    imt = "PGA"
-
-    # One scalar Vs30 is intentionally used here. SitesContext broadcasts
-    # it internally to all evaluation sites.
-    site_parameters = {
-        "vs30": 600.0,
-    }
-
-    # Rjb cannot be derived from the current point-source ScenarioEvent.
-    # It is therefore supplied explicitly as one value per site.
-    distances = {
-        "rjb": rjb_km,
-    }
-
-    median, sigma_ln = ground_motion.evaluate(
-        imt=imt,
-        sites=sites,
-        site_parameters=site_parameters,
-        distances=distances,
-    )
-
-    lower, upper = sigma_band(
-        median,
-        sigma_ln,
-    )
-
-    plt.figure()
-    plt.loglog(
-        rjb_km,
-        median,
-        marker="o",
-        linestyle="-",
-        label=f"{imt} median",
-    )
-    plt.fill_between(
-        rjb_km,
-        lower,
-        upper,
-        alpha=0.25,
-        label=f"{imt} +/- 1 sigma",
-    )
-
-    plt.xlabel("Joyner-Boore distance Rjb (km)")
-    plt.ylabel(f"{imt} (g)")
-    plt.title(
-        "Bindi et al. (2011), "
-        "Vs30 = 600 m/s, rake = 90 deg"
-    )
-    plt.grid(
-        True,
-        which="both",
-    )
-    plt.legend()
+    ax.set_title("Same event and GMPE, three geometries")
 
 
 def main() -> None:
-    """
-    Run the Bragato-Slejko and Bindi examples.
-    """
-    origin = WgsPoint(
-        longitude=13.10,
-        latitude=46.05,
-        elevation=0.0,
-    )
+    """Plot generic examples of ShakeLab source handling."""
+    origin = WgsPoint(13.10, 46.05, 0.0)
+    offsets_km = logspace_km(1.0, 200.0, 50)
+    sites = eastward_sites(origin, offsets_km)
 
-    distances_km = logspace_km(
-        dmin_km=1.0,
-        dmax_km=200.0,
-        n=50,
-    )
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5))
+    native_repi_example(axes[0], offsets_km, sites)
+    native_explicit_example(axes[1], offsets_km, sites)
+    source_geometry_comparison(axes[2], offsets_km, sites)
 
-    sites = build_sites_enu_east_line(
-        origin,
-        distances_km,
-    )
+    for index, ax in enumerate(axes):
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_ylabel("PGA (g)")
+        ax.set_xlabel(
+            "Supplied Rjb (km)" if index == 1
+            else "Epicentral East offset (km)"
+        )
+        ax.grid(True, which="both", alpha=0.3)
+        ax.legend(fontsize="small")
 
-    run_bragato_example(
-        sites,
-    )
-
-    run_bindi_example(
-        sites,
-        rjb_km=distances_km,
-    )
-
+    fig.tight_layout()
     plt.show()
 
 

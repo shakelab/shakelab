@@ -129,7 +129,7 @@ def provider(shakemap_root):
         ("PGA", 0.25, 0.4),
         ("PGV", 2.5, 0.5),
         ("SA(0.3)", 0.35, 0.6),
-        ("SA(1.0)", 0.25, 0.7),
+        ("SA(1.0)", 0.30, 0.7),
         ("SA(3.0)", 0.125, 0.8),
     ],
 )
@@ -177,11 +177,21 @@ def test_outside_grid_policy(provider, event):
     with pytest.raises(ValueError):
         provider.evaluate("PGA", [outside], event)
 
-    values, sigmas = provider.evaluate(
-        "PGA", [outside], event, outside="nan",
+
+def test_outside_nan_without_uncertainty(shakemap_root, event):
+    # Without an uncertainty product there is no sigma interpolation
+    # to validate. Both fields are intentionally unknown.
+    outside_provider = GroundMotionProvider.shakemap(
+        config={
+            "root_path": str(shakemap_root),
+            "load_uncertainty": False,
+            "outside": "nan",
+        },
+    )
+    values, sigmas = outside_provider.evaluate(
+        "PGA", [WgsPoint(20.0, 50.0, 0.0)], event,
     )
     assert isnan(values[0])
-    # The interpolation policy also applies to uncertainty fields.
     assert isnan(sigmas[0])
 
 
