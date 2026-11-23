@@ -89,6 +89,17 @@ def extract_shakemap(archive: Path, destination: Path) -> None:
                 raise ValueError("Invalid ShakeMap ZIP entry count.")
             unpacked = 0
             seen = set()
+            file_names = [
+                e.filename for e in entries if not e.is_dir()
+            ]
+            if not file_names:
+                raise ValueError("ShakeMap ZIP is empty.")
+            # Archives may have one enclosing event directory.
+            parts = [PurePosixPath(name).parts for name in file_names]
+            wrapped = (
+                all(len(p) == 2 for p in parts)
+                and len({p[0] for p in parts}) == 1
+            )
             for entry in entries:
                 name = entry.filename
                 path = PurePosixPath(name)
@@ -98,23 +109,38 @@ def extract_shakemap(archive: Path, destination: Path) -> None:
                     or name.startswith("/")
                     or "\\" in name
                     or path.is_absolute()
-                    or len(path.parts) != 1
-                    or path.parts[0] in {".", ".."}
-                    or ":" in name
-                    or name in seen
-                    or entry.is_dir()
-                    or (mode and stat.S_IFMT(mode) not in (0, stat.S_IFREG))
+                    or ".." in path.parts
+                    or any(":" in part for part in path.parts)
                     or entry.flag_bits & 1
                 ):
                     raise ValueError("Unsafe ShakeMap ZIP entry.")
-                seen.add(name)
+                if entry.is_dir():
+                    if wrapped and name == parts[0][0] + "/":
+                        continue
+                    raise ValueError("Unexpected ShakeMap ZIP directory.")
+                if (
+                    len(path.parts) != (2 if wrapped else 1)
+                    or (mode and stat.S_IFMT(mode) not in (0, stat.S_IFREG))
+                ):
+                    raise ValueError("Unsafe ShakeMap ZIP entry.")
+                flat_name = path.parts[-1]
+                if flat_name in seen:
+                    raise ValueError("Duplicate ShakeMap ZIP filename.")
+                seen.add(flat_name)
+                if (
+                    entry.file_size > 200 * max(1, entry.compress_size)
+                    and entry.file_size > 1024 * 1024
+                ):
+                    raise ValueError("Excessive ZIP compression ratio.")
                 unpacked += entry.file_size
                 if unpacked > MAX_UNPACKED_BYTES:
                     raise ValueError("ShakeMap ZIP exceeds expanded size limit.")
                 if entry.file_size > MAX_UNPACKED_BYTES:
                     raise ValueError("ShakeMap ZIP member too large.")
             for entry in entries:
-                target = destination / entry.filename
+                if entry.is_dir():
+                    continue
+                target = destination / PurePosixPath(entry.filename).name
                 with source.open(entry) as reader, target.open("xb") as writer:
                     copied = 0
                     while True:
