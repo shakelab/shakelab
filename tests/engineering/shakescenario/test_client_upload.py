@@ -1,9 +1,9 @@
 """Client-side tests for one-product ground-motion uploads."""
 
 import hashlib
-import io
 import socket
 import threading
+from types import SimpleNamespace
 import zipfile
 
 import pytest
@@ -50,7 +50,7 @@ def test_client_upload_imt_descriptor(tmp_path, monkeypatch):
         calls.append((payload, path.read_bytes(), kind, fmt, filename))
         return {"job_id": 3, "status": "queued"}
 
-    monkeypatch.setattr(client._client, "request_attachment", capture)
+    client._client = SimpleNamespace(request_attachment=capture)
     result = client.submit({"tag": "x"}, imt_file=source)
     assert result["job_id"] == 3
     assert calls == [
@@ -71,7 +71,7 @@ def test_client_zips_shakemap_directory(tmp_path, monkeypatch):
             seen.append((sorted(archive.namelist()), kind, fmt, filename))
         return {"job_id": 4, "status": "queued"}
 
-    monkeypatch.setattr(client._client, "request_attachment", capture)
+    client._client = SimpleNamespace(request_attachment=capture)
     result = client.submit({}, shakemap=directory)
     assert result["job_id"] == 4
     assert seen == [
@@ -90,7 +90,7 @@ def test_client_reuses_legacy_json_submit(monkeypatch):
         seen.append((op, payload))
         return {"job_id": 9, "status": "queued"}
 
-    monkeypatch.setattr(client._client, "request", capture)
+    client._client = SimpleNamespace(request=capture)
     assert client.submit({"tag": "old"})["job_id"] == 9
     assert seen == [("submit", {"tag": "old"})]
 
